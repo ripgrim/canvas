@@ -1,0 +1,31 @@
+{
+  "name": "@canvas/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "pnpm --filter @canvas/web build && pnpm --filter @canvas/preview-runtime build && pnpm --filter @canvas/repo-engine build && pnpm build && electron .",
+    "dev:renderer": "pnpm --filter @canvas/web dev",
+    "build": "node ../../scripts/sync-web-assets.mjs && vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run tests"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.0.0",
+    "@canvas/preview-runtime": "workspace:*",
+    "@canvas/repo-engine": "workspace:*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zustand": "5.0.15",
+    "@canvas/web": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^40.0.0",
+    "vite": "^7.2.0"
+  }
+}

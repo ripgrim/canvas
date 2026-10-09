@@ -1,0 +1,159 @@
+import { app, BrowserWindow, ipcMain, protocol, session } from 'electron'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { repositoryChannel } from '../preload/contracts'
+import type { RepositoryResponse } from '../preload/contracts'
+import { contentSecurityPolicy, hostedContentSecurityPolicy, isTrustedSender, parseRepositoryRequest, secureWebPreferences } from './policy'
+import { localCapabilityArguments, resolveEditorTarget } from './web-target'
+import { RepositoryProcess } from './repo-process'
+import { bundledAssetResponse, bundledScriptHashes } from './assets'
+import { resolveFixtureGrant } from './fixture-grant'
+import { createDocument } from '@canvas/repo-engine/document'
+import { createPreviewRuntime } from '@canvas/preview-runtime'
+import type { PreviewBinding } from '@canvas/preview-runtime'
+import type { ProjectSnapshot, SaveResult } from '@canvas/repo-engine'
+
+protocol.registerSchemesAsPrivileged([{ scheme: 'design-editor', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }])
+
+const directory = dirname(fileURLToPath(import.meta.url))
+const development = process.argv.includes('--development') && !app.isPackaged
+let repository: RepositoryProcess | undefined
+let preview: ReturnType<typeof createPreviewRuntime> | undefined
+let shutdown: Promise<void> | undefined
+let shutdownComplete = false
+const retiredPreviews = new Map<number, string>()
+
+async function rebuildPreview(snapshot: ProjectSnapshot): Promise<void> {
+  if (!preview) return
+  const previous = preview.snapshot()
+  const current = await preview.rebuild(previewBinding(snapshot))
+  if (previous.activeGeneration !== null && previous.url && current.activeGeneration !== previous.activeGeneration) retiredPreviews.set(previous.activeGeneration, previous.url)
+}
+
+function disposeServices(): Promise<void> {
+  if (shutdown) return shutdown
+  repository?.dispose()
+  repository = undefined
+  const activePreview = preview
+  preview = undefined
+  shutdown = activePreview?.dispose() ?? Promise.resolve()
+  return shutdown
+}
+
+function previewBinding(snapshot: ProjectSnapshot): PreviewBinding {
+  // The bound composition document never carries drawn primitives; source bindings only read its component nodes.
+  const { canvas: _canvas, ...sourceDocument } = createDocument(snapshot.atoms, snapshot.composition)
+  const promoted = snapshot.atoms.find((atom) => atom.componentId === snapshot.composition.componentId && atom.status === 'bound')
+  return {
+    componentId: promoted?.componentId ?? snapshot.composition.id,
+    entryPath: promoted?.path ?? 'src/PreviewLogin.tsx',
+    exportName: promoted?.exportName ?? 'PreviewLogin',
+    styles: ['src/globals.css'],
+    props: {},
+    sourceDocument,
+    registry: snapshot.atoms.filter(atom => atom.kind === 'atom' && atom.status === 'bound').map(atom => ({ componentId: atom.componentId, entryPath: atom.path, exportName: atom.exportName })),
+  }
+}
+
+async function createEditor(): Promise<void> {
+  const target = resolveEditorTarget(process.env.DESIGN_EDITOR_WEB_URL, development)
+  const editorUrl = target.url
+  if (target.localCapabilities) {
+    const fixtureRoot = await resolveFixtureGrant({
+      defaultRoot: resolve(directory, '../../../../fixtures/component-repo'),
+      argv: process.argv,
+      smokeEnabled: process.env.DESIGN_EDITOR_SMOKE === '1',
+      packaged: app.isPackaged,
+    })
+    repository = new RepositoryProcess(resolve(directory, 'repo-worker.js'), fixtureRoot)
+    await repository.start()
+    const initialSnapshot = await repository.execute({ method: 'inspectFixture', args: [] }) as ProjectSnapshot
+    preview = createPreviewRuntime({ repositoryRoot: fixtureRoot, editorOrigin: target.origin, executionTrust: 'fixture-only' })
+    await preview.start(previewBinding(initialSnapshot))
+  }
+  const csp = target.localCapabilities ? contentSecurityPolicy(target.development, preview?.snapshot().origin ?? null, target.development ? [] : await bundledScriptHashes(resolve(directory, '../renderer'))) : hostedContentSecurityPolicy()
+  const editorSession = session.fromPartition(target.localCapabilities ? 'persist:design-editor-shell' : 'design-editor-hosted')
+  if (target.localCapabilities) editorSession.protocol.handle('design-editor', (request) => bundledAssetResponse(request, resolve(directory, '../renderer'), csp))
+  editorSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
+  editorSession.setPermissionCheckHandler(() => false)
+  editorSession.on('will-download', (event) => event.preventDefault())
+  editorSession.webRequest.onHeadersReceived((details, callback) => {
+    if (details.resourceType === 'mainFrame') {
+      const headers = Object.entries(details.responseHeaders ?? {})
+      const existingPolicies = headers.filter(([name]) => name.toLowerCase() === 'content-security-policy').flatMap(([, values]) => values)
+      callback({ responseHeaders: { ...Object.fromEntries(headers.filter(([name]) => name.toLowerCase() !== 'content-security-policy')), 'Content-Security-Policy': [...existingPolicies, csp] } })
+    } else callback({ responseHeaders: details.responseHeaders ?? {} })
+  })
+  const window = new BrowserWindow({
+    width: 1440,
+    height: 960,
+    minWidth: 1000,
+    minHeight: 680,
+    title: 'Comp Canvas',
+    backgroundColor: '#f7f7f7',
+    show: false,
+    webPreferences: {
+      ...secureWebPreferences,
+      session: editorSession,
+      ...(target.localCapabilities ? { preload: resolve(directory, '../preload/index.cjs'), additionalArguments: localCapabilityArguments(target) } : {}),
+    },
+  })
+  window.removeMenu()
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.webContents.on('will-navigate', (event) => event.preventDefault())
+  window.webContents.on('will-frame-navigate', (event) => {
+    if (event.isMainFrame || event.url !== preview?.snapshot().url) event.preventDefault()
+  })
+  window.webContents.on('will-redirect', (event) => event.preventDefault())
+  window.webContents.on('will-attach-webview', (event) => event.preventDefault())
+  window.webContents.on('did-frame-finish-load', () => {
+    const activeUrls = new Set(window.webContents.mainFrame.framesInSubtree.map((frame) => frame.url))
+    for (const [generation, url] of retiredPreviews) {
+      if (activeUrls.has(url)) continue
+      retiredPreviews.delete(generation)
+      void preview?.releaseGeneration(generation).catch(() => { retiredPreviews.set(generation, url) })
+    }
+  })
+  ipcMain.removeHandler(repositoryChannel)
+  if (target.localCapabilities) ipcMain.handle(repositoryChannel, async (event, payload: unknown): Promise<RepositoryResponse> => {
+    const frame = event.senderFrame
+    if (!frame || !isTrustedSender({ webContentsId: event.sender.id, isMainFrame: frame === window.webContents.mainFrame, url: frame.url }, window.webContents.id, editorUrl)) {
+      return { ok: false, error: 'This window cannot access the project.' }
+    }
+    try {
+      const request = parseRepositoryRequest(payload)
+      if (!repository) throw new Error('No repository grant.')
+      const value = await repository.execute(request)
+      if (request.method === 'inspectFixture' || request.method === 'refresh' || request.method === 'saveFile') {
+        const snapshot = value as ProjectSnapshot
+        if (request.method === 'refresh') await rebuildPreview(snapshot)
+        return { ok: true, value: { ...snapshot, preview: preview?.snapshot() } }
+      }
+      if (request.method === 'savePrepared') {
+        const result = value as SaveResult
+        if (result.status === 'saved') await rebuildPreview(result.snapshot)
+        return { ok: true, value: { ...result, snapshot: { ...result.snapshot, preview: preview?.snapshot() } } }
+      }
+      return { ok: true, value }
+    } catch {
+      return { ok: false, error: 'The command could not finish. Refresh the project and try again.' }
+    }
+  })
+  window.once('ready-to-show', () => window.show())
+  window.once('closed', () => {
+    ipcMain.removeHandler(repositoryChannel)
+    void disposeServices()
+  })
+  await window.loadURL(editorUrl)
+}
+
+app.on('window-all-closed', () => app.quit())
+app.on('before-quit', (event) => {
+  if (shutdownComplete) return
+  event.preventDefault()
+  void disposeServices().finally(() => { shutdownComplete = true; app.quit() })
+})
+app.whenReady().then(createEditor).catch((error: unknown) => {
+  console.error('Design editor startup failed:', error instanceof Error ? error.message : 'Unknown startup error')
+  app.quit()
+})
