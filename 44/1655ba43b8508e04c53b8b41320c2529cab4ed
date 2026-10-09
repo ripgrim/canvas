@@ -1,0 +1,29 @@
+apps/web/src/adapters/browser.test.ts
+  s_e18d232d8e09ca::t_19cdd79aa7fa9d 1-186
+apps/web/src/adapters/browser.ts
+  s_e18d232d8e09ca::t_a020e1bee0ae35 1-181
+apps/web/src/adapters/desktop.ts
+  s_e18d232d8e09ca::t_730e4fe27a93e0 1-27
+apps/web/src/features/files/migration.ts
+  s_e18d232d8e09ca::t_5d27130a5a54f8 1-102
+apps/web/src/features/files/service.test.ts
+  s_e18d232d8e09ca::t_63dd95fd00ca81 1-433
+apps/web/src/features/files/service.ts
+  s_e18d232d8e09ca::t_9ebaac269e09c8 1-227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "441655ba43b8508e04c53b8b41320c2529cab4ed",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
