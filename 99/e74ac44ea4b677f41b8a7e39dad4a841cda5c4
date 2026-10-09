@@ -1,0 +1,23 @@
+packages/repo-engine/src/appearance.ts
+  s_e18d232d8e09ca::t_193af14a189e7f 1-303
+packages/repo-engine/tests/appearance-freeze.test.ts
+  s_e18d232d8e09ca::t_8c08604f9f936e 1-112
+packages/repo-engine/tests/appearance.test.ts
+  s_e18d232d8e09ca::t_86049601f13fa0 1-358
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "99e74ac44ea4b677f41b8a7e39dad4a841cda5c4",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
