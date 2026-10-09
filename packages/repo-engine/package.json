@@ -1,0 +1,93 @@
+{
+  "name": "@canvas/repo-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./document": {
+      "types": "./dist/document.d.ts",
+      "import": "./dist/document.js"
+    },
+    "./appearance": {
+      "types": "./dist/appearance.d.ts",
+      "import": "./dist/appearance.js"
+    },
+    "./file-document": {
+      "types": "./dist/file-document.d.ts",
+      "import": "./dist/file-document.js"
+    },
+    "./file-migration": {
+      "types": "./dist/file-migration.d.ts",
+      "import": "./dist/file-migration.js"
+    },
+    "./file-preview": {
+      "types": "./dist/file-preview.d.ts",
+      "import": "./dist/file-preview.js"
+    },
+    "./color": {
+      "types": "./dist/color.d.ts",
+      "import": "./dist/color.js"
+    },
+    "./order-keys": {
+      "types": "./dist/order-keys.d.ts",
+      "import": "./dist/order-keys.js"
+    },
+    "./design-themes": {
+      "types": "./dist/design-themes.d.ts",
+      "import": "./dist/design-themes.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "import": "./dist/contracts.js"
+    },
+    "./layout": {
+      "types": "./dist/layout.d.ts",
+      "import": "./dist/layout.js"
+    },
+    "./grid-tracks": {
+      "types": "./dist/grid-tracks.d.ts",
+      "import": "./dist/grid-tracks.js"
+    },
+    "./grid-placement": {
+      "types": "./dist/grid-placement.d.ts",
+      "import": "./dist/grid-placement.js"
+    },
+    "./flex-inference": {
+      "types": "./dist/flex-inference.d.ts",
+      "import": "./dist/flex-inference.js"
+    },
+    "./layout-matrix": {
+      "types": "./dist/layout-matrix.d.ts",
+      "import": "./dist/layout-matrix.js"
+    },
+    "./layout-css": {
+      "types": "./dist/layout-css.d.ts",
+      "import": "./dist/layout-css.js"
+    },
+    "./node-theme": {
+      "types": "./dist/node-theme.d.ts",
+      "import": "./dist/node-theme.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.28.0",
+    "diff": "^8.0.0",
+    "postcss": "^8.5.0",
+    "recast": "^0.23.11",
+    "ts-morph": "^27.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
