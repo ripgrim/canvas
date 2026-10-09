@@ -1,0 +1,65 @@
+packages/editor/src/features/editor/CanvasStage.tsx
+  s_e18d232d8e09ca::t_24b4c4ff471c0f 1-27
+packages/editor/src/features/editor/CanvasWorkspace.tsx
+  s_e18d232d8e09ca::t_ff39da91da988b 1-50
+packages/editor/src/features/editor/CodeTools.tsx
+  s_e18d232d8e09ca::t_93f68aa52b4601 1-37
+packages/editor/src/features/editor/ComponentLibrary.tsx
+  s_e18d232d8e09ca::t_3c28f2eb3c0238 1-41
+packages/editor/src/features/editor/ComponentProperties.tsx
+  s_e18d232d8e09ca::t_0ba38fe035a8c2 1-77
+packages/editor/src/features/editor/DocumentLayers.tsx
+  s_e18d232d8e09ca::t_a29d47c8674911 1-51
+packages/editor/src/features/editor/SelectionHud.tsx
+  s_e18d232d8e09ca::t_0eaf849725a1c2 1-51
+packages/editor/src/features/editor/canvas-copy.ts
+  s_e18d232d8e09ca::t_69bc7559864dc7 1-18
+packages/editor/src/features/editor/canvas-gestures.ts
+  s_e18d232d8e09ca::t_8e6d0dc504528f 1-273
+packages/editor/src/features/editor/canvas-hud-painter.ts
+  s_e18d232d8e09ca::t_0183d3a0b13eee 1-145
+packages/editor/src/features/editor/canvas-viewport-service.ts
+  s_e18d232d8e09ca::t_9aafec7dfb9cc9 1-48
+packages/editor/src/features/editor/copy.ts
+  s_e18d232d8e09ca::t_5df6609fbd3942 1-38
+packages/editor/src/features/editor/document-history.test.ts
+  s_e18d232d8e09ca::t_b800f7118af756 1-179
+packages/editor/src/features/editor/document-history.ts
+  s_e18d232d8e09ca::t_48db47f5d8531a 1-97
+packages/editor/src/features/editor/document-store.test.ts
+  s_e18d232d8e09ca::t_26691584f73d2e 1-965
+packages/editor/src/features/editor/document-store.ts
+  s_e18d232d8e09ca::t_a7fb6e1990cd7c 1-735
+packages/editor/src/features/editor/keyboard-service.ts
+  s_e18d232d8e09ca::t_2d055b2641bbed 1-41
+packages/editor/src/features/editor/layout-flex-store.test.ts
+  s_e18d232d8e09ca::t_7558c31c7c5693 1-199
+packages/editor/src/features/editor/layout-grid-store.test.ts
+  s_e18d232d8e09ca::t_4d4d17093b9ff0 1-300
+packages/editor/src/features/editor/layout-store.test.ts
+  s_e18d232d8e09ca::t_a412d43db2633e 1-149
+packages/editor/src/features/editor/sidebar-copy.ts
+  s_e18d232d8e09ca::t_6cfdac978db344 1-16
+packages/editor/src/features/editor/store-history.test.ts
+  s_e18d232d8e09ca::t_4b4329007071e7 1-230
+packages/editor/src/features/editor/store.test.ts
+  s_e18d232d8e09ca::t_6e8472705d82d4 1-385
+packages/editor/src/features/editor/store.ts
+  s_e18d232d8e09ca::t_ed031a0e022001 1-249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "39fbf4f460837a14917de91c99bf30e1a9577df2",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
