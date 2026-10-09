@@ -1,0 +1,18 @@
+export const canvasCopy = {
+  preview: 'Canvas', page: 'Page', frame: 'Frame', layers: 'Layers', empty: 'Draw a frame or add a component to start.',
+  select: 'Select', pan: 'Hand', interact: 'Interact',
+  parent: 'Parent component', slot: 'Slot', undo: 'Undo document edit', redo: 'Redo document edit', history: 'History', undoTip: 'Undo (Ctrl+Z)', redoTip: 'Redo (Ctrl+Shift+Z)',
+  zoomIn: 'Zoom in', zoomOut: 'Zoom out', fit: 'Zoom to fit', zoomTo100: 'Zoom to 100%',
+  pageName: 'Page name', invalidName: 'Enter a name from 1 to 128 characters.', documentChanged: 'The document changed on disk. Refresh before saving.',
+  persistenceFailed: 'The document could not be saved. Retry saving or refresh.',
+  historyUnavailable: 'Document history could not be restored.',
+  saving: 'Saving document', saved: 'Document saved', dirty: 'Document changed', retry: 'Retry saving',
+  shortcuts: 'Canvas shortcuts', unsupportedImage: 'Choose a PNG, JPEG, GIF, or WebP image up to 1.5 MB.', previewTheme: 'Canvas default theme', previewThemeLabel: 'Canvas default', slotName: (slot: string) => `${slot} slot`,
+  defaultLabel: 'Label', defaultButton: 'Button', defaultInput: 'Input',
+  stage: 'Page workspace', openFileForTools: 'Open a file to use this tool.',
+  resizeHandle: (name: string, handle: string) => `Resize ${name} from ${handle.replace('-', ' ')}`,
+  renameLabel: (name: string) => `Rename ${name}`, editText: 'Edit text',
+  selection: (count: number) => `${count} selected`, percentage: (zoom: number) => `${Math.round(zoom * 100)}%`,
+  dimensions: (width: number, height: number) => `${Math.round(width)} x ${Math.round(height)}`,
+  collapse: (name: string) => `Collapse ${name}`, expand: (name: string) => `Expand ${name}`,
+} as const

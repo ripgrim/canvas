@@ -1,0 +1,16 @@
+export const sidebarCopy = {
+  label: 'File navigation',
+  views: 'Sidebar view',
+  design: 'Design',
+  theme: 'Theme',
+  pages: 'Pages',
+  layers: 'Layers',
+  components: 'Components',
+  page: 'Page 1',
+  addPage: 'Add page',
+  resizeLeft: 'Resize left sidebar',
+  resizeRight: 'Resize right sidebar',
+  addPageReason: 'This file has one page. Multiple pages are not supported yet.',
+  collapse: (title: string, count?: number) => count === undefined ? `Collapse ${title}` : `Collapse ${title} (${count})`,
+  expand: (title: string, count?: number) => count === undefined ? `Expand ${title}` : `Expand ${title} (${count})`,
+} as const
