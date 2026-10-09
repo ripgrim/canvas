@@ -1,0 +1,46 @@
+packages/editor/src/design-system/canvas-atoms.tsx
+  s_012c57818fbf95::t_862fbda2669237 1,29-30
+  s_012c57818fbf95::t_9da58fcde4de84 86,88
+packages/editor/src/features/editor/CanvasStage.tsx
+  s_012c57818fbf95::t_862fbda2669237 2,9-11,14,19,30-41
+packages/editor/src/features/editor/DocumentLayers.tsx
+  s_012c57818fbf95::t_9da58fcde4de84 11,19,40,52
+packages/editor/src/features/editor/NodeContextMenu.tsx
+  s_012c57818fbf95::t_c0d0c9ebc098c9 1-23,25-41,43-48,50-73,75-76,78-81,84-100
+  s_012c57818fbf95::t_ac610f7088f64d 24,74,77,82-83
+  s_012c57818fbf95::t_333014111b5e25 42,49
+packages/editor/src/features/editor/context-menu-commands.test.ts
+  s_012c57818fbf95::t_ac610f7088f64d 6,8
+  s_012c57818fbf95::t_57fb880dec867b 1-5,7,9-40
+packages/editor/src/features/editor/context-menu-commands.ts
+  s_012c57818fbf95::t_c0d0c9ebc098c9 46-49
+  s_012c57818fbf95::t_333014111b5e25 3,19-23
+  s_012c57818fbf95::t_57fb880dec867b 2,4-9,11-18,24-43,45,50-77
+  s_012c57818fbf95::t_33499baa8209dd 1,10
+  s_012c57818fbf95::t_ac610f7088f64d 44
+packages/editor/src/design-system/context-menu.tsx
+  s_012c57818fbf95::t_c27f65049eebe9 1-49
+apps/web/tests/context-menu.mjs
+  s_012c57818fbf95::t_156f592d905e14 1-50
+packages/editor/src/features/editor/CanvasWorkspace.tsx
+  s_012c57818fbf95::t_862fbda2669237 1,15,32,43,50
+packages/editor/src/design-system/context-menu.css
+  s_012c57818fbf95::t_c27f65049eebe9 1-2,4-13
+  s_012c57818fbf95::t_333014111b5e25 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "07bbf4f871543a03ccda027e57e60461d28d43da",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
