@@ -1,0 +1,38 @@
+packages/editor/src/features/editor/CanvasWorkspace.tsx
+  s_012c57818fbf95::t_54b4dc462996c9 52
+  s_012c57818fbf95::t_67fe90cb3da965 24
+  s_44b137f3cc34c5::t_1597996a093b9f 32
+packages/editor/src/features/editor/Editor.tsx
+  s_012c57818fbf95::t_4682b8d39016ff 61,63-64,101-103,112-113
+packages/editor/src/design-system/styles.css
+  s_012c57818fbf95::t_dd7e649458905e 67,95
+packages/editor/src/features/editor/copy.ts
+  s_012c57818fbf95::t_dd7e649458905e 36
+apps/web/tests/claude-coverage/editor-coverage.mjs
+  s_012c57818fbf95::t_be1c300efba75a 468
+  s_012c57818fbf95::t_dd7e649458905e 33,458-461
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2115b11f23fec71847519be300f6957eb23b63d9",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_44b137f3cc34c5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f7a-7a8e-7983-84fb-08d8f4501fa6",
+        "model": "unknown"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
