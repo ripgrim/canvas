@@ -1,0 +1,25 @@
+packages/preview-runtime/src/geometry-observer.mjs
+  s_e18d232d8e09ca::t_d3c0db9f098b80 1-132
+packages/preview-runtime/src/geometry.ts
+  s_e18d232d8e09ca::t_d1865d384acbc7 1-98
+packages/preview-runtime/src/layout-layer.mjs
+  s_e18d232d8e09ca::t_fdf47b2f57168b 1-237
+packages/preview-runtime/src/layout-protocol.ts
+  s_e18d232d8e09ca::t_d292daf0acf909 1-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fa352c78b4036d870f85c13e79720da59faf816a",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
