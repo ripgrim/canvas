@@ -1,0 +1,2 @@
+/* Selection chrome lives in canvas.css next to the HUD atoms; this file remains for the shared selection-atoms entry. */
+.canvas-selection-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }

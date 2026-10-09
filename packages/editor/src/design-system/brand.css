@@ -1,0 +1,3 @@
+.comp-logo { display: inline-block; flex-shrink: 0; overflow: visible; color: inherit; }
+.comp-wordmark { display: inline-flex; align-items: center; gap: calc(var(--brand-height, 20px) * 0.35); height: var(--brand-height, 20px); color: var(--neutral-10); white-space: nowrap; }
+.comp-wordmark-text { font-family: var(--font-brand); font-size: calc(var(--brand-height, 20px) * 0.8); line-height: 1; letter-spacing: -0.01em; font-weight: var(--weight-ui-medium); text-transform: lowercase; }

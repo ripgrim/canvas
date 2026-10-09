@@ -1,0 +1,34 @@
+{
+  "name": "@canvas/editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/pages/EditorPage.tsx",
+    "./home": "./src/pages/HomePage.tsx",
+    "./file": "./src/pages/FilePage.tsx",
+    "./bootstrap": "./src/bootstrap.tsx",
+    "./capabilities": "./src/capabilities.ts",
+    "./theme.css": "./src/design-system/theme.css",
+    "./styles.css": "./src/design-system/styles.css"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.0.0",
+    "@canvas/repo-engine": "workspace:*",
+    "@canvas/preview-runtime": "workspace:*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "vite": "^7.2.0"
+  }
+}

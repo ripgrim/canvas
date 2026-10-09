@@ -1,0 +1,21 @@
+.tool-rail { display: inline-flex; flex-direction: column; width: 44px; gap: var(--space-xxs); padding: var(--space-xs); border-radius: var(--radius-m); background: var(--neutral-1); box-shadow: var(--border-shadow-s); }
+.theme-dark .tool-rail { background: var(--neutral-2); }
+.tool-rail-group { display: flex; flex-direction: column; gap: var(--space-xxs); }
+.tool-rail-separator { display: block; width: 80%; height: var(--border-s); margin: var(--space-xxs) auto; background: var(--cte-border); }
+.tool-rail-button { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: var(--space-xxs); border: var(--border-s) solid var(--color-none); border-radius: var(--radius-xs); background: var(--color-none); color: var(--neutral-10); cursor: pointer; transition: background var(--motion-duration) var(--motion-easing); }
+.tool-rail-button:hover { background: var(--neutral-2); }
+.tool-rail-button .icon { width: 24px; height: 24px; }
+.tool-rail-button[data-active] { background: var(--neutral-3); border-color: var(--cte-border); color: var(--neutral-10); }
+.theme-light .tool-rail-button[data-active] { background: var(--neutral-3); border-color: var(--neutral-4); }
+.tool-rail-button:focus-visible { outline: var(--focus-ring-outline); outline-offset: var(--border-l); }
+.tool-rail-button[data-unavailable] { color: var(--neutral-6); cursor: not-allowed; }
+.tool-rail-button[data-unavailable]:hover { background: var(--color-none); }
+.tool-rail-tip { position: absolute; top: 50%; left: calc(100% + var(--space-s)); z-index: 3; display: flex; flex-direction: column; width: max-content; max-width: 240px; padding: var(--space-xxs) var(--space-xs); border-radius: var(--radius-s); background: var(--neutral-1); color: var(--neutral-10); box-shadow: var(--border-shadow-m), var(--shadow-m); text-align: left; pointer-events: none; opacity: 0; visibility: hidden; transform: translateY(-50%); transition: opacity var(--motion-duration) var(--motion-easing), visibility var(--motion-duration) var(--motion-easing); }
+.tool-rail-button:hover .tool-rail-tip, .tool-rail-button:focus-visible .tool-rail-tip { opacity: 1; visibility: visible; }
+.tool-rail-tip-title { display: flex; align-items: center; gap: var(--space-xs); }
+.tool-rail-tip-label { font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-medium); white-space: nowrap; }
+.tool-rail-tip-shortcut, .tool-rail-tip-note { color: var(--neutral-6); font-size: var(--size-xxs); line-height: var(--line-xxs); letter-spacing: var(--letter-spacing-xxs); }
+.tool-rail-tip-shortcut { font-family: var(--font-data); font-weight: var(--weight-data-regular); }
+.tool-rail-tip-note { font-family: var(--font-ui); font-weight: var(--weight-ui-regular); white-space: normal; }
+.canvas-area > .tool-rail { position: absolute; top: var(--space-s); left: var(--space-s); z-index: 210; }
+@media (prefers-reduced-motion: reduce) { .tool-rail-button, .tool-rail-tip { transition: none; } }

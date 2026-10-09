@@ -1,0 +1,5 @@
+.code-input { display: flex; flex-direction: column; gap: var(--space-xs); color: var(--cte-text-muted); }
+.code-input textarea { width: 100%; min-height: 160px; resize: vertical; padding: var(--space-s); border: 0; border-radius: var(--radius-s); background: var(--neutral-2); color: var(--cte-text); box-shadow: var(--border-shadow-s); font-family: var(--font-data); font-weight: var(--weight-data-regular); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); }
+.code-input textarea:focus-visible { outline: var(--focus-ring-outline); outline-offset: var(--border-l); }
+.code-tool-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-xs); }
+.code-tool-notice { color: var(--cte-text-muted); }
