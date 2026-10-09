@@ -1,0 +1,51 @@
+packages/repo-engine/package.json
+  s_e18d232d8e09ca::t_93f8b7da03105b 1-93
+packages/repo-engine/src/document-persistence.ts
+  s_e18d232d8e09ca::t_8d9770f7c8c8c4 1-124
+packages/repo-engine/src/document-promotion.ts
+  s_e18d232d8e09ca::t_840909602c93cd 1-105
+packages/repo-engine/src/document.test.ts
+  s_e18d232d8e09ca::t_e361404e3f8aa5 1-249
+packages/repo-engine/src/file-document.ts
+  s_e18d232d8e09ca::t_4e088f0b35d8cc 1-827
+packages/repo-engine/src/file-migration.ts
+  s_e18d232d8e09ca::t_6c2ea2512fad5b 1-201
+packages/repo-engine/src/file-preview.ts
+  s_e18d232d8e09ca::t_9804177d9c1430 1-137
+packages/repo-engine/src/index.ts
+  s_e18d232d8e09ca::t_3e7e2a3dbddc2c 1-398
+packages/repo-engine/tests/engine.test.ts
+  s_e18d232d8e09ca::t_42e19a87ee19e5 1-475
+packages/repo-engine/tests/file-document.test.ts
+  s_e18d232d8e09ca::t_e6429d1d0d2edb 1-929
+packages/repo-engine/tests/file-migration.test.ts
+  s_e18d232d8e09ca::t_c5e1c9db47d290 1-488
+packages/repo-engine/tests/file-preview-theme.test.ts
+  s_e18d232d8e09ca::t_a1d5a15704c824 1-104
+packages/repo-engine/tests/file-preview.test.ts
+  s_e18d232d8e09ca::t_37d88d36948634 1-138
+packages/repo-engine/tests/node-theme.test.ts
+  s_e18d232d8e09ca::t_74acec91c5f706 1-98
+packages/repo-engine/tests/promotion-layout.test.ts
+  s_e18d232d8e09ca::t_1299e5fbbf7907 1-192
+packages/repo-engine/tests/smoke.test.ts
+  s_e18d232d8e09ca::t_b65721e83af4e6 1-63
+packages/repo-engine/tests/source-save-boundary.test.ts
+  s_e18d232d8e09ca::t_8673a3f5c64b94 1-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b90de2823fcdfe10616a16380902cb7e3258bdb0",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
