@@ -1,0 +1,19 @@
+packages/repo-engine/src/types.ts
+  s_e18d232d8e09ca::t_eb078eec9dc6f7 1-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1834cefa727fb7aabbdff314d4c6a4bc60b29685",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
