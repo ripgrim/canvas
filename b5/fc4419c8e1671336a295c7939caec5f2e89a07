@@ -1,0 +1,58 @@
+CONTRACTS.md
+  h_3279d55133f19f 1-28
+scripts/check-contracts.mjs
+  h_3279d55133f19f 1-156
+scripts/sanitize-start-shell.mjs
+  h_3279d55133f19f 1-14
+tests/contracts.test.ts
+  h_3279d55133f19f 1-86
+tests/fixtures/document-invalid.tsx
+  h_3279d55133f19f 1
+tests/fixtures/document-valid.tsx
+  h_3279d55133f19f 1
+tests/fixtures/effect-alias.tsx
+  h_3279d55133f19f 1-5
+tests/fixtures/effect-alternates.tsx
+  h_3279d55133f19f 1-6
+tests/fixtures/effect-destructure.tsx
+  h_3279d55133f19f 1-6
+tests/fixtures/effect-direct.tsx
+  h_3279d55133f19f 1-5
+tests/fixtures/effect-namespace.tsx
+  h_3279d55133f19f 1-5
+tests/fixtures/effect-reexport.ts
+  h_3279d55133f19f 1
+tests/fixtures/effect-wrapper.tsx
+  h_3279d55133f19f 1-4
+tests/fixtures/lifecycle-class.tsx
+  h_3279d55133f19f 1-5
+tests/fixtures/page-copy.tsx
+  h_3279d55133f19f 1
+tests/fixtures/page-feature.tsx
+  h_3279d55133f19f 1-4
+tests/fixtures/page-raw.tsx
+  h_3279d55133f19f 1
+tests/fixtures/page-valid.tsx
+  h_3279d55133f19f 1
+tests/fixtures/render-side-effect.tsx
+  h_3279d55133f19f 1-4
+tests/fixtures/route-valid.tsx
+  h_3279d55133f19f 1-2
+tests/fixtures/valid-event.tsx
+  h_3279d55133f19f 1-3
+tests/fixtures/valid-store.tsx
+  h_3279d55133f19f 1-10
+tests/start-shell.test.ts
+  h_3279d55133f19f 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b5fc4419c8e1671336a295c7939caec5f2e89a07",
+  "prompts": {},
+  "humans": {
+    "h_3279d55133f19f": {
+      "author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
