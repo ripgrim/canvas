@@ -1,0 +1,29 @@
+apps/web/package.json
+  s_e18d232d8e09ca::t_483e281b0f72c6 1-28
+apps/web/preview/main.ts
+  s_e18d232d8e09ca::t_22b2b3d0ae6374 1-15
+apps/web/src/client.tsx
+  s_e18d232d8e09ca::t_a902adbc7221c9 1-18
+apps/web/src/shell/copy.ts
+  s_e18d232d8e09ca::t_a46cacdfb2921f 1
+apps/web/src/shell/selection-url-sync.ts
+  s_e18d232d8e09ca::t_4095598726a7ea 1-35
+apps/web/vite.preview.config.ts
+  s_e18d232d8e09ca::t_7186d5039da050 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8f4adf768e016b4825dbf6640a56201be0593721",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
