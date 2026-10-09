@@ -1,0 +1,21 @@
+scripts/check-runtime-boundaries.mjs
+  s_e18d232d8e09ca::t_c389c38acd8729 1-243
+tests/runtime-boundaries.test.ts
+  s_e18d232d8e09ca::t_390d8bc3440745 1-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a023ffa5dd5f800e56d3ea570b56f9db86f21545",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
