@@ -1,0 +1,39 @@
+apps/desktop/package.json
+  s_e18d232d8e09ca::t_4ca9e3adc093e5 1-31
+apps/desktop/src/main/assets.ts
+  s_e18d232d8e09ca::t_dec7646b9597f6 1-40
+apps/desktop/src/main/index.ts
+  s_e18d232d8e09ca::t_1dfef5f8df4ebc 1-159
+apps/desktop/src/main/policy.ts
+  s_e18d232d8e09ca::t_5ebff0586fe96d 1-87
+apps/desktop/src/main/repo-worker.ts
+  s_e18d232d8e09ca::t_29c6e059d98729 1-49
+apps/desktop/src/main/web-target.ts
+  s_e18d232d8e09ca::t_a738ad2aba1bbe 1-39
+apps/desktop/src/preload/contracts.ts
+  s_e18d232d8e09ca::t_9c600957f558fe 1-38
+apps/desktop/src/preload/index.ts
+  s_e18d232d8e09ca::t_0ea893787f9a7d 1-26
+apps/desktop/tests/policy.test.ts
+  s_e18d232d8e09ca::t_7036fd743981c7 1-122
+apps/desktop/tests/web-target.test.ts
+  s_e18d232d8e09ca::t_075ad24db70065 1-80
+apps/desktop/vite.main.config.ts
+  s_e18d232d8e09ca::t_4b8203de0dae2d 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "43542a200e6b082babdb8962c0f3fea76f6e772c",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
