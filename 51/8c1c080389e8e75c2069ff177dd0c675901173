@@ -1,0 +1,45 @@
+apps/desktop/tests/launch-smoke.mjs
+  s_e18d232d8e09ca::t_a2cd6f35cede8d 1-225
+apps/desktop/tests/route-smoke.mjs
+  s_e18d232d8e09ca::t_01c481eb5c5b9a 1-140
+apps/web/tests/appearance.mjs
+  s_e18d232d8e09ca::t_d6b204dd1975e8 1-283
+apps/web/tests/browser-interactions.mjs
+  s_e18d232d8e09ca::t_8144ba8081e30e 1-334
+apps/web/tests/canvas-flows.mjs
+  s_e18d232d8e09ca::t_65dc3be824ccfb 1-486
+apps/web/tests/claude-coverage/signin-preview.vite.config.ts
+  s_e18d232d8e09ca::t_12b05c164f49f7 1-18
+apps/web/tests/document-architecture.mjs
+  s_e18d232d8e09ca::t_29f55e7e81075c 1-351
+apps/web/tests/file-routing.mjs
+  s_e18d232d8e09ca::t_7e01504d35a5ab 1-217
+apps/web/tests/layout-inspector-containers.mjs
+  s_e18d232d8e09ca::t_cc5f2406fd55f7 1-246
+apps/web/tests/layout-inspector.mjs
+  s_e18d232d8e09ca::t_9ea3e67c5b34d5 1-257
+apps/web/tests/layout-runtime.mjs
+  s_e18d232d8e09ca::t_d96890ddf84841 1-109
+apps/web/tests/node-theme.mjs
+  s_e18d232d8e09ca::t_45e60a990ec94f 1-276
+apps/web/tests/theme-separation.mjs
+  s_e18d232d8e09ca::t_6d951666d205cd 1-240
+apps/web/tests/token-binding.mjs
+  s_e18d232d8e09ca::t_ff46fe4a04d2a7 1-345
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "518c1c080389e8e75c2069ff177dd0c675901173",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "unknown"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
