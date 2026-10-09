@@ -1,0 +1,96 @@
+packages/editor/src/features/editor/preview-transient.test.ts
+  s_012c57818fbf95::t_d24fae4a85d876 1-22,24-25,28,30-33,35-39,42-43
+  s_012c57818fbf95::t_e54a87580f2d2d 23,26-27,29,34,40-41
+packages/preview-runtime/tests/layout-root-baseline.test.ts
+  s_012c57818fbf95::t_d24fae4a85d876 133,135,137,200-201
+  s_012c57818fbf95::t_2d15ab20ef57dd 50
+  s_012c57818fbf95::t_b9d9f8d50aed36 40,69,134,136,199,202-204
+  s_e18d232d8e09ca::t_393419a0f163bd 205-206
+apps/web/tests/transient-move.mjs
+  s_012c57818fbf95::t_dcfa8ac10afa4b 1-81
+packages/editor/src/features/editor/canvas-hud-painter.ts
+  s_012c57818fbf95::t_db3b1143ae6061 7,25,36-45,67-71,73-78,150-165,167
+  s_012c57818fbf95::t_eda3503c00fa43 64,72,85-93
+  s_012c57818fbf95::t_3a4da278c36932 166
+packages/editor/src/features/editor/canvas-gestures.ts
+  s_012c57818fbf95::t_e54a87580f2d2d 77-78,96,111-112
+packages/preview-runtime/src/browser-runtime.mjs
+  s_012c57818fbf95::t_eda3503c00fa43 11,16,81,90,136,150,165-166,209
+  s_012c57818fbf95::t_d24fae4a85d876 170-173
+packages/editor/src/features/editor/ComponentLibrary.tsx
+  s_012c57818fbf95::t_6e3aee0564110d 34
+packages/preview-runtime/src/transient-move-layer.mjs
+  s_012c57818fbf95::t_eda3503c00fa43 1-4,6-13,16-23,27,32-41
+  s_012c57818fbf95::t_b9d9f8d50aed36 14-15,24-26,28-31
+  s_012c57818fbf95::t_1d6a1bbd97fdff 5
+packages/editor/src/features/editor/document-store.ts
+  s_012c57818fbf95::t_6e3aee0564110d 126-135
+  s_012c57818fbf95::t_b947470c66a189 39,136,326
+packages/editor/src/features/editor/preview-service.ts
+  s_012c57818fbf95::t_eda3503c00fa43 12,47,49-51,53-54,56-58,60-61,106
+  s_012c57818fbf95::t_107ce890a353ad 101
+  s_012c57818fbf95::t_4cb3eb388ea404 71-73,77-94,99,107-112,122-130,171,179-180
+  s_012c57818fbf95::t_e54a87580f2d2d 48,52,55,59,105
+  s_012c57818fbf95::t_f5b411b257b844 4
+packages/editor/src/features/editor/NodeThemePanel.tsx
+  s_012c57818fbf95::t_6e3aee0564110d 34
+packages/editor/src/features/editor/ElementLayoutProperties.tsx
+  s_012c57818fbf95::t_6e3aee0564110d 13
+packages/editor/src/features/editor/CodeTools.tsx
+  s_012c57818fbf95::t_6e3aee0564110d 10,37
+packages/editor/src/features/editor/document-store.test.ts
+  s_012c57818fbf95::t_186d3d59678841 125-137
+  s_012c57818fbf95::t_c5113dbf3fc827 22
+  s_012c57818fbf95::t_4cb3eb388ea404 913-918,920-925
+  s_012c57818fbf95::t_e54a87580f2d2d 919
+packages/editor/src/features/editor/ComponentProperties.tsx
+  s_012c57818fbf95::t_6e3aee0564110d 63
+packages/preview-runtime/tests/protocol-negative-controls.test.ts
+  s_012c57818fbf95::t_d24fae4a85d876 26,30,179-202
+  s_e18d232d8e09ca::t_b70c73fe34b665 203-204
+packages/preview-runtime/src/protocol.ts
+  s_012c57818fbf95::t_eda3503c00fa43 41-42,50,257-261
+  s_e18d232d8e09ca::t_bae4ecb733405c 262-266
+packages/editor/src/design-system/canvas.css
+  s_012c57818fbf95::t_81c770b516154c 34
+packages/editor/src/features/editor/Editor.tsx
+  s_012c57818fbf95::t_4682b8d39016ff 106
+packages/editor/src/features/editor/ThemePanel.tsx
+  s_012c57818fbf95::t_6e3aee0564110d 83
+packages/editor/src/features/editor/SelectionHud.tsx
+  s_012c57818fbf95::t_81c770b516154c 3,9,13-24,26,31,42
+packages/editor/src/design-system/canvas-atoms.tsx
+  s_44b137f3cc34c5::t_893924a0ab4a85 55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "45feb4f212c64d8a860edf91b550726156a0f759",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_44b137f3cc34c5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f7a-7a8e-7983-84fb-08d8f4501fa6",
+        "model": "unknown"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
