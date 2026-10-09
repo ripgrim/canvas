@@ -20,6 +20,15 @@ SOURCES.md
 2026-10-07-211212-read-agentsmd-guimd-guithemesmd-agentssk.txt
 scripts/tmp-*.mjs
 
+# Internal planning and review notes
+COPY-GUIDE.md
+FEATURE-CHECKLIST.md
+PRODUCT-SPEC.md
+START-HERE.md
+WEB-FIRST-AUDIT.md
+WEB-FIRST-REVIEW.md
+packages/editor/src/UI-REVIEW.md
+
 # Local or generated package-manager artifacts
 bun.lock
 
