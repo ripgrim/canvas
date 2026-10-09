@@ -8,6 +8,7 @@ import { fallbackScheme, nodeThemeMode, resolveEffectiveNodeTheme, resolveThemeF
 import type { ColorScheme } from './node-theme.js'
 import { defaultDesignThemeId, resolveDesignTheme } from './design-themes.js'
 import type { DesignTheme } from './design-themes.js'
+import { colorToCss } from './color.js'
 import type { DisplayMode, NodeLayout } from './layout.js'
 import { assetReferences, childrenOf, flowHost, hostOrigin, nodeAppearance, pageRoot, projectAppearance, resolveColorValue } from './file-document.js'
 import type { FileDocument, ImageMime, PreviewAppearance, SourcePalette } from './file-document.js'
@@ -23,7 +24,7 @@ const isThemeContext = (value: SourcePalette | ThemeProjectionContext): value is
 const baseTheme: DesignTheme = { id: defaultDesignThemeId, name: 'Default', selector: ':root', attribute: null, colorScheme: 'light' }
 export type PreviewPageElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; x: number; y: number; width: number; height: number; rotation: number; text?: string; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance }
 export type PreviewPageAsset = { mime: ImageMime; data: string }
-export type PreviewPageDocument = { version: 1; revision: number; rootIds: string[]; nodes: Record<string, PreviewPageNode>; frame: { name?: string; width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean }; canvas: { elements: PreviewPageElement[] }; assets?: Record<string, PreviewPageAsset> }
+export type PreviewPageDocument = { version: 1; revision: number; rootIds: string[]; nodes: Record<string, PreviewPageNode>; frame: { name?: string; width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean }; canvas: { elements: PreviewPageElement[] }; background?: string; assets?: Record<string, PreviewPageAsset> }
 export type PreviewLayoutEntry = { nodeId: string; mode: DocumentNodeLayout['mode']; x: number; y: number; order: number; width?: number; height?: number; declarations?: Record<string, string> }
 const kebab = (name: string) => name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)
 /**
@@ -88,6 +89,8 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
   const elements: PreviewPageElement[] = []
   const layout: PreviewLayoutEntry[] = []
   const assets: Record<string, PreviewPageAsset> = {}
+  const pagePalette = isThemeContext(context) ? context.palette(resolveDesignTheme(context.themes, context.previewThemeId)) : context
+  const resolvedBackground = page.background ? resolveColorValue(file.theme, page.background, pagePalette) : null
   const hasAsset = (assetId: string) => Boolean(file.assets?.[assetId])
   const appearanceOf = (id: string, sources: SourcePalette): { appearance: PreviewAppearance } | Record<string, never> => {
     const source = nodeAppearance(file.nodes[id])
@@ -133,5 +136,5 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
     if (child?.type === 'component') { rootIds.push(childId); visitComponent(childId, componentOrder++, null) }
     else visitPrimitive(childId, null)
   }
-  return { document: { version: 1, revision: file.revision, rootIds, nodes, frame: { ...flowHost, name: page.name }, canvas: { elements }, ...(Object.keys(assets).length ? { assets } : {}) }, layout, themeDiagnostics }
+  return { document: { version: 1, revision: file.revision, rootIds, nodes, frame: { ...flowHost, name: page.name }, canvas: { elements }, ...(resolvedBackground ? { background: colorToCss(resolvedBackground) } : {}), ...(Object.keys(assets).length ? { assets } : {}) }, layout, themeDiagnostics }
 }

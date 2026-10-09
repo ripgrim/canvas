@@ -13,11 +13,11 @@ import type { NodeThemeMode } from './node-theme.js'
 import { isColor } from './color.js'
 import type { Color } from './color.js'
 import { compareOrder, isOrderKey, orderKeyBetween, orderKeySequence } from './order-keys.js'
-import { appearanceColors, assetReferences, borderSides, canonicalAppearance, defaultFillColor, mapAppearanceColors, validateAppearance, validateBorders, validateImageAsset, validateOutline, validatePaint, validateStroke } from './appearance.js'
+import { appearanceColors, assetReferences, borderSides, canonicalAppearance, defaultFillColor, isColorValue, mapAppearanceColors, validateAppearance, validateBorders, validateImageAsset, validateOutline, validatePaint, validateStroke } from './appearance.js'
 import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAsset, Outline, Paint, Stroke } from './appearance.js'
 export * from './appearance.js'
 
-export const fileSchemaVersion = 5 as const
+export const fileSchemaVersion = 6 as const
 export type PrimitiveKind = 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'
 export const primitiveKinds: readonly PrimitiveKind[] = ['frame', 'rectangle', 'shape', 'shader', 'text']
 export type PrimitiveStyles = { left: number; top: number; width: number; height: number; rotation?: number; overflow?: 'clip' | 'visible' }
@@ -31,7 +31,7 @@ export type ComponentNode = { id: string; type: 'component'; name?: string; comp
 export type FileNode = RootNode | PrimitiveNode | ComponentNode
 /** Parent plus sibling order; `slot` names the component slot when the parent is a component instance. */
 export type NodeRelationship = { parentId: string; orderKey: string; slot?: string }
-export type FilePage = { id: string; name: string; rootNodeId: string }
+export type FilePage = { id: string; name: string; rootNodeId: string; background?: ColorValue }
 export type TokenValue =
   | { kind: 'literal'; color: Color }
   | { kind: 'alias'; tokenId: string }
@@ -165,8 +165,10 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
   const pageIds = new Set<string>()
   for (const page of file.pages) {
     if (!record(page)) throw invalid('Invalid page')
-    fields(page, ['id', 'name', 'rootNodeId'], 'page')
+    fields(page, ['id', 'name', 'rootNodeId', ...(own(page, 'background') ? ['background'] : [])], 'page')
     if (!validId(page.id) || pageIds.has(page.id) || !validName(page.name) || !validId(page.rootNodeId) || roots.has(page.rootNodeId)) throw invalid('Invalid page identity')
+    if (own(page, 'background') && !isColorValue(page.background)) throw invalid('Invalid page background')
+    if (page.background?.kind === 'token' && !own(file.theme.tokens, page.background.tokenId)) throw invalid('A page background references a missing token')
     const root = file.nodes[page.rootNodeId]
     if (!root || root.type !== 'root') throw invalid('A page root is missing')
     if (own(file.relationships, page.rootNodeId)) throw invalid('Page roots cannot have a parent')
@@ -316,10 +318,11 @@ export function resolveToken(theme: FileTheme, tokenId: string, sources: SourceP
 export const resolveColorValue = (theme: FileTheme, value: ColorValue, sources: SourcePalette = {}): Color | null => value.kind === 'literal' ? value.color : resolveToken(theme, value.tokenId, sources)
 /** The appearance of any non-root node (primitives and component instances share one model). */
 export const nodeAppearance = (node: FileNode | undefined): Appearance | undefined => node && node.type !== 'root' ? node.appearance : undefined
-export type TokenReference = { nodeId: string } | { aliasTokenId: string }
-/** One entry per bound color (fills, stops, cached states, outline, borders) plus dependent aliases. */
+export type TokenReference = { nodeId: string } | { pageId: string } | { aliasTokenId: string }
+/** One entry per bound color (page backgrounds, fills, stops, cached states, outline, borders) plus dependent aliases. */
 export function tokenReferences(file: FileDocument, tokenId: string): TokenReference[] {
   const references: TokenReference[] = []
+  for (const page of file.pages) if (page.background?.kind === 'token' && page.background.tokenId === tokenId) references.push({ pageId: page.id })
   for (const node of Object.values(file.nodes)) {
     const appearance = nodeAppearance(node)
     if (!appearance) continue
@@ -365,6 +368,7 @@ export type NodePlacement = { parentId: string; slot?: string; orderKey?: string
 export type FileCommand =
   | { type: 'page.create'; page: FilePage; index?: number }
   | { type: 'page.rename'; pageId: string; name: string }
+  | { type: 'page.setBackground'; pageId: string; background: ColorValue | null }
   | { type: 'page.reorder'; pageId: string; index: number }
   | { type: 'page.delete'; pageId: string }
   /** Copies every node of a page under a new root; `ids` maps each copied node id to its new identity. */
@@ -491,14 +495,27 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       if (!validId(command.page.id) || !validId(command.page.rootNodeId) || own(file.nodes, command.page.rootNodeId) || file.pages.some(page => page.id === command.page.id) || !validName(command.page.name)) throw invalid('Invalid page')
       const index = command.index ?? file.pages.length
       if (!Number.isInteger(index) || index < 0 || index > file.pages.length) throw invalid('Invalid page position')
+      if (command.page.background !== undefined && !isColorValue(command.page.background)) throw invalid('Invalid page background')
+      if (command.page.background?.kind === 'token' && !own(file.theme.tokens, command.page.background.tokenId)) throw invalid('A page background references a missing token')
       file.nodes[command.page.rootNodeId] = { id: command.page.rootNodeId, type: 'root' }
-      file.pages.splice(index, 0, { id: command.page.id, name: command.page.name, rootNodeId: command.page.rootNodeId })
+      file.pages.splice(index, 0, structuredClone(command.page))
       return file
     }
     case 'page.rename': {
       const page = file.pages.find(candidate => candidate.id === command.pageId)
       if (!page || !validName(command.name)) throw invalid('Invalid page name')
       page.name = command.name
+      return file
+    }
+    case 'page.setBackground': {
+      const page = file.pages.find(candidate => candidate.id === command.pageId)
+      if (!page) throw invalid('Unknown page')
+      if (command.background === null) delete page.background
+      else {
+        if (!isColorValue(command.background)) throw invalid('Invalid page background')
+        if (command.background.kind === 'token' && !own(file.theme.tokens, command.background.tokenId)) throw invalid('A page background references a missing token')
+        page.background = structuredClone(command.background)
+      }
       return file
     }
     case 'page.reorder': {
@@ -528,7 +545,7 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       file.nodes[command.page.rootNodeId] = { id: command.page.rootNodeId, type: 'root' }
       for (const id of copied) file.nodes[command.ids[id]!] = { ...structuredClone(file.nodes[id]!), id: command.ids[id]! }
       for (const id of copied) { const relationship = file.relationships[id]!; file.relationships[command.ids[id]!] = { ...relationship, parentId: relationship.parentId === source.rootNodeId ? command.page.rootNodeId : command.ids[relationship.parentId]! } }
-      file.pages.splice(file.pages.indexOf(source) + 1, 0, { id: command.page.id, name: command.page.name, rootNodeId: command.page.rootNodeId })
+      file.pages.splice(file.pages.indexOf(source) + 1, 0, { id: command.page.id, name: command.page.name, rootNodeId: command.page.rootNodeId, ...(source.background ? { background: structuredClone(source.background) } : {}) })
       return file
     }
     case 'node.insert': {
@@ -798,6 +815,7 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
         if (node.type === 'root' || !node.appearance) continue
         node.appearance = mapAppearanceColors(node.appearance, replace)
       }
+      for (const page of file.pages) if (page.background) page.background = replace(page.background)
       for (const other of Object.values(file.theme.tokens)) if (!deleting.has(other.id) && other.value.kind === 'alias' && deleting.has(other.value.tokenId)) other.value = { kind: 'literal', color: resolved.get(other.value.tokenId)! }
       for (const tokenId of deleting) delete file.theme.tokens[tokenId]
       return file

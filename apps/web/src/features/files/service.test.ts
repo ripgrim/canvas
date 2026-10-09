@@ -96,7 +96,7 @@ describe('browser file service', () => {
     expect(opened.name).toBe('Untitled 1')
     expect(opened.legacyView).toBeUndefined()
     expect(opened.file).toEqual({
-      schemaVersion: 5, fileId: 'id-1', revision: 0,
+      schemaVersion: 6, fileId: 'id-1', revision: 0,
       pages: [{ id: 'id-2', name: 'Page 1', rootNodeId: 'id-3' }],
       nodes: { 'id-3': { id: 'id-3', type: 'root' } }, relationships: {}, theme: { tokens: {} },
     })
@@ -111,8 +111,8 @@ describe('browser file service', () => {
 
     const stored = JSON.parse(storage.contents.get(browserFileKey('id-1'))!)
     expect(stored.schemaVersion).toBe(1)
-    // The content record keeps its own storage version; the design file inside is written at schema version 5.
-    expect(stored.file.schemaVersion).toBe(5)
+    // The content record keeps its own storage version; the design file inside is written at schema version 6.
+    expect(stored.file.schemaVersion).toBe(6)
     expect(stored.file.nodes.box.appearance).toEqual({ fills: [{ id: 'box-fill', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#abcdef' } } }] })
     expect(stored.file.revision).toBe(2)
     expect(stored.file.nodes.box.styles).toEqual({ left: 1, top: 2, width: 30, height: 40 })
@@ -245,7 +245,7 @@ describe('browser file service', () => {
 
     const files = service(storage)
     const opened = await files.open('old-file')
-    expect(opened.file.schemaVersion).toBe(5)
+    expect(opened.file.schemaVersion).toBe(6)
     expect(opened.file.revision).toBe(4)
     expect(opened.file.nodes.panel).toEqual({ id: 'panel', type: 'frame', name: 'Panel', styles: { left: 0, top: 0, width: 200, height: 100, overflow: 'clip' }, appearance: { fills: upgradedPanel }, themeMode: 'inherit' })
     // An empty version 2 fill list leaves no appearance record at all.
@@ -258,7 +258,7 @@ describe('browser file service', () => {
     expect(saved.file.revision).toBe(5)
     const stored = JSON.parse(storage.contents.get(browserFileKey('old-file'))!)
     expect(stored.schemaVersion).toBe(1)
-    expect(stored.file.schemaVersion).toBe(5)
+    expect(stored.file.schemaVersion).toBe(6)
     expect(stored.file.nodes.panel).not.toHaveProperty('fills')
     expect(stored.file.nodes.panel.appearance.fills.map((paint: { id: string }) => paint.id)).toEqual(['panel:fill:3', 'panel:fill:2', 'panel:fill:1'])
     expect(stored.file.nodes.bare).not.toHaveProperty('fills')
@@ -271,7 +271,7 @@ describe('browser file service', () => {
     expect(mislabeled.writes).toEqual([])
   })
 
-  it('opens a stored version 3 file with component placements as version 4 layouts in a version 5 file and rewrites the record only on save', async () => {
+  it('opens a stored version 3 file with component placements as version 4 layouts in a version 6 file and rewrites the record only on save', async () => {
     const version3 = {
       schemaVersion: 3, fileId: 'v3-file', revision: 2,
       pages: [{ id: 'v3-page', name: 'Page 1', rootNodeId: 'v3-root' }],
@@ -299,7 +299,7 @@ describe('browser file service', () => {
 
     const files = service(storage)
     const opened = await files.open('v3-file')
-    expect(opened.file.schemaVersion).toBe(5)
+    expect(opened.file.schemaVersion).toBe(6)
     expect(opened.file.revision).toBe(2)
     expect(opened.file.nodes.placed).toEqual({ id: 'placed', type: 'component', componentId: 'sample-button', exportName: 'Button', props: { children: 'Placed' }, layout: placedLayout, themeMode: 'inherit' })
     expect(opened.file.nodes.sized).toMatchObject({ layout: sizedLayout })
@@ -313,7 +313,7 @@ describe('browser file service', () => {
     expect(saved.file.revision).toBe(3)
     expect(storage.writes).toContain(browserFileKey('v3-file'))
     const stored = JSON.parse(storage.contents.get(browserFileKey('v3-file'))!)
-    expect(stored.file.schemaVersion).toBe(5)
+    expect(stored.file.schemaVersion).toBe(6)
     expect(stored.file.nodes.placed.layout).toEqual(placedLayout)
     expect(stored.file.nodes.sized.layout).toEqual(sizedLayout)
     expect(stored.file.nodes.flowing.layout).toEqual(flowingLayout)
@@ -351,7 +351,7 @@ describe('browser file service', () => {
     expect(Object.keys(alpha.file.theme.tokens).sort()).toEqual(['legacy:accent', 'legacy:accent:page-alpha-2'])
     expect(alpha.file.theme.tokens['legacy:accent']?.value).toEqual({ kind: 'literal', color: { kind: 'hex', hex: '#ff0000' } })
     expect(alpha.file.theme.tokens['legacy:accent:page-alpha-2']?.value).toEqual({ kind: 'literal', color: { kind: 'hex', hex: '#0000ff' } })
-    expect(alpha.file.schemaVersion).toBe(5)
+    expect(alpha.file.schemaVersion).toBe(6)
     expect(alpha.file.nodes['alpha-frame']).toMatchObject({ appearance: { fills: [{ id: 'alpha-frame:fill:1', type: 'solid', color: { kind: 'token', tokenId: 'legacy:accent' } }] } })
     expect(alpha.file.nodes['alpha-rect']).toMatchObject({ appearance: { fills: [{ id: 'alpha-rect:fill:1', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#00ff00' } } }] } })
     expect(alpha.file.nodes['alpha-frame']).not.toHaveProperty('fills')

@@ -22,7 +22,7 @@ const pixel = (id: string, data = 'AAAA'): ImageAsset => ({ id, name: id, mime: 
  * a half-opacity instance appearance with a red border on every side; caption has no appearance.
  */
 const fixture = (): FileDocument => validateFileDocument({
-  schemaVersion: 5,
+  schemaVersion: 6,
   fileId: 'file-1',
   revision: 9,
   pages: [{ id: 'page-1', name: 'Landing', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Empty', rootNodeId: 'root-2' }],
@@ -117,6 +117,14 @@ describe('preview projection', () => {
   it('resolves source tokens against the supplied palette', () => {
     const { document } = projectPreviewPage(fixture(), 'page-1', { '--surface': { kind: 'hex', hex: '#242427' } })!
     expect(document.canvas.elements.map(entry => entry.appearance)).toStrictEqual([flat('#242427'), flat('#abcdef'), ramp('#242427'), undefined])
+  })
+
+  it('projects an optional page background through the active palette', () => {
+    const file = fixture()
+    file.pages[0]!.background = tok('surface')
+    expect(projectPreviewPage(validateFileDocument(file, atoms), 'page-1', { '--surface': { kind: 'hex', hex: '#242427' } })!.document.background).toBe('#242427')
+    delete file.pages[0]!.background
+    expect(projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!.document).not.toHaveProperty('background')
   })
 
   it('ships only the image assets a page references', () => {

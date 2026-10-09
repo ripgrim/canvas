@@ -32,7 +32,7 @@ export function isPreviewNodeTheme(value: unknown): value is PreviewNodeTheme {
   return typeof value.explicit === 'boolean'
 }
 export type PreviewCanvasElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; x: number; y: number; width: number; height: number; rotation: number; text?: string; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance }
-export type PreviewDocument = { version: 1; revision: number; rootIds: string[]; nodes: Record<string, PreviewDocumentNode>; frame: { width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean; name?: string }; canvas?: { elements: PreviewCanvasElement[] }; assets?: Record<string, PreviewAsset> }
+export type PreviewDocument = { version: 1; revision: number; rootIds: string[]; nodes: Record<string, PreviewDocumentNode>; frame: { width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean; name?: string }; canvas?: { elements: PreviewCanvasElement[] }; background?: string; assets?: Record<string, PreviewAsset> }
 export type PreviewRegistryBinding = { componentId: string; exportName: string; entryPath: string }
 /** The design theme applied to the preview document root. `attribute` becomes `data-theme`; null clears it for the base theme. */
 export type PreviewTheme = { attribute: string | null; colorScheme: 'light' | 'dark' }
@@ -184,7 +184,7 @@ export function isPreviewCanvasElement(value: unknown, assets?: Record<string, u
 
 export function isPreviewDocument(value: unknown, registry?: readonly Pick<PreviewRegistryBinding, 'componentId' | 'exportName'>[]): value is PreviewDocument {
   if (!record(value)) return false
-  const optional = ['canvas', 'assets'].filter(name => Object.hasOwn(value, name))
+  const optional = ['canvas', 'background', 'assets'].filter(name => Object.hasOwn(value, name))
   if (!exactFields(value, ['version', 'revision', 'rootIds', 'nodes', 'frame', ...optional]) || value.version !== 1 || !Number.isSafeInteger(value.revision) || (value.revision as number) < 0) return false
   if (!record(value.nodes) || Object.keys(value.nodes).length > 500 || !Array.isArray(value.rootIds) || value.rootIds.length > 500 || !record(value.frame)) return false
   const frame = value.frame
@@ -192,6 +192,7 @@ export function isPreviewDocument(value: unknown, registry?: readonly Pick<Previ
   if (Object.hasOwn(frame, 'name') && !validName(frame.name)) return false
   for (const key of ['width', 'height', 'gap', 'padding']) if (typeof frame[key] !== 'number' || !Number.isFinite(frame[key]) || frame[key] < (key === 'width' || key === 'height' ? 64 : 0) || frame[key] > 8192) return false
   if (Object.hasOwn(value, 'assets') && !isPreviewAssets(value.assets)) return false
+  if (Object.hasOwn(value, 'background') && !safeColor(value.background)) return false
   const assets = Object.hasOwn(value, 'assets') ? value.assets as Record<string, PreviewAsset> : undefined
   if (Object.hasOwn(value, 'canvas')) {
     const canvas = value.canvas

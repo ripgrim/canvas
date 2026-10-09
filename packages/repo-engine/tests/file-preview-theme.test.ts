@@ -21,7 +21,7 @@ const surfaceFill = (id: string) => ({ fills: [{ id, type: 'solid' as const, col
 
 /** root > card (dark) > inner (inherit) with a surface-bound fill; root > plain (inherit) with the same fill; root > box rectangle (light) bound too. */
 const file = (): FileDocument => validateFileDocument({
-  schemaVersion: 5, fileId: 'file-1', revision: 1,
+  schemaVersion: 6, fileId: 'file-1', revision: 1,
   pages: [{ id: 'page-1', name: 'Home', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -53,6 +53,12 @@ describe('CC-TB-003 and CC-NT-003: one source token, two effective themes', () =
     expect(fillColor(projection, 'plain')).toBe('#242427')
     expect(fillColor(projection, 'card')).toBe('#242427')
     expect(elementColor(projection, 'box')).toBe('#ffffff')
+  })
+  it('resolves a page background token against the selected file fallback theme', () => {
+    const themed = file()
+    themed.pages[0]!.background = { kind: 'token', tokenId: 'surface' }
+    expect(projectPreviewPage(themed, 'page-1', context('default'))!.document.background).toBe('#ffffff')
+    expect(projectPreviewPage(themed, 'page-1', context('dark'))!.document.background).toBe('#242427')
   })
   it('projects the effective theme on every component node and marks only the self override as explicit', () => {
     const projection = projectPreviewPage(file(), 'page-1', context('default'))!

@@ -36,7 +36,7 @@ const aliasToken = (id: string, orderKey: string, target: string): ColorToken =>
  * (5,7) world (125,87 10x10). label sits on the root after outer.
  */
 const fixture = (): FileDocument => ({
-  schemaVersion: 5,
+  schemaVersion: 6,
   fileId: 'file-1',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -64,7 +64,7 @@ describe('file validation', () => {
   it('accepts a blank file and returns a detached copy', () => {
     const blank = createBlankFile('file-1', 'page-1', 'root-1')
     const validated = validateFileDocument(blank, [])
-    expect(validated).toEqual({ schemaVersion: 5, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes: { 'root-1': { id: 'root-1', type: 'root' } }, relationships: {}, theme: { tokens: {} } })
+    expect(validated).toEqual({ schemaVersion: 6, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes: { 'root-1': { id: 'root-1', type: 'root' } }, relationships: {}, theme: { tokens: {} } })
     expect(validated).not.toBe(blank)
   })
 
@@ -101,6 +101,8 @@ describe('file validation', () => {
     ['an outline referencing a missing token', file => { (file.nodes.box as PrimitiveNode).appearance = { outline: { ...stroke(tok('ghost')), offset: 0 } } }, 'A fill references a missing token'],
     ['a border side referencing a missing token', file => { (file.nodes.box as PrimitiveNode).appearance = { borders: { left: stroke(tok('ghost')) } } }, 'A fill references a missing token'],
     ['a cached solid referencing a missing token', file => { (file.nodes.box as PrimitiveNode).appearance = { fills: [{ ...solid('f', '#000000'), cache: { solid: { color: tok('ghost') } } }] } }, 'A fill references a missing token'],
+    ['a page background referencing a missing token', file => { file.pages[0]!.background = tok('ghost') }, 'A page background references a missing token'],
+    ['a malformed page background', file => { asRecord(file.pages[0]).background = { kind: 'literal', color: 'red' } }, 'Invalid page background'],
     ['an image fill without its asset', file => { (file.nodes.box as PrimitiveNode).appearance = { fills: [{ id: 'f', type: 'image', assetId: 'img', fit: 'cover' }] } }, 'An image fill references a missing asset'],
     ['a cached image without its asset', file => { file.assets = { other: pixel('other') }; (file.nodes.box as PrimitiveNode).appearance = { fills: [{ ...solid('f', '#000000'), cache: { image: { assetId: 'img', fit: 'cover' } } }] } }, 'An image fill references a missing asset'],
     ['an asset keyed differently from its id', file => { file.assets = { other: pixel('img') } }, 'Invalid image asset identity'],
@@ -693,6 +695,27 @@ describe('page commands', () => {
     expect(file.revision).toBe(4)
   })
 
+  it('stores, clears, and validates a page background without changing older pages', () => {
+    let file = fixture()
+    expect(file.pages[0]).not.toHaveProperty('background')
+    file = run(file, { type: 'page.setBackground', pageId: 'page-1', background: lit('#11223380') })
+    expect(file.pages[0]!.background).toEqual(lit('#11223380'))
+    file = run(file, { type: 'page.setBackground', pageId: 'page-1', background: tok('brand') })
+    expect(file.pages[0]!.background).toEqual(tok('brand'))
+    file = run(file, { type: 'page.setBackground', pageId: 'page-1', background: null })
+    expect(file.pages[0]).not.toHaveProperty('background')
+    expect(() => run(file, { type: 'page.setBackground', pageId: 'missing', background: lit('#000000') })).toThrow('Unknown page')
+    expect(() => run(file, { type: 'page.setBackground', pageId: 'page-1', background: tok('missing') })).toThrow('A page background references a missing token')
+  })
+
+  it('creates a page with an explicit background and copies the source background when duplicating', () => {
+    let file = run(fixture(), { type: 'page.create', page: { id: 'page-0', name: 'Cover', rootNodeId: 'root-0', background: lit('#abcdef') } })
+    expect(file.pages[1]!.background).toEqual(lit('#abcdef'))
+    file = run(file, { type: 'page.setBackground', pageId: 'page-1', background: tok('brand') })
+    const next = run(file, { type: 'page.duplicate', pageId: 'page-1', page: { id: 'page-2', name: 'Page 1 copy', rootNodeId: 'root-2' }, ids: { outer: 'outer-2', inner: 'inner-2', box: 'box-2', label: 'label-2' } })
+    expect(next.pages.find(page => page.id === 'page-2')!.background).toEqual(tok('brand'))
+  })
+
   it('keeps at least one page and rejects bad page commands', () => {
     const file = fixture()
     expect(() => run(file, { type: 'page.delete', pageId: 'page-1' })).toThrow('A file keeps at least one page')
@@ -807,6 +830,12 @@ describe('token commands', () => {
     expect(tokenReferences(themed(), 'ghost')).toEqual([])
   })
 
+  it('counts a page background token reference', () => {
+    const file = themed()
+    file.pages[0]!.background = tok('brand')
+    expect(tokenReferences(file, 'brand')).toEqual([{ pageId: 'page-1' }, { nodeId: 'box' }, { nodeId: 'shader' }, { aliasTokenId: 'accent' }])
+  })
+
   it('counts outline, border, and cached references once per bound color', () => {
     const file = styledTheme()
     // outer: cached solid, cached stop, outline, top border (4); inner: the all border (1).
@@ -817,6 +846,7 @@ describe('token commands', () => {
 
   it('deletes a token by inlining its resolved source color into paints, stops, and aliases across pages', () => {
     const file = themed()
+    file.pages[0]!.background = tok('brand')
     const next = run(file, { type: 'token.delete', tokenIds: ['brand'], sources: { '--brand': hex('#445566') } })
     const inlined = lit('#445566')
     expect(next.theme.tokens.brand).toBeUndefined()
@@ -825,6 +855,7 @@ describe('token commands', () => {
     expect(next.theme.tokens.accent!.value).toEqual(inlined)
     expect(appearanceOf(next, 'chip')).toEqual({ fills: [tokenPaint('chip:fill:1', 'accent')] })
     expect(resolveColorValue(next.theme, tok('accent'))).toEqual(hex('#445566'))
+    expect(next.pages[0]!.background).toEqual(inlined)
     expect(next.revision).toBe(file.revision + 1)
   })
 

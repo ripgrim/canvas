@@ -33,8 +33,8 @@ export const legacyRootId = (pageId: string) => `root:${pageId}`
 const builtInTokenId = (name: string) => `legacy:builtin:${name}`
 
 export const isLegacyDocument = (value: unknown): value is EditorDocument => typeof value === 'object' && value !== null && (value as { version?: unknown }).version === 1
-/** Any stored design file this build can read: the current schema or the previous one (upgraded on read). */
-export const isFileDocumentShape = (value: unknown): value is FileDocument => typeof value === 'object' && value !== null && [2, 3, 4, fileSchemaVersion].includes((value as { schemaVersion?: unknown }).schemaVersion as number)
+/** Any stored design file this build can read, including every supported predecessor upgraded on read. */
+export const isFileDocumentShape = (value: unknown): value is FileDocument => typeof value === 'object' && value !== null && [2, 3, 4, 5, fileSchemaVersion].includes((value as { schemaVersion?: unknown }).schemaVersion as number)
 
 type LegacyPaint = { type: 'solid'; color: ColorValue; visible?: boolean } | { type: 'linear-gradient'; angle: number; stops: { id: string; position: number; color: ColorValue }[]; visible?: boolean }
 /** Version 2 kept `fills` top-first with the first visible paint drawn; version 3 stores bottom-to-top with stable ids. */
@@ -54,7 +54,7 @@ function upgradePaints(fills: unknown, nodeId: string): Appearance | undefined {
  * for the validator to reject.
  */
 export function upgradeFileDocument(input: unknown): unknown {
-  return upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(input)))
+  return upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(input))))
 }
 function upgradeV2ToV3(input: unknown): unknown {
   if (!record(input) || input.schemaVersion !== 2 || !record(input.nodes)) return input
@@ -88,7 +88,11 @@ function upgradeV4ToV5(input: unknown): unknown {
   if (!record(input) || input.schemaVersion !== 4 || !record(input.nodes)) return input
   const nodes: Record<string, unknown> = {}
   for (const [id, node] of Object.entries(input.nodes)) nodes[id] = record(node) && node.type !== 'root' && !own(node, 'themeMode') ? { ...node, themeMode: 'inherit' } : node
-  return { ...input, schemaVersion: fileSchemaVersion, nodes }
+  return { ...input, schemaVersion: 5, nodes }
+}
+/** Version 6 permits an optional page background. Existing version 5 pages remain background-free and otherwise unchanged. */
+function upgradeV5ToV6(input: unknown): unknown {
+  return record(input) && input.schemaVersion === 5 ? { ...input, schemaVersion: fileSchemaVersion } : input
 }
 const own = (object: object, key: string) => Object.hasOwn(object, key)
 

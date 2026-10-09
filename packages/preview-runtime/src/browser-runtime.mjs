@@ -8,11 +8,13 @@ import { canvasElementStyle, hostOrigin } from './scene-styles.mjs'
 import { createAppearanceLayer } from './appearance-layer.mjs'
 import { createLayoutLayer } from './layout-layer.mjs'
 import { createThemeLayer } from './theme-layer.mjs'
+import { applyPageBackground } from './page-background.mjs'
 import { createTransientMoveLayer } from './transient-move-layer.mjs'
 export { appearanceStyle, canvasElementStyle, fillLayers, hostOrigin, legacyTextColor } from './scene-styles.mjs'
 export { createAppearanceLayer } from './appearance-layer.mjs'
 export { createLayoutLayer } from './layout-layer.mjs'
 export { createThemeLayer } from './theme-layer.mjs'
+export { applyPageBackground } from './page-background.mjs'
 export { createTransientMoveLayer } from './transient-move-layer.mjs'
 
 export function createSelectionDecorations(ownerDocument) {
@@ -134,6 +136,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
   }
   const render = () => {
     transientMoveLayer.clear()
+    applyPageBackground(document, editorDocument?.background)
     const component = editorDocument && !sourceDocument ? editorDocument.rootIds.map(renderNode) : React.createElement(Component, props)
     const content = Provider ? React.createElement(Provider, providerProps, component) : component
     const frame = editorDocument?.frame

@@ -5,7 +5,7 @@ import { buildScene, clickTarget, containingFrameAt, displayName, drillTarget, h
 const appearance = { fills: [{ id: 'white-fill', type: 'solid' as const, color: { kind: 'literal' as const, color: { kind: 'hex' as const, hex: '#ffffff' } } }] }
 /** Page 1: card > button (measured components), frame (300,0) > inner (+20,+20) > text (+10,+10), loose rectangle. */
 const file = (innerOverflow: 'clip' | 'visible' = 'clip'): FileDocument => ({
-  schemaVersion: 5, fileId: 'file-a', revision: 0,
+  schemaVersion: 6, fileId: 'file-a', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },

@@ -9,6 +9,9 @@ const countWord = (count: number) => countWords[count] ?? String(count)
 export const inspectorCopy = {
   page: 'Page',
   pageName: 'Page name',
+  pageBackground: 'Page color',
+  pageBackgroundOpacity: 'Page color opacity',
+  pageBackgroundToken: 'Page color token',
   frame: 'Frame',
   name: 'Name',
   position: 'Position',
@@ -31,6 +34,13 @@ export const inspectorCopy = {
   text: 'Text',
   textContent: 'Text content',
   selected: (count: number) => `${count} layers selected`,
+  selectionColors: 'Selection colors',
+  colorTokens: 'Color tokens',
+  selectionColor: (name: string) => `${name} selection color`,
+  selectionColorOpacity: (name: string) => `${name} opacity`,
+  selectionColorToken: (name: string) => `Choose token for ${name}`,
+  selectColorLayers: (count: number, name: string) => `Select ${count} layers using ${name}`,
+  showAllColors: (count: number) => `Show all ${count} colors`,
 
   // Blending
   blending: 'Blending',

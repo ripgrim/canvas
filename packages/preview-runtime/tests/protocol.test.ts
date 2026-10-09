@@ -52,6 +52,7 @@ describe('AT-PRV-005 document atom protocol', () => {
   const envelope = { channel: 'design-editor-preview', version: 3, generation: 4 }
   it('accepts typed atom documents and both concrete themes', () => {
     const doc = fixtureDocument()
+    doc.background = '#123456'
     const data = { ...envelope, type: 'set-document', document: doc, theme: { attribute: 'dark', colorScheme: 'dark' } }
     expect(deliver(data)).toEqual(data)
     expect(deliver({ ...envelope, type: 'set-theme', theme: { attribute: null, colorScheme: 'light' } })).toEqual({ ...envelope, type: 'set-theme', theme: { attribute: null, colorScheme: 'light' } })
@@ -63,6 +64,16 @@ describe('AT-PRV-005 document atom protocol', () => {
     for (const mode of ['select', 'pan', 'interact']) expect(deliver({ ...envelope, type: 'set-interaction-mode', mode })).toEqual({ ...envelope, type: 'set-interaction-mode', mode })
     expect(deliver({ ...envelope, type: 'set-interaction-mode', mode: 'execute' })).toBeNull()
     expect(deliver({ ...envelope, type: 'set-interaction-mode', mode: 'interact', path: '../file' })).toBeNull()
+  })
+  it('accepts only bounded render-safe page background colors', () => {
+    const doc = fixtureDocument()
+    doc.background = 'oklch(0.5 0.2 120 / 0.75)'
+    expect(isPreviewDocument(doc)).toBe(true)
+    for (const background of ['red', 'var(--surface)', 'url(https://attacker.example/x)', '#fff', '#000000; color:red']) {
+      const invalid = fixtureDocument() as PreviewDocument & { background?: string }
+      invalid.background = background
+      expect(isPreviewDocument(invalid)).toBe(false)
+    }
   })
   it('accepts bounded layout commands and permits reorder without permitting reparenting', () => {
     const layout = { ...envelope, type: 'set-layout', layoutGeneration: 0, items: [{ nodeId: 'button-1', mode: 'absolute', x: 12, y: 24, order: 2, width: 120, height: 40 }] }

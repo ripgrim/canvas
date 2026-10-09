@@ -68,7 +68,7 @@ const fr = value => ({ kind: 'fr', value })
 const buttonNode = (id, text) => ({ id, type: 'component', name: text, componentId: 'sample-button', exportName: 'Button', props: { children: text } })
 /** A plain Card with three Buttons (component layout), and a Grid Card with two auto-placed Buttons. */
 const file = {
-  schemaVersion: 5, fileId, revision: 2,
+  schemaVersion: 6, fileId, revision: 2,
   pages: [{ id: 'page-1', name: 'Containers', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },

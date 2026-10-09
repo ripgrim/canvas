@@ -2,7 +2,7 @@ import { applyFileCommand, childrenOf, descendantsOf, pageRoot, resolveToken, va
 import type { ColorToken, FileCommand, FileDocument, FileNode, NodePlacement, Paint, PrimitiveKind, PrimitiveStyles, SourcePalette, TokenValue } from '@canvas/repo-engine/file-document'
 import { defaultFillColor, imageMimes, nextBorders, validateImageAsset } from '@canvas/repo-engine/appearance'
 import { nodeAppearance } from '@canvas/repo-engine/file-document'
-import type { Appearance, BlendMode, BorderSide, Borders, ImageAsset, ImageMime, Outline, Stroke } from '@canvas/repo-engine/appearance'
+import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAsset, ImageMime, Outline, Stroke } from '@canvas/repo-engine/appearance'
 import type { DocumentNodeLayout } from '@canvas/repo-engine/document'
 import { layoutFromLegacy, legacyLayout } from '@canvas/repo-engine/layout'
 import type { NodeLayout, SizingMode } from '@canvas/repo-engine/layout'
@@ -673,6 +673,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         return execute({ type: 'page.create', page }, [], settings.activate === false ? state.pageId : page.id) ? page.id : null
       },
       renamePage: (pageId: string, name: string) => { const next = name.trim(); return next ? execute({ type: 'page.rename', pageId, name: next }) : false },
+      setPageBackground: (pageId: string, background: ColorValue | null) => execute({ type: 'page.setBackground', pageId, background }),
       deletePage: (pageId: string) => {
         const state = backing.getState()
         if (!state.file || state.file.pages.length < 2) return false
