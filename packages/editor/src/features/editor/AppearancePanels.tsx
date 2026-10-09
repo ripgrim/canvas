@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { convertPaint, defaultOutline } from '@canvas/repo-engine/appearance'
+import { canonicalAppearance, convertPaint, defaultOutline } from '@canvas/repo-engine/appearance'
 import type { Appearance, BlendMode, BorderSide, ColorValue, GradientInterpolation, GradientPaint, GradientShape, ImageFit, ImagePaint, Outline, Paint, Stroke, StrokeStyle } from '@canvas/repo-engine/appearance'
 import { resolveColorValue } from '@canvas/repo-engine/file-document'
 import type { FileCommand, FileDocument, SourcePalette } from '@canvas/repo-engine/file-document'
@@ -24,9 +24,6 @@ type Target = { id: string; node: StyledNode; appearance: Appearance | undefined
 /** `paletteOf` resolves a node's bound tokens in that node's own effective theme. */
 type Context = { file: FileDocument; paletteOf: (nodeId: string) => SourcePalette; mode: Mode; disabled: boolean; targets: Target[]; ids: string[] }
 
-// Select values that can never collide with token ids, which start with a letter or digit.
-const literalOption = '#literal'
-const mixedOption = '#mixed'
 const fallbackColor = hexColor('#000000')
 const maxFills = 16
 const maxStops = 16
@@ -69,6 +66,14 @@ type ColorParts = { bound: boolean; binding: ReactNode; color: ReactNode }
 const slotEntries = (targets: readonly Target[], slot: ColorSlot): BindingEntry[] => targets.flatMap(target => { const value = colorAtSlot(target.appearance, slot); return value ? [{ nodeId: target.id, value }] : [] })
 const isLiteralState = (state: BindingState) => state.kind === 'empty' || state.kind === 'literal' || state.kind === 'mixed-literals'
 const shownColor = (color: Color) => { const parts = splitHex(colorToHex(color)) ?? { rgb: '#000000', opacity: 100 }; return { hex: parts.rgb.toUpperCase(), opacity: parts.opacity } }
+const chooserOptions = (context: Context) => {
+  const first = context.targets[0]
+  const palette = first ? context.paletteOf(first.id) : {}
+  return colorTokenOptions(context.file).map(option => {
+    const color = resolveColorValue(context.file.theme, { kind: 'token', tokenId: option.value }, palette)
+    return { ...option, ...(color ? { color: colorToCss(color) } : {}) }
+  })
+}
 
 /** Rebind writes the stable token id at this slot on every selected node, as one undo step; nodes already bound to it are skipped. */
 function rebindSlot(context: Context, slot: ColorSlot, tokenId: string): boolean {
@@ -100,21 +105,10 @@ function literalParts({ id, context, value, mixed = false, labels, picker, onCha
   const { file, mode, disabled, targets } = context
   const resolved = resolveColorValue(file.theme, value, targets[0] ? context.paletteOf(targets[0].id) : {})
   const hex = colorToHex(resolved ?? fallbackColor)
-  const options = [
-    ...(mixed ? [{ value: mixedOption, label: copy.mixed }] : []),
-    { value: literalOption, label: copy.literal },
-    ...colorTokenOptions(file),
-  ]
-  const selected = mixed ? mixedOption : literalOption
-  const choose = (next: string) => {
-    if (next === selected || next === mixedOption) return
-    if (next === literalOption) onChange({ kind: 'literal', color: resolved ?? fallbackColor })
-    else onChange({ kind: 'token', tokenId: next })
-  }
   const commit = (next: string) => onChange(literal(next))
   return {
     bound: false,
-    binding: <AppearanceSelect id={`${id}-binding`} label={labels.binding} value={selected} options={options} disabled={disabled} onChange={choose} />,
+    binding: <TokenChooser id={`${id}-binding`} label={labels.binding} placeholder={labels.binding} options={chooserOptions(context)} disabled={disabled} onChoose={tokenId => onChange({ kind: 'token', tokenId })} />,
     color: <InspectorColorField id={`${id}-color`} label={labels.color} opacityLabel={labels.opacity} value={hex} {...(mixed ? { mixed: copy.mixed } : {})} disabled={disabled} swatch={<ColorPicker variant="swatch" label={labels.color} value={hex} mode={mode} disabled={disabled} onChange={commit} {...(picker ?? {})} />} onCommit={commit} />,
   }
 }
@@ -129,7 +123,7 @@ function boundParts({ id, context, slot, labels, onBindingAction }: ColorPartsPr
   const diagnosticId = `${id}-diagnostic`
   const acted = (done: boolean) => { if (done) onBindingAction?.() }
   const multiple = state.kind === 'mixed-tokens' || state.kind === 'mixed-sources'
-  const rebind = <TokenChooser id={`${id}-rebind`} label={multiple ? tokenCopy.rebindAllLabel(target) : tokenCopy.rebindLabel(target)} placeholder={multiple ? tokenCopy.rebindAll : tokenCopy.rebind} options={colorTokenOptions(file)} disabled={disabled} onChoose={tokenId => acted(rebindSlot(context, slot, tokenId))} />
+  const rebind = <TokenChooser id={`${id}-rebind`} label={multiple ? tokenCopy.rebindAllLabel(target) : tokenCopy.rebindLabel(target)} placeholder={multiple ? tokenCopy.rebindAll : tokenCopy.rebind} options={chooserOptions(context)} disabled={disabled} onChoose={tokenId => acted(rebindSlot(context, slot, tokenId))} />
   const unlinkable = state.kind === 'bound' || (multiple && state.unlinkable)
   const unlink = <TokenActionButton label={multiple ? tokenCopy.unlinkEachLabel(target) : tokenCopy.unlinkLabel(target)} text={tokenCopy.unlink} disabled={disabled} reason={unlinkable ? undefined : tokenCopy.unlinkUnavailable} describedBy={diagnosticId} onClick={() => acted(unlinkSlot(context, slot))} />
   const edit = (tokenId: string, name: string) => <TokenActionButton label={tokenCopy.editLabel(name, target)} text={tokenCopy.editToken} onClick={() => { themeFocus.request(tokenId) }} />
@@ -164,7 +158,7 @@ function colorParts(props: ColorPartsProps): ColorParts {
 
 function ColorLine(props: ColorPartsProps & { trailing?: ReactNode }) {
   const parts = colorParts(props)
-  if (!parts.bound) return <AppearanceLine lead>{parts.binding}{parts.color}{props.trailing}</AppearanceLine>
+  if (!parts.bound) return <AppearanceLine>{parts.color}{parts.binding}{props.trailing}</AppearanceLine>
   return <><AppearanceLine>{parts.color}{props.trailing}</AppearanceLine><AppearanceLine>{parts.binding}</AppearanceLine></>
 }
 
@@ -177,10 +171,11 @@ function BlendingSection({ context }: { context: Context }) {
   const value = aggregate.value
   // Patches name only the edited field, so changing opacity or blend keeps hidden layers hidden.
   const set = (patch: { visible?: boolean; opacity?: number; blendMode?: BlendMode }) => { commands().setBlending(context.ids, patch) }
+  const scrubOpacity = () => liveEdit(context.targets, (appearance, opacity) => canonicalAppearance({ ...(appearance ?? {}), opacity: opacity / 100 }))
   const visible = value.visible && !mixed.includes('visible')
   return <AppearanceSection id="blending" title={copy.blending} disabled={context.disabled} actions={<AppearanceVisibilityButton visible={visible} showLabel={copy.showLayer} hideLabel={copy.hideLayer} disabled={context.disabled} onChange={next => set({ visible: next })} />}>
     <AppearanceLine>
-      <InspectorNumberField id="blending-opacity" label={copy.opacity} suffix="%" value={mixed.includes('opacity') ? null : Math.round(value.opacity * 100)} placeholder={copy.mixed} min={0} max={100} disabled={context.disabled} onCommit={opacity => set({ opacity: opacity / 100 })} />
+      <InspectorNumberField id="blending-opacity" label={copy.opacity} prefix={<AppearanceFieldGlyph name="opacity" />} suffix="%" value={mixed.includes('opacity') ? null : Math.round(value.opacity * 100)} placeholder={copy.mixed} min={0} max={100} disabled={context.disabled} onCommit={opacity => set({ opacity: opacity / 100 })} onScrubStart={scrubOpacity} />
       <AppearanceSelect id="blending-mode" label={copy.blendMode} value={mixed.includes('blendMode') ? null : value.blendMode} placeholder={copy.mixed} groups={blendGroups} disabled={context.disabled} onChange={mode => set({ blendMode: mode as BlendMode })} />
     </AppearanceLine>
   </AppearanceSection>
@@ -299,14 +294,14 @@ function GradientBody({ context, paint, index, number, isMixed, write, live }: B
       <AppearanceSelect id={`fill-${paint.id}-shape`} label={copy.shape(number)} value={isMixed('shape') ? null : paint.shape} placeholder={copy.mixed} options={shapes} disabled={disabled} onChange={shape => write({ ...paint, shape: shape as GradientShape })} />
       {paint.shape === 'radial'
         ? <AppearanceSpacer />
-        : <InspectorNumberField id={`fill-${paint.id}-angle`} label={copy.angle(number)} suffix="°" value={isMixed('angle') ? null : paint.angle} placeholder={copy.mixed} min={-360} max={360} disabled={disabled} onCommit={angle => write({ ...paint, angle })} />}
+        : <InspectorNumberField id={`fill-${paint.id}-angle`} label={copy.angle(number)} prefix={<AppearanceFieldGlyph name="angle" />} suffix="°" value={isMixed('angle') ? null : paint.angle} placeholder={copy.mixed} min={-360} max={360} disabled={disabled} onCommit={angle => write({ ...paint, angle })} onScrubStart={() => live(angle => ({ ...paint, angle }))} />}
     </AppearanceLine>
     <AppearanceLine>
-      <InspectorNumberField id={`fill-${paint.id}-center-x`} label={copy.centerX(number)} prefix="X" suffix="%" value={isMixed('center') ? null : Math.round(paint.center.x * 100)} placeholder={copy.mixed} min={-200} max={300} disabled={disabled} onCommit={x => write({ ...paint, center: { ...paint.center, x: x / 100 } })} />
-      <InspectorNumberField id={`fill-${paint.id}-center-y`} label={copy.centerY(number)} prefix="Y" suffix="%" value={isMixed('center') ? null : Math.round(paint.center.y * 100)} placeholder={copy.mixed} min={-200} max={300} disabled={disabled} onCommit={y => write({ ...paint, center: { ...paint.center, y: y / 100 } })} />
+      <InspectorNumberField id={`fill-${paint.id}-center-x`} label={copy.centerX(number)} prefix="X" suffix="%" value={isMixed('center') ? null : Math.round(paint.center.x * 100)} placeholder={copy.mixed} min={-200} max={300} disabled={disabled} onCommit={x => write({ ...paint, center: { ...paint.center, x: x / 100 } })} onScrubStart={() => live(x => ({ ...paint, center: { ...paint.center, x: x / 100 } }))} />
+      <InspectorNumberField id={`fill-${paint.id}-center-y`} label={copy.centerY(number)} prefix="Y" suffix="%" value={isMixed('center') ? null : Math.round(paint.center.y * 100)} placeholder={copy.mixed} min={-200} max={300} disabled={disabled} onCommit={y => write({ ...paint, center: { ...paint.center, y: y / 100 } })} onScrubStart={() => live(y => ({ ...paint, center: { ...paint.center, y: y / 100 } }))} />
     </AppearanceLine>
     <AppearanceLine>
-      <InspectorNumberField id={`fill-${paint.id}-length`} label={copy.length(number)} suffix="%" value={isMixed('length') ? null : Math.round(paint.length * 100)} placeholder={copy.mixed} min={1} max={1000} disabled={disabled} onCommit={length => write({ ...paint, length: length / 100 })} />
+      <InspectorNumberField id={`fill-${paint.id}-length`} label={copy.length(number)} prefix={<AppearanceFieldGlyph name="length" />} suffix="%" value={isMixed('length') ? null : Math.round(paint.length * 100)} placeholder={copy.mixed} min={1} max={1000} disabled={disabled} onCommit={length => write({ ...paint, length: length / 100 })} onScrubStart={() => live(length => ({ ...paint, length: length / 100 }))} />
       <AppearanceSelect id={`fill-${paint.id}-interpolation`} label={copy.interpolation(number)} value={isMixed('interpolation') ? null : paint.interpolation} placeholder={copy.mixed} options={interpolations} disabled={disabled} onChange={value => write({ ...paint, interpolation: value as GradientInterpolation })} />
     </AppearanceLine>
     <GradientBar label={copy.stops(number)} background={gradientBarCss(paint.stops.map(item => ({ position: item.position, ...(item.midpoint === undefined ? {} : { midpoint: item.midpoint }), css: css(item.color) })))} active={current} disabled={disabled}
@@ -322,7 +317,7 @@ function GradientBody({ context, paint, index, number, isMixed, write, live }: B
       onMidpointNudge={(index, delta) => write(withStop(paint, index, { midpoint: round(clamp((paint.stops[index]!.midpoint ?? 0.5) + delta, 0.01, 0.99)) }))}
       onResetMidpoint={index => write(withStop(paint, index, { midpoint: 0.5 }))} />
     <AppearanceLine><InspectorPaintStop label={copy.stop(stopNumber(current))}
-      position={<InspectorNumberField id={`fill-${paint.id}-stop-position`} label={copy.stopPosition(stopNumber(current))} suffix="%" value={isMixed('stops') ? null : Math.round(stop.position * 100)} placeholder={copy.mixed} min={0} max={100} disabled={disabled} onCommit={position => write(withStop(paint, current, { position: position / 100 }))} />}
+      position={<InspectorNumberField id={`fill-${paint.id}-stop-position`} label={copy.stopPosition(stopNumber(current))} prefix={<AppearanceFieldGlyph name="position" />} suffix="%" value={isMixed('stops') ? null : Math.round(stop.position * 100)} placeholder={copy.mixed} min={0} max={100} disabled={disabled} onCommit={position => write(withStop(paint, current, { position: position / 100 }))} onScrubStart={() => live(position => withStop(paint, current, { position: position / 100 }))} />}
       color={parts.color}
       binding={parts.binding}
       action={<InspectorIconButton label={copy.removeStop(stopNumber(current))} icon="minus" disabled={disabled || paint.stops.length <= 2} onClick={() => remove(current)} />} /></AppearanceLine>
@@ -380,8 +375,8 @@ function OutlineSection({ context }: { context: Context }) {
         <AppearanceRemoveButton label={copy.removeOutline} disabled={disabled} onClick={() => { commands().setOutline(ids, null) }} />
       </>} />
     <AppearanceLine>
-      <InspectorNumberField id="outline-width" label={copy.outlineWidth} prefix={<AppearanceFieldGlyph name="stroke-width" />} value={mixed.includes('width') ? null : value.width} placeholder={copy.mixed} min={0} max={1000} disabled={disabled} onCommit={width => edit({ width })} />
-      <InspectorNumberField id="outline-offset" label={copy.outlineOffset} prefix={<AppearanceFieldGlyph name="offset" />} value={mixed.includes('offset') ? null : value.offset} placeholder={copy.mixed} min={-1000} max={1000} disabled={disabled} onCommit={offset => edit({ offset })} />
+      <InspectorNumberField id="outline-width" label={copy.outlineWidth} prefix={<AppearanceFieldGlyph name="stroke-width" />} value={mixed.includes('width') ? null : value.width} placeholder={copy.mixed} min={0} max={1000} disabled={disabled} onCommit={width => edit({ width })} onScrubStart={() => liveEdit(targets, (appearance, width) => withOutline(appearance, editStroke(appearance?.outline ?? value, { width })))} />
+      <InspectorNumberField id="outline-offset" label={copy.outlineOffset} prefix={<AppearanceFieldGlyph name="offset" />} value={mixed.includes('offset') ? null : value.offset} placeholder={copy.mixed} min={-1000} max={1000} disabled={disabled} onCommit={offset => edit({ offset })} onScrubStart={() => liveEdit(targets, (appearance, offset) => withOutline(appearance, editStroke(appearance?.outline ?? value, { offset })))} />
       <AppearanceSelect id="outline-style" label={copy.outlineStyle} value={mixed.includes('style') ? null : value.style} placeholder={copy.mixed} options={strokeStyles} disabled={disabled} onChange={style => edit({ style: style as StrokeStyle })} />
     </AppearanceLine>
   </AppearanceSection>
@@ -435,7 +430,7 @@ function BorderRow({ context, entry, present, mixed }: { context: Context; entry
   return <AppearanceItem label={name}>
     <AppearanceLine>
       <AppearanceSelect id={`border-${side}-side`} label={copy.borderSide(name)} value={side} options={options} disabled={disabled} onChange={next => moveTo(next as BorderKey)} />
-      <InspectorNumberField id={`border-${side}-width`} label={copy.borderWidth(name)} prefix={<AppearanceFieldGlyph name="stroke-width" />} value={mixed.includes('width') ? null : stroke.width} placeholder={copy.mixed} min={0} max={1000} disabled={disabled} onCommit={width => edit({ width })} />
+      <InspectorNumberField id={`border-${side}-width`} label={copy.borderWidth(name)} prefix={<AppearanceFieldGlyph name="stroke-width" />} value={mixed.includes('width') ? null : stroke.width} placeholder={copy.mixed} min={0} max={1000} disabled={disabled} onCommit={width => edit({ width })} onScrubStart={() => liveEdit(targets, (appearance, width) => withBorder(appearance, side, current => editStroke(current, { width })))} />
       <AppearanceSelect id={`border-${side}-style`} label={copy.borderStyle(name)} value={mixed.includes('style') ? null : stroke.style} placeholder={copy.mixed} options={strokeStyles} disabled={disabled} onChange={style => edit({ style: style as StrokeStyle })} />
       <AppearanceVisibilityButton visible={stroke.visible !== false && !mixed.includes('visible')} showLabel={copy.showBorder(name)} hideLabel={copy.hideBorder(name)} disabled={disabled} onChange={setVisible} />
       <AppearanceRemoveButton label={copy.removeBorder(name)} disabled={disabled} onClick={() => { commands().removeBorder(ids, side) }} />

@@ -1,5 +1,6 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import type { KeyboardEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
+import { Select } from '@base-ui/react/select'
 import { Icon } from './atoms'
 import './appearance.css'
 
@@ -17,6 +18,10 @@ const glyphs = {
   image: <><rect x="2.5" y="3" width="11" height="10" rx="2" /><path d="m2.5 11 3.5-3.5 3 3 2-2 2.5 2.5" /><circle cx="10.5" cy="6" r="1" /></>,
   'stroke-width': <><path d="M3 4h10" strokeWidth=".75" /><path d="M3 8h10" strokeWidth="1.5" /><path d="M3 12.5h10" strokeWidth="2.5" /></>,
   offset: <><rect x="5.5" y="5.5" width="5" height="5" rx="1" /><rect x="2.5" y="2.5" width="11" height="11" rx="2" strokeDasharray="2 2" /></>,
+  opacity: <><path d="M8 2.5S3.5 7.2 3.5 10A4.5 4.5 0 0 0 12.5 10C12.5 7.2 8 2.5 8 2.5Z" /><path d="M5.1 11.2a3 3 0 0 0 5.8 0" /></>,
+  angle: <><path d="M3 13h10M3 13V3" /><path d="M6 13a7 7 0 0 1 7-7" /></>,
+  length: <><path d="M2.5 8h11" /><path d="m5 5.5-2.5 2.5L5 10.5m6-5 2.5 2.5-2.5 2.5" /></>,
+  position: <><path d="M2.5 8h11M8 2.5v11" /><circle cx="8" cy="8" r="2" fill="currentColor" /></>,
 } as const
 export type AppearanceGlyph = keyof typeof glyphs
 
@@ -90,8 +95,8 @@ export function AppearanceSection({ id, title, absent = false, actions, addLabel
 }
 
 /** One 24 px control row with 4 px vertical padding. `lead` keeps the first control compact. */
-export function AppearanceLine({ lead = false, children }: { lead?: boolean; children: ReactNode }) {
-  return <div className="appearance-line" data-lead={lead || undefined}>{children}</div>
+export function AppearanceLine({ lead = false, layout = 'balanced', children }: { lead?: boolean; layout?: 'balanced' | 'value-actions'; children: ReactNode }) {
+  return <div className="appearance-line" data-lead={lead || undefined} data-layout={layout === 'balanced' ? undefined : layout}>{children}</div>
 }
 
 export function AppearanceSpacer() { return <span className="appearance-spacer" aria-hidden="true" /> }
@@ -173,19 +178,33 @@ export function AppearanceDragHandle({ label, disabled = false, onDragStart }: {
 
 export type AppearanceOption = Readonly<{ value: string; label: string; disabled?: boolean }>
 
-/** Native select with optional separators between groups and a placeholder for mixed values. */
+/** A themed inspector select with grouped options, keyboard navigation, and focus restoration. */
 export function AppearanceSelect({ id, label, value, placeholder, options, groups, disabled = false, onChange }: { id: string; label: string; value: string | null; placeholder?: string; options?: readonly AppearanceOption[]; groups?: readonly (readonly AppearanceOption[])[]; disabled?: boolean; onChange: (value: string) => void }) {
   const sets = groups ?? [options ?? []]
-  return <label className="inspector-field inspector-select appearance-select" htmlFor={id} data-disabled={disabled || undefined} data-mixed={value === null || undefined}>
-    <select id={id} className="inspector-input" aria-label={label} title={label} value={value ?? ''} disabled={disabled} onChange={event => { if (event.currentTarget.value) onChange(event.currentTarget.value) }}>
-      {value === null && <option value="" disabled hidden>{placeholder}</option>}
-      {sets.map((set, index) => [
-        ...(index > 0 ? [<hr key={`separator-${index}`} />] : []),
-        ...set.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>),
-      ])}
-    </select>
-    <span className="inspector-select-chevron" aria-hidden="true"><Icon name="chevron" /></span>
-  </label>
+  const trigger = useRef<HTMLButtonElement>(null)
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+  const selected = sets.flat().find(option => option.value === value)
+  return <Select.Root value={value} disabled={disabled} onOpenChange={open => { if (open) setContainer(trigger.current?.closest<HTMLElement>('.editor-root') ?? null) }} onValueChange={next => { if (next !== null) onChange(next) }}>
+    <Select.Trigger ref={trigger} id={id} className="inspector-field inspector-select appearance-select" aria-label={label} title={label} data-disabled={disabled || undefined} data-mixed={value === null || undefined}>
+      <span className="inspector-input appearance-select-value">{selected?.label ?? placeholder}</span>
+      <Select.Icon className="inspector-select-chevron"><Icon name="chevron" /></Select.Icon>
+    </Select.Trigger>
+    <Select.Portal container={container}>
+      <Select.Positioner className="appearance-select-positioner" sideOffset={4} alignItemWithTrigger={false}>
+        <Select.Popup className="appearance-select-popup">
+          <Select.List className="appearance-select-list">
+            {sets.map((set, index) => <Select.Group key={`group-${index}`} className="appearance-select-group">
+              {index > 0 && <Select.Separator className="appearance-select-separator" />}
+              {set.map(option => <Select.Item key={option.value} className="appearance-select-item" value={option.value} disabled={option.disabled} label={option.label}>
+                <Select.ItemText className="appearance-select-item-text">{option.label}</Select.ItemText>
+                <Select.ItemIndicator className="appearance-select-indicator">✓</Select.ItemIndicator>
+              </Select.Item>)}
+            </Select.Group>)}
+          </Select.List>
+        </Select.Popup>
+      </Select.Positioner>
+    </Select.Portal>
+  </Select.Root>
 }
 
 /** Compact icon segmented switch with radio semantics: arrows move focus, Enter or Space chooses. */

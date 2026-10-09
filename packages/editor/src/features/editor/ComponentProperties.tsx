@@ -60,7 +60,7 @@ function EditableProp({ file, atom, node, definition, disabled }: { file: FileDo
 }
 
 export function ComponentProperties({ atoms }: { atoms: Atom[] }) {
-  const { file, selection, blocked } = useSyncExternalStore(documentStore.subscribe, documentStore.getSnapshot, documentStore.getSnapshot)
+  const { file, selection, blocked } = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
   const live = useSyncExternalStore(editorStore.subscribe, () => !editorStore.getSnapshot().compositionPreview, () => !editorStore.getSnapshot().compositionPreview)
   if (selection.length > 1) return <PropertyGroup title={copy.properties}><PropertyHint>{copy.multiple}</PropertyHint></PropertyGroup>
   const selected = file?.nodes[selection[0] ?? '']

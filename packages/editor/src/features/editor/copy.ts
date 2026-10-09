@@ -33,6 +33,6 @@ export const editorCopy = {
   historyLoadFailed: 'Saved undo history could not be opened. New edits can still be undone in this session.',
   historySaveFailed: 'Document saved, but undo history could not be saved. Keep this window open to undo these edits.',
   wholeComponent: 'Whole component',
-  compositionHint:'Composition preview uses the real atoms. App callbacks and providers are not part of this draft.',
+  compositionStatus: 'Composition preview', compositionHint: 'Composition preview uses the real atoms. App callbacks and providers are not part of this draft.',
   compositionPromotionHint: 'Creates an atom-only component. Application behavior and frame viewport settings are not exported.',
 } as const

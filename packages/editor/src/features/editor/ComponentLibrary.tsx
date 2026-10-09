@@ -31,7 +31,7 @@ export function componentDestinations(file: FileDocument | null, pageId: string 
 }
 
 export function ComponentLibrary({ atoms }: { atoms: Atom[] }) {
-  const { file, pageId, blocked } = useSyncExternalStore(documentStore.subscribe, documentStore.getSnapshot, documentStore.getSnapshot)
+  const { file, pageId, blocked } = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
   const [destination, setDestination] = useState('root')
   const choices = componentDestinations(file, pageId, atoms)
   const active = choices.find(choice => choice.value === destination) ?? choices[0]!

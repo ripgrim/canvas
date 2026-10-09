@@ -19,7 +19,7 @@ const label = (id: string, text: string) => ({ id, type: 'component' as const, c
  * and one in `footer`. Page 2: other (0,0 80x80). Every primitive has one solid fill named `<id>-fill`.
  */
 const fixture = (): FileDocument => ({
-  schemaVersion: 5, fileId: 'file-1', revision: 0,
+  schemaVersion: 6, fileId: 'file-1', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -120,6 +120,19 @@ describe('AT-CAN file loading and pages', () => {
     store.undo()
     expect(file(store).nodes.other).toBeDefined()
     expect(store.getSnapshot().pageId).toBe('page-2')
+  })
+
+  it('sets and undoes a page background while duplicated pages retain it', () => {
+    const store = loaded()
+    expect(store.commands.setPageBackground('page-2', hex('#123456'))).toBe(true)
+    expect(file(store).pages[1]!.background).toEqual(hex('#123456'))
+    const copy = store.commands.duplicatePage('page-2')
+    expect(copy).toBe('new-2')
+    expect(file(store).pages.find(page => page.id === copy)!.background).toEqual(hex('#123456'))
+    store.undo()
+    expect(file(store).pages.map(page => page.id)).toEqual(['page-1', 'page-2'])
+    store.undo()
+    expect(file(store).pages[1]).not.toHaveProperty('background')
   })
 
   it('never deletes the last page', () => {
@@ -894,6 +907,19 @@ describe('AT-CAN document persistence boundaries', () => {
     expect(store.getSnapshot().error).toBeNull()
     expect(store.getSnapshot().blocked).toBe(false)
     expect(store.getSnapshot().canUndo).toBe(false)
+  })
+})
+
+describe('AT-CAN-005 drag subscription isolation', () => {
+  it('keeps the React view snapshot stable while only pointer transient geometry changes', () => {
+    const store = loaded()
+    const baseline = store.getViewSnapshot()
+    store.setTransient({ kind: 'pan' })
+    expect(store.getViewSnapshot()).toBe(baseline)
+    store.setTransient({ kind: 'move', rects: { box: { x: 610, y: 400, width: 50, height: 40 } }, offset: { x: 10, y: 0 }, guides: [], targetFrameId: null, insertion: null })
+    expect(store.getViewSnapshot()).toBe(baseline)
+    store.setHover('box')
+    expect(store.getViewSnapshot()).not.toBe(baseline)
   })
 })
 

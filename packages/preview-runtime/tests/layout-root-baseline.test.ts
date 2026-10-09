@@ -37,7 +37,7 @@ const host = 'div[data-preview-host=]'
 const card = 'section[data-preview-instance=card-1][data-preview-component=atom-card]'
 // Inline declarations the test itself puts on the mounted roots before any layout or appearance is applied.
 const authored: Record<string, Declaration[]> = {
-  'button-1': [['width', '150px', 'important'], ['opacity', '0.9', 'important'], ['left', '3px', '']],
+  'button-1': [['width', '150px', 'important'], ['opacity', '0.9', 'important'], ['left', '3px', ''], ['translate', '3px 4px', 'important']],
   'input-1': [['top', '4px', '']],
   'card-1': [['margin-top', '2px', '']],
 }
@@ -47,7 +47,7 @@ let page: Page
 let frame: Frame
 let dispose: (() => Promise<void>) | undefined
 let send: (payload: Record<string, unknown>) => Promise<void>
-const observations: { baseline?: Observation; applied?: Observation; restored?: Observation } = {}
+const observations: { baseline?: Observation; applied?: Observation; transient?: Observation; transientRestored?: Observation; restored?: Observation } = {}
 let sessionMessages: string[] = []
 
 const observe = (): Promise<Observation> => frame.evaluate(() => {
@@ -66,7 +66,7 @@ const observe = (): Promise<Observation> => frame.evaluate(() => {
     return {
       id, tag: element.tagName.toLowerCase(), chain: chain(element), same: known ? known.get(id) === element : null,
       declarations: Array.from({ length: element.style.length }, (_, index) => element.style.item(index)).map(name => [name, element.style.getPropertyValue(name), element.style.getPropertyPriority(name)] as [string, string, string]),
-      computed: { position: style.position, left: style.left, top: style.top, width: style.width, height: style.height, opacity: style.opacity, backgroundColor: style.backgroundColor, order: style.order },
+      computed: { position: style.position, left: style.left, top: style.top, width: style.width, height: style.height, opacity: style.opacity, backgroundColor: style.backgroundColor, order: style.order, translate: style.translate },
     }
   })
   return { elementCount: document.body.getElementsByTagName('*').length, roots }
@@ -130,6 +130,11 @@ beforeAll(async () => {
   await send({ type: 'set-layout', items: layoutItems, layoutGeneration: 0 })
   observations.applied = await waitFor(observe, value => byId(value)['button-1']?.computed.width === '200px' && byId(value)['button-1']?.computed.opacity === '0.5' && byId(value)['input-1']?.computed.position === 'absolute')
 
+  await send({ type: 'set-transient-move', items: [{ nodeId: 'button-1', dx: 18, dy: -7 }] })
+  observations.transient = await waitFor(observe, value => byId(value)['button-1']?.declarations.find(([name]) => name === 'translate')?.[1] === '21px -3px')
+  await send({ type: 'set-transient-move', items: [] })
+  observations.transientRestored = await waitFor(observe, value => byId(value)['button-1']?.declarations.find(([name]) => name === 'translate')?.[1] === '3px 4px')
+
   await send({ type: 'set-document', document: previewDocument(3) })
   await send({ type: 'set-layout', items: [], layoutGeneration: 0 })
   observations.restored = await waitFor(observe, value => byId(value)['button-1']?.computed.width === '150px' && byId(value)['button-1']?.computed.opacity === '0.9' && byId(value)['input-1']?.computed.position === 'static')
@@ -189,6 +194,14 @@ describe('LAY-ROOT-001 layout and appearance apply to the bound component roots'
     expect(after['button-1']!.declarations.find(([name]) => name === 'opacity')).toEqual(['opacity', '0.9', 'important'])
     for (const id of ['card-1', 'input-1', 'label-1', 'button-1']) expect(after[id]!.computed, id).toEqual(before[id]!.computed)
     expect(after['button-1']!.computed).toMatchObject({ position: 'static', width: '150px', opacity: '0.9' })
+  })
+
+  it('AT-CAN-005 moves the mounted node and restores its authored translate exactly on clear', () => {
+    const moved = byId(observations.transient!)['button-1']!
+    const restored = byId(observations.transientRestored!)['button-1']!
+    expect(moved.declarations.find(([name]) => name === 'translate')).toEqual(['translate', '21px -3px', 'important'])
+    expect(restored.declarations.find(([name]) => name === 'translate')).toEqual(['translate', '3px 4px', 'important'])
+    expect(restored.computed.translate).toBe(byId(observations.applied!)['button-1']!.computed.translate)
   })
 
   it('accepted every command without a diagnostic or a render failure', () => {

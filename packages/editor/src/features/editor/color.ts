@@ -1,6 +1,7 @@
 export type Color = { r: number; g: number; b: number; a: number }
 export type Hsv = { h: number; s: number; v: number; a: number }
 export type Hsl = { h: number; s: number; l: number; a: number }
+export type Lch = { l: number; c: number; h: number; a: number }
 
 const inRange = (value: number, max: number) => Number.isFinite(value) && value >= 0 && value <= max
 const byte = (value: number) => Math.max(0, Math.min(255, Math.round(value)))
@@ -58,7 +59,7 @@ export function parseColor(input: string): Color | null {
       b: Number.parseInt(expanded.slice(4, 6), 16), a: expanded.length === 8 ? Number.parseInt(expanded.slice(6, 8), 16) / 255 : 1,
     }
   }
-  const functionName = /^(rgb|rgba|hsl|hsla)\((.*)\)$/.exec(value)
+  const functionName = /^(rgb|rgba|hsl|hsla|lch)\((.*)\)$/.exec(value)
   if (!functionName) return null
   const values = parts(functionName[2]!)
   if (!values || functionName[1]!.endsWith('a') && values.length !== 4) return null
@@ -68,6 +69,12 @@ export function parseColor(input: string): Color | null {
     const channels = values.slice(0, 3).map(channel)
     if (channels.some(part => part === null)) return null
     return { r: channels[0]!, g: channels[1]!, b: channels[2]!, a: opacity }
+  }
+  if (functionName[1] === 'lch') {
+    const l = percent(values[0]!)
+    const c = Number(values[1])
+    const h = hue(values[2]!)
+    return l === null || !inRange(c, 150) || h === null ? null : lchToRgb({ l, c, h, a: opacity })
   }
   const h = hue(values[0]!)
   const s = percent(values[1]!)
@@ -133,4 +140,56 @@ export function formatHsl(color: Color): string {
   const hsl = rgbToHsl(color)
   const channels = `${decimal(hsl.h)}deg, ${decimal(hsl.s)}%, ${decimal(hsl.l)}%`
   return color.a >= 1 ? `hsl(${channels})` : `hsla(${channels}, ${decimal(color.a)})`
+}
+
+const labCurve = (value: number) => value > 216 / 24389 ? Math.cbrt(value) : (24389 / 27 * value + 16) / 116
+const inverseLabCurve = (value: number) => value ** 3 > 216 / 24389 ? value ** 3 : (116 * value - 16) / (24389 / 27)
+const linearChannel = (value: number) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+const encodedChannel = (value: number) => value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055
+
+/** Converts an sRGB color to CSS Color 4 CIE LCH using a D50 reference white. */
+export function rgbToLch(color: Color): Lch {
+  const r = linearChannel(color.r / 255)
+  const g = linearChannel(color.g / 255)
+  const b = linearChannel(color.b / 255)
+  const d65x = r * 0.4124564 + g * 0.3575761 + b * 0.1804375
+  const d65y = r * 0.2126729 + g * 0.7151522 + b * 0.072175
+  const d65z = r * 0.0193339 + g * 0.119192 + b * 0.9503041
+  const x = d65x * 1.0479298 + d65y * 0.0229468 - d65z * 0.0501922
+  const y = d65x * 0.0296278 + d65y * 0.9904345 - d65z * 0.0170738
+  const z = -d65x * 0.009243 + d65y * 0.0150552 + d65z * 0.7518743
+  const fx = labCurve(x / 0.96422)
+  const fy = labCurve(y)
+  const fz = labCurve(z / 0.82521)
+  const l = 116 * fy - 16
+  const a = 500 * (fx - fy)
+  const labB = 200 * (fy - fz)
+  const h = (Math.atan2(labB, a) * 180 / Math.PI + 360) % 360
+  return { l, c: Math.sqrt(a * a + labB * labB), h, a: color.a }
+}
+
+/** Converts CSS Color 4 CIE LCH to the nearest displayable sRGB color. */
+export function lchToRgb(value: Lch): Color {
+  const radians = value.h * Math.PI / 180
+  const labA = value.c * Math.cos(radians)
+  const labB = value.c * Math.sin(radians)
+  const fy = (value.l + 16) / 116
+  const fx = fy + labA / 500
+  const fz = fy - labB / 200
+  const d50x = 0.96422 * inverseLabCurve(fx)
+  const d50y = inverseLabCurve(fy)
+  const d50z = 0.82521 * inverseLabCurve(fz)
+  const x = d50x * 0.9554734 - d50y * 0.0230985 + d50z * 0.0632593
+  const y = -d50x * 0.0283697 + d50y * 1.0099955 + d50z * 0.0210414
+  const z = d50x * 0.012314 - d50y * 0.0205077 + d50z * 1.3303659
+  const r = encodedChannel(x * 3.2404542 - y * 1.5371385 - z * 0.4985314)
+  const g = encodedChannel(-x * 0.969266 + y * 1.8760108 + z * 0.041556)
+  const b = encodedChannel(x * 0.0556434 - y * 0.2040259 + z * 1.0572252)
+  return { r: byte(r * 255), g: byte(g * 255), b: byte(b * 255), a: value.a }
+}
+
+export function formatLch(color: Color): string {
+  const lch = rgbToLch(color)
+  const channels = `${decimal(lch.l)}% ${decimal(lch.c)} ${decimal(lch.h)}`
+  return color.a >= 1 ? `lch(${channels})` : `lch(${channels} / ${decimal(color.a)})`
 }

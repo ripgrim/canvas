@@ -37,7 +37,7 @@ const chainTokens = Object.fromEntries(Array.from({ length: 66 }, (_, index) => 
   return [id, { id, type: 'color', name: `Chain ${index + 1}`, orderKey: `y${index + 1}k`, value: index === 65 ? literal('#123456') : alias(`chain-${index + 2}`) }]
 }))
 const file = {
-  schemaVersion: 5, fileId, revision: 1,
+  schemaVersion: 6, fileId, revision: 1,
   pages: [{ id: 'page-1', name: 'Tokens', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },

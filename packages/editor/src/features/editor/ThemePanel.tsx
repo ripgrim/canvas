@@ -80,7 +80,7 @@ function TokenEditor({ file, token, sources, mode, readOnly, confirm, onConfirm,
 
 /** File theme tokens: one color group, searchable, with a popover editor beside each row. */
 export function ThemePanel() {
-  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getSnapshot, documentStore.getSnapshot)
+  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
   const mode = useSyncExternalStore(editorStore.subscribe, () => editorStore.getSnapshot().mode, () => editorStore.getSnapshot().mode)
   // Re-render when the preview theme changes, since source tokens resolve against it.
   useSyncExternalStore(editorStore.subscribe, () => editorStore.getSnapshot().snapshot, () => editorStore.getSnapshot().snapshot)

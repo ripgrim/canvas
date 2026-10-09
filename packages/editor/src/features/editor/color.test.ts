@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatHex, formatHsl, formatRgb, hslToRgb, hsvToRgb, parseColor, rgbToHsl, rgbToHsv } from './color'
+import { formatHex, formatHsl, formatLch, formatRgb, hslToRgb, hsvToRgb, lchToRgb, parseColor, rgbToHsl, rgbToHsv, rgbToLch } from './color'
 
 describe('color input', () => {
   it('parses HEX lengths and alpha without losing the byte value', () => {
@@ -27,8 +27,19 @@ describe('color input', () => {
     expect(rgbToHsl({ r: 255, g: 255, b: 0, a: 1 })).toEqual({ h: 60, s: 100, l: 50, a: 1 })
   })
 
+  it('round-trips sRGB through D50 LCH with independently known red coordinates', () => {
+    const red = rgbToLch({ r: 255, g: 0, b: 0, a: 0.5 })
+    expect(red.l).toBeCloseTo(54.29, 1)
+    expect(red.c).toBeCloseTo(106.84, 1)
+    expect(red.h).toBeCloseTo(40.85, 1)
+    expect(lchToRgb(red)).toEqual({ r: 255, g: 0, b: 0, a: 0.5 })
+    expect(formatLch({ r: 255, g: 0, b: 0, a: 1 })).toMatch(/^lch\(54\.29\d% 106\.8\d+ 40\.85\d\)$/)
+    const parsed = parseColor('lch(54.292% 106.839 40.853 / 50%)')
+    expect(parsed).toEqual({ r: 255, g: 0, b: 0, a: 0.5 })
+  })
+
   it('rejects overflow, incomplete values, and injected CSS', () => {
-    for (const value of ['#ggg', '#12345', 'rgb(256, 0, 0)', 'rgb(-1, 0, 0)', 'rgba(1, 2, 3, 1.1)', 'hsl(361, 50%, 50%)', 'hsl(0, 101%, 50%)', 'var(--color-1)', '#fff; color: red', 'rgb(1, 2, 3, 4)']) {
+    for (const value of ['#ggg', '#12345', 'rgb(256, 0, 0)', 'rgb(-1, 0, 0)', 'rgba(1, 2, 3, 1.1)', 'hsl(361, 50%, 50%)', 'hsl(0, 101%, 50%)', 'lch(50% 151 20)', 'var(--color-1)', '#fff; color: red', 'rgb(1, 2, 3, 4)']) {
       expect(parseColor(value), value).toBeNull()
     }
   })

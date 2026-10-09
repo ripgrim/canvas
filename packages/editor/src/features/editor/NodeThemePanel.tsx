@@ -31,7 +31,7 @@ function inheritedLine(file: FileDocument, effective: readonly EffectiveNodeThem
  * canvas default theme; the editor appearance is never consulted. Choosing a segment writes one batch for all layers.
  */
 export function NodeThemeSection({ nodes, disabled }: { nodes: readonly ThemedNode[]; disabled: boolean }) {
-  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getSnapshot, documentStore.getSnapshot)
+  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
   const geometry = useSyncExternalStore(sceneGeometry.subscribe, sceneGeometry.getSnapshot, sceneGeometry.getSnapshot)
   // The canvas default theme and the declared design themes decide inheritance and which segments are available.
   useSyncExternalStore(editorStore.subscribe, () => editorStore.getSnapshot().previewThemeId, () => editorStore.getSnapshot().previewThemeId)

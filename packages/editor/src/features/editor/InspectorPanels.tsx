@@ -1,11 +1,18 @@
 import { useSyncExternalStore } from 'react'
 import type { Appearance } from '@canvas/repo-engine/appearance'
+import { colorToCss, colorToHex, hexColor } from '@canvas/repo-engine/color'
+import { resolveColorValue } from '@canvas/repo-engine/file-document'
 import type { ComponentNode, FileDocument, FileNode, PrimitiveNode, PrimitiveStyles } from '@canvas/repo-engine/file-document'
+import { ColorPicker } from '../../design-system/color-picker'
 import { InspectorCheck, InspectorHeading, InspectorNumberField, InspectorRow, InspectorSection, InspectorStack, InspectorTextField } from '../../design-system/inspector-atoms'
+import { InspectorColorField } from '../../design-system/inspector-atoms'
+import { TokenChooser } from '../../design-system/token-field-atoms'
 import { AppearanceSections } from './AppearancePanels'
 import { LayoutSections } from './LayoutPanels'
 import { NodeThemeSection } from './NodeThemePanel'
+import { SelectionColorsPanel } from './SelectionColorsPanel'
 import type { StyledNode } from './appearance-adapters'
+import { colorTokenOptions } from './appearance-adapters'
 import { documentStore } from './document-store'
 import { editorStore } from './store'
 import { inspectorCopy as copy } from './inspector-copy'
@@ -26,12 +33,25 @@ function useEditorMode(): Mode {
 }
 
 export function PageInspector() {
-  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getSnapshot, documentStore.getSnapshot)
+  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
+  const mode = useEditorMode()
   const page = state.file?.pages.find(candidate => candidate.id === state.pageId)
-  if (!page) return null
+  if (!page || !state.file) return null
+  const palette = documentStore.paletteFor(page.rootNodeId)
+  const resolved = page.background ? resolveColorValue(state.file.theme, page.background, palette) : null
+  const value = resolved ? colorToHex(resolved) : mode === 'dark' ? '#1f1f1f' : '#ffffff'
+  const setLiteral = (hex: string) => documentStore.commands.setPageBackground(page.id, { kind: 'literal', color: hexColor(hex) })
+  const tokens = colorTokenOptions(state.file).map(option => {
+    const color = resolveColorValue(state.file!.theme, { kind: 'token', tokenId: option.value }, palette)
+    return { ...option, ...(color ? { color: colorToCss(color) } : {}) }
+  })
   return <InspectorStack>
     <InspectorSection id="page" title={copy.page}>
       <InspectorTextField key={page.id} id="page-name" label={copy.pageName} value={page.name} disabled={state.blocked} onCommit={name => { documentStore.commands.renamePage(page.id, name) }} />
+      <InspectorRow>
+        <InspectorColorField id="page-background" label={copy.pageBackground} opacityLabel={copy.pageBackgroundOpacity} value={value} disabled={state.blocked} swatch={<ColorPicker variant="swatch" label={copy.pageBackground} value={value} mode={mode} disabled={state.blocked} onChange={setLiteral} />} onCommit={setLiteral} />
+        <TokenChooser id="page-background-token" label={copy.pageBackgroundToken} placeholder={copy.pageBackgroundToken} options={tokens} disabled={state.blocked} onChoose={tokenId => documentStore.commands.setPageBackground(page.id, { kind: 'token', tokenId })} />
+      </InspectorRow>
     </InspectorSection>
   </InspectorStack>
 }
@@ -79,7 +99,7 @@ function ComponentInspector({ node, file, overrides, mode, disabled }: Appearanc
 }
 
 export function SelectionInspector() {
-  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getSnapshot, documentStore.getSnapshot)
+  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
   const mode = useEditorMode()
   const file = state.file
   if (!file || state.selection.length === 0) return null
@@ -87,12 +107,13 @@ export function SelectionInspector() {
   const primitives = nodes.filter(isPrimitive)
   const shared = { file, overrides: state.appearanceOverrides, mode, disabled: state.blocked }
   const heading = state.selection.length > 1 ? <InspectorHeading>{copy.selected(state.selection.length)}</InspectorHeading> : null
-  if (primitives.length === state.selection.length) return <InspectorStack>{heading}<PrimitiveInspector nodes={primitives} {...shared} /></InspectorStack>
+  const colors = <SelectionColorsPanel file={file} selection={state.selection} mode={mode} disabled={state.blocked} />
+  if (primitives.length === state.selection.length) return <InspectorStack>{heading}<PrimitiveInspector nodes={primitives} {...shared} />{colors}</InspectorStack>
   const node = nodes[0]
-  if (state.selection.length === 1 && node?.type === 'component') return <InspectorStack><ComponentInspector node={node} {...shared} /></InspectorStack>
+  if (state.selection.length === 1 && node?.type === 'component') return <InspectorStack><ComponentInspector node={node} {...shared} />{colors}</InspectorStack>
   const components = nodes.filter(isComponent)
-  if (components.length === state.selection.length) return <InspectorStack>{heading}<LayoutSections key={state.selection.join(' ')} nodes={components} file={file} disabled={state.blocked} /><NodeThemeSection nodes={components} disabled={state.blocked} /><AppearanceSections nodes={components} {...shared} /></InspectorStack>
+  if (components.length === state.selection.length) return <InspectorStack>{heading}<LayoutSections key={state.selection.join(' ')} nodes={components} file={file} disabled={state.blocked} /><NodeThemeSection nodes={components} disabled={state.blocked} /><AppearanceSections nodes={components} {...shared} />{colors}</InspectorStack>
   // Primitives and components together: only the theme and the shared appearance sections apply.
   const styled = nodes.filter(isStyled)
-  return <InspectorStack>{heading}<NodeThemeSection nodes={styled} disabled={state.blocked} /><AppearanceSections nodes={styled} {...shared} /></InspectorStack>
+  return <InspectorStack>{heading}<NodeThemeSection nodes={styled} disabled={state.blocked} /><AppearanceSections nodes={styled} {...shared} />{colors}</InspectorStack>
 }

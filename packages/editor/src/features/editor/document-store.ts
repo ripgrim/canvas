@@ -2,7 +2,7 @@ import { applyFileCommand, childrenOf, descendantsOf, pageRoot, resolveToken, va
 import type { ColorToken, FileCommand, FileDocument, FileNode, NodePlacement, Paint, PrimitiveKind, PrimitiveStyles, SourcePalette, TokenValue } from '@canvas/repo-engine/file-document'
 import { defaultFillColor, imageMimes, nextBorders, validateImageAsset } from '@canvas/repo-engine/appearance'
 import { nodeAppearance } from '@canvas/repo-engine/file-document'
-import type { Appearance, BlendMode, BorderSide, Borders, ImageAsset, ImageMime, Outline, Stroke } from '@canvas/repo-engine/appearance'
+import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAsset, ImageMime, Outline, Stroke } from '@canvas/repo-engine/appearance'
 import type { DocumentNodeLayout } from '@canvas/repo-engine/document'
 import { layoutFromLegacy, legacyLayout } from '@canvas/repo-engine/layout'
 import type { NodeLayout, SizingMode } from '@canvas/repo-engine/layout'
@@ -36,7 +36,7 @@ export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text'
 /** Transient gesture state shared between the interaction layer and the HUD. Never persisted. */
 export type CanvasTransient =
   | { kind: 'marquee'; rect: Rect }
-  | { kind: 'move'; rects: Record<string, Rect>; guides: SnapGuide[]; targetFrameId: string | null; insertion: { axis: 'x' | 'y'; rect: Rect } | null }
+  | { kind: 'move'; rects: Record<string, Rect>; offset: Point; guides: SnapGuide[]; targetFrameId: string | null; insertion: { axis: 'x' | 'y'; rect: Rect } | null }
   | { kind: 'resize'; rects: Record<string, Rect> }
   | { kind: 'draw'; elementKind: PrimitiveKind; rect: Rect; targetFrameId: string | null }
   | { kind: 'pan' }
@@ -123,6 +123,17 @@ export const isPrimitive = (node: FileNode | undefined): node is Extract<FileNod
 const placementCommand = (node: FileNode | undefined, placement: DocumentNodeLayout): FileCommand => ({ type: 'node.setLayout', nodeId: node!.id, layout: layoutFromLegacy(placement, node?.type === 'component' ? node.layout : undefined) })
 export function createDocumentStore(makeId: () => string = () => crypto.randomUUID()) {
   const backing = createStore<DocumentState>(() => ({ file: null, pageId: null, atoms: [], selection: [], hover: null, renaming: null, transient: null, viewport: defaultCamera, viewportSize: { width: 0, height: 0 }, gridVisible: false, fitRequested: null, spaceHeld: false, tool: 'move', dirty: false, saving: false, error: null, blocked: false, canUndo: false, canRedo: false, appearanceOverrides: null, layoutOverrides: null, layoutGeneration: 0 }))
+  let viewSource = backing.getState()
+  let viewSnapshot = viewSource
+  /** React panels do not consume pointer-only transient geometry, so keep their snapshot stable across drag frames. */
+  const getViewSnapshot = () => {
+    const next = backing.getState()
+    if (next === viewSource) return viewSnapshot
+    const sameExceptTransient = (Object.keys(next) as (keyof DocumentState)[]).every(key => key === 'transient' || next[key] === viewSource[key])
+    viewSource = next
+    if (!sameExceptTransient) viewSnapshot = next
+    return viewSnapshot
+  }
   let options: StoreOptions = {}
   let editPolicy: ((file: FileDocument) => void) | undefined
   const permits = (file: FileDocument) => { try { editPolicy?.(file); return true } catch (error) { emit({ error: error instanceof Error ? error.message : canvasCopy.persistenceFailed }); return false } }
@@ -312,6 +323,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   const lastTokenKey = (file: FileDocument) => Object.values(file.theme.tokens).sort(compareOrder).at(-1)?.orderKey ?? null
   return {
     getSnapshot: backing.getState,
+    getViewSnapshot,
     subscribe: (listener: () => void) => {
       const stop = backing.subscribe(listener)
       const unsubscribe = () => { stop(); subscriptions.delete(unsubscribe) }
@@ -661,6 +673,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         return execute({ type: 'page.create', page }, [], settings.activate === false ? state.pageId : page.id) ? page.id : null
       },
       renamePage: (pageId: string, name: string) => { const next = name.trim(); return next ? execute({ type: 'page.rename', pageId, name: next }) : false },
+      setPageBackground: (pageId: string, background: ColorValue | null) => execute({ type: 'page.setBackground', pageId, background }),
       deletePage: (pageId: string) => {
         const state = backing.getState()
         if (!state.file || state.file.pages.length < 2) return false

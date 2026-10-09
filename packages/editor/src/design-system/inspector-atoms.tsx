@@ -28,7 +28,14 @@ export function InspectorNote({ id, icon, children }: { id?: string; icon?: Icon
 
 function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)) }
 
-export function InspectorNumberField({ id, label, prefix, value, placeholder, min = -100000, max = 100000, suffix, disabled = false, onCommit }: { id: string; label: string; prefix?: ReactNode; value: number | null; placeholder?: string; min?: number; max?: number; suffix?: string; disabled?: boolean; onCommit: (value: number) => void }) {
+type NumberFieldProps = { id: string; label: string; prefix?: ReactNode; value: number | null; placeholder?: string; min?: number; max?: number; suffix?: string; precision?: number; disabled?: boolean; onCommit: (value: number) => void; onScrubStart?: () => InspectorScrubSession | null }
+
+export function InspectorNumberField(props: NumberFieldProps) {
+  if (props.onScrubStart && props.prefix !== undefined) return <InspectorScrubField {...props} prefix={props.prefix} />
+  return <InspectorPlainNumberField {...props} />
+}
+
+function InspectorPlainNumberField({ id, label, prefix, value, placeholder, min = -100000, max = 100000, suffix, disabled = false, onCommit }: NumberFieldProps) {
   const [draft, setDraft] = useState<string | null>(null)
   const cancelled = useRef(false)
   const shown = draft ?? (value === null ? '' : String(Math.round(value * 100) / 100))
@@ -158,8 +165,12 @@ export function InspectorPaintStop({ label, position, color, binding, action }: 
   return <div className="inspector-paint-stop" role="group" aria-label={label}><span className="inspector-paint-stop-position">{position}</span><span className="inspector-paint-stop-color">{color}</span><span className="inspector-paint-stop-action">{action}</span><span className="inspector-paint-stop-binding">{binding}</span></div>
 }
 
-export function InspectorTextButton({ label, icon, disabled = false, onClick }: { label: string; icon?: IconName; disabled?: boolean; onClick: () => void }) {
-  return <button type="button" className="inspector-text-button" disabled={disabled} onClick={onClick}>{icon && <Icon name={icon} />}<span>{label}</span></button>
+export function InspectorTextButton({ label, icon, wide = false, disabled = false, onClick }: { label: string; icon?: IconName; wide?: boolean; disabled?: boolean; onClick: () => void }) {
+  return <button type="button" className="inspector-text-button" data-wide={wide || undefined} disabled={disabled} onClick={onClick}>{icon && <Icon name={icon} />}<span>{label}</span></button>
+}
+
+export function InspectorCountButton({ label, count, disabled = false, onClick }: { label: string; count: number; disabled?: boolean; onClick: () => void }) {
+  return <button type="button" className="inspector-count-button" aria-label={label} title={label} disabled={disabled} onClick={onClick}><Icon name="target" /><span>{count}</span></button>
 }
 
 const hexPattern = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i
@@ -248,6 +259,10 @@ type ScrubFieldProps = {
   suffix?: string
   /** Decimal places kept on commit and per scrub pixel (0 scrubs by 1, 2 scrubs by 0.01). */
   precision?: number
+  /** Paper's default accumulator rate is one quarter of the field's small step per horizontal pixel. */
+  sensitivity?: number
+  /** Quantized step used while Shift is held. Defaults to ten small steps. */
+  largeStep?: number
   disabled?: boolean
   onCommit: (value: number) => void
   /** Called when a field holding a value is emptied; without it an empty field restores the value. */
@@ -260,7 +275,7 @@ type ScrubFieldProps = {
  * Number field whose prefix scrubs horizontally. The scrub only opens a session after a few pixels of movement, so a
  * click never starts a gesture; Escape or pointer cancel ends it without a commit. Listeners live only for the drag.
  */
-export function InspectorScrubField({ id, label, prefix, value, placeholder, min = -100000, max = 100000, suffix, precision = 0, disabled = false, onCommit, onClear, onScrubStart }: ScrubFieldProps) {
+export function InspectorScrubField({ id, label, prefix, value, placeholder, min = -100000, max = 100000, suffix, precision = 0, sensitivity = 0.25, largeStep, disabled = false, onCommit, onClear, onScrubStart }: ScrubFieldProps) {
   const [draft, setDraft] = useState<string | null>(null)
   const [scrubbing, setScrubbing] = useState<number | null>(null)
   const cancelled = useRef(false)
@@ -305,13 +320,16 @@ export function InspectorScrubField({ id, label, prefix, value, placeholder, min
     }
     const move = (next: PointerEvent) => {
       if (next.pointerId !== pointerId) return
-      const delta = Math.round(next.clientX - originX)
+      const delta = next.clientX - originX
       if (!session) {
         if (Math.abs(delta) < 3) return
         session = onScrubStart()
         if (!session) { finish(true); return }
       }
-      const current = clamp(roundTo(start + delta * step, precision), min, max)
+      const quantum = next.shiftKey ? largeStep ?? step * 10 : step
+      const accumulated = delta * sensitivity * step
+      const quantized = Math.trunc(accumulated / quantum) * quantum
+      const current = clamp(roundTo(start + quantized, precision), min, max)
       if (current === last) return
       last = current
       setScrubbing(current)
@@ -327,7 +345,7 @@ export function InspectorScrubField({ id, label, prefix, value, placeholder, min
     window.addEventListener('keydown', key, true)
   }
   return <label className="inspector-field" htmlFor={id} data-disabled={disabled || undefined} data-scrubbing={scrubbing !== null || undefined}>
-    <span className="inspector-field-prefix" data-scrub-handle={scrubbable || undefined} aria-hidden="true" onPointerDown={onPointerDown}>{prefix}</span>
+    <span className="inspector-field-prefix" data-scrub-area={scrubbable || undefined} data-scrub-handle={scrubbable || undefined} aria-hidden="true" onPointerDown={onPointerDown}>{prefix}</span>
     <input id={id} className="inspector-input" aria-label={label} inputMode="decimal" autoComplete="off" spellCheck={false} disabled={disabled} value={shown} placeholder={placeholder} onChange={event => setDraft(event.currentTarget.value)} onBlur={event => { if (cancelled.current) { cancelled.current = false; return } if (draft !== null) commit(event.currentTarget.value) }} onKeyDown={onKeyDown} />
     {suffix && <span className="inspector-field-suffix" aria-hidden="true">{suffix}</span>}
   </label>

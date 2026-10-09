@@ -7,7 +7,7 @@ import type { DesignEditorApi, PreparedChange, ProjectSnapshot } from './types'
 
 const labelAtom = { name: 'Label', kind: 'atom' as const, componentId: 'label-component', path: 'src/Label.tsx', exportName: 'Label', fingerprint: 'f', sourceHash: 'h', status: 'bound' as const, candidates: [], props: [{ name: 'children', type: 'ReactNode', optional: true }] }
 const file = (): FileDocument => ({
-  schemaVersion: 5, fileId: 'file-a', revision: 3,
+  schemaVersion: 6, fileId: 'file-a', revision: 3,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },

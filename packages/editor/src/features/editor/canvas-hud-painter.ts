@@ -4,6 +4,7 @@ import { sceneGeometry } from './scene-geometry'
 import { buildScene } from './canvas-scene'
 import { handleSizeCss, unionRects, worldRectToScreen, worldToScreen } from './canvas-math'
 import type { Rect } from './canvas-math'
+import { canvasCopy as copy } from './canvas-copy'
 
 /**
  * Paints selection, hover, marquee, snap, insertion, draw-preview, and handle visuals on one 2D canvas.
@@ -21,7 +22,7 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
     const root = canvas?.closest('.editor-root') ?? document.querySelector('.editor-root')
     const style = root ? getComputedStyle(root) : null
     const read = (name: string, fallback: string) => style?.getPropertyValue(name).trim() || fallback
-    return { accent: read('--color-1', '#9b4dff'), guide: read('--color-4', '#e864ff'), surface: read('--neutral-1', '#ffffff') }
+    return { accent: read('--color-1', '#9b4dff'), guide: read('--color-4', '#e864ff'), surface: read('--neutral-1', '#ffffff'), muted: read('--neutral-6', '#7a7a7a'), font: read('--font-ui', 'system-ui') }
   }
   const crisp = (value: number) => Math.round(value) + 0.5
   const strokeRect = (context: CanvasRenderingContext2D, rect: Rect, color: string, width = 1, dash: number[] = []) => {
@@ -31,6 +32,16 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
     context.setLineDash(dash)
     context.strokeRect(crisp(rect.x), crisp(rect.y), Math.max(0, Math.round(rect.width)), Math.max(0, Math.round(rect.height)))
     context.restore()
+  }
+  const roundedRect = (context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
+    context.beginPath()
+    context.roundRect(Math.round(x), Math.round(y), Math.round(width), Math.round(height), radius)
+  }
+  const fitText = (context: CanvasRenderingContext2D, text: string, width: number) => {
+    if (context.measureText(text).width <= width) return text
+    let end = text.length
+    while (end > 1 && context.measureText(`${text.slice(0, end)}…`).width > width) end -= 1
+    return `${text.slice(0, end)}…`
   }
   const paint = () => {
     frame = null
@@ -50,21 +61,36 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
     const scene = buildScene(state.file, state.pageId, geometry.getSnapshot().nodes)
     const toScreen = (rect: Rect) => worldRectToScreen(rect, state.viewport, state.viewportSize)
     const transient = state.transient
+    const moving = transient?.kind === 'move'
     const liveRect = (id: string): Rect | null => (transient?.kind === 'move' || transient?.kind === 'resize' ? transient.rects[id] : undefined) ?? scene.byId.get(id)?.rect ?? null
     const selected = state.selection.filter(id => scene.byId.has(id))
+    context.save()
+    context.font = `11px ${palette.font}`
+    context.textBaseline = 'bottom'
+    for (const node of scene.nodes.filter(candidate => candidate.parentId === null && (candidate.kind === 'frame' || candidate.kind === 'component'))) {
+      if (state.renaming === node.id) continue
+      if (moving && selected.includes(node.id)) continue
+      const rect = liveRect(node.id) ?? node.rect
+      const screen = toScreen(rect)
+      context.fillStyle = selected.includes(node.id) ? palette.accent : palette.muted
+      context.fillText(fitText(context, node.name, Math.max(48, screen.width)), Math.round(screen.x), Math.round(screen.y - 3), Math.max(48, screen.width))
+    }
+    context.restore()
     if (state.hover && !selected.includes(state.hover) && scene.byId.get(state.hover) && !transient) {
       painted.hover = state.hover
       strokeRect(context, toScreen(scene.byId.get(state.hover)!.rect), `color-mix(in srgb, ${palette.accent} 60%, transparent)`)
     }
     if (transient?.kind === 'move' && transient.targetFrameId && scene.byId.get(transient.targetFrameId)) strokeRect(context, toScreen(scene.byId.get(transient.targetFrameId)!.rect), palette.accent, 1, [4, 3])
     const selectedRects: Rect[] = []
-    for (const id of selected) {
-      const rect = liveRect(id)
-      if (!rect) continue
-      const screen = toScreen(rect)
-      painted.selected[id] = screen
-      selectedRects.push(rect)
-      strokeRect(context, screen, palette.accent)
+    if (!moving) {
+      for (const id of selected) {
+        const rect = liveRect(id)
+        if (!rect) continue
+        const screen = toScreen(rect)
+        painted.selected[id] = screen
+        selectedRects.push(rect)
+        strokeRect(context, screen, palette.accent)
+      }
     }
     if (selected.length > 1) { const union = unionRects(selectedRects); if (union) strokeRect(context, toScreen(union), `color-mix(in srgb, ${palette.accent} 45%, transparent)`) }
     if (transient?.kind === 'marquee') {
@@ -119,6 +145,24 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
         context.fillRect(left, top, handleSizeCss - 1, handleSizeCss - 1)
         context.strokeRect(left, top, handleSizeCss - 1, handleSizeCss - 1)
       }
+      context.restore()
+    }
+    const selectedUnion = selected.length === 1 ? selectedRects[0] : unionRects(selectedRects)
+    if (selectedUnion && state.renaming === null) {
+      const screen = toScreen(selectedUnion)
+      const label = copy.dimensions(selectedUnion.width, selectedUnion.height)
+      context.save()
+      context.font = `10px ${palette.font}`
+      context.textBaseline = 'middle'
+      context.textAlign = 'center'
+      const badgeWidth = Math.ceil(context.measureText(label).width) + 12
+      const x = screen.x + screen.width / 2 - badgeWidth / 2
+      const y = screen.y + screen.height + 10
+      roundedRect(context, x, y, badgeWidth, 19, 4)
+      context.fillStyle = palette.accent
+      context.fill()
+      context.fillStyle = '#ffffff'
+      context.fillText(label, Math.round(x + badgeWidth / 2), Math.round(y + 10))
       context.restore()
     }
     canvas.dataset.hud = JSON.stringify(painted)

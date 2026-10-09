@@ -27,11 +27,11 @@ const v4 = () => ({
   assets: { pixel: { id: 'pixel', name: 'Pixel', mime: 'image/png', width: 1, height: 1, bytes: 3, data: 'AAAA' } },
 })
 
-describe('CC-NT-001: v4 to v5 migration', () => {
+describe('CC-NT-001: v4 theme-mode migration through current schema', () => {
   it('sets every non-root node to inherit and leaves everything else byte-equal', () => {
     const input = v4()
     const upgraded = upgradeFileDocument(input) as FileDocument
-    expect(upgraded.schemaVersion).toBe(5)
+    expect(upgraded.schemaVersion).toBe(6)
     for (const id of ['card', 'btn', 'box', 'caption']) expect((upgraded.nodes[id] as { themeMode?: string }).themeMode).toBe('inherit')
     expect(upgraded.nodes['root-1']).toBe(input.nodes['root-1'])
     expect(upgraded.nodes['root-2']).toBe(input.nodes['root-2'])
@@ -46,15 +46,27 @@ describe('CC-NT-001: v4 to v5 migration', () => {
     expect(validateFileDocument(upgraded, atoms)).toEqual(upgraded)
     expect(upgradeFileDocument(upgraded)).toBe(upgraded)
   })
-  it('chains from version 2 and 3 to version 5 and recognizes every stored version', () => {
+  it('chains from version 2 and 3 to version 6 and recognizes every stored version', () => {
     const v3 = { ...v4(), schemaVersion: 3, nodes: { ...v4().nodes, card: { id: 'card', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {}, layout: { mode: 'flow', x: 0, y: 0 } } } }
     const upgraded = upgradeFileDocument(v3) as FileDocument
-    expect(upgraded.schemaVersion).toBe(5)
+    expect(upgraded.schemaVersion).toBe(6)
     expect(upgraded.nodes.card).toEqual({ id: 'card', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } } }, themeMode: 'inherit' })
-    for (const version of [2, 3, 4, 5]) expect(isFileDocumentShape({ ...v4(), schemaVersion: version })).toBe(true)
-    expect(isFileDocumentShape({ ...v4(), schemaVersion: 6 })).toBe(false)
-    expect(() => validateFileDocument(upgradeFileDocument({ ...v4(), schemaVersion: 6 }), atoms)).toThrow('Unsupported design file version')
+    for (const version of [2, 3, 4, 5, 6]) expect(isFileDocumentShape({ ...v4(), schemaVersion: version })).toBe(true)
+    expect(isFileDocumentShape({ ...v4(), schemaVersion: 7 })).toBe(false)
+    expect(() => validateFileDocument(upgradeFileDocument({ ...v4(), schemaVersion: 7 }), atoms)).toThrow('Unsupported design file version')
     expect(() => validateFileDocument(v4(), atoms)).toThrow('Unsupported design file version')
+  })
+
+  it('upgrades a version 5 file to version 6 without inventing page backgrounds', () => {
+    const version5 = { ...(upgradeFileDocument(v4()) as FileDocument), schemaVersion: 5 }
+    const upgraded = upgradeFileDocument(version5) as FileDocument
+    expect(upgraded).not.toBe(version5)
+    expect(upgraded.schemaVersion).toBe(6)
+    expect(upgraded.pages).toBe(version5.pages)
+    expect(upgraded.pages.every(page => !Object.hasOwn(page, 'background'))).toBe(true)
+    expect({ ...upgraded, schemaVersion: null }).toEqual({ ...version5, schemaVersion: null })
+    expect(validateFileDocument(upgraded, atoms)).toEqual(upgraded)
+    expect(upgradeFileDocument(upgraded)).toBe(upgraded)
   })
   it('keeps an explicit stored mode and rejects an invalid one', () => {
     const upgraded = upgradeFileDocument({ ...v4(), nodes: { ...v4().nodes, box: { ...v4().nodes.box, themeMode: 'dark' } } }) as FileDocument

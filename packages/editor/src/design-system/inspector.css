@@ -5,10 +5,10 @@
 .section-heading-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-s); height: 32px; padding: 0 var(--space-m); }
 .section-title { margin: 0; color: var(--neutral-7); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-medium); }
 .section-actions { display: inline-flex; align-items: center; gap: var(--space-xxs); }
-.section-body { display: flex; flex-direction: column; gap: var(--space-s); padding: 0 var(--space-m) var(--space-m); }
+.section-body { display: flex; flex-direction: column; gap: 0; padding: 0 var(--space-m) var(--space-s); }
 .inspector-group { display: flex; flex-direction: column; gap: var(--space-xs); }
 .inspector-group-label { color: var(--neutral-6); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-regular); }
-.inspector-row { display: flex; align-items: center; gap: var(--space-s); min-width: 0; }
+.inspector-row { display: flex; align-items: center; gap: var(--space-xxs); min-width: 0; min-height: 24px; padding: var(--space-xxs) 0; }
 .inspector-row > * { flex: 1 1 0; min-width: 0; }
 .inspector-field { position: relative; display: flex; align-items: center; gap: var(--space-xs); min-width: 0; height: 24px; padding: 0 var(--space-s); border-radius: var(--radius-s); background: var(--neutral-1); color: var(--neutral-10); box-shadow: var(--border-shadow-s); cursor: text; }
 .theme-dark .inspector-field { background: var(--neutral-3); }
@@ -75,13 +75,20 @@
 .theme-dark .inspector-text-button:hover { background: var(--neutral-3); }
 .inspector-text-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .inspector-text-button:focus-visible { outline: var(--focus-ring-outline); outline-offset: calc(-1 * var(--border-s)); }
+.inspector-text-button[data-wide] { align-self: stretch; justify-content: center; margin: var(--space-xxs) 0; background: var(--neutral-3); }
+.inspector-text-button[data-wide]:hover { background: var(--neutral-4); }
+.inspector-count-button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 2px; min-width: 24px; height: 24px; padding: 0 var(--space-xxs); border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--neutral-6); font-family: var(--font-data); font-size: var(--size-xs); cursor: pointer; }
+.inspector-count-button .icon { width: 13px; height: 13px; }
+.inspector-count-button:hover { background: var(--neutral-3); color: var(--neutral-10); }
+.inspector-count-button:focus-visible { outline: var(--focus-ring-outline); outline-offset: calc(-1 * var(--border-s)); }
+.inspector-count-button:disabled { opacity: .5; cursor: not-allowed; }
 .inspector-icon-button { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--radius-xs); background: var(--color-none); color: var(--neutral-6); cursor: pointer; }
 .inspector-icon-button .icon { width: 14px; height: 14px; }
 .inspector-icon-button:hover { background: var(--neutral-2); color: var(--neutral-10); }
 .theme-dark .inspector-icon-button:hover { background: var(--neutral-3); }
 .inspector-icon-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .inspector-icon-button:focus-visible { outline: var(--focus-ring-outline); outline-offset: calc(-1 * var(--border-s)); }
-.inspector-field-prefix[data-scrub-handle] { cursor: ew-resize; touch-action: none; user-select: none; }
+.inspector-field-prefix[data-scrub-handle] { display: inline-flex; align-items: center; justify-content: center; align-self: stretch; width: 24px; margin-left: calc(-1 * var(--space-s)); cursor: ew-resize; touch-action: none; user-select: none; }
 .inspector-field[data-scrubbing] { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-1) 60%, transparent); }
 .inspector-anchor-grid { display: grid; grid-template-columns: repeat(3, 20px); grid-template-rows: repeat(3, 20px); gap: 2px; padding: 3px; width: max-content; border-radius: var(--radius-s); background: var(--neutral-1); box-shadow: var(--border-shadow-s); }
 .theme-dark .inspector-anchor-grid { background: var(--neutral-3); }

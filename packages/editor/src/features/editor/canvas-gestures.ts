@@ -74,7 +74,8 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
         const guide = flex.guide
         const insertion = guide ? { axis: guide.axis, rect: guide.axis === 'x' ? { x: guide.position - thickness / 2, y: guide.start, width: thickness, height: guide.end - guide.start } : { x: guide.start, y: guide.position - thickness / 2, width: guide.end - guide.start, height: thickness } } : null
         const rect = current.startRects[current.flow.id]!
-        setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + world.x - current.startWorld.x, y: rect.y + world.y - current.startWorld.y } }, guides: [], targetFrameId: null, insertion })
+        const offset = { x: world.x - current.startWorld.x, y: world.y - current.startWorld.y }
+        setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + offset.x, y: rect.y + offset.y } }, offset, guides: [], targetFrameId: null, insertion })
         return
       }
       const parent = current.scene.byId.get(current.flow.parentId)
@@ -92,7 +93,7 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
       }
       const rect = current.startRects[current.flow.id]!
       const delta = { x: world.x - current.startWorld.x, y: world.y - current.startWorld.y }
-      setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + delta.x, y: rect.y + delta.y } }, guides: [], targetFrameId: null, insertion })
+      setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + delta.x, y: rect.y + delta.y } }, offset: delta, guides: [], targetFrameId: null, insertion })
       return
     }
     const delta = { x: world.x - current.startWorld.x, y: world.y - current.startWorld.y }
@@ -107,7 +108,8 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
     const snap = moving ? snapRect(moving, candidates, snapThresholdCss / current.camera.zoom) : { dx: 0, dy: 0, guides: [] }
     const rects: Record<string, Rect> = {}
     for (const id of current.ids) { const rect = current.startRects[id]; if (rect) rects[id] = roundRect({ ...rect, x: rect.x + delta.x + snap.dx, y: rect.y + delta.y + snap.dy }) }
-    setTransient({ kind: 'move', rects, guides: snap.guides, targetFrameId: primitives.length ? targetFrameId : null, insertion: null })
+    const offset = primary && rects[primary.id] ? { x: rects[primary.id]!.x - current.startRects[primary.id]!.x, y: rects[primary.id]!.y - current.startRects[primary.id]!.y } : { x: delta.x + snap.dx, y: delta.y + snap.dy }
+    setTransient({ kind: 'move', rects, offset, guides: snap.guides, targetFrameId: primitives.length ? targetFrameId : null, insertion: null })
   }
   const commitMove = (current: Extract<Gesture, { kind: 'move' }>, event: PointerLike) => {
     const transient = store.getSnapshot().transient
