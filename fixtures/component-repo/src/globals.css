@@ -1,0 +1,16 @@
+:root {
+  --accent: #685fff;
+  --surface: #ffffff;
+  --ink: #202124;
+}
+
+[data-theme='dark'] {
+  --surface: #242427;
+  --ink: #eeeeef;
+}
+
+body { margin: 0; color: var(--ink); background: var(--surface); font-family: Arial, sans-serif; }
+.fixture-card { display: flex; flex-direction: column; gap: 12px; padding: 28px; border: 1px solid #8884; border-radius: 12px; background: var(--surface); color: var(--ink); }
+.fixture-input { min-width: 0; padding: 10px 12px; border: 1px solid #8888; border-radius: 6px; color: inherit; background: transparent; }
+.fixture-button { padding: 10px 14px; border: 0; border-radius: 6px; background: var(--accent); color: white; cursor: pointer; }
+.fixture-button[data-variant='quiet'] { background: transparent; color: var(--ink); }
