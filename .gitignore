@@ -1,0 +1,42 @@
+node_modules/
+dist/
+coverage/
+.vite/
+*.log
+*.tsbuildinfo
+.design-editor/
+outputs/
+.cache/
+.next/
+.turbo/
+
+# Local agent and research material
+.agents/
+.claude/
+gui/
+AGENTS.md
+GUI.md
+SOURCES.md
+2026-10-07-211212-read-agentsmd-guimd-guithemesmd-agentssk.txt
+scripts/tmp-*.mjs
+
+# Local or generated package-manager artifacts
+bun.lock
+
+# Credentials and machine-local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Generated and temporary files
+*.map
+*.bak
+*.orig
+*.rej
+*.zip
+Thumbs.db
+.DS_Store
