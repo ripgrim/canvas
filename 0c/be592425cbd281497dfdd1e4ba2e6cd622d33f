@@ -1,0 +1,23 @@
+packages/editor/src/features/editor/code-output.test.ts
+  s_e18d232d8e09ca::t_dd14d1a17c6a50 1-191
+packages/editor/src/features/editor/code-output.ts
+  s_e18d232d8e09ca::t_e893d674912ba2 1-177
+packages/editor/src/features/editor/types.ts
+  s_e18d232d8e09ca::t_9dc45c1f007440 1-2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0cbe592425cbd281497dfdd1e4ba2e6cd622d33f",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
