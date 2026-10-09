@@ -21,6 +21,7 @@ export type CanvasWorkspaceProps = {
   onError: () => void
   onShortcuts?: () => void
   placeholder?: ReactNode
+  status?: { label: string; description?: string | undefined } | undefined
   /** The file's design preview theme and the themes its stylesheet declares. Independent of the editor appearance. */
   theme?: { value: string; options: { value: string; label: string }[]; onChange: (themeId: string) => void }
 }
@@ -28,7 +29,7 @@ export type CanvasWorkspaceProps = {
 const attachViewport = (element: HTMLDivElement | null) => { canvasViewportService.attach(element); canvasGestures.attach(element) }
 const attachHud = (element: HTMLCanvasElement | null) => canvasHudPainter.attach(element)
 
-export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcuts, placeholder, theme }: CanvasWorkspaceProps) {
+export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcuts, placeholder, status, theme }: CanvasWorkspaceProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const availability = Object.fromEntries(editorTools.map(tool => [tool, state.file ? { available: true, reason: '' } : { available: false, reason: copy.openFileForTools }])) as unknown as EditorToolAvailability
@@ -48,6 +49,6 @@ export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcu
     <EditorToolRail active={state.tool} availability={availability} shortcuts={{ move: 'V', scale: 'K', hand: 'H', frame: 'F', shader: 'S', text: 'T', rectangle: 'R', shape: 'O', interact: 'I' }} onSelect={selectTool} />
     <CanvasFloatingActions label={copy.history}><Button label={copy.undo} title={copy.undoTip} disabled={!state.canUndo || state.blocked} onClick={() => store.undo()}><Icon name="undo" /></Button><Button label={copy.redo} title={copy.redoTip} disabled={!state.canRedo || state.blocked} onClick={() => store.redo()}><Icon name="redo" /></Button></CanvasFloatingActions>
     {contextMenu && <NodeContextMenu position={contextMenu} onClose={() => setContextMenu(null)} />}
-    <Layout roleName="canvas-footer"><Layout roleName="canvas-footer-start"><Button label={copy.shortcuts} onClick={onShortcuts}>?</Button>{theme && <Layout roleName="preview-theme-control" title={copy.previewTheme}><Text roleName="small">{copy.previewThemeLabel}</Text><CanvasChoice label={copy.previewTheme} value={theme.value} options={theme.options} onChange={theme.onChange} disabled={theme.options.length < 2} /></Layout>}</Layout><Layout roleName="zoom-controls"><Button label={copy.zoomOut} onClick={() => store.zoomStep('out')}><Icon name="minus" /></Button><Button label={copy.fit} onClick={() => store.requestFit('all')}>{copy.percentage(state.viewport.zoom)}</Button><Button label={copy.zoomIn} onClick={() => store.zoomStep('in')}><Icon name="plus" /></Button></Layout></Layout>
+    <Layout roleName="canvas-footer"><Layout roleName="canvas-footer-start"><Button label={copy.shortcuts} onClick={onShortcuts}>?</Button>{theme && <Layout roleName="preview-theme-control" title={copy.previewTheme}><Text roleName="small">{copy.previewThemeLabel}</Text><CanvasChoice label={copy.previewTheme} value={theme.value} options={theme.options} onChange={theme.onChange} disabled={theme.options.length < 2} /></Layout>}{status && <Layout roleName="canvas-runtime-status" role="status" aria-live="polite" title={status.description}><Text roleName="small">{status.label}</Text></Layout>}</Layout><Layout roleName="zoom-controls"><Button label={copy.zoomOut} onClick={() => store.zoomStep('out')}><Icon name="minus" /></Button><Button label={copy.fit} onClick={() => store.requestFit('all')}>{copy.percentage(state.viewport.zoom)}</Button><Button label={copy.zoomIn} onClick={() => store.zoomStep('in')}><Icon name="plus" /></Button></Layout></Layout>
   </Surface>
 }

@@ -30,6 +30,7 @@ const CARD = 'browser-local-composition:card'
 const TREE = [['Card', CARD], ...ORIGINAL]
 const all = [CARD, ...ids]
 const COMPOSITION_HINT = 'Composition preview uses the real atoms. App callbacks and providers are not part of this draft.'
+const COMPOSITION_STATUS = 'Composition preview'
 
 const owned = []
 const evidence = { status: 'failed', startedAt: new Date().toISOString(), browser: 'system Edge, headless', ports: { editor: 4481, preview: 4482 }, routedPreviewRequests: 0, servers: {}, routeTreeHash: {}, scenarios: [], error: null }
@@ -454,15 +455,17 @@ async function compositionLifecycle(page, check, control) {
   await instance(page, BUTTON).click()
   await page.waitForTimeout(500)
   assert.equal(await preview(page).getByRole('dialog', { name: 'Preview result' }).count(), 0)
-  await page.locator('.canvas-status').getByText(COMPOSITION_HINT, { exact: true }).waitFor()
-  check('Composition mode drops app callbacks and provider; the editor discloses this with the composition hint', 'Clicking the composed Button opens no portal dialog')
+  const status = page.locator('.canvas-runtime-status')
+  await status.getByText(COMPOSITION_STATUS, { exact: true }).waitFor()
+  assert.equal(await status.getAttribute('title'), COMPOSITION_HINT)
+  check('Composition mode drops app callbacks and provider; the fixed canvas footer discloses this without resizing the workspace', 'Clicking the composed Button opens no portal dialog')
 }
 
 try {
   await mkdir(evidenceRoot, { recursive: true })
   const routeTree = join(webRoot, 'src', 'routeTree.gen.ts')
   evidence.routeTreeHash.before = await hashFile(routeTree)
-  await startServer('editor', editorUrl, 'tests/claude-coverage/editor.vite.config.ts', /@vite\/client|TanStack|Design editor/)
+  await startServer('editor', editorUrl, 'tests/claude-coverage/editor.vite.config.ts', /@vite\/client|TanStack|Design editor|Comp Canvas/)
   await startServer('preview', `${servedPreview}/`, 'tests/claude-coverage/preview.vite.config.ts', /preview-root/)
   browser = await chromium.launch({ channel: 'msedge', headless: true })
   await scenario('selection and inspector', ['AT-CAN-001', 'AT-UX-002'], selectionAndInspector)
