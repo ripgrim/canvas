@@ -7,7 +7,7 @@ import { legacyPageDocument } from '@canvas/repo-engine/file-document'
 import { documentStore } from './document-store'
 
 export function CodeTools() {
-  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getSnapshot, documentStore.getSnapshot)
+  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
   const [css, setCss] = useState('')
   const [notice, setNotice] = useState('')
   const styleRef = useRef<HTMLTextAreaElement | null>(null)

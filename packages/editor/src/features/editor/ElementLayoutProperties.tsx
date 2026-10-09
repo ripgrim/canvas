@@ -10,7 +10,7 @@ const numeric = (value: string, minimum = -1000000) => {
 }
 
 export function ElementLayoutProperties() {
-  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getSnapshot, documentStore.getSnapshot)
+  const state = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
   if (!state.file || state.selection.length !== 1) return null
   const id = state.selection[0]!
   const node = state.file.nodes[id]

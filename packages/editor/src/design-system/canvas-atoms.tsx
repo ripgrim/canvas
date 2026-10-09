@@ -52,7 +52,7 @@ export function ResizeHandles({ id, rect, labelFor, handles, onHandlePointerDown
 }
 
 export function NodeLabel({ id, rect, name, selected, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onDoubleClick }: PointerHandlers<HTMLButtonElement> & { id: string; rect: ScreenRect; name: string; selected: boolean; onDoubleClick: () => void }) {
-  return <button type="button" className="node-label" data-node-label={id} data-selected={selected || undefined} tabIndex={-1} title={name} style={{ left: rect.x, top: rect.y, maxWidth: Math.max(48, rect.width) }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onDoubleClick={onDoubleClick}>{name}</button>
+  return <button type="button" className="node-label node-label-hit" data-node-label={id} data-selected={selected || undefined} tabIndex={-1} title={name} style={{ left: rect.x, top: rect.y, width: Math.max(48, rect.width) }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onDoubleClick={onDoubleClick}>{name}</button>
 }
 
 export function NodeLabelEditor({ id, rect, value, label, multiline, onCommit, onCancel }: { id: string; rect: ScreenRect; value: string; label: string; multiline: boolean; onCommit: (value: string) => void; onCancel: () => void }) {

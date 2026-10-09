@@ -38,6 +38,8 @@ export type PreviewRegistryBinding = { componentId: string; exportName: string; 
 export type PreviewTheme = { attribute: string | null; colorScheme: 'light' | 'dark' }
 /** Placement for one mounted node: the five-field host placement plus optional layout longhands projected by the editor. */
 export type PreviewLayoutItem = { nodeId: string; mode: 'flow' | 'absolute'; x: number; y: number; order: number; width?: number; height?: number; declarations?: LayoutDeclarations }
+/** A pointer-only visual offset. The editor clears it before committing authoritative document geometry. */
+export type PreviewTransientMove = { nodeId: string; dx: number; dy: number }
 
 export type PreviewCommand =
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-props'; props: Record<string, JsonValue> }
@@ -45,6 +47,7 @@ export type PreviewCommand =
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-theme'; theme: PreviewTheme }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-interaction-mode'; mode: 'select' | 'pan' | 'interact' }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-layout'; items: PreviewLayoutItem[]; layoutGeneration: number }
+  | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-transient-move'; items: PreviewTransientMove[] }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-selection'; nodeIds: string[]; color: string; renderChrome?: boolean }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-camera'; camera: PreviewCamera }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'dispose' }
@@ -248,6 +251,16 @@ export function acceptPreviewCommand(event: Pick<MessageEvent, 'origin' | 'sourc
       if (!['x', 'y', 'order'].every(key => typeof item[key] === 'number' && Number.isFinite(item[key])) || !Number.isInteger(item.order) || (item.order as number) < 0 || (item.order as number) > 500 || Math.abs(item.x as number) > 1_000_000 || Math.abs(item.y as number) > 1_000_000) return null
       if (document && !Object.hasOwn(document.nodes, item.nodeId as string)) return null
       for (const key of ['width', 'height']) if (Object.hasOwn(item, key) && (typeof item[key] !== 'number' || !Number.isFinite(item[key]) || (item[key] as number) < 1 || (item[key] as number) > 1_000_000)) return null
+      ids.add(item.nodeId)
+    }
+    return data as PreviewCommand
+  }
+  if (data.type === 'set-transient-move') {
+    if (!exactFields(data, ['channel', 'version', 'generation', 'type', 'items']) || !Array.isArray(data.items) || data.items.length > 500) return null
+    const ids = new Set<string>()
+    for (const item of data.items) {
+      if (!record(item) || !exactFields(item, ['nodeId', 'dx', 'dy']) || !validId(item.nodeId) || ids.has(item.nodeId) || !finiteWithin(item.dx, coordinateLimit) || !finiteWithin(item.dy, coordinateLimit)) return null
+      if (document && !Object.hasOwn(document.nodes, item.nodeId as string) && !document.canvas?.elements.some(element => element.id === item.nodeId)) return null
       ids.add(item.nodeId)
     }
     return data as PreviewCommand

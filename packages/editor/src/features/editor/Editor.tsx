@@ -103,7 +103,7 @@ function Activity({ state }: { state: EditorState }) {
 
 export function Editor({ onHome, onPageChange }: { onHome?: () => void; onPageChange?: (pageId: string) => void }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
-  const document = useSyncExternalStore(documentStore.subscribe, documentStore.getSnapshot, documentStore.getSnapshot)
+  const document = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
   const [widths, setWidths] = useState({ left: 280, right: 280 })
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => editorKeyDown(event)
   const onKeyUp = (event: KeyboardEvent<HTMLDivElement>) => editorKeyUp(event)

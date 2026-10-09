@@ -8,10 +8,12 @@ import { canvasElementStyle, hostOrigin } from './scene-styles.mjs'
 import { createAppearanceLayer } from './appearance-layer.mjs'
 import { createLayoutLayer } from './layout-layer.mjs'
 import { createThemeLayer } from './theme-layer.mjs'
+import { createTransientMoveLayer } from './transient-move-layer.mjs'
 export { appearanceStyle, canvasElementStyle, fillLayers, hostOrigin, legacyTextColor } from './scene-styles.mjs'
 export { createAppearanceLayer } from './appearance-layer.mjs'
 export { createLayoutLayer } from './layout-layer.mjs'
 export { createThemeLayer } from './theme-layer.mjs'
+export { createTransientMoveLayer } from './transient-move-layer.mjs'
 
 export function createSelectionDecorations(ownerDocument) {
   const marked = new Set()
@@ -76,6 +78,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
   let selectionColor = null
   let renderChrome = true
   let layoutItems = []
+  let transientMoves = []
   let camera = { x: 0, y: 0, zoom: 1, width: window.innerWidth, height: window.innerHeight }
   let disposed = false
   let failed = false
@@ -84,6 +87,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
   const bindings = new Map(registry.map(binding => [binding.componentId, binding]))
   // Placement and layout longhands are a reversible inline layer on the actual component roots (never a wrapper).
   const layoutLayer = createLayoutLayer(document, container)
+  const transientMoveLayer = createTransientMoveLayer(document, container)
   let layoutGeneration = 0
   // The iframe is an implementation detail of the editor canvas: it paints no sheet of its own.
   for (const element of [document.documentElement, document.body]) Object.assign(element.style, { margin: '0', background: 'transparent', overflow: 'hidden', width: '100%', height: '100%' })
@@ -129,6 +133,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     return adapter && typeof adapter.renderBoundary === 'function' && node.theme ? React.createElement(React.Fragment, { key: node.id }, adapter.renderBoundary({ instanceId: node.id, theme: node.theme, children: element })) : element
   }
   const render = () => {
+    transientMoveLayer.clear()
     const component = editorDocument && !sourceDocument ? editorDocument.rootIds.map(renderNode) : React.createElement(Component, props)
     const content = Provider ? React.createElement(Provider, providerProps, component) : component
     const frame = editorDocument?.frame
@@ -142,6 +147,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     layoutLayer.update(editorDocument, layoutItems)
     appearanceLayer.update(editorDocument)
     themeLayer.update(editorDocument)
+    transientMoveLayer.reapply()
     selectedNodeIds = selectedNodeIds.filter(id => editorDocument && (Object.hasOwn(editorDocument.nodes, id) || editorDocument.canvas?.elements.some(element => element.id === id)))
     selectionDecorations.update(editorDocument, renderChrome ? selectedNodeIds : [], selectionColor); geometry.update(editorDocument, null, componentId)
   }
@@ -156,10 +162,15 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     else if (command.type === 'set-theme') { setTheme(command.theme); geometry.refresh() }
     else if (command.type === 'set-interaction-mode') interactionMode = command.mode
     else if (command.type === 'set-camera') { camera = { ...command.camera }; applyCamera(); geometry.refresh() }
-    else if (command.type === 'set-layout') { geometry.suspend(); layoutItems = command.items; layoutGeneration = command.layoutGeneration; layoutLayer.setItems(layoutItems); appearanceLayer.apply(); geometry.resume() }
+    else if (command.type === 'set-layout') { geometry.suspend(); transientMoveLayer.clear(); layoutItems = command.items; layoutGeneration = command.layoutGeneration; layoutLayer.setItems(layoutItems); appearanceLayer.apply(); transientMoveLayer.reapply(); if (!transientMoves.length) geometry.resume() }
+    else if (command.type === 'set-transient-move') { transientMoves = command.items; if (transientMoves.length) geometry.suspend(); transientMoveLayer.update(transientMoves); if (!transientMoves.length) geometry.resume() }
     else if (command.type === 'set-selection') { selectedNodeIds = [...command.nodeIds]; renderChrome = command.renderChrome !== false; selectionColor = command.color; selectionDecorations.update(editorDocument, renderChrome ? selectedNodeIds : [], selectionColor); geometry.update(editorDocument, null, componentId) }
     else if (command.type === 'set-document') {
       if (!isPreviewDocument(command.document, registry)) { send('diagnostic', { message: 'Component binding needs review. The last preview is retained.' }); return }
+      // The incoming document is the authoritative pointer-up result. Drop the visual offset before rendering it so
+      // the committed geometry is never translated twice while the editor's clear message follows.
+      transientMoves = []
+      transientMoveLayer.clear()
       if (sourceDocument) {
         try { flushSync(() => applySourceDocument(command.document)) }
         catch (error) { send('diagnostic', { message: String(error.message).slice(0, 4000) }); return }
@@ -195,6 +206,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     geometry.dispose()
     selectionDecorations.dispose()
     appearanceLayer.dispose()
+    transientMoveLayer.dispose()
     layoutLayer.dispose()
     portalWatch.disconnect()
     for (const dispose of adapterDisposers) { try { dispose() } catch { /* an adapter that fails to dispose cannot block the preview from disposing */ } }

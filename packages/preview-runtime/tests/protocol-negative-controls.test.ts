@@ -23,9 +23,11 @@ const document = (): PreviewDocument => ({
 })
 const item = { nodeId: 'button-1', mode: 'absolute', x: 10, y: 20, order: 0, width: 120, height: 40 }
 const layout = (items: unknown[]) => ({ ...envelope, type: 'set-layout', layoutGeneration: 0, items })
+const transient = (items: unknown[]) => ({ ...envelope, type: 'set-transient-move', items })
 
 const accepted: [string, Record<string, unknown>, PreviewDocument | null][] = [
   ['set-layout', layout([item]), document()],
+  ['set-transient-move', transient([{ nodeId: 'button-1', dx: 10, dy: -20 }]), document()],
   ['set-theme', { ...envelope, type: 'set-theme', theme: { attribute: 'dark', colorScheme: 'dark' } }, null],
   ['set-camera', { ...envelope, type: 'set-camera', camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 } }, null],
   ['set-interaction-mode', { ...envelope, type: 'set-interaction-mode', mode: 'select' }, null],
@@ -171,6 +173,32 @@ describe('LAY-SEC-001 oversize set-layout payloads', () => {
   ])('rejects %s and accepts the bound itself', (_, over, bound) => {
     expect(deliver(layout([{ ...item, ...bound }]), document())).not.toBeNull()
     expect(deliver(layout([{ ...item, ...over }]), document())).toBeNull()
+  })
+})
+
+describe('AT-CAN-005 transient move boundary', () => {
+  const move = { nodeId: 'button-1', dx: 10, dy: -20 }
+
+  it('accepts bounded current nodes and the empty clear command', () => {
+    expect(deliver(transient([move]), document())).toEqual(transient([move]))
+    expect(deliver(transient([]), null)).toEqual(transient([]))
+  })
+
+  it.each([
+    ['an unknown field', { ...move, style: 'position: fixed' }],
+    ['an unknown node', { ...move, nodeId: 'missing' }],
+    ['a prototype key', { ...move, nodeId: '__proto__' }],
+    ['a string delta', { ...move, dx: '10' }],
+    ['a non-finite delta', { ...move, dy: Number.POSITIVE_INFINITY }],
+    ['an over-limit delta', { ...move, dx: 1_000_001 }],
+  ])('rejects %s', (_, candidate) => {
+    expect(deliver(transient([candidate]), document())).toBeNull()
+  })
+
+  it('rejects duplicate nodes, non-array items, and more than 500 items', () => {
+    expect(deliver(transient([move, move]), document())).toBeNull()
+    expect(deliver({ ...envelope, type: 'set-transient-move', items: { 0: move } }, document())).toBeNull()
+    expect(deliver(transient(Array.from({ length: 501 }, (_, index) => ({ nodeId: `node-${index}`, dx: 0, dy: 0 }))))).toBeNull()
   })
 })
 

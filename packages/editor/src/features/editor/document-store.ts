@@ -36,7 +36,7 @@ export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text'
 /** Transient gesture state shared between the interaction layer and the HUD. Never persisted. */
 export type CanvasTransient =
   | { kind: 'marquee'; rect: Rect }
-  | { kind: 'move'; rects: Record<string, Rect>; guides: SnapGuide[]; targetFrameId: string | null; insertion: { axis: 'x' | 'y'; rect: Rect } | null }
+  | { kind: 'move'; rects: Record<string, Rect>; offset: Point; guides: SnapGuide[]; targetFrameId: string | null; insertion: { axis: 'x' | 'y'; rect: Rect } | null }
   | { kind: 'resize'; rects: Record<string, Rect> }
   | { kind: 'draw'; elementKind: PrimitiveKind; rect: Rect; targetFrameId: string | null }
   | { kind: 'pan' }
@@ -123,6 +123,17 @@ export const isPrimitive = (node: FileNode | undefined): node is Extract<FileNod
 const placementCommand = (node: FileNode | undefined, placement: DocumentNodeLayout): FileCommand => ({ type: 'node.setLayout', nodeId: node!.id, layout: layoutFromLegacy(placement, node?.type === 'component' ? node.layout : undefined) })
 export function createDocumentStore(makeId: () => string = () => crypto.randomUUID()) {
   const backing = createStore<DocumentState>(() => ({ file: null, pageId: null, atoms: [], selection: [], hover: null, renaming: null, transient: null, viewport: defaultCamera, viewportSize: { width: 0, height: 0 }, gridVisible: false, fitRequested: null, spaceHeld: false, tool: 'move', dirty: false, saving: false, error: null, blocked: false, canUndo: false, canRedo: false, appearanceOverrides: null, layoutOverrides: null, layoutGeneration: 0 }))
+  let viewSource = backing.getState()
+  let viewSnapshot = viewSource
+  /** React panels do not consume pointer-only transient geometry, so keep their snapshot stable across drag frames. */
+  const getViewSnapshot = () => {
+    const next = backing.getState()
+    if (next === viewSource) return viewSnapshot
+    const sameExceptTransient = (Object.keys(next) as (keyof DocumentState)[]).every(key => key === 'transient' || next[key] === viewSource[key])
+    viewSource = next
+    if (!sameExceptTransient) viewSnapshot = next
+    return viewSnapshot
+  }
   let options: StoreOptions = {}
   let editPolicy: ((file: FileDocument) => void) | undefined
   const permits = (file: FileDocument) => { try { editPolicy?.(file); return true } catch (error) { emit({ error: error instanceof Error ? error.message : canvasCopy.persistenceFailed }); return false } }
@@ -312,6 +323,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   const lastTokenKey = (file: FileDocument) => Object.values(file.theme.tokens).sort(compareOrder).at(-1)?.orderKey ?? null
   return {
     getSnapshot: backing.getState,
+    getViewSnapshot,
     subscribe: (listener: () => void) => {
       const stop = backing.subscribe(listener)
       const unsubscribe = () => { stop(); subscriptions.delete(unsubscribe) }
