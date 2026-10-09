@@ -1,0 +1,23 @@
+packages/editor/src/features/editor/canvas-drawing.ts
+  s_e18d232d8e09ca::t_2185f305b498ff 1-42
+packages/editor/src/features/editor/canvas-tree.ts
+  s_e18d232d8e09ca::t_3b7cf17d4f80cf 1-39
+packages/editor/src/features/editor/view-state.test.ts
+  s_e18d232d8e09ca::t_ac9ea11045ce6f 1-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "28860b43ae9b73917e42df23237af81655f71a56",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
