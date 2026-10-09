@@ -1,0 +1,30 @@
+/* Token-bound color fields: static context with no input surface, and the Rebind, Unlink, Edit token actions. */
+.token-field { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; height: 24px; padding: 0 var(--space-xs) 0 4px; border-radius: var(--radius-s); background: var(--neutral-2); color: var(--neutral-7); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-regular); cursor: default; }
+.token-field-swatch { position: relative; display: inline-block; flex-shrink: 0; width: 16px; height: 16px; overflow: hidden; border-radius: var(--radius-xs); box-shadow: var(--border-shadow-s); background-image: repeating-conic-gradient(var(--neutral-4) 0 25%, var(--neutral-3) 0 50%); background-size: var(--space-xs) var(--space-xs); }
+.token-field-swatch-fill { display: block; width: 100%; height: 100%; }
+.token-chip { flex: 0 1 auto; min-width: 3ch; height: 18px; padding: 0 var(--space-xs); overflow: hidden; border-radius: var(--radius-xs); background: var(--neutral-4); color: var(--neutral-10); font-weight: var(--weight-ui-medium); line-height: 18px; white-space: nowrap; text-overflow: ellipsis; }
+.theme-light .token-chip { background: var(--neutral-3); }
+.token-field-context { flex: 0 1 auto; min-width: 0; margin-left: auto; overflow: hidden; color: var(--neutral-6); font-family: var(--font-data); font-weight: var(--weight-data-regular); font-variant-numeric: tabular-nums; white-space: nowrap; text-overflow: ellipsis; }
+.token-field-text { flex: 1 1 auto; min-width: 0; padding-left: var(--space-xxs); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.token-field[data-tone="mixed"] { color: var(--neutral-6); }
+.token-field[data-tone="error"] { color: var(--error); }
+.token-field[data-tone="error"] .token-field-text { padding-left: 0; }
+.token-field-alert { display: inline-flex; flex-shrink: 0; width: 16px; height: 16px; align-items: center; justify-content: center; }
+.token-field-alert .icon { width: 14px; height: 14px; }
+
+.token-actions { display: flex; align-items: center; gap: var(--space-xxs); min-width: 0; }
+.token-chooser { position: relative; display: flex; flex: 1 1 auto; align-items: center; gap: var(--space-xxs); min-width: 0; height: 24px; padding: 0 var(--space-xs) 0 var(--space-s); border-radius: var(--radius-s); background: var(--neutral-1); color: var(--neutral-10); box-shadow: var(--border-shadow-s); cursor: pointer; }
+.theme-dark .token-chooser { background: var(--neutral-3); }
+.token-chooser:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-1) 60%, transparent); }
+.token-chooser[data-disabled] { color: var(--neutral-6); background: var(--neutral-2); cursor: not-allowed; }
+.token-chooser-input { flex: 1 1 auto; width: 100%; min-width: 0; height: 24px; padding: 0; border: 0; background: var(--color-none); color: inherit; font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-medium); appearance: none; outline: none; cursor: inherit; }
+.token-chooser-chevron { display: inline-flex; color: var(--neutral-6); pointer-events: none; }
+.token-chooser-chevron .icon { width: 12px; height: 12px; transform: rotate(90deg); }
+.token-action { display: inline-flex; flex: 0 0 auto; align-items: center; height: 24px; padding: 0 var(--space-xs); border: 0; border-radius: var(--radius-xs); background: var(--color-none); color: var(--neutral-7); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-medium); white-space: nowrap; cursor: pointer; }
+.token-action:hover { background: var(--neutral-2); color: var(--neutral-10); }
+.theme-dark .token-action:hover { background: var(--neutral-3); }
+.token-action:focus-visible { outline: var(--focus-ring-outline); outline-offset: calc(-1 * var(--border-s)); }
+.token-action:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Unavailable with a reason: still focusable, so only the text dims and the focus ring stays full strength. */
+.token-action[aria-disabled="true"] { color: var(--neutral-5); cursor: not-allowed; }
+.token-action[aria-disabled="true"]:hover { background: var(--color-none); color: var(--neutral-5); }
