@@ -1,0 +1,55 @@
+packages/editor/package.json
+  s_e18d232d8e09ca::t_4cac05176e18da 1-34
+packages/editor/src/design-system/atoms.tsx
+  s_e18d232d8e09ca::t_9a0650c32a83ab 1-58
+packages/editor/src/design-system/canvas-atoms.tsx
+  s_e18d232d8e09ca::t_f0aa3bd8f5bead 1-103
+packages/editor/src/design-system/canvas.css
+  s_e18d232d8e09ca::t_83310fa77e3766 1-65
+packages/editor/src/design-system/home.css
+  s_41ebcf91564949::t_2a83cd43cbe530 1-62
+packages/editor/src/design-system/property.css
+  s_3c4ffda5818c31::t_1767a4e11ea0f6 1-69
+packages/editor/src/design-system/shell.css
+  s_e18d232d8e09ca::t_90aa1d27b9dd08 1-24
+packages/editor/src/design-system/sidebar-atoms.tsx
+  s_e18d232d8e09ca::t_1cc7e92b5df24b 1-55
+packages/editor/src/design-system/styles.css
+  s_e18d232d8e09ca::t_02ec406419d321 1-107
+packages/editor/src/design-system/theme.css
+  s_3c4ffda5818c31::t_ec34016e65f514 1-320
+packages/editor/src/design-system/tool-rail.css
+  s_3c4ffda5818c31::t_1546950fdba264 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "54fd6be5d64bfcc035a17fe37c9431645011395a",
+  "prompts": {},
+  "sessions": {
+    "s_3c4ffda5818c31": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6e870f58-6356-4aae-b853-aa03eda169c6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_41ebcf91564949": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fe3ef957-6eb8-42d9-beec-fe03ae082c33",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
