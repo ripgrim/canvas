@@ -1,0 +1,15 @@
+export const codeOutputCopy = {
+  cssTooLarge: 'CSS exceeds the supported 64 KB input limit.',
+  cssMalformed: 'CSS contains an unclosed string, comment, or bracket, or an invalid declaration.',
+  cssRule: 'Selectors, nested rules, and at-rules need a stylesheet.',
+  cssEscaped: 'Escaped CSS syntax needs stylesheet review.',
+  cssImportant: 'Keep !important in a stylesheet. React style objects cannot preserve its priority.',
+  cssDuplicate: 'Repeated declarations stay in the stylesheet to preserve fallback order.',
+  cssResource: 'Resource URLs and executable legacy CSS need stylesheet review.',
+  cssProperty: 'This property cannot be converted safely to a React style key.',
+  cssContract: 'Declaration conversion only. Values are not computed or checked against browser support. Keep retained CSS in a stylesheet.',
+  componentContract: 'Composition draft using existing component imports. Props and slots are included. Application callbacks, providers, surrounding layout, theme setup, and original application behavior are not reconstructed. No source files are changed.',
+  invalidSelection: 'Select existing, non-overlapping component subtrees.',
+  invalidBinding: 'Component bindings need unique identities and valid named exports.',
+  missingImport: 'Provide a reviewed module specifier for every component dependency.',
+} as const
