@@ -1,0 +1,54 @@
+fixtures/component-repo/package.json
+  h_3279d55133f19f 1-9
+fixtures/component-repo/src/PreviewLogin.tsx
+  h_3279d55133f19f 1-22
+fixtures/component-repo/src/atoms/Button.tsx
+  h_3279d55133f19f 1-7
+fixtures/component-repo/src/atoms/Card.tsx
+  h_3279d55133f19f 1-7
+fixtures/component-repo/src/atoms/Input.tsx
+  h_3279d55133f19f 1-5
+fixtures/component-repo/src/atoms/Label.tsx
+  h_3279d55133f19f 1-5
+fixtures/component-repo/src/atoms/index.ts
+  h_3279d55133f19f 1-4
+fixtures/component-repo/src/components/LoginForm.tsx
+  h_3279d55133f19f 1-19
+fixtures/component-repo/src/components/index.ts
+  h_3279d55133f19f 1-2
+fixtures/component-repo/src/globals.css
+  h_3279d55133f19f 1-16
+fixtures/component-repo/tsconfig.json
+  h_3279d55133f19f 1-5
+tests/fixtures/component-repo-seed/package.json
+  h_3279d55133f19f 1-9
+tests/fixtures/component-repo-seed/src/PreviewLogin.tsx
+  h_3279d55133f19f 1-22
+tests/fixtures/component-repo-seed/src/atoms/Button.tsx
+  h_3279d55133f19f 1-7
+tests/fixtures/component-repo-seed/src/atoms/Card.tsx
+  h_3279d55133f19f 1-7
+tests/fixtures/component-repo-seed/src/atoms/Input.tsx
+  h_3279d55133f19f 1-5
+tests/fixtures/component-repo-seed/src/atoms/Label.tsx
+  h_3279d55133f19f 1-5
+tests/fixtures/component-repo-seed/src/atoms/index.ts
+  h_3279d55133f19f 1-4
+tests/fixtures/component-repo-seed/src/components/index.ts
+  h_3279d55133f19f 1
+tests/fixtures/component-repo-seed/src/globals.css
+  h_3279d55133f19f 1-16
+tests/fixtures/component-repo-seed/tsconfig.json
+  h_3279d55133f19f 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6d0997c1ec714b8d8f1292a4d0cf79e66a71d1d0",
+  "prompts": {},
+  "humans": {
+    "h_3279d55133f19f": {
+      "author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
