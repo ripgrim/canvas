@@ -1,0 +1,47 @@
+packages/editor/src/features/editor/canvas-scene.test.ts
+  s_e18d232d8e09ca::t_f2c4750ab22a05 1-127
+packages/editor/src/features/editor/canvas-scene.ts
+  s_e18d232d8e09ca::t_407c83d5fedd00 1-132
+packages/editor/src/features/editor/display-conversion.test.ts
+  s_e18d232d8e09ca::t_993e2371eba45b 1-213
+packages/editor/src/features/editor/display-conversion.ts
+  s_e18d232d8e09ca::t_38ebb7c298e4a5 1-218
+packages/editor/src/features/editor/flex-reorder.test.ts
+  s_e18d232d8e09ca::t_e33753baf06cb6 1-87
+packages/editor/src/features/editor/flex-reorder.ts
+  s_e18d232d8e09ca::t_394cd9e095af34 1-66
+packages/editor/src/features/editor/grid-overlay.test.ts
+  s_e18d232d8e09ca::t_ca207ec79830dd 1-107
+packages/editor/src/features/editor/grid-overlay.ts
+  s_e18d232d8e09ca::t_e9321d4873b001 1-110
+packages/editor/src/features/editor/layout-flex-commands.ts
+  s_e18d232d8e09ca::t_62f5c12c398a18 1-154
+packages/editor/src/features/editor/layout-grid-commands.ts
+  s_e18d232d8e09ca::t_0bf477b02bb931 1-324
+packages/editor/src/features/editor/layout-measure.test.ts
+  s_e18d232d8e09ca::t_74aaadc05eeba6 1-164
+packages/editor/src/features/editor/layout-measure.ts
+  s_e18d232d8e09ca::t_c8a5cb35bbd734 1-117
+packages/editor/src/features/editor/layout-pose.test.ts
+  s_e18d232d8e09ca::t_49e1f3cde4130a 1-88
+packages/editor/src/features/editor/layout-pose.ts
+  s_e18d232d8e09ca::t_3d0ad2c3b99b84 1-77
+packages/editor/src/features/editor/scene-geometry.ts
+  s_e18d232d8e09ca::t_b4c2b0a3758299 1-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a96a7e8eb8e3d6ff0e8710638ac4dcea5352e426",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
