@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react'
+import { useId, useRef, useState } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
+import { Popover } from '@base-ui/react/popover'
 import { Icon } from './atoms'
 import './token-field.css'
 
@@ -34,18 +36,42 @@ export function MissingTokenField({ id, label, text }: { id: string; label: stri
 /** One line of binding actions under the field. */
 export function TokenActions({ children }: { children: ReactNode }) { return <div className="token-actions">{children}</div> }
 
-export type TokenChooserOption = Readonly<{ value: string; label: string; disabled?: boolean }>
+export type TokenChooserOption = Readonly<{ value: string; label: string; color?: string; disabled?: boolean }>
 
-/** A token list that always shows its action as the face; choosing an entry reports it and the face resets. */
+function TokenGlyph() {
+  return <svg className="token-chooser-glyph" viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="5" r="2.25" /><circle cx="11" cy="5" r="2.25" /><circle cx="5" cy="11" r="2.25" /><circle cx="11" cy="11" r="2.25" /></svg>
+}
+
+/** Paper-style color-token menu. The four-circle trigger stays compact beside the color value. */
 export function TokenChooser({ id, label, placeholder, options, disabled = false, onChoose }: { id: string; label: string; placeholder: string; options: readonly TokenChooserOption[]; disabled?: boolean; onChoose: (tokenId: string) => void }) {
   const unavailable = disabled || !options.some(option => !option.disabled)
-  return <label className="token-chooser" htmlFor={id} data-disabled={unavailable || undefined}>
-    <select id={id} className="token-chooser-input" aria-label={label} title={label} value="" disabled={unavailable} onChange={event => { const value = event.currentTarget.value; if (value) onChoose(value) }}>
-      <option value="" disabled hidden>{placeholder}</option>
-      {options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}
-    </select>
-    <span className="token-chooser-chevron" aria-hidden="true"><Icon name="chevron" /></span>
-  </label>
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [active, setActive] = useState(0)
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const listId = useId()
+  const visible = options.filter(option => option.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+  const choose = (option: TokenChooserOption) => { if (!option.disabled) { onChoose(option.value); setOpen(false); setQuery('') } }
+  const keys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setActive(current => Math.max(0, Math.min(visible.length - 1, current + (event.key === 'ArrowDown' ? 1 : -1)))) }
+    else if (event.key === 'Home') { event.preventDefault(); setActive(0) }
+    else if (event.key === 'End') { event.preventDefault(); setActive(Math.max(0, visible.length - 1)) }
+    else if (event.key === 'Enter' && visible[active]) { event.preventDefault(); choose(visible[active]!) }
+    else if (event.key === 'Escape') { event.preventDefault(); setOpen(false); trigger.current?.focus() }
+  }
+  return <Popover.Root open={open} onOpenChange={next => { setOpen(next); if (next) { setContainer(trigger.current?.closest<HTMLElement>('.editor-root') ?? null); setQuery(''); setActive(0) } }}>
+    <Popover.Trigger ref={trigger} id={id} className="token-chooser" aria-label={label} title={label} disabled={unavailable} data-disabled={unavailable || undefined}><TokenGlyph /></Popover.Trigger>
+    <Popover.Portal container={container}><Popover.Positioner className="token-chooser-positioner" side="left" align="start" sideOffset={4}><Popover.Popup className="token-chooser-popup">
+      <div className="token-chooser-header"><Icon name="search" /><input autoFocus value={query} aria-label={placeholder} aria-controls={listId} aria-activedescendant={visible[active] ? `${listId}-${visible[active]!.value}` : undefined} placeholder={placeholder} onChange={event => { setQuery(event.currentTarget.value); setActive(0) }} onKeyDown={keys} /></div>
+      <div id={listId} className="token-chooser-list" role="listbox" aria-label={label}>
+        {visible.map((option, index) => <button key={option.value} id={`${listId}-${option.value}`} type="button" role="option" aria-selected={index === active} className="token-chooser-option" data-active={index === active || undefined} disabled={option.disabled} onPointerMove={() => setActive(index)} onClick={() => choose(option)}>
+          <span className="token-chooser-swatch" aria-hidden="true"><span style={{ background: option.color ?? 'transparent' }} /></span><span>{option.label}</span>
+        </button>)}
+        {!visible.length && <div className="token-chooser-empty">No matching color tokens</div>}
+      </div>
+    </Popover.Popup></Popover.Positioner></Popover.Portal>
+  </Popover.Root>
 }
 
 /**

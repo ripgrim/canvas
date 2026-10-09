@@ -45,6 +45,7 @@ async function historyDepth(page) {
 /** Runs one editing action and waits until its save lands. */
 async function act(page, action) { const before = await revisionOf(page); await action(); await waitRevision(page, before + 1); await page.waitForTimeout(250) }
 async function commit(page, label, value) { const input = field(page, label); await input.click(); await input.fill(String(value)); await input.press('Enter'); await page.waitForTimeout(150) }
+async function choose(page, label, option) { await combo(page, label).click(); await page.getByRole('option', { name: option, exact: true }).click(); await page.waitForTimeout(150) }
 async function selectLayer(page, id, modifiers = []) { await page.getByRole('tree', { name: 'Layers' }).locator(`[data-instance-id="${id}"]`).click({ modifiers }); await page.waitForTimeout(250) }
 const styleOf = (page, id) => preview(page).locator(`[data-preview-instance="${id}"]`).evaluate(element => {
   const style = getComputedStyle(element)
@@ -119,7 +120,7 @@ async function run() {
   assert.ok(Math.abs(before.a.width - 120) < 0.01, `label width is 120: ${before.a.width}`)
   assert.equal(Math.round((before.a.width / content) * 100), 41, 'the measured rectangles give 41 percent')
   assert.equal((await styleOf(page, 'label-a')).width, '120px')
-  await act(page, () => combo(page, 'Width sizing').selectOption('relative'))
+  await act(page, () => choose(page, 'Width sizing', 'Relative'))
   assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.width, { value: { kind: 'percent', value: 41 } }, 'stored percent equals the measured ratio')
   // 41% of 294 is 120.54 px: the preview now resolves the percent, not the old 120 px.
   const relative = await waitStyle(page, 'label-a', style => style.width !== '120px', 'preview width follows the percent')
@@ -129,7 +130,7 @@ async function run() {
   await shot(section(page, 'sizing'), 'sizing-relative')
 
   // 2. LAY-SIZE-001 (undo and reload): Height to Fixed, then a typed value; one Ctrl+Z restores the prior record.
-  await act(page, () => combo(page, 'Height sizing').selectOption('fixed'))
+  await act(page, () => choose(page, 'Height sizing', 'Fixed'))
   const fixedLayout = (await nodeOf(page, 'label-a')).layout
   assert.equal(fixedLayout.item.height.value.kind, 'px')
   assert.equal(fixedLayout.item.height.value.value, Math.round(before.a.height), 'Fixed bakes the measured height')
@@ -147,7 +148,7 @@ async function run() {
   await waitStyle(page, 'label-a', style => style.height === '40px', 'reloaded preview renders 40px')
   await selectLayer(page, 'label-a')
   assert.equal(await field(page, 'Height').inputValue(), '40')
-  assert.equal(await combo(page, 'Height sizing').inputValue(), 'fixed')
+  assert.equal((await combo(page, 'Height sizing').innerText()).trim(), 'Fixed')
   record('LAY-SIZE-001: Fixed height round-trips through undo (one step) and reload')
 
   // 3. Absolute with insets: leaving the flow stores the measured local point from the card padding edge (28, 28).
@@ -187,14 +188,14 @@ async function run() {
   assert.ok(handle, 'the Height prefix is a scrub handle')
   await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
   await page.mouse.down()
-  await page.mouse.move(handle.x + handle.width / 2 + 20, handle.y + handle.height / 2, { steps: 10 })
+  await page.mouse.move(handle.x + handle.width / 2 + 80, handle.y + handle.height / 2, { steps: 20 })
   const during = await waitStyle(page, 'label-a', style => style.height === '60px', 'the scrub previews live')
   assert.equal(await revisionOf(page), revision, 'previewing writes nothing')
   await page.mouse.up()
   await waitRevision(page, revision + 1)
   await page.waitForTimeout(500)
   assert.equal(await revisionOf(page), revision + 1, 'a scrub is exactly one revision')
-  assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.height, { value: px(60) }, '20 px of travel adds 20')
+  assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.height, { value: px(60) }, 'Paper sensitivity adds 20 after 80 px of travel')
   assert.equal(await historyDepth(page), depth + 1, 'and one undo step')
   record('LAY-GEST-002: scrubbing Height by pointer commits one revision and one undo step', during.height)
 
@@ -205,7 +206,7 @@ async function run() {
   const handle2 = await scrubHandle(page, 'sizing-height').boundingBox()
   await page.mouse.move(handle2.x + handle2.width / 2, handle2.y + handle2.height / 2)
   await page.mouse.down()
-  await page.mouse.move(handle2.x + handle2.width / 2 + 15, handle2.y + handle2.height / 2, { steps: 8 })
+  await page.mouse.move(handle2.x + handle2.width / 2 + 60, handle2.y + handle2.height / 2, { steps: 15 })
   await waitStyle(page, 'label-a', style => style.height === '75px', 'the cancelled scrub previewed first')
   await page.keyboard.press('Escape')
   await page.mouse.up()
@@ -220,13 +221,13 @@ async function run() {
   // 7. LAY-SIZE-003: two Labels to Fixed in one revision, each with its own measured width.
   await selectLayer(page, 'label-a')
   await selectLayer(page, 'label-b', ['Control'])
-  assert.equal(await combo(page, 'Width sizing').inputValue(), '', 'Relative and Auto widths show Mixed')
+  assert.equal((await combo(page, 'Width sizing').innerText()).trim(), 'Mixed', 'Relative and Auto widths show Mixed')
   const pair = await measure(page)
   // Hand derivation: label-a is 41% of 294 = 120.54 -> 121; label-b stretches across the card content box -> 294.
   assert.ok(Math.abs(pair.a.width - 120.54) < 0.02 && Math.abs(pair.b.width - 294) < 0.01, JSON.stringify(pair))
   const multiDepth = await historyDepth(page)
   const multiRevision = await revisionOf(page)
-  await act(page, () => combo(page, 'Width sizing').selectOption('fixed'))
+  await act(page, () => choose(page, 'Width sizing', 'Fixed'))
   await page.waitForTimeout(400)
   assert.equal(await revisionOf(page), multiRevision + 1, 'one revision for both nodes')
   assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.width, { value: px(121) })

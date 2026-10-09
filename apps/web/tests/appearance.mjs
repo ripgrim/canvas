@@ -21,6 +21,7 @@ const node = async (page, fileId, id) => (await stored(page, fileId)).file.nodes
 const layers = page => page.getByRole('tree', { name: 'Layers' }).locator('[role="treeitem"]').evaluateAll(items => items.map(item => ({ id: item.getAttribute('data-instance-id'), name: item.getAttribute('aria-label') })))
 const preview = page => page.frameLocator('iframe[title="Canvas"]')
 const rail = page => page.locator('.right-rail')
+const scrubHandle = (page, id) => rail(page).locator(`label[for="${id}"] [data-scrub-area]`)
 const styleOf = (page, selector) => preview(page).locator(selector).evaluate(element => { const style = getComputedStyle(element); return { backgroundColor: style.backgroundColor, backgroundImage: style.backgroundImage, color: style.color, opacity: style.opacity, mixBlendMode: style.mixBlendMode, visibility: style.visibility, outline: style.outline, outlineOffset: style.outlineOffset, borderTop: style.borderTop, borderRight: style.borderRight, borderBottom: style.borderBottom, borderLeft: style.borderLeft, backgroundClip: style.backgroundClip, inline: element.getAttribute('style') ?? '' } })
 const elementStyle = (page, id) => styleOf(page, `[data-preview-canvas="${id}"]`)
 const waitEditor = async page => { await page.locator('.canvas-stage').waitFor({ timeout: 20_000 }); await page.locator('iframe[title="Canvas"]').waitFor(); await page.waitForTimeout(400) }
@@ -44,6 +45,7 @@ async function draw(page, tool, from, to) {
 }
 async function selectLayer(page, id) { await page.getByRole('tree', { name: 'Layers' }).locator(`[data-instance-id="${id}"]`).click(); await page.waitForTimeout(150) }
 async function commitField(page, label, value) { const field = rail(page).getByRole('textbox', { name: label, exact: true }); await field.click(); await field.fill(String(value)); await field.press('Enter'); await page.waitForTimeout(150) }
+async function choose(page, label, option) { await rail(page).getByRole('combobox', { name: label, exact: true }).click(); await page.getByRole('option', { name: option, exact: true }).click(); await page.waitForTimeout(150) }
 const undoDisabled = page => page.locator('.canvas-floating-actions button[aria-label="Undo document edit"]').isDisabled()
 async function historyDepth(page, fileId) {
   // Count undo steps by undoing until the button disables, then redoing back; the stored revision stays the same count ahead.
@@ -89,17 +91,38 @@ async function run() {
   // 2. Blending: opacity, blend mode, and visibility render and omit defaults in storage.
   await selectLayer(page, clicked.id)
   await commitField(page, 'Opacity', 50)
-  await rail(page).getByRole('combobox', { name: 'Blend mode', exact: true }).selectOption('multiply')
+  await choose(page, 'Blend mode', 'Multiply')
   await waitStyle(page, clicked.id, style => style.opacity === '0.5' && style.mixBlendMode === 'multiply', 'opacity and blend render')
   rect = await node(page, fileId, clicked.id)
   assert.deepEqual({ opacity: rect.appearance.opacity, blendMode: rect.appearance.blendMode }, { opacity: 0.5, blendMode: 'multiply' })
+  const scrubRevision = await revisionOf(page, fileId)
+  const opacityHandle = await scrubHandle(page, 'blending-opacity').boundingBox()
+  assert.ok(opacityHandle, 'opacity exposes Paper\'s dedicated left scrub area')
+  await page.mouse.move(opacityHandle.x + opacityHandle.width / 2, opacityHandle.y + opacityHandle.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(opacityHandle.x + opacityHandle.width / 2 + 40, opacityHandle.y + opacityHandle.height / 2, { steps: 12 })
+  await waitStyle(page, clicked.id, style => style.opacity === '0.6', 'opacity scrub previews live')
+  assert.equal(await revisionOf(page, fileId), scrubRevision, 'scrub preview does not persist')
+  await page.mouse.up()
+  await waitRevision(page, fileId, scrubRevision + 1)
+  assert.equal((await node(page, fileId, clicked.id)).appearance.opacity, 0.6, '40 px at Paper sensitivity adds 10%')
+  const cancelRevision = await revisionOf(page, fileId)
+  await page.mouse.move(opacityHandle.x + opacityHandle.width / 2, opacityHandle.y + opacityHandle.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(opacityHandle.x + opacityHandle.width / 2 + 40, opacityHandle.y + opacityHandle.height / 2, { steps: 12 })
+  await waitStyle(page, clicked.id, style => style.opacity === '0.7', 'cancelled opacity scrub previews live')
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  await waitStyle(page, clicked.id, style => style.opacity === '0.6', 'cancel restores stored opacity')
+  assert.equal(await revisionOf(page, fileId), cancelRevision, 'cancelled scrub writes no revision')
+  record('APP-GEST-001: the dedicated numeric scrub area previews live, commits once, and Escape cancels')
   await rail(page).getByRole('button', { name: 'Hide layer', exact: true }).click()
   await waitStyle(page, clicked.id, style => style.visibility === 'hidden', 'hidden layer')
   assert.equal((await node(page, fileId, clicked.id)).appearance.visible, false)
   await rail(page).getByRole('button', { name: 'Show layer', exact: true }).click()
   await waitStyle(page, clicked.id, style => style.visibility === 'visible', 'shown again')
   await commitField(page, 'Opacity', 100)
-  await rail(page).getByRole('combobox', { name: 'Blend mode', exact: true }).selectOption('normal')
+  await choose(page, 'Blend mode', 'Normal')
   await waitStyle(page, clicked.id, style => style.opacity === '1' && style.mixBlendMode === 'normal', 'defaults restored')
   rect = await node(page, fileId, clicked.id)
   assert.equal(rect.appearance.opacity, undefined, 'default opacity omitted'); assert.equal(rect.appearance.blendMode, undefined, 'default blend omitted'); assert.equal(rect.appearance.visible, undefined)
@@ -135,7 +158,7 @@ async function run() {
   const gradient = rect.appearance.fills[0]
   assert.equal(gradient.type, 'gradient'); assert.equal(gradient.shape, 'linear'); assert.equal(gradient.interpolation, 'oklab'); assert.equal(gradient.stops.length, 2)
   assert.deepEqual(gradient.cache?.solid?.color.color.hex, '#ff0000', 'the solid is cached for switching back')
-  await act(page, fileId, () => rail(page).getByRole('combobox', { name: 'Fill 1 gradient shape', exact: true }).selectOption('radial'))
+  await act(page, fileId, () => choose(page, 'Fill 1 gradient shape', 'Radial'))
   await waitStyle(page, clicked.id, style => style.backgroundImage.startsWith('radial-gradient'), 'radial renders')
   // Measuring history depth replays undo and redo, which saves; read revisions only after each measurement.
   const depthBefore = await historyDepth(page, fileId)
@@ -165,7 +188,7 @@ async function run() {
   await act(page, fileId, () => rail(page).getByRole('button', { name: 'Add outline', exact: true }).click())
   await waitStyle(page, clicked.id, style => style.outline.includes('solid') && style.outline.includes('1px') && style.outline.includes('rgb(0, 0, 0)'), 'outline renders black 1px solid')
   await commitField(page, 'Outline width', 3); await commitField(page, 'Outline offset', 4)
-  await act(page, fileId, () => rail(page).getByRole('combobox', { name: 'Outline style', exact: true }).selectOption('dashed'))
+  await act(page, fileId, () => choose(page, 'Outline style', 'Dashed'))
   await waitStyle(page, clicked.id, style => style.outline.includes('dashed') && style.outline.includes('3px') && style.outlineOffset === '4px', 'outline edits render')
   rect = await node(page, fileId, clicked.id)
   assert.deepEqual({ width: rect.appearance.outline.width, offset: rect.appearance.outline.offset, style: rect.appearance.outline.style }, { width: 3, offset: 4, style: 'dashed' })
