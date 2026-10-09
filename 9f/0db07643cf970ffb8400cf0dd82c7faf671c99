@@ -1,0 +1,75 @@
+fixtures/component-repo/src/preview-theme-adapter.tsx
+  s_e18d232d8e09ca::t_a53c1401e16483 1-62
+packages/editor/src/bootstrap.tsx
+  s_e18d232d8e09ca::t_b5fa039a084dd6 1-63
+packages/editor/src/design-system/appearance-atoms.tsx
+  s_e18d232d8e09ca::t_6d93be7f2b917c 1-291
+packages/editor/src/design-system/color-picker.css
+  s_e18d232d8e09ca::t_0c9a7560d0ea3e 1-30
+packages/editor/src/design-system/color-picker.tsx
+  s_e18d232d8e09ca::t_974f7519aa64db 1-122
+packages/editor/src/design-system/inspector-atoms.tsx
+  s_e18d232d8e09ca::t_be5f536edc561d 1-365
+packages/editor/src/design-system/inspector.css
+  s_e18d232d8e09ca::t_69f90ff1057ac4 1-102
+packages/editor/src/design-system/theme-atoms.tsx
+  s_e18d232d8e09ca::t_63787844106862 1-120
+packages/editor/src/design-system/theme-panel.css
+  s_e18d232d8e09ca::t_5b83100f4094d6 1-87
+packages/editor/src/design-system/token-field.css
+  s_e18d232d8e09ca::t_2fbbb10637b5f2 1-30
+packages/editor/src/features/editor/AppearancePanels.tsx
+  s_e18d232d8e09ca::t_c0e07ac6651ee5 1-462
+packages/editor/src/features/editor/Editor.tsx
+  s_e18d232d8e09ca::t_a810d24d626735 1-115
+packages/editor/src/features/editor/ElementLayoutProperties.tsx
+  s_e18d232d8e09ca::t_042b14a19bdbc5 1-34
+packages/editor/src/features/editor/InspectorPanels.tsx
+  s_e18d232d8e09ca::t_db8ac2df6ad2d3 1-98
+packages/editor/src/features/editor/LayoutPanels.tsx
+  s_e18d232d8e09ca::t_031e36a0df60e7 1-515
+packages/editor/src/features/editor/NodeThemePanel.tsx
+  s_e18d232d8e09ca::t_ef4fc007bccd84 1-78
+packages/editor/src/features/editor/ThemePanel.tsx
+  s_e18d232d8e09ca::t_0eaaaf678b64f3 1-189
+packages/editor/src/features/editor/appearance-adapters.test.ts
+  s_e18d232d8e09ca::t_08d513de8b0d9d 1-426
+packages/editor/src/features/editor/appearance-adapters.ts
+  s_e18d232d8e09ca::t_7e9f01b22c0316 1-426
+packages/editor/src/features/editor/design-theme.ts
+  s_e18d232d8e09ca::t_31f142f45afa22 1-73
+packages/editor/src/features/editor/inspector-copy.ts
+  s_e18d232d8e09ca::t_02b03e65ad847c 1-224
+packages/editor/src/features/editor/node-theme-store.test.ts
+  s_e18d232d8e09ca::t_5032f70d644b1f 1-164
+packages/editor/src/features/editor/preview-service.ts
+  s_e18d232d8e09ca::t_59afd3a0c233c6 1-138
+packages/editor/src/features/editor/theme-copy.ts
+  s_e18d232d8e09ca::t_90f6d8cebc5ee2 1-46
+packages/editor/src/features/editor/theme-focus.test.ts
+  s_e18d232d8e09ca::t_9dfe3b19fe0d30 1-66
+packages/editor/src/features/editor/theme-focus.ts
+  s_e18d232d8e09ca::t_e6f3db469f392e 1-42
+packages/editor/src/features/editor/theme-independence.test.ts
+  s_e18d232d8e09ca::t_ce843beab4667d 1-133
+packages/editor/src/features/editor/token-field-copy.ts
+  s_e18d232d8e09ca::t_54d8dc29a8b419 1-30
+packages/editor/src/pages/EditorPage.tsx
+  s_e18d232d8e09ca::t_8c7abe0b6bfb68 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9f0db07643cf970ffb8400cf0dd82c7faf671c99",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
