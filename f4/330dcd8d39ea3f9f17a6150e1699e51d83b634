@@ -1,0 +1,21 @@
+package.json
+  s_e18d232d8e09ca::t_3227c73813396c 1-34
+pnpm-lock.yaml
+  s_e18d232d8e09ca::t_1384b32be94a96 1-3004
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f4330dcd8d39ea3f9f17a6150e1699e51d83b634",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
