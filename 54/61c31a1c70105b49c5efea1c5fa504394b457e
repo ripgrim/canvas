@@ -1,0 +1,25 @@
+packages/preview-runtime/package.json
+  s_e18d232d8e09ca::t_b746dfd8830c16 1-26
+packages/preview-runtime/src/appearance-layer.mjs
+  s_e18d232d8e09ca::t_8e1a608a69be6f 1-100
+packages/preview-runtime/src/scene-styles.mjs
+  s_e18d232d8e09ca::t_65d194cc0739f5 1-109
+packages/preview-runtime/tests/appearance-styles.test.ts
+  s_e18d232d8e09ca::t_f43175afca0581 1-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5461c31a1c70105b49c5efea1c5fa504394b457e",
+  "prompts": {},
+  "sessions": {
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
