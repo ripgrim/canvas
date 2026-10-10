@@ -50,9 +50,22 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
   let view: FileViewState | null = null
   let cameraTimer: ReturnType<typeof setTimeout> | null = null
   let stopCameraWatch: (() => void) | undefined
-  const fileIdentity = (snapshot: ProjectSnapshot) => snapshot.fileId ?? snapshot.projectId
+  const pendingExternalSnapshots = new Map<string, ProjectSnapshot>()
+  const fileIdentity = (snapshot: ProjectSnapshot) => snapshot.fileId ?? snapshot.file.fileId ?? snapshot.projectId
   const connection = () => { const project = api(); if (!project) throw new Error(editorCopy.projectAccessUnavailable); return project }
   const sourceConnection = () => { const bridge = connection(); if (!bridge.capabilities?.sourceWrites.available) throw new UnavailableCapabilityError(bridge.capabilities?.sourceWrites.reason ?? editorCopy.sourceUnavailable); return bridge }
+  const queueExternalSnapshot = (snapshot: ProjectSnapshot) => {
+    const identity = fileIdentity(snapshot)
+    const pending = pendingExternalSnapshots.get(identity)
+    if (!pending || snapshot.file.revision > pending.file.revision) pendingExternalSnapshots.set(identity, snapshot)
+  }
+  const newestSnapshot = (snapshot: ProjectSnapshot) => {
+    const identity = fileIdentity(snapshot)
+    const pending = pendingExternalSnapshots.get(identity)
+    pendingExternalSnapshots.delete(identity)
+    if (!pending) return snapshot
+    return pending.file.revision > snapshot.file.revision ? pending : snapshot
+  }
   const viewStorage = () => { try { return storage?.() ?? null } catch { return null } }
   const persistView = () => { if (view) writeFileView(view, viewStorage()) }
   /** Captures the current camera for the open page without writing on every pan frame. */
@@ -119,9 +132,10 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
   const load = (refresh: boolean, fileId?: string) => run(refresh ? editorCopy.syncing : editorCopy.opening, async () => {
     const active = connection()
     const started = generation
-    const snapshot = refresh ? await active.refresh() : fileId ? await (active.openFile ?? (() => { throw new Error(active.capabilities?.files.open.reason ?? editorCopy.projectAccessUnavailable) }))(fileId) : await active.openProject()
+    const loaded = refresh ? await active.refresh() : fileId ? await (active.openFile ?? (() => { throw new Error(active.capabilities?.files.open.reason ?? editorCopy.projectAccessUnavailable) }))(fileId) : await active.openProject()
     // A result that lands after disposal or a newer operation must not touch the document, view state, or history.
     if (connection() !== active || started !== generation) return {}
+    const snapshot = newestSnapshot(loaded)
     const received = receiveFile(snapshot)
     const state = backing.getState()
     return { snapshot, compositionPreview: received.modified && (!snapshot.composition.componentId || state.compositionPreview), token: snapshot.tokens[0]?.value ?? state.token, prepared: null, approved: false, previewReady: !received.projectChanged && state.snapshot?.preview.activeGeneration === snapshot.preview.activeGeneration && state.previewReady, runtimeInstanceIds: received.projectChanged ? null : state.runtimeInstanceIds, selected: received.projectChanged ? snapshot.composition.children[0]?.id ?? null : state.selected ?? snapshot.composition.children[0]?.id ?? null, notice: snapshot.conflict ? editorCopy.conflictHint : editorCopy.ready }
@@ -175,6 +189,39 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
       }
       return snapshot.file
     },
+    receiveExternalSnapshot: (snapshot: ProjectSnapshot) => {
+      const state = backing.getState()
+      if (state.busy === editorCopy.opening || state.busy === editorCopy.syncing) {
+        queueExternalSnapshot(snapshot)
+        return false
+      }
+      if (!state.snapshot || fileIdentity(state.snapshot) !== fileIdentity(snapshot)) return false
+      if (snapshot.file.revision <= state.snapshot.file.revision) return false
+      const localFile = documents?.getSnapshot().file
+      const localChanged = Boolean(localFile && JSON.stringify(localFile) !== JSON.stringify(state.snapshot.file))
+      if (state.busy || localChanged) {
+        update({
+          snapshot: { ...state.snapshot, conflict: { kind: 'external-change', message: editorCopy.liveConflict, paths: [] } },
+          prepared: null,
+          approved: false,
+          notice: editorCopy.conflictHint,
+        })
+        return false
+      }
+      const received = receiveFile(snapshot)
+      update({
+        snapshot,
+        compositionPreview: received.modified && (!snapshot.composition.componentId || state.compositionPreview),
+        token: snapshot.tokens[0]?.value ?? state.token,
+        prepared: null,
+        approved: false,
+        previewReady: !received.projectChanged && state.snapshot.preview.activeGeneration === snapshot.preview.activeGeneration && state.previewReady,
+        runtimeInstanceIds: received.projectChanged ? null : state.runtimeInstanceIds,
+        selected: received.projectChanged ? snapshot.composition.children[0]?.id ?? null : state.selected ?? snapshot.composition.children[0]?.id ?? null,
+        notice: snapshot.conflict ? editorCopy.conflictHint : editorCopy.ready,
+      })
+      return true
+    },
     open: () => load(false), openFile: (fileId: string) => load(false, fileId), refresh: () => load(true),
     /**
      * Opens a file (and optionally one of its pages) for a route. Newer calls supersede older ones, so a slow load can never
@@ -198,8 +245,9 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
         const files = await active.listFiles()
         if (token !== locationGeneration) return { status: 'stale' }
         if (!files.some(file => file.id === fileId)) { update({ busy: null }); return { status: 'missing-file', fileId } }
-        const snapshot = await active.openFile(fileId)
+        const loaded = await active.openFile(fileId)
         if (token !== locationGeneration) return { status: 'stale' }
+        const snapshot = newestSnapshot(loaded)
         if (pageId !== null && !snapshot.file.pages.some(page => page.id === pageId)) { update({ busy: null }); return { status: 'missing-page', fileId, pageId, fileName: snapshot.composition.name } }
         if (connection() !== active) return { status: 'stale' }
         const received = receiveFile(snapshot, pageId)
@@ -240,7 +288,7 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
       receiveFile(result.snapshot)
       return { snapshot: result.snapshot, prepared: null, approved: false, reviewOpen: false, previewReady: false, runtimeInstanceIds: null, notice: result.message }
     }),
-    dispose: () => { generation++; locationGeneration++; if (cameraTimer) { clearTimeout(cameraTimer); cameraTimer = null }; rememberCamera(true); stopCameraWatch?.(); stopCameraWatch = undefined; for (const stop of subscriptions) stop() },
+    dispose: () => { generation++; locationGeneration++; pendingExternalSnapshots.clear(); if (cameraTimer) { clearTimeout(cameraTimer); cameraTimer = null }; rememberCamera(true); stopCameraWatch?.(); stopCameraWatch = undefined; for (const stop of subscriptions) stop() },
   }
 }
 

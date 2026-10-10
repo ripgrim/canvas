@@ -18,6 +18,7 @@ export const editorCopy = {
   emptyComponents: 'Open a repository to discover its foundational components.',
   properties: 'Properties', noSelection: 'Select a layer to inspect its source.',
   conflict: 'Source changed', conflictHint: 'Review was cleared. Sync with source before preparing another change.',
+  liveConflict: 'This file changed in another session. Refresh before saving.',
   retry: 'Try again', error: 'Could not complete this action.',
   projectAccessUnavailable: 'Project access is unavailable. Reload the editor to reconnect.',
   tools: ['Move', 'Hand', 'Frame', 'Shape', 'Pen', 'Text', 'Media'],

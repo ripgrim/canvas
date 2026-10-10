@@ -41,7 +41,9 @@ export function startEditorServices(api: EditorProjectApi): () => void {
     const keyboard = createEditorKeyboardService(window)
     keyboard.start()
     homeStore.start()
+    const stopFileSubscription = api.subscribeFile?.(snapshot => editorStore.receiveExternalSnapshot(snapshot))
     stopWorkspace = () => {
+      stopFileSubscription?.()
       canvasInput.stop()
       canvasViewportService.stop()
       canvasHudPainter.stop()

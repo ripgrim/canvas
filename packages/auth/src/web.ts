@@ -13,6 +13,7 @@ export type HostedAuthClientOptions = Readonly<{
 
 export type HostedAuthClient = Readonly<{
   signIn(provider: HostedAuthProvider, request: DesktopSignInRequest): Promise<void>
+  signInWeb(provider: HostedAuthProvider, callbackURL: string): Promise<void>
   transferSignedInUser(request: DesktopSignInRequest): Promise<boolean>
   startDesktopRedirect(): () => void
   hasDesktopAuthorization(): boolean
@@ -45,6 +46,12 @@ export function createHostedAuthClient(options: HostedAuthClientOptions): Hosted
         errorCallbackURL: redirect,
         fetchOptions: { query: request },
       })
+      if (result.error) throw new Error(result.error.message ?? result.error.statusText)
+    },
+    signInWeb: async (provider, callbackURL) => {
+      const target = new URL(callbackURL)
+      if (!['http:', 'https:'].includes(target.protocol)) throw new Error('Web callback URL is invalid.')
+      const result = await client.signIn.social({ provider, callbackURL: target.toString(), errorCallbackURL: target.toString() })
       if (result.error) throw new Error(result.error.message ?? result.error.statusText)
     },
     transferSignedInUser: async (request) => {

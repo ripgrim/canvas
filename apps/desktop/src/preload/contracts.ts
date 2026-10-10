@@ -8,10 +8,17 @@ import type { AuthSessionView } from '@canvas/auth'
 export type DesktopProjectSnapshot = ProjectSnapshot & { preview: PreviewSnapshot }
 export type DesktopSaveResult = Omit<SaveResult, 'snapshot'> & { snapshot: DesktopProjectSnapshot }
 export type ConnectedRepositoryScan = Readonly<{ repository: ConnectedRepository; scan: ShadcnScan }>
-export type DesktopFileSummary = Readonly<{ id: string; name: string; location: string; updatedAt?: string }>
+export type DesktopFileSummary = Readonly<{
+  id: string
+  name: string
+  location: string
+  updatedAt?: string
+  thumbnailUrl?: string
+}>
 
 export type DesignEditorApi = Readonly<{
   listFiles(): Promise<readonly DesktopFileSummary[]>
+  createFile(): Promise<DesktopFileSummary>
   openFile(fileId: string): Promise<DesktopProjectSnapshot>
   inspectFixture(): Promise<DesktopProjectSnapshot>
   scanShadcn(): Promise<ShadcnScan>
@@ -34,13 +41,13 @@ export type DesignEditorApi = Readonly<{
 }>
 
 export type RepositoryRequest =
-  | { method: 'listFiles' | 'inspectFixture' | 'refresh' | 'scanShadcn'; args: [] }
+  | { method: 'listFiles' | 'createFile' | 'inspectFixture' | 'refresh' | 'scanShadcn'; args: [] }
   | { method: 'openFile'; args: [string] }
   | { method: 'prepareLabelPadding' | 'prepareToken' | 'preparePromotion' | 'prepareUndo' | 'prepareRedo'; args: [string] }
   | { method: 'savePrepared'; args: [string, string] }
   | { method: 'saveFile'; args: [FileDocument, number] }
 
-export type RepositoryResult = ProjectSnapshot | PreparedChange | SaveResult | DesktopProjectSnapshot | DesktopSaveResult | ShadcnScan | readonly DesktopFileSummary[]
+export type RepositoryResult = ProjectSnapshot | PreparedChange | SaveResult | DesktopProjectSnapshot | DesktopSaveResult | ShadcnScan | DesktopFileSummary | readonly DesktopFileSummary[]
 
 export type RepositoryResponse =
   | { ok: true; value: RepositoryResult }

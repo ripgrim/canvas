@@ -16,15 +16,28 @@ import { RepositoryConnections } from './repository-connections'
 import { createElectronAuthClient } from '@canvas/auth/electron'
 import { canAccessAuthenticatedProject, DesktopAuthService } from './auth-service'
 import { authCallbackFromArguments, desktopAuthCallbackPath, desktopAuthClientOptions, desktopAuthScheme } from './auth-config'
+import { DesktopCloudFiles } from './cloud-files'
+import { desktopPackageEnvironment } from './package-environment'
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'design-editor', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }])
 
 const directory = dirname(fileURLToPath(import.meta.url))
 const development = process.argv.includes('--development') && !app.isPackaged
+const localPackage = desktopPackageEnvironment?.mode === 'local'
+const environment: NodeJS.ProcessEnv = desktopPackageEnvironment
+  ? {
+      ...process.env,
+      DESIGN_EDITOR_AUTH_URL: desktopPackageEnvironment.authURL,
+      DESIGN_EDITOR_LOGIN_URL: desktopPackageEnvironment.loginURL,
+      DESIGN_EDITOR_PREVIEW_URL: desktopPackageEnvironment.previewURL,
+      DESIGN_EDITOR_ASSETS_URL: desktopPackageEnvironment.assetsURL,
+    }
+  : process.env
 const smoke = process.env.DESIGN_EDITOR_SMOKE === '1'
 let repository: RepositoryProcess | undefined
 let repositoryConnections: RepositoryConnections | undefined
 let authService: DesktopAuthService | undefined
+let cloudFiles: DesktopCloudFiles | undefined
 let editorWindow: BrowserWindow | undefined
 let preview: ReturnType<typeof createPreviewRuntime> | undefined
 let shutdown: Promise<void> | undefined
@@ -82,6 +95,7 @@ function disposeServices(): Promise<void> {
   repositoryConnections = undefined
   authService?.dispose()
   authService = undefined
+  cloudFiles = undefined
   const activePreview = preview
   preview = undefined
   shutdown = activePreview?.dispose() ?? Promise.resolve()
@@ -104,7 +118,7 @@ function previewBinding(snapshot: ProjectSnapshot): PreviewBinding {
 }
 
 async function createEditor(): Promise<void> {
-  const target = resolveEditorTarget(process.env.DESIGN_EDITOR_WEB_URL, development)
+  const target = resolveEditorTarget(environment.DESIGN_EDITOR_WEB_URL, development)
   const editorUrl = target.url
   if (target.localCapabilities) {
     repositoryConnections = new RepositoryConnections(app.getPath('userData'), resolve(directory, 'scan-worker.js'))
@@ -151,11 +165,19 @@ async function createEditor(): Promise<void> {
     },
   })
   editorWindow = window
-  const authOptions = desktopAuthClientOptions(process.env, development)
+  const authOptions = desktopAuthClientOptions(environment, development || localPackage)
+  const authClient = authOptions ? createElectronAuthClient(authOptions) : null
   authService = new DesktopAuthService({
-    client: authOptions ? createElectronAuthClient(authOptions) : null,
+    client: authClient,
     target: { scheme: desktopAuthScheme, path: desktopAuthCallbackPath },
   })
+  if (authClient && authOptions) cloudFiles = new DesktopCloudFiles(
+    authClient,
+    authOptions.baseURL,
+    target.origin,
+    environment.DESIGN_EDITOR_PREVIEW_URL?.trim() || (development || localPackage ? 'http://127.0.0.1:4318' : undefined),
+    environment.DESIGN_EDITOR_ASSETS_URL?.trim() || (development || localPackage ? 'http://127.0.0.1:4322' : undefined),
+  )
   authService.subscribe(value => { if (!window.isDestroyed()) window.webContents.send(authSessionChangedChannel, value) })
   await authService.start()
   window.removeMenu()
@@ -185,7 +207,17 @@ async function createEditor(): Promise<void> {
     if (!canAccessAuthenticatedProject(authService?.getSession(), development || smoke)) return { ok: false, error: 'Sign in to access the project.' }
     try {
       const request = parseRepositoryRequest(payload)
-      if (request.method === 'listFiles') return { ok: true, value: process.env.DESIGN_EDITOR_SMOKE === '1' ? [{ id: 'fixture-project', name: 'Fixture', location: 'Local' }] : [] }
+      if (request.method === 'listFiles') {
+        if (cloudFiles && authService?.getSession().status === 'signed-in') return { ok: true, value: await cloudFiles.list() }
+        return { ok: true, value: process.env.DESIGN_EDITOR_SMOKE === '1' ? [{ id: 'fixture-project', name: 'Fixture', location: 'Local' }] : [] }
+      }
+      if (request.method === 'createFile') {
+        if (!cloudFiles) throw new Error('Cloud files are unavailable.')
+        return { ok: true, value: await cloudFiles.create() }
+      }
+      if (request.method === 'openFile' && cloudFiles?.accepts(request.args[0])) return { ok: true, value: await cloudFiles.open(request.args[0]) }
+      if (request.method === 'refresh' && cloudFiles?.hasActive()) return { ok: true, value: await cloudFiles.refresh() }
+      if (request.method === 'saveFile' && cloudFiles?.isActive(request.args[0].fileId)) return { ok: true, value: await cloudFiles.save(request.args[0], request.args[1]) }
       if (!repository) throw new Error('No repository grant.')
       if (request.method === 'openFile' && request.args[0] !== 'fixture-project') throw new Error('Unknown file.')
       const value = await repository.execute(request.method === 'openFile' ? { method: 'inspectFixture', args: [] } : request)

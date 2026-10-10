@@ -9,6 +9,8 @@ outputs/
 .cache/
 .next/
 .turbo/
+.wrangler/
+release/
 
 # Local agent and research material
 .agents/
@@ -37,6 +39,7 @@ bun.lock
 .env.*
 !.env.example
 !.env.local.example
+apps/workers/.dev.vars
 *.pem
 *.key
 *.p12

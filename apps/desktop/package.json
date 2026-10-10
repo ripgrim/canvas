@@ -8,6 +8,7 @@
     "dev": "pnpm --filter @canvas/web build && pnpm --filter @canvas/preview-runtime build && pnpm --filter @canvas/repo-engine build && pnpm --filter @canvas/scanner build && pnpm --filter @canvas/repository build && pnpm --filter @canvas/auth build && pnpm build && electron .",
     "dev:renderer": "pnpm --filter @canvas/web dev",
     "build": "node ../../scripts/sync-web-assets.mjs && vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts",
+    "package": "electron-builder --win nsis --publish never",
     "start": "electron .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run tests"
@@ -15,20 +16,51 @@
   "dependencies": {
     "@base-ui/react": "^1.0.0",
     "@canvas/auth": "workspace:*",
+    "@canvas/cloud-client": "workspace:*",
     "@canvas/preview-runtime": "workspace:*",
     "@canvas/repo-engine": "workspace:*",
     "@canvas/repository": "workspace:*",
     "@canvas/scanner": "workspace:*",
+    "@canvas/web": "workspace:*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "zustand": "5.0.15",
-    "@canvas/web": "workspace:*"
+    "zustand": "5.0.15"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^40.0.0",
+    "electron-builder": "26.15.3",
     "vite": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.comp-canvas.desktop",
+    "productName": "Comp Canvas",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "protocols": [
+      {
+        "name": "Comp Canvas",
+        "schemes": [
+          "com.comp-canvas.desktop"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

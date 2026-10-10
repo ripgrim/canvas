@@ -1,0 +1,23 @@
+{
+  "name": "@canvas/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "pnpm build && node --watch dist/serve.js",
+    "start": "node dist/serve.js"
+  },
+  "dependencies": {
+    "@canvas/auth": "workspace:*",
+    "@canvas/cloud-document": "workspace:*",
+    "@canvas/database": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

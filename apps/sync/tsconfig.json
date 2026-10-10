@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": { "@canvas/sync-protocol": ["../../packages/sync-protocol/src/index.ts"] }
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

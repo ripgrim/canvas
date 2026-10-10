@@ -273,6 +273,36 @@ Start Share on a local-only project. Confirm the UI lists every repository file,
 
 Verify Owner, Editor, Reviewer, and Viewer behavior. Verify active, expired, revoked, and disabled links through direct API access and the UI.
 
+## Hosted files and live sync
+
+### CLOUD-FILES-001: Canonical hosted file persistence
+
+Create, list, open, and save a blank file through the hosted API against PostgreSQL. Verify the file summary and canonical document stay separate, revisions advance by compare-and-swap, and invalid identity, geometry, extra fields, stale revisions, signed-out access, and another account all fail without leaking file existence.
+
+### FILE-ASSET-001: Private file assets
+
+Create a scoped upload intent, upload a checked image to the private R2 binding, read it through the authorized file route, copy it without exposing a bucket credential, and write and read the stable file thumbnail. Verify create-only writes are atomic. Reject cross-file access, an untrusted mutation origin, extra fields, size mismatches, unsupported media, mismatched magic bytes, and malformed service authorization.
+
+### CLOUD-SYNC-CLIENT-001: Browser revision sync
+
+Open the same hosted file in two browser clients. Verify catch-up and remote edit batches update a clean open canvas immediately, one acknowledged local save creates one canonical revision, and a lost acknowledgement recovers idempotently. A malformed multi-batch catch-up must apply nothing. An edit too large for the WebSocket frame uses the same revision-checked HTTP transaction and restarts from its acknowledged document.
+
+### CLOUD-SYNC-CONFLICT-001: Remote conflict preservation
+
+Make an unsaved local edit, then receive a remote revision. Verify the local document is not replaced and the editor shows a refresh conflict. Submit two concurrent writers at the same base revision and verify exactly one applies. Reuse a mutation id with different contents and verify rejection.
+
+### CLOUD-SYNC-PG-001: PostgreSQL sync transaction
+
+Against real PostgreSQL, verify owner-scoped row locking, document and head compare-and-swap, append-only edit history, bounded retention, catch-up after repository restart, exact replay idempotency, API and sync writer serialization, invalid-document rejection, and byte-for-byte rollback after an injected failure. The production service must fail closed without `DATABASE_URL` and must not use the in-memory repository.
+
+### CLOUD-SYNC-AUTH-001: Hosted sync authorization
+
+Verify the browser WebSocket carries only file and tab identifiers and authenticates with the Better Auth cookie shared across the configured HTTPS API, app, login, and WSS sync subdomains. Loopback development must not set a parent-domain cookie. Reject a cookie domain outside the Better Auth host, unsigned requests, another account, and revoked sessions.
+
+### CLOUD-SYNC-LIFECYCLE-001: Sync disposal
+
+Verify retry delays are bounded, close code 1009 is terminal, file switches close the prior socket, sign-out stops sync, and page, HMR, and workspace disposal remove sockets, timers, and subscriptions.
+
 ## Copy and accessibility
 
 ### AT-UX-001: Action naming

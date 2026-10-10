@@ -1,7 +1,8 @@
 import type { EditorAuthApi, EditorCapabilities, EditorProjectApi } from '@canvas/editor/capabilities'
 
-export type DesktopBridge = Omit<EditorProjectApi, 'openProject' | 'capabilities' | 'auth' | 'listFiles' | 'openFile'> & {
+export type DesktopBridge = Omit<EditorProjectApi, 'openProject' | 'capabilities' | 'auth' | 'listFiles' | 'createFile' | 'openFile'> & {
   listFiles: NonNullable<EditorProjectApi['listFiles']>
+  createFile: NonNullable<EditorProjectApi['createFile']>
   openFile: NonNullable<EditorProjectApi['openFile']>
   inspectFixture: EditorProjectApi['openProject']
   pickLocalRepository: NonNullable<EditorProjectApi['pickLocalRepository']>
@@ -17,7 +18,7 @@ export const desktopCapabilities: EditorCapabilities = {
   runtime: 'desktop', openLabel: 'Open file',
   files: {
     list: { available: true, reason: 'Files are available in the desktop app.' },
-    create: { available: false, reason: 'New file is not available yet.' },
+    create: { available: true, reason: 'Create a file.' },
     open: { available: true, reason: 'Open a file.' },
   },
   localRepository: { available: true, reason: 'Choose a local repository or connect a managed clone.' },
@@ -38,6 +39,7 @@ export function createDesktopAdapter(bridge: DesktopBridge): EditorProjectApi {
     capabilities: desktopCapabilities,
     ...(auth ? { auth } : {}),
     listFiles: () => bridge.listFiles(),
+    createFile: () => bridge.createFile(),
     openFile: fileId => bridge.openFile(fileId),
     openProject: () => bridge.inspectFixture(), refresh: () => bridge.refresh(),
     pickLocalRepository: () => bridge.pickLocalRepository(),

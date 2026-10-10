@@ -28,6 +28,7 @@ async function invokeAuth(request: AuthRequest): Promise<AuthSessionView> {
 
 const api: DesignEditorApi = Object.freeze({
   listFiles: () => invoke<readonly DesktopFileSummary[]>({ method: 'listFiles', args: [] }),
+  createFile: () => invoke<DesktopFileSummary>({ method: 'createFile', args: [] }),
   openFile: (fileId: string) => invoke<DesktopProjectSnapshot>({ method: 'openFile', args: [fileId] }),
   inspectFixture: () => invoke<DesktopProjectSnapshot>({ method: 'inspectFixture', args: [] }),
   scanShadcn: () => invoke<ShadcnScan>({ method: 'scanShadcn', args: [] }),

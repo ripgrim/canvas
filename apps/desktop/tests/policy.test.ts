@@ -34,6 +34,7 @@ describe('Electron policy', () => {
 
   it('permits narrowly typed source operations', () => {
     expect(parseRepositoryRequest({ method: 'listFiles', args: [] })).toEqual({ method: 'listFiles', args: [] })
+    expect(parseRepositoryRequest({ method: 'createFile', args: [] })).toEqual({ method: 'createFile', args: [] })
     expect(parseRepositoryRequest({ method: 'openFile', args: ['fixture-project'] })).toEqual({ method: 'openFile', args: ['fixture-project'] })
     expect(parseRepositoryRequest({ method: 'inspectFixture', args: [] })).toEqual({ method: 'inspectFixture', args: [] })
     expect(parseRepositoryRequest({ method: 'scanShadcn', args: [] })).toEqual({ method: 'scanShadcn', args: [] })

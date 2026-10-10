@@ -11,9 +11,19 @@ describe('desktop auth configuration', () => {
       baseURL: 'https://accounts.example.test', signInURL: 'https://accounts.example.test/sign-in', scheme: desktopAuthScheme, callbackPath: desktopAuthCallbackPath,
     })
     expect(desktopAuthClientOptions({ DESIGN_EDITOR_AUTH_URL: 'http://127.0.0.1:3000' }, true)?.baseURL).toBe('http://127.0.0.1:3000')
-    expect(desktopAuthClientOptions({}, true)?.baseURL).toBe('http://127.0.0.1:4317')
+    expect(desktopAuthClientOptions({}, true)?.baseURL).toBe('http://127.0.0.1:4320')
     expect(() => desktopAuthClientOptions({ DESIGN_EDITOR_AUTH_URL: 'http://accounts.example.test' }, true)).toThrow('Invalid hosted auth URL.')
     expect(() => desktopAuthClientOptions({ DESIGN_EDITOR_AUTH_URL: 'https://user:pass@accounts.example.test' }, false)).toThrow('Invalid hosted auth URL.')
+  })
+
+  it('keeps the API and login origins separate', () => {
+    expect(desktopAuthClientOptions({
+      DESIGN_EDITOR_AUTH_URL: 'https://api.example.test',
+      DESIGN_EDITOR_LOGIN_URL: 'https://login.example.test',
+    }, false)).toMatchObject({
+      baseURL: 'https://api.example.test',
+      signInURL: 'https://login.example.test/sign-in',
+    })
   })
 
   it('extracts one exact desktop callback argument', () => {

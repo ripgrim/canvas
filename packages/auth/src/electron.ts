@@ -6,6 +6,7 @@ import electron from 'electron'
 import { createHash, randomBytes } from 'node:crypto'
 import type { AuthSessionView } from './index'
 import { decodeDesktopAuthorization } from './electron-callback.js'
+import { resolveAuthenticatedApiPath } from './api-target.js'
 
 export { decodeDesktopAuthorization } from './electron-callback.js'
 
@@ -25,6 +26,7 @@ export type ElectronAuthClient = Readonly<{
   authenticate(token: string): Promise<AuthSessionView['user']>
   getUser(): Promise<AuthSessionView['user']>
   signOut(): Promise<void>
+  request(path: string, init?: RequestInit): Promise<Response>
 }>
 
 type PendingAuthorization = Readonly<{ state: string; codeVerifier: string }>
@@ -120,6 +122,16 @@ export function createElectronAuthClient(options: ElectronAuthClientOptions): El
     signOut: async () => {
       const result = await client.signOut()
       if (result.error) throw new Error(result.error.message ?? result.error.statusText)
+    },
+    request: async (path, init = {}) => {
+      const target = resolveAuthenticatedApiPath(options.baseURL, path)
+      let response: Response | undefined
+      await client.$fetch(target, {
+        ...init,
+        onResponse: ({ response: received }: { response: Response }) => { response = received.clone() },
+      } as never)
+      if (!response) throw new Error('Authenticated API returned no response.')
+      return response
     },
   })
 }

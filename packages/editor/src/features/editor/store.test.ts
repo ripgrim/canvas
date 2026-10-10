@@ -25,6 +25,10 @@ const project = (): ProjectSnapshot => ({
   preview: { status: 'stopped', currentGeneration: 0, activeGeneration: null, origin: null, url: null, stale: false, diagnostics: [] },
   designThemes: [{ id: 'default', name: 'Default', selector: ':root', attribute: null, colorScheme: 'light' }, { id: 'dark', name: 'Dark', selector: '[data-theme=dark]', attribute: 'dark', colorScheme: 'dark' }],
 })
+const projectFor = (fileId: string): ProjectSnapshot => {
+  const snapshot = project()
+  return { ...snapshot, fileId, file: { ...snapshot.file, fileId } }
+}
 const change: PreparedChange = { id: 'review-1', approvalDigest: 'digest-for-reviewed-input', scope: 'Shared component', summary: 'Update Label padding', files: [{ path: 'src/Label.tsx', before: 'padding: 0', after: 'padding: 8', diff: '-padding: 0\n+padding: 8' }], validation: [{ name: 'Parse', status: 'passed', detail: 'Parsed' }] }
 const viewKey = 'design-editor.view-state.v1'
 const historyKey = 'design-editor:document-history:v2:file-a'
@@ -81,6 +85,42 @@ describe('AT-FILE opening files into the document controller', () => {
     expect(documents.getSnapshot().fitRequested).toBe('all')
     expect(store.getSnapshot().previewThemeId).toBe('default')
     expect(JSON.parse(storage.values.get(viewKey)!).files['file-a']).toEqual({ fileId: 'file-a', activePageId: 'page-1', previewThemeId: 'default', pageViews: {} })
+  })
+
+  it('CLOUD-SYNC-EDITOR-001 keeps a newer remote snapshot that arrives while the file is opening', async () => {
+    const { store, documents, openFile } = setup()
+    let finishOpen: (snapshot: ProjectSnapshot) => void = () => undefined
+    openFile.mockImplementationOnce(() => new Promise(resolve => { finishOpen = resolve }))
+    const opening = store.openFile('file-a')
+    const remote = project()
+    remote.file.pages[0]!.name = 'Remote page'
+    remote.file.revision = 4
+    expect(store.receiveExternalSnapshot(remote)).toBe(false)
+    finishOpen(project())
+    await opening
+    expect(documents.getSnapshot().file?.revision).toBe(4)
+    expect(documents.getSnapshot().file?.pages[0]?.name).toBe('Remote page')
+  })
+
+  it('CLOUD-SYNC-EDITOR-001 queues the newest update for the destination during a file switch', async () => {
+    const { store, documents, openFile } = setup()
+    await store.openFile('file-a')
+    let finishOpen: (snapshot: ProjectSnapshot) => void = () => undefined
+    openFile.mockImplementationOnce(() => new Promise(resolve => { finishOpen = resolve }))
+    const opening = store.openFile('file-b')
+    const newest = projectFor('file-b')
+    newest.file.pages[0]!.name = 'Newest remote page'
+    newest.file.revision = 5
+    const older = projectFor('file-b')
+    older.file.pages[0]!.name = 'Older remote page'
+    older.file.revision = 4
+    expect(store.receiveExternalSnapshot(newest)).toBe(false)
+    expect(store.receiveExternalSnapshot(older)).toBe(false)
+    finishOpen(projectFor('file-b'))
+    await opening
+    expect(documents.getSnapshot().file?.fileId).toBe('file-b')
+    expect(documents.getSnapshot().file?.revision).toBe(5)
+    expect(documents.getSnapshot().file?.pages[0]?.name).toBe('Newest remote page')
   })
 
   it('ignores a stored page that no longer exists', async () => {
@@ -174,6 +214,43 @@ describe('AT-FILE preview theme view state', () => {
 })
 
 describe('AT-CAN whole-file persistence', () => {
+  it('CLOUD-SYNC-EDITOR-001 applies remote snapshots when the local document is clean', async () => {
+    const { store, documents } = setup()
+    await store.openFile('file-a')
+    const remote = project()
+    remote.file.pages[0]!.name = 'Remote page'
+    remote.file.revision = 4
+    expect(store.receiveExternalSnapshot(remote)).toBe(true)
+    expect(documents.getSnapshot().file?.pages[0]?.name).toBe('Remote page')
+    expect(store.getSnapshot().snapshot?.file.revision).toBe(4)
+  })
+
+  it('CLOUD-SYNC-EDITOR-001 ignores equal and older snapshots instead of rolling the document back', async () => {
+    const { store, documents } = setup()
+    await store.openFile('file-a')
+    for (const revision of [3, 2]) {
+      const stale = project()
+      stale.file.pages[0]!.name = `Stale page ${revision}`
+      stale.file.revision = revision
+      expect(store.receiveExternalSnapshot(stale)).toBe(false)
+    }
+    expect(documents.getSnapshot().file?.revision).toBe(3)
+    expect(documents.getSnapshot().file?.pages[0]?.name).toBe('Page 1')
+  })
+
+  it('CLOUD-SYNC-CONFLICT-001 preserves unsaved local edits when a remote snapshot arrives', async () => {
+    const { store, documents } = setup()
+    await store.openFile('file-a')
+    documents.commands.setProps('label-instance', { children: 'Local edit' })
+    const remote = project()
+    remote.file.pages[0]!.name = 'Remote page'
+    remote.file.revision = 4
+    expect(store.receiveExternalSnapshot(remote)).toBe(false)
+    expect(documents.getSnapshot().file?.nodes['label-instance']).toMatchObject({ props: { children: 'Local edit' } })
+    expect(documents.getSnapshot().file?.pages[0]?.name).toBe('Page 1')
+    expect(store.getSnapshot().snapshot?.conflict?.message).toBe('This file changed in another session. Refresh before saving.')
+  })
+
   it('saves the file at the expected revision and caches undo history under the version 2 key', async () => {
     const { store, documents, saveFile, storage } = setup()
     await store.openFile('file-a')

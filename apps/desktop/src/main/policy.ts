@@ -78,7 +78,7 @@ export function parseRepositoryRequest(value: unknown): RepositoryRequest {
     return { method, args: [file as FileDocument, args[1]] }
   }
   if (args.length > 2 || args.some((arg) => typeof arg !== 'string' || arg.length > 128)) throw new Error('Invalid command.')
-  if ((method === 'listFiles' || method === 'inspectFixture' || method === 'refresh' || method === 'scanShadcn') && args.length === 0) return { method, args: [] }
+  if ((method === 'listFiles' || method === 'createFile' || method === 'inspectFixture' || method === 'refresh' || method === 'scanShadcn') && args.length === 0) return { method, args: [] }
   if (method === 'openFile' && args.length === 1 && /^[A-Za-z0-9_-]{1,80}$/.test(args[0])) return { method, args: [args[0]] }
   if (method === 'prepareLabelPadding' && args.length === 1 && /^(?:0|\d{1,3}(?:\.\d{1,2})?(?:px|rem))(?: (?:0|\d{1,3}(?:\.\d{1,2})?(?:px|rem))){0,3}$/.test(args[0])) return { method, args: [args[0]] }
   if (method === 'prepareToken' && args.length === 1 && /^#[\da-fA-F]{6}$/.test(args[0])) return { method, args: [args[0]] }

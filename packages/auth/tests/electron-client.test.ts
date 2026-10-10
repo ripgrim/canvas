@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { decodeDesktopAuthorization } from '../src/electron-callback'
+import { resolveAuthenticatedApiPath } from '../src/api-target'
 
 const validToken = 'eyJpZGVudGlmaWVyIjoiQWJDZEVmR2hJaktsTW5PcFFyU3RVdld4WXowMTIzNDUiLCJzdGF0ZSI6IkFiQ2RFZjEyMzQ1Njc4OTAifQ'
 
@@ -24,5 +25,18 @@ describe('desktop authorization callback', () => {
     Buffer.from('{"identifier":"AbCdEfGhIjKlMnOpQrStUvWxYz012345","state":"AbCdEf1234567890","extra":true}').toString('base64url'),
   ])('rejects an invalid or extended payload', token => {
     expect(() => decodeDesktopAuthorization(token)).toThrow('Desktop auth callback is invalid.')
+  })
+})
+
+describe('main-process authenticated API boundary', () => {
+  it('allows only same-origin API paths', () => {
+    expect(resolveAuthenticatedApiPath('https://api.canvas.test', '/api/files?limit=10')).toBe('/api/files?limit=10')
+    for (const target of [
+      'https://attacker.test/api/files',
+      '//attacker.test/api/files',
+      '/internal/file-access',
+      '/files',
+      '/api/files#token',
+    ]) expect(() => resolveAuthenticatedApiPath('https://api.canvas.test', target)).toThrow('not allowed')
   })
 })

@@ -1,6 +1,6 @@
 import { Pool } from 'pg'
-import { createHostedAuth, databaseURLFromEnvironment, hostedAuthOptionsFromEnvironment } from './server'
-import type { HostedAuth } from './server'
+import { createHostedAuth, databaseURLFromEnvironment, hostedAuthOptionsFromEnvironment } from './server.js'
+import type { HostedAuth } from './server.js'
 
 let hostedAuth: HostedAuth | undefined
 

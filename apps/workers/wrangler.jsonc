@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "comp-canvas-file-assets",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "dev": {
+    "port": 4322
+  },
+  "r2_buckets": [
+    {
+      "binding": "FILE_ASSETS",
+      "bucket_name": "comp-canvas-file-assets-dev"
+    }
+  ],
+  "vars": {
+    "API_ORIGIN": "http://127.0.0.1:4320",
+    "ALLOWED_ORIGINS": "http://127.0.0.1:4317,http://localhost:4317,http://127.0.0.1:4319,http://localhost:4319"
+  }
+}

@@ -35,6 +35,8 @@ export type EditorProjectApi = Readonly<{
   listFiles?(): Promise<readonly EditorFile[]>
   createFile?(): Promise<EditorFile>
   openFile?(fileId: string): Promise<EditorProjectSnapshot>
+  /** Publishes newer snapshots for the currently open file. The consumer owns and must call the returned disposer. */
+  subscribeFile?(listener: (snapshot: EditorProjectSnapshot) => void): () => void
   openProject(): Promise<EditorProjectSnapshot>
   pickLocalRepository?(): Promise<EditorRepositoryConnection | null>
   cloneGitHubRepository?(input: GitHubCloneRequest): Promise<EditorRepositoryConnection>

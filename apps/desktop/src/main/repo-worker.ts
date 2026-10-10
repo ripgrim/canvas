@@ -22,6 +22,7 @@ async function execute(request: RepositoryRequest): Promise<RepositoryResult> {
   if (await realpath(requestedRoot!) !== grant) throw new Error('Repository grant changed.')
   switch (request.method) {
     case 'listFiles':
+    case 'createFile':
     case 'openFile': throw new Error('Shell file commands cannot run in the repository worker.')
     case 'inspectFixture': return engine.inspectFixture()
     case 'scanShadcn': return scanShadcnRepository(grant)

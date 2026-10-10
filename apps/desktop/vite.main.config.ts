@@ -1,7 +1,19 @@
 import { builtinModules } from 'node:module'
 import { defineConfig } from 'vite'
 
+const packageMode = process.env.DESIGN_EDITOR_PACKAGE_MODE
+const packageEnvironment = packageMode === 'local' || packageMode === 'production'
+  ? {
+      mode: packageMode,
+      authURL: process.env.DESIGN_EDITOR_AUTH_URL ?? '',
+      loginURL: process.env.DESIGN_EDITOR_LOGIN_URL ?? '',
+      previewURL: process.env.DESIGN_EDITOR_PREVIEW_URL ?? '',
+      assetsURL: process.env.DESIGN_EDITOR_ASSETS_URL ?? '',
+    }
+  : undefined
+
 export default defineConfig({
+  define: { __DESIGN_EDITOR_PACKAGE_ENVIRONMENT__: JSON.stringify(packageEnvironment) },
   build: {
     target: 'node22',
     outDir: 'dist/main',

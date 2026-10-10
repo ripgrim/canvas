@@ -14,6 +14,7 @@ function client(overrides: Partial<ElectronAuthClient> = {}): ElectronAuthClient
     authenticate: vi.fn(async () => user),
     getUser: vi.fn(async () => null),
     signOut: vi.fn(async () => undefined),
+    request: vi.fn(async () => new Response(null, { status: 404 })),
     ...overrides,
   }
 }
