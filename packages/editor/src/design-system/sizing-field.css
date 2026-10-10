@@ -1,0 +1,19 @@
+.sizing-field-control { display: flex; min-width: 0; height: 24px; }
+.sizing-field-control > .inspector-field { flex: 1 1 auto; border-radius: var(--radius-s) 0 0 var(--radius-s); }
+.sizing-field-trigger { display: inline-flex; flex: 0 0 20px; align-items: center; justify-content: center; width: 20px; height: 24px; padding: 0; border: 0; border-radius: 0 var(--radius-s) var(--radius-s) 0; background: var(--neutral-1); color: var(--neutral-6); box-shadow: inset var(--border-s) 0 0 var(--cte-border), var(--border-shadow-s); cursor: pointer; }
+.theme-dark .sizing-field-trigger { background: var(--neutral-3); }
+.sizing-field-trigger:hover { background: var(--neutral-2); color: var(--neutral-10); }
+.theme-dark .sizing-field-trigger:hover { background: var(--neutral-4); }
+.sizing-field-trigger:focus-visible { position: relative; z-index: 1; outline: var(--focus-ring-outline); outline-offset: calc(-1 * var(--border-s)); }
+.sizing-field-trigger:disabled { color: var(--neutral-5); background: var(--neutral-2); cursor: not-allowed; }
+.sizing-field-trigger .icon { width: 10px; height: 10px; transform: rotate(90deg); }
+.sizing-field-positioner { z-index: 330; }
+.sizing-field-popup { min-width: 72px; overflow: hidden; border: 0; border-radius: var(--radius-s); background: color-mix(in srgb, var(--neutral-2) 92%, transparent); color: var(--neutral-10); box-shadow: var(--border-shadow-s), var(--shadow-m); backdrop-filter: blur(12px); transform-origin: var(--transform-origin); }
+.theme-light .sizing-field-popup { background: color-mix(in srgb, var(--neutral-1) 94%, transparent); }
+.sizing-field-options { padding: var(--space-xxs); }
+.sizing-field-option { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 28px; padding: 0 var(--space-s); border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--neutral-9); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); text-align: left; cursor: default; }
+.sizing-field-option:hover, .sizing-field-option:focus-visible { background: var(--neutral-4); color: var(--neutral-10); outline: none; }
+.theme-light .sizing-field-option:hover, .theme-light .sizing-field-option:focus-visible { background: var(--neutral-3); }
+.sizing-field-option:disabled { color: var(--neutral-5); }
+.sizing-field-option .icon { width: 12px; height: 12px; color: var(--color-1); }
+@media (prefers-reduced-motion: no-preference) { .sizing-field-popup { transition: opacity var(--motion-duration) var(--motion-easing), transform var(--motion-duration) var(--motion-easing); } }

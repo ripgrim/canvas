@@ -25,7 +25,7 @@ import type { Atom } from './types'
 import { canvasCopy } from './canvas-copy'
 import { canvasElementSizes } from './canvas-drawing'
 import type { CanvasBounds } from './canvas-drawing'
-import { clampZoom, fitCamera, gridVisible, nudgeStep, nudgeStepLarge, stepZoom, zoomAtPoint } from './canvas-math'
+import { clampZoom, fitCamera, gridVisible, nudgeStep, nudgeStepLarge, screenToWorld, stepZoom, zoomAtPoint } from './canvas-math'
 import type { Camera, Point, Rect, Size, SnapGuide } from './canvas-math'
 import { selectChildren, selectParents } from './canvas-scene'
 import type { Scene } from './canvas-scene'
@@ -87,6 +87,13 @@ export type DocumentHistory = { past: HistoryEntry[]; future: HistoryEntry[] }
 type KeyInput = { key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }
 export type MoveCommit = { id: string; x: number; y: number; parentId?: string | null; width?: number; height?: number }
 export type InsertTarget = { parentId: string | null; slot?: string; index?: number }
+export type ComponentInsertPoint = { x: number; y: number }
+export type SourceTokenImport = Readonly<{ property: string; name: string; fallback: Color }>
+
+/** The world-space point represented by the visible center of the canvas. */
+export function componentInsertionPoint(state: Pick<DocumentState, 'viewport' | 'viewportSize'>): ComponentInsertPoint {
+  return screenToWorld({ x: state.viewportSize.width / 2, y: state.viewportSize.height / 2 }, state.viewport, state.viewportSize)
+}
 /** Paper production bundle: duplicated and placed artboards sit 20 world units to the right of their source. */
 export const duplicateGap = 20
 const defaultCamera: Viewport = { x: 0, y: 0, zoom: 1 }
@@ -460,10 +467,23 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       insert: (componentId: string, target?: InsertTarget, props: Record<string, string | number | boolean> = {}) => {
         const state = backing.getState()
         const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
-        if (!atom || !state.file || !state.pageId) return false
+        if (!atom) return fail(new Error(canvasCopy.componentUnavailable))
+        if (!state.file || !state.pageId) return fail(new Error(canvasCopy.openFileForTools))
         const id = makeId()
-        const defaults: Record<string, string | number | boolean> = atom.exportName === 'Label' ? { children: canvasCopy.defaultLabel } : atom.exportName === 'Button' ? { children: canvasCopy.defaultButton } : atom.exportName === 'Input' ? { placeholder: canvasCopy.defaultInput } : {}
+        const defaults: Record<string, string | number | boolean> = atom.exportName === 'Label' ? { children: canvasCopy.defaultLabel } : atom.exportName === 'Button' ? { children: canvasCopy.defaultButton } : atom.exportName === 'Card' ? { heading: canvasCopy.defaultCard } : atom.exportName === 'Input' ? { placeholder: canvasCopy.defaultInput } : {}
         return execute({ type: 'node.insert', node: { id, type: 'component', componentId, exportName: atom.exportName, props: { ...defaults, ...props } }, placement: placementFor(target, state) }, [id])
+      },
+      /** Inserts a root component at one deterministic world point. Slot targets retain their component-owned flow. */
+      insertAt: (componentId: string, point: ComponentInsertPoint, target?: InsertTarget, props: Record<string, string | number | boolean> = {}) => {
+        const state = backing.getState()
+        const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
+        if (!atom) return fail(new Error(canvasCopy.componentUnavailable))
+        if (!state.file || !state.pageId) return fail(new Error(canvasCopy.openFileForTools))
+        const id = makeId()
+        const defaults: Record<string, string | number | boolean> = atom.exportName === 'Label' ? { children: canvasCopy.defaultLabel } : atom.exportName === 'Button' ? { children: canvasCopy.defaultButton } : atom.exportName === 'Card' ? { heading: canvasCopy.defaultCard } : atom.exportName === 'Input' ? { placeholder: canvasCopy.defaultInput } : {}
+        const rootTarget = target?.parentId == null
+        const layout = rootTarget ? layoutFromLegacy({ mode: 'absolute', x: Math.round(point.x), y: Math.round(point.y) }) : undefined
+        return execute({ type: 'node.insert', node: { id, type: 'component', componentId, exportName: atom.exportName, props: { ...defaults, ...props }, ...(layout ? { layout } : {}) }, placement: placementFor(target, state) }, [id])
       },
       duplicate,
       delete: (nodeIds = backing.getState().selection) => deleteSelection(nodeIds),
@@ -489,6 +509,8 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       rename: (nodeId: string, name: string) => { const next = name.trim(); return next ? execute({ type: 'node.rename', nodeId, name: next }) : false },
       setText: (nodeId: string, text: string) => execute({ type: 'node.setText', nodeId, text }),
       setStyles: (nodeId: string, styles: { [K in keyof PrimitiveStyles]?: PrimitiveStyles[K] | undefined }) => execute({ type: 'node.setStyles', nodeId, styles }),
+      /** One primitive geometry/transform edit across a selection is one revision and one undo step. */
+      setStylesMany: (entries: Record<string, { [K in keyof PrimitiveStyles]?: PrimitiveStyles[K] | undefined }>) => executeBatch(Object.entries(entries).flatMap(([nodeId, styles]): FileCommand[] => isPrimitive(node(nodeId)) ? [{ type: 'node.setStyles', nodeId, styles }] : [])),
       // Appearance ---------------------------------------------------------------------------------------------
       /** Selection-level appearance edits: every method builds one atomic batch so one user action is one undo step. */
       appearance: {
@@ -692,6 +714,25 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       reorderPage: (pageId: string, index: number) => execute({ type: 'page.reorder', pageId, index }),
       // Theme ------------------------------------------------------------------------------------------------------
       theme: {
+        /** Imports repository CSS properties as source-backed color tokens in one undo step. Existing properties are skipped. */
+        importSourceTokens: (imports: readonly SourceTokenImport[]): number => {
+          const state = backing.getState()
+          if (!state.file) return 0
+          const existing = new Set(Object.values(state.file.theme.tokens).flatMap(token => token.value.kind === 'source' ? [token.value.property] : []))
+          const pending = new Set<string>()
+          const usedNames = [...Object.values(state.file.theme.tokens).map(token => token.name)]
+          let orderKey = lastTokenKey(state.file)
+          const commands: FileCommand[] = []
+          for (const item of imports) {
+            if (!/^--[A-Za-z0-9_-]+$/.test(item.property) || existing.has(item.property) || pending.has(item.property)) continue
+            const name = uniqueName(usedNames, item.name.trim() || item.property.slice(2))
+            usedNames.push(name)
+            orderKey = orderKeyBetween(orderKey, null)
+            commands.push({ type: 'token.create', token: { id: makeId(), type: 'color', name, orderKey, value: { kind: 'source', property: item.property, fallback: item.fallback } } })
+            pending.add(item.property)
+          }
+          return executeBatch(commands) ? commands.length : 0
+        },
         createToken: (color: Color = { kind: 'hex', hex: '#d9d9d9' }): string | null => {
           const state = backing.getState()
           if (!state.file) return null

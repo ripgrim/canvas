@@ -1,6 +1,6 @@
 import type { CapabilityState } from '../../capabilities'
 
-export type HomeFile = Readonly<{ id: string; name: string; location: string; updatedAt?: string }>
+export type HomeFile = Readonly<{ id: string; name: string; location: string; updatedAt?: string; thumbnailUrl?: string }>
 
 // Pass only phases whose work has actually started, in start order.
 export type HomePhase = Readonly<{ name: string; state: 'active' | 'done'; detail?: string }>
@@ -15,6 +15,7 @@ export type HomeStatus =
 export type HomeViewProps = Readonly<{
   mode: 'light' | 'dark'
   workspaceName: string
+  accountName: string
   files: readonly HomeFile[]
   status: HomeStatus
   create: CapabilityState

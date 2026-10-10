@@ -1,10 +1,16 @@
-/* Token-bound color fields: static context with no input surface, and the Rebind, Unlink, Edit token actions. */
-.token-field { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; height: 24px; padding: 0 var(--space-xs) 0 4px; border-radius: var(--radius-s); background: var(--neutral-2); color: var(--neutral-7); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-regular); cursor: default; }
+/* Token-bound color fields: static context with no input surface, plus Rebind and Unlink actions. */
+.token-field { display: flex; flex: 1 1 auto; align-items: center; gap: var(--space-xs); min-width: 0; height: 24px; padding: 0 var(--space-xs) 0 4px; border-radius: var(--radius-s); background: var(--neutral-2); color: var(--neutral-7); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-regular); cursor: default; }
 .token-field-swatch { position: relative; display: inline-block; flex-shrink: 0; width: 16px; height: 16px; overflow: hidden; border-radius: var(--radius-xs); box-shadow: var(--border-shadow-s); background-image: repeating-conic-gradient(var(--neutral-4) 0 25%, var(--neutral-3) 0 50%); background-size: var(--space-xs) var(--space-xs); }
 .token-field-swatch-fill { display: block; width: 100%; height: 100%; }
-.token-chip { flex: 0 1 auto; min-width: 3ch; height: 18px; padding: 0 var(--space-xs); overflow: hidden; border-radius: var(--radius-xs); background: var(--neutral-4); color: var(--neutral-10); font-weight: var(--weight-ui-medium); line-height: 18px; white-space: nowrap; text-overflow: ellipsis; }
+.token-chip { flex: 1 1 auto; min-width: 3ch; height: 18px; padding: 0 var(--space-xs); overflow: hidden; border-radius: var(--radius-xs); background: var(--neutral-4); color: var(--neutral-10); font-weight: var(--weight-ui-medium); line-height: 18px; white-space: nowrap; text-overflow: ellipsis; }
 .theme-light .token-chip { background: var(--neutral-3); }
 .token-field-context { flex: 0 1 auto; min-width: 0; margin-left: auto; overflow: hidden; color: var(--neutral-6); font-family: var(--font-data); font-weight: var(--weight-data-regular); font-variant-numeric: tabular-nums; white-space: nowrap; text-overflow: ellipsis; }
+.token-field-opacity { display: flex; flex: 0 0 54px; min-width: 0; height: 20px; align-items: center; margin-left: auto; color: var(--neutral-6); font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.token-field-opacity input { width: 100%; min-width: 0; height: 20px; padding: 0 2px; border: 0; outline: 0; background: transparent; color: var(--neutral-10); font: inherit; text-align: right; }
+.token-field-opacity input::placeholder { color: var(--neutral-6); }
+.token-field-opacity input:focus-visible { border-radius: var(--radius-xs); outline: var(--focus-ring-outline); outline-offset: 0; }
+.token-field-opacity input:disabled { color: var(--neutral-6); cursor: not-allowed; }
+.token-field-opacity > span { flex: 0 0 auto; padding-right: 2px; }
 .token-field-text { flex: 1 1 auto; min-width: 0; padding-left: var(--space-xxs); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .token-field[data-tone="mixed"] { color: var(--neutral-6); }
 .token-field[data-tone="error"] { color: var(--error); }
@@ -12,7 +18,7 @@
 .token-field-alert { display: inline-flex; flex-shrink: 0; width: 16px; height: 16px; align-items: center; justify-content: center; }
 .token-field-alert .icon { width: 14px; height: 14px; }
 
-.token-actions { display: flex; align-items: center; gap: var(--space-xxs); min-width: 0; }
+.token-actions { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-xxs); min-width: 0; height: 24px; }
 .token-chooser { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--radius-xs); background: var(--color-none); color: var(--neutral-6); cursor: pointer; }
 .token-chooser:hover { background: var(--neutral-2); color: var(--neutral-10); }
 .theme-dark .token-chooser:hover { background: var(--neutral-3); }
@@ -33,7 +39,8 @@
 .token-chooser-swatch { display: block; flex: 0 0 32px; width: 32px; height: 20px; overflow: hidden; border-radius: var(--radius-xs); background-image: repeating-conic-gradient(var(--neutral-4) 0 25%, var(--neutral-3) 0 50%); background-size: var(--space-xs) var(--space-xs); box-shadow: var(--border-shadow-s); }
 .token-chooser-swatch > span { display: block; width: 100%; height: 100%; }
 .token-chooser-empty { display: grid; min-height: 200px; place-items: center; padding: var(--space-m); color: var(--neutral-6); font-family: var(--font-ui); font-size: var(--size-xs); text-align: center; }
-.token-action { display: inline-flex; flex: 0 0 auto; align-items: center; height: 24px; padding: 0 var(--space-xs); border: 0; border-radius: var(--radius-xs); background: var(--color-none); color: var(--neutral-7); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-medium); white-space: nowrap; cursor: pointer; }
+.token-action { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--radius-xs); background: var(--color-none); color: var(--neutral-7); cursor: pointer; }
+.token-action .icon { width: 14px; height: 14px; }
 .token-action:hover { background: var(--neutral-2); color: var(--neutral-10); }
 .theme-dark .token-action:hover { background: var(--neutral-3); }
 .token-action:focus-visible { outline: var(--focus-ring-outline); outline-offset: calc(-1 * var(--border-s)); }

@@ -3,7 +3,7 @@
  * and per-node patches. Fills are stored bottom to top; the inspector lists them top to bottom.
  */
 import { borderSides, canonicalAppearance, canonicalBorders, eligibleSections } from '@canvas/repo-engine/appearance'
-import type { Appearance, AppearanceKind, AppearanceSection, BlendMode, BorderSide, Borders, ColorValue, GradientPaint, GradientStop, Outline, Paint, Stroke } from '@canvas/repo-engine/appearance'
+import type { Appearance, AppearanceKind, AppearanceSection, BlendMode, BorderSide, Borders, ColorValue, GradientPaint, GradientStop, Outline, Paint, SolidPaint, Stroke } from '@canvas/repo-engine/appearance'
 import { resolveToken } from '@canvas/repo-engine/file-document'
 import type { ColorToken, FileDocument, FileNode, FileTheme, SourcePalette } from '@canvas/repo-engine/file-document'
 import type { Color } from '@canvas/repo-engine/color'
@@ -67,12 +67,12 @@ export const blendModeGroups: readonly (readonly BlendMode[])[] = [
 
 // Fills -------------------------------------------------------------------------------------------------------------
 
-export type FillField = 'type' | 'visible' | 'blendMode' | 'color' | 'shape' | 'angle' | 'center' | 'length' | 'interpolation' | 'stops' | 'assetId' | 'fit'
+export type FillField = 'type' | 'visible' | 'blendMode' | 'color' | 'opacity' | 'shape' | 'angle' | 'center' | 'length' | 'interpolation' | 'stops' | 'assetId' | 'fit'
 
 /** The user-visible fields of a paint; identities and type caches never count as a difference. */
 export function paintFields(paint: Paint): Partial<Record<FillField, unknown>> {
   const shared = { type: paint.type, visible: paint.visible !== false, blendMode: paint.blendMode ?? 'normal' }
-  if (paint.type === 'solid') return { ...shared, color: paint.color }
+  if (paint.type === 'solid') return { ...shared, color: paint.color, opacity: paint.opacity ?? 1 }
   if (paint.type === 'image') return { ...shared, assetId: paint.assetId, fit: paint.fit }
   return { ...shared, shape: paint.shape, angle: paint.angle, center: paint.center, length: paint.length, interpolation: paint.interpolation, stops: paint.stops.map(stop => ({ position: stop.position, midpoint: stop.midpoint ?? 0.5, color: stop.color })) }
 }
@@ -121,6 +121,10 @@ export const withPaintBlend = (paint: Paint, blendMode: BlendMode): Paint => {
   const { blendMode: _blend, ...rest } = paint
   return (blendMode === 'normal' ? rest : { ...rest, blendMode }) as Paint
 }
+export const withPaintOpacity = (paint: SolidPaint, opacity: number): SolidPaint => {
+  const { opacity: _opacity, ...rest } = paint
+  return opacity === 1 ? rest : { ...rest, opacity }
+}
 
 /**
  * Applies the fields that changed between `before` and `after` onto `target`, keeping the target's other fields and
@@ -132,6 +136,7 @@ export function mergePaint(target: Paint, before: Paint, after: Paint): Paint {
   for (const field of changedFillFields(before, after)) {
     if (field === 'visible') next = withPaintVisibility(next, after.visible !== false)
     else if (field === 'blendMode') next = withPaintBlend(next, after.blendMode ?? 'normal')
+    else if (field === 'opacity' && next.type === 'solid' && after.type === 'solid') next = withPaintOpacity(next, after.opacity ?? 1)
     else (next as Record<string, unknown>)[field] = structuredClone((after as Record<string, unknown>)[field])
   }
   return next

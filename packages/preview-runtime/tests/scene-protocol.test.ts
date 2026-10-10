@@ -58,6 +58,8 @@ describe('scene protocol', () => {
     expect(canvasElementStyle(document.canvas.elements[1], undefined, { x: 2, y: 3.5 })).toMatchObject({ left: '10px', top: '10px', color: '#64748b', fontSize: '16px', whiteSpace: 'pre-wrap' })
     expect(canvasElementStyle(document.canvas.elements[1]).backgroundImage).toBeUndefined()
     expect(canvasElementStyle(document.canvas.elements[2])).toMatchObject({ backgroundColor: 'transparent', backgroundImage: 'linear-gradient(135deg, oklch(0.62 0.19 259.8) 0%, #000000 100%)', transform: 'rotate(15deg)' })
+    expect(canvasElementStyle({ ...document.canvas.elements[2], flipX: true })).toMatchObject({ transform: 'rotate(15deg) scale(-1, 1)' })
+    expect(canvasElementStyle({ ...document.canvas.elements[2], rotation: 0, flipY: true })).toMatchObject({ transform: 'scale(1, -1)' })
     expect(canvasElementStyle({ ...document.canvas.elements[2], kind: 'shape' })).toMatchObject({ backgroundImage: 'linear-gradient(135deg, oklch(0.62 0.19 259.8) 0%, #000000 100%)', borderRadius: '50%' })
     expect(canvasElementStyle({ ...document.canvas.elements[2], kind: 'rectangle', appearance: undefined, rotation: 0 })).toMatchObject({ backgroundColor: 'transparent', transform: undefined })
     expect(canvasElementStyle({ ...document.canvas.elements[2], kind: 'rectangle', appearance: undefined }).backgroundImage).toBeUndefined()

@@ -6,14 +6,13 @@ import { editorStore } from '../editor/store'
 import type { HomeStatus } from './home-types'
 
 type HomeState = Readonly<{
-  screen: 'home' | 'editor'
   mode: 'light' | 'dark'
   files: readonly EditorFile[]
   status: HomeStatus
 }>
 
 const initialPhase = { name: 'Reading local files', state: 'active' as const }
-const backing = createStore<HomeState>(() => ({ screen: 'home', mode: readAppearance(), files: [], status: { kind: 'starting', phases: [initialPhase] } }))
+const backing = createStore<HomeState>(() => ({ mode: readAppearance(), files: [], status: { kind: 'starting', phases: [initialPhase] } }))
 let projectApi: EditorProjectApi | undefined
 let generation = 0
 let retry: (() => void) | null = null
@@ -25,7 +24,7 @@ function errorMessage(error: unknown) {
 async function listFiles() {
   const api = projectApi
   if (!api?.listFiles) {
-    backing.setState({ screen: 'editor', status: { kind: 'ready' } })
+    backing.setState({ files: [], status: { kind: 'ready' } })
     return
   }
   const current = ++generation
@@ -37,24 +36,6 @@ async function listFiles() {
   } catch (error) {
     if (current === generation) backing.setState({ status: { kind: 'error', operation: 'list', message: errorMessage(error) } })
   }
-}
-
-async function openFile(fileId: string) {
-  const file = backing.getState().files.find(candidate => candidate.id === fileId)
-  if (!file) {
-    backing.setState({ status: { kind: 'error', operation: 'open', message: 'The local file no longer exists.' } })
-    return
-  }
-  const current = ++generation
-  backing.setState({ status: { kind: 'opening', fileId, fileName: file.name, phases: [{ name: 'Reading local file', state: 'active' }] } })
-  retry = () => { void openFile(fileId) }
-  const opened = await editorStore.openFile(fileId)
-  if (current !== generation) return
-  if (opened) {
-    backing.setState({ screen: 'editor', status: { kind: 'ready' } })
-    return
-  }
-  backing.setState({ status: { kind: 'error', operation: 'open', fileName: file.name, message: editorStore.getSnapshot().error ?? 'The local file could not be opened.' } })
 }
 
 /** Creates a file exactly once and returns its persistent id; the caller navigates to it. */
@@ -81,16 +62,15 @@ export const homeStore = {
   configure(api: EditorProjectApi | undefined) {
     projectApi = api
     generation += 1
-    const hasHome = Boolean(api?.listFiles && api.capabilities?.files.list.available)
-    backing.setState({ screen: hasHome ? 'home' : 'editor', files: [], status: hasHome ? { kind: 'starting', phases: [initialPhase] } : { kind: 'ready' } })
+    const canList = Boolean(api?.listFiles && api.capabilities?.files.list.available)
+    backing.setState({ files: [], status: canList ? { kind: 'starting', phases: [initialPhase] } : { kind: 'ready' } })
   },
   start() { void listFiles() },
   create: () => createFile(),
-  open(fileId: string) { void openFile(fileId) },
   retry() { retry?.() },
   back() { backing.setState({ status: { kind: 'ready' } }) },
   showHome() {
-    backing.setState({ screen: 'home', mode: editorStore.getSnapshot().mode })
+    backing.setState({ mode: editorStore.getSnapshot().mode })
     void listFiles()
   },
   toggleMode() {

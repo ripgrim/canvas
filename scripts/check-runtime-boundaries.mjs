@@ -9,7 +9,8 @@ const builtins = new Set(builtinModules.map(name => name.replace(/^node:/, '')))
 const extensions = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']
 const normalize = name => path.posix.normalize(name.replaceAll('\\', '/'))
 const isTest = name => /(?:^|\/)__tests__\//.test(name) || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(name)
-const serverOnly = name => /(?:^|\/)server\//.test(name) || /\.server(?:\.[^/]*)?$/.test(name)
+const hostedAuthRoute = name => name === 'apps/web/src/routes/api.auth.$.ts'
+const serverOnly = name => /(?:^|\/)server\//.test(name) || /\.server(?:\.[^/]*)?$/.test(name) || hostedAuthRoute(name)
 const privilegedFile = name => /^apps\/desktop\/(?:src\/)?(?:main|preload)(?:\/|\.|$)/.test(name) || /^packages\/(?:repo-engine|preview-runtime)\/(?:src|dist)\/index\.[cm]?[jt]s$/.test(name)
 const browserEntry = name => /^(?:packages\/editor\/src|apps\/web\/(?:src|preview)|apps\/desktop\/src\/renderer)\//.test(name) && !isTest(name) && !serverOnly(name)
 const assets = /\.(?:css|scss|sass|less|svg|png|jpe?g|webp|gif|ico|woff2?|ttf|otf|mp4|webm|json)(?:[?#].*)?$/i
@@ -20,6 +21,7 @@ function prohibited(specifier) {
   if (specifier === 'electron' || specifier.startsWith('electron/')) return 'Electron import is forbidden in browser code'
   if ((specifier === '@canvas/repo-engine' || specifier.startsWith('@canvas/repo-engine/')) && !['@canvas/repo-engine/document', '@canvas/repo-engine/contracts', '@canvas/repo-engine/design-themes', '@canvas/repo-engine/file-document', '@canvas/repo-engine/appearance', '@canvas/repo-engine/file-migration', '@canvas/repo-engine/file-preview', '@canvas/repo-engine/color', '@canvas/repo-engine/order-keys', '@canvas/repo-engine/layout', '@canvas/repo-engine/grid-tracks', '@canvas/repo-engine/grid-placement', '@canvas/repo-engine/flex-inference', '@canvas/repo-engine/layout-matrix', '@canvas/repo-engine/layout-css', '@canvas/repo-engine/node-theme'].includes(specifier)) return 'Use a browser-safe repo-engine contract subpath'
   if ((specifier === '@canvas/preview-runtime' || specifier.startsWith('@canvas/preview-runtime/')) && !['@canvas/preview-runtime/protocol', '@canvas/preview-runtime/browser', '@canvas/preview-runtime/browser-contracts'].includes(specifier)) return 'Use a browser-safe preview-runtime subpath'
+  if (specifier === '@canvas/auth/electron' || specifier === '@canvas/auth/server' || specifier === '@canvas/auth/hosted') return 'Privileged auth implementation is forbidden in browser code'
   if (serverOnly(specifier)) return 'Server-only module import is forbidden in browser code'
   if (/^(?:pg|postgres)(?:\/|$)/.test(specifier) || specifier === 'better-auth' || /^better-auth\/(?:adapters|node)(?:\/|$)/.test(specifier)) return 'Hosted database or auth server import is forbidden in browser code'
   return null
@@ -210,7 +212,11 @@ export function checkRuntimeGraph(input, options = {}) {
         continue
       }
       const target = normalize(resolved)
-      if (serverOnly(target)) { diagnostics.push(`${at}: Server-only module reached through browser graph: ${[...chain, name, target].join(' -> ')}`); continue }
+      if (serverOnly(target)) {
+        // TanStack Start generates one route-tree import for this exact server handler and strips its handler from the client build.
+        if (name === 'apps/web/src/routeTree.gen.ts' && hostedAuthRoute(target)) continue
+        diagnostics.push(`${at}: Server-only module reached through browser graph: ${[...chain, name, target].join(' -> ')}`); continue
+      }
       if (privilegedFile(target)) { diagnostics.push(`${at}: Privileged desktop or engine module reached through browser graph: ${target}`); continue }
       if (isTest(target)) { diagnostics.push(`${at}: Browser module imports test-only code: ${target}`); continue }
       visit(target, [...chain, name])

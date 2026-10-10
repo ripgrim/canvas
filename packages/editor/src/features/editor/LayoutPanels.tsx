@@ -1,28 +1,31 @@
 import { useState, useSyncExternalStore } from 'react'
 import type { ComponentNode, FileDocument } from '@canvas/repo-engine/file-document'
-import { contentDistributions, displayModes, flexDirections, flexWraps, itemAlignments, lengthToCss, maxGridTracks, sizingModes, spacingSides } from '@canvas/repo-engine/layout'
+import { contentDistributions, displayModes, itemAlignments, maxGridTracks, sizingModes, spacingSides } from '@canvas/repo-engine/layout'
 import type { CrossAlignment, DisplayMode, FlexContainer, FlexDirection, FlexItem, FlexWrap, GridContainer, GridItem, InsetLength, ItemAlignment, LayoutContainer, LayoutGap, LayoutLength, MainDistribution, MarginSide, NodeLayout, NodeSpacing, SizingMode, SpacingSides } from '@canvas/repo-engine/layout'
 import { parseGridTemplate, tracksToCss } from '@canvas/repo-engine/grid-tracks'
 import type { GridTrack } from '@canvas/repo-engine/grid-tracks'
-import { InspectorAlert, InspectorAnchorGrid, InspectorCheck, InspectorFixedSlot, InspectorGroup, InspectorNote, InspectorRadioGroup, InspectorRow, InspectorRowSpacer, InspectorScrubField, InspectorSection, InspectorTextButton, InspectorTextField, InspectorTrackRow } from '../../design-system/inspector-atoms'
-import type { InspectorAnchorCell, InspectorScrubSession } from '../../design-system/inspector-atoms'
+import { InspectorAlert, InspectorAnchorGrid, InspectorCheck, InspectorFixedSlot, InspectorFlexDirection, InspectorFlexPanel, InspectorGroup, InspectorIconButton, InspectorNote, InspectorRadioGroup, InspectorRow, InspectorRowSpacer, InspectorScrubField, InspectorSection, InspectorSpacingHeading, InspectorSpacingMode, InspectorTextButton, InspectorTextField, InspectorTrackRow, InspectorTransformActions } from '../../design-system/inspector-atoms'
+import type { InspectorAnchorCell, InspectorNumericToken, InspectorScrubSession } from '../../design-system/inspector-atoms'
 import { AppearanceSelect } from '../../design-system/appearance-atoms'
 import type { IconName } from '../../design-system/atoms'
+import { SizingField } from '../../design-system/sizing-field'
 import { documentStore } from './document-store'
 import { inspectorCopy as copy } from './inspector-copy'
-import { positionAbsolute, setAspectRatio, setAxisBound, setAxisLength, setInset, setSpacing, setZIndex, sizingModeOf } from './layout-commands'
+import { flipTransform, positionAbsolute, rotateTransformQuarter, setAxisLength, setInset, setSpacing, setTransformRotation, setZIndex, sizingModeOf } from './layout-commands'
 import type { Axis } from './layout-commands'
 import type { GridAxis } from './layout-grid-commands'
-import { availableModes, isRootChild, layoutOf, layoutReport, localPoint, measuredChildren, measuredGrid, sizingTargets } from './layout-measure'
+import { isRootChild, layoutOf, layoutReport, localPoint, measuredChildren, measuredGrid, parentDirection, sizingTargets } from './layout-measure'
 import type { LayoutGeometry } from './layout-measure'
 import type { PreviewLayoutReport } from '@canvas/preview-runtime/protocol'
 import { sceneGeometry } from './scene-geometry'
+import { editorStore } from './store'
 
-type Context = { file: FileDocument; nodes: readonly ComponentNode[]; ids: string[]; geometry: LayoutGeometry; disabled: boolean }
+type Context = { file: FileDocument; nodes: readonly ComponentNode[]; ids: string[]; geometry: LayoutGeometry; disabled: boolean; numericTokens: readonly InspectorNumericToken[] }
 type Agreement<T> = { mixed: boolean; value: T | undefined }
 
 const limit = 1_000_000
 const defaultOption = '#default'
+const noSourceTokens: readonly { name: string; value: string }[] = []
 const layout = () => documentStore.commands.layout
 const grid = () => documentStore.commands.layout.grid
 const px = (value: number): InsetLength => ({ kind: 'px', value })
@@ -38,6 +41,30 @@ function agree<T>(values: readonly T[]): Agreement<T> {
 const shown = (agreement: Agreement<number | undefined>): number | null => agreement.mixed ? null : agreement.value ?? null
 const mixedPlaceholder = (agreement: Agreement<unknown>, fallback = '') => agreement.mixed ? copy.mixed : fallback
 const pxOf = (length: LayoutLength | undefined): number | undefined => length?.kind === 'px' ? length.value : undefined
+
+/** CSS pixel tokens are the only source values the current numeric layout model can represent without losing units. */
+export function numericLayoutTokens(tokens: readonly { name: string; value: string }[], minimum = 0): InspectorNumericToken[] {
+  return tokens.flatMap(token => {
+    const match = /^(-?(?:\d+(?:\.\d*)?|\.\d+))px$/i.exec(token.value.trim())
+    if (!match) return []
+    const value = Number(match[1])
+    return Number.isFinite(value) && value >= minimum ? [{ name: token.name, value, displayValue: token.value.trim() }] : []
+  })
+}
+
+/** Paper calls intrinsic sizing Fit; every context-valid mode stays available and an invalid stored mode stays visible. */
+export function sizingFieldState(available: readonly SizingMode[], current: SizingMode | undefined, mixed: boolean) {
+  const currentLabel = mixed ? copy.mixed : current === 'hug' ? 'Fit' : copy.sizingModes[current ?? 'auto']
+  const options = sizingModes
+    .filter(mode => available.includes(mode) || mode === current)
+    .map(mode => ({ value: mode === 'hug' ? 'fit' : mode, label: mode === 'hug' ? 'Fit' : copy.sizingModes[mode], selected: !mixed && current === mode, disabled: !available.includes(mode) }))
+  return { currentLabel, options }
+}
+
+export function sizingModesForContext(flexContainer: boolean, flexItem: boolean): SizingMode[] {
+  if (!flexContainer && !flexItem) return ['fixed']
+  return ['fixed', 'hug', ...(flexItem ? ['fill' as const] : [])]
+}
 
 /**
  * Live layout preview for a scrub: every node starts from the layout it had when the scrub began, previews ride on
@@ -64,20 +91,21 @@ function writeEach<T>(nodes: readonly ComponentNode[], next: (node: ComponentNod
 
 export function LayoutSections({ nodes, file, disabled }: { nodes: readonly ComponentNode[]; file: FileDocument; disabled: boolean }) {
   const geometry = useSyncExternalStore(sceneGeometry.subscribe, sceneGeometry.getSnapshot, sceneGeometry.getSnapshot)
+  const sourceTokens = useSyncExternalStore(editorStore.subscribe, () => editorStore.getSnapshot().snapshot?.tokens ?? noSourceTokens, () => editorStore.getSnapshot().snapshot?.tokens ?? noSourceTokens)
   if (!nodes.length) return null
-  const context: Context = { file, nodes, ids: nodes.map(node => node.id), geometry, disabled }
+  const context: Context = { file, nodes, ids: nodes.map(node => node.id), geometry, disabled, numericTokens: numericLayoutTokens(sourceTokens, -limit) }
+  const flex = nodes.every(node => node.layout?.container?.display === 'flex')
   return <>
-    <PositionSection context={context} />
-    <SizingSection context={context} />
+    <ComponentLayoutSection context={context} />
     <ContainerSection context={context} />
     <ItemSection context={context} />
-    <SpacingSection context={context} />
+    {!flex && <SpacingSection context={context} />}
   </>
 }
 
 // Position ------------------------------------------------------------------------------------------------------------
 
-function PositionSection({ context }: { context: Context }) {
+function ComponentLayoutSection({ context }: { context: Context }) {
   const { file, nodes, ids, geometry, disabled } = context
   const positions = nodes.map(node => node.layout?.item.position ?? { mode: 'flow' as const })
   const roots = nodes.map(node => isRootChild(file, node.id))
@@ -94,6 +122,13 @@ function PositionSection({ context }: { context: Context }) {
   }))
   const inset = (side: 'right' | 'bottom') => agree(positions.map(position => pxOf(position[side])))
   const zIndex = agree(positions.map(position => position.zIndex))
+  const rotation = agree(nodes.map(node => node.layout?.item.transform?.rotate ?? 0))
+  const scale = (node: ComponentNode) => { const value = node.layout?.item.transform?.scale; return typeof value === 'number' ? { x: value, y: value } : value ?? { x: 1, y: 1 } }
+  const flipX = nodes.length > 0 && nodes.every(node => scale(node).x < 0)
+  const flipY = nodes.length > 0 && nodes.every(node => scale(node).y < 0)
+  const flexContainer = nodes.every(node => node.layout?.container?.display === 'flex')
+  const flexItem = nodes.every(node => parentDirection(file, node.id) !== null)
+  const flexSizing = flexContainer || flexItem
   const commitCoordinate = (side: 'left' | 'top', value: number) => {
     if (absolute) { layout().inset(side, px(value), ids); return }
     layout().setMany(Object.fromEntries(nodes.flatMap((node, index) => {
@@ -107,11 +142,36 @@ function PositionSection({ context }: { context: Context }) {
   }
   const insetScrub = (side: 'left' | 'top' | 'right' | 'bottom') => absolute ? () => scrubSession(nodes, (current, value) => setInset(current, side, px(value))) : undefined
   const xValue = coordinate('left'), yValue = coordinate('top'), right = inset('right'), bottom = inset('bottom')
-  return <InspectorSection id="position" title={copy.position}>
-    <InspectorRadioGroup label={copy.positioning} value={mode.mixed ? null : mode.value ?? null} disabled={disabled} options={[{ value: 'flow', label: copy.inFlow }, { value: 'absolute', label: copy.absolute }]} onChange={changeMode} />
+  const transform = (update: (node: ComponentNode) => NodeLayout) => { layout().setMany(Object.fromEntries(nodes.map(node => [node.id, update(node)]))) }
+  const compactAxis = (axis: Axis) => {
+    const sizing = agree(nodes.map(node => sizingModeOf(node.layout, axis)))
+    const available = sizingModesForContext(flexContainer, flexItem)
+    const relative = !sizing.mixed && sizing.value === 'relative'
+    const editableSize = !sizing.mixed && (!flexSizing || sizing.value === 'fixed' || relative)
+    const value = agree(nodes.map(node => { const length = node.layout?.item[axis]?.value; return length?.kind === 'px' || length?.kind === 'percent' ? length.value : undefined }))
+    const measured = agree(nodes.map(node => geometry.nodes[node.id]?.rect[axis]))
+    const label = axis === 'width' ? copy.width : copy.height
+    const prefix = axis === 'width' ? copy.prefixes.width : copy.prefixes.height
+    const effectiveSizing = !sizing.mixed && flexSizing && sizing.value === 'auto' ? 'hug' : sizing.value
+    const sizingField = sizingFieldState(available, effectiveSizing, sizing.mixed)
+    const toLength = (next: number): LayoutLength => relative ? { kind: 'percent', value: next } : { kind: 'px', value: next }
+    const choose = (next: string) => {
+      const mode: SizingMode = next === 'fit' ? 'hug' : next as SizingMode
+      layout().sizing(axis, mode, sizingTargets(file, geometry, ids, axis))
+    }
+    const field = <InspectorScrubField id={`sizing-${axis}`} label={label} prefix={prefix} value={editableSize ? shown(value) ?? shown(measured) : null} placeholder={flexSizing ? sizingField.currentLabel : mixedPlaceholder(measured)} min={0} max={relative ? 99 : limit} {...(!relative && context.numericTokens.length ? { tokens: context.numericTokens, tokenLabel: copy.numericToken(label) } : {})} {...(relative ? { suffix: copy.percentSuffix } : {})} disabled={disabled || !editableSize} onCommit={next => { layout().length(axis, toLength(next), ids) }} onScrubStart={() => scrubSession(nodes, (before, next) => setAxisLength(before, axis, toLength(next)))} />
+    return flexSizing ? <SizingField label={copy.sizingMode(label)} currentLabel={sizingField.currentLabel} options={sizingField.options} disabled={disabled} onChoose={choose} field={field} /> : field
+  }
+  return <InspectorSection id="layout" title={copy.layout}>
     <InspectorRow>
       <InspectorScrubField id="position-x" label={copy.x} prefix={copy.prefixes.x} value={shown(xValue)} placeholder={mixedPlaceholder(xValue)} min={-limit} max={limit} disabled={disabled || !editable} onCommit={value => commitCoordinate('left', value)} {...(absolute ? { onClear: () => { layout().inset('left', null, ids) } } : {})} {...withScrub(insetScrub('left'))} />
       <InspectorScrubField id="position-y" label={copy.y} prefix={copy.prefixes.y} value={shown(yValue)} placeholder={mixedPlaceholder(yValue)} min={-limit} max={limit} disabled={disabled || !editable} onCommit={value => commitCoordinate('top', value)} {...(absolute ? { onClear: () => { layout().inset('top', null, ids) } } : {})} {...withScrub(insetScrub('top'))} />
+      <InspectorScrubField id="position-rotation" label={copy.rotation} prefix="R" suffix="°" value={shown(rotation)} placeholder={mixedPlaceholder(rotation)} min={-3600} max={3600} disabled={disabled} onCommit={value => { transform(node => setTransformRotation(node.layout, value)) }} onScrubStart={() => scrubSession(nodes, (current, value) => setTransformRotation(current, value))} />
+    </InspectorRow>
+    <InspectorRow>
+      {compactAxis('width')}
+      {compactAxis('height')}
+      <InspectorTransformActions actionsLabel={copy.transformActions} rotateLabel={copy.rotate90} flipXLabel={copy.flipHorizontal} flipYLabel={copy.flipVertical} absoluteLabel={copy.absolute} flipXPressed={flipX} flipYPressed={flipY} absolutePressed={!mode.mixed && absolute} disabled={disabled} onRotate={() => transform(node => rotateTransformQuarter(node.layout))} onFlipX={() => transform(node => flipTransform(node.layout, 'width'))} onFlipY={() => transform(node => flipTransform(node.layout, 'height'))} onAbsolute={() => changeMode(absolute && !mode.mixed ? 'flow' : 'absolute')} />
     </InspectorRow>
     {absolute && <InspectorRow>
       <InspectorScrubField id="position-right" label={copy.rightInset} prefix={copy.prefixes.right} value={shown(right)} placeholder={mixedPlaceholder(right)} min={-limit} max={limit} disabled={disabled} onCommit={value => { layout().inset('right', px(value), ids) }} onClear={() => { layout().inset('right', null, ids) }} {...withScrub(insetScrub('right'))} />
@@ -125,53 +185,6 @@ function PositionSection({ context }: { context: Context }) {
   </InspectorSection>
 }
 const withScrub = (start: (() => InspectorScrubSession) | undefined) => start ? { onScrubStart: start } : {}
-
-// Sizing --------------------------------------------------------------------------------------------------------------
-
-function SizingSection({ context }: { context: Context }) {
-  const { nodes, ids, disabled } = context
-  const ratio = agree(nodes.map(node => node.layout?.item.aspectRatio))
-  return <InspectorSection id="sizing" title={copy.sizing}>
-    <AxisSizing context={context} axis="width" />
-    <AxisSizing context={context} axis="height" />
-    <InspectorRow>
-      <InspectorScrubField id="sizing-aspect" label={copy.aspectRatio} prefix={copy.prefixes.ratio} value={shown(ratio)} placeholder={mixedPlaceholder(ratio)} min={0.01} max={1000} precision={2} disabled={disabled} onCommit={value => { layout().aspectRatio(value, ids) }} onClear={() => { layout().aspectRatio(null, ids) }} onScrubStart={() => scrubSession(nodes, (current, value) => setAspectRatio(current, value))} />
-      <InspectorRowSpacer />
-    </InspectorRow>
-  </InspectorSection>
-}
-
-function AxisSizing({ context, axis }: { context: Context; axis: Axis }) {
-  const { file, nodes, ids, geometry, disabled } = context
-  const axisLabel = axis === 'width' ? copy.width : copy.height
-  const current = nodes.map(node => sizingModeOf(node.layout, axis))
-  const mode = agree(current)
-  const available = availableModes(file, ids)
-  // A stored mode the selection can no longer offer stays visible (disabled) so the select never lies about the file.
-  const options = sizingModes.filter(option => available.includes(option) || current.includes(option)).map(option => ({ value: option, label: copy.sizingModes[option], disabled: !available.includes(option) }))
-  const unit = mode.value === 'relative' ? 'percent' : 'px'
-  const valueShown = !mode.mixed && (mode.value === 'fixed' || mode.value === 'relative')
-  const value = agree(nodes.map(node => { const length = node.layout?.item[axis]?.value; return length?.kind === 'px' || length?.kind === 'percent' ? length.value : undefined }))
-  const toLength = (next: number): LayoutLength => unit === 'percent' ? { kind: 'percent', value: next } : { kind: 'px', value: next }
-  const bound = (which: 'min' | 'max') => {
-    const lengths = nodes.map(node => node.layout?.item[axis]?.[which])
-    const shared = agree(lengths.map(pxOf))
-    const other = lengths.find(length => length && length.kind !== 'px')
-    return { shared, placeholder: shared.mixed ? copy.mixed : other ? lengthToCss(other) ?? '' : '' }
-  }
-  const min = bound('min'), max = bound('max')
-  const prefix = axis === 'width' ? copy.prefixes.width : copy.prefixes.height
-  return <InspectorGroup label={axisLabel}>
-    <InspectorRow lead>
-      <AppearanceSelect id={`sizing-${axis}-mode`} label={copy.sizingMode(axisLabel)} value={mode.mixed ? null : mode.value ?? null} placeholder={copy.mixed} options={options} disabled={disabled} onChange={next => { layout().sizing(axis, next as SizingMode, sizingTargets(file, geometry, ids, axis)) }} />
-      {valueShown && <InspectorScrubField id={`sizing-${axis}`} label={axisLabel} prefix={prefix} value={shown(value)} placeholder={mixedPlaceholder(value)} min={0} max={unit === 'percent' ? 99 : limit} {...(unit === 'percent' ? { suffix: copy.percentSuffix } : {})} disabled={disabled} onCommit={next => { layout().length(axis, toLength(next), ids) }} onScrubStart={() => scrubSession(nodes, (layoutBefore, next) => setAxisLength(layoutBefore, axis, toLength(next)))} />}
-    </InspectorRow>
-    <InspectorRow>
-      <InspectorScrubField id={`sizing-${axis}-min`} label={copy.minimum(axisLabel)} prefix={copy.prefixes.min} value={shown(min.shared)} placeholder={min.placeholder} min={0} max={limit} disabled={disabled} onCommit={next => { layout().bound(axis, 'min', px(next), ids) }} onClear={() => { layout().bound(axis, 'min', null, ids) }} onScrubStart={() => scrubSession(nodes, (before, next) => setAxisBound(before, axis, 'min', px(next)))} />
-      <InspectorScrubField id={`sizing-${axis}-max`} label={copy.maximum(axisLabel)} prefix={copy.prefixes.max} value={shown(max.shared)} placeholder={max.placeholder} min={0} max={limit} disabled={disabled} onCommit={next => { layout().bound(axis, 'max', px(next), ids) }} onClear={() => { layout().bound(axis, 'max', null, ids) }} onScrubStart={() => scrubSession(nodes, (before, next) => setAxisBound(before, axis, 'max', px(next)))} />
-    </InspectorRow>
-  </InspectorGroup>
-}
 
 // Container -----------------------------------------------------------------------------------------------------------
 
@@ -194,7 +207,7 @@ function ContainerSection({ context }: { context: Context }) {
     layout().setDisplay(next, ids, measured)
   }
   const authored = containers.filter((container): container is LayoutContainer => container !== undefined)
-  return <InspectorSection id="layout" title={copy.layout}>
+  return <InspectorSection id="container" title={current === 'flex' ? copy.flex : copy.container}>
     <InspectorRadioGroup label={copy.display} value={current} disabled={disabled} options={displayModes.map(mode => ({ value: mode, label: copy.displays[mode], icon: displayIcons[mode] }))} onChange={setDisplay} />
     {!display.mixed && current === null && <InspectorNote>{copy.componentLayout}</InspectorNote>}
     {statuses.map(status => <InspectorNote key={status} icon="alert">{copy.layoutStatuses[status]}</InspectorNote>)}
@@ -203,6 +216,7 @@ function ContainerSection({ context }: { context: Context }) {
     {current === 'flex' && <FlexControls context={context} flexes={authored.map(container => container.flex!)} />}
     {current === 'grid' && <GridControls context={context} grids={authored.map(container => container.grid!)} />}
     {(current === 'flex' || current === 'grid') && <GapControls context={context} />}
+    {current === 'flex' && <><SpacingGroup context={context} kind="padding" /><SpacingGroup context={context} kind="margin" /></>}
     {authored.length === nodes.length && <OverflowControl context={context} containers={authored} />}
   </InspectorSection>
 }
@@ -245,20 +259,16 @@ function FlexControls({ context, flexes }: { context: Context; flexes: FlexConta
   const distributionOptions = [{ value: 'packed', label: copy.distributions.packed }, ...distributionNames.map(name => ({ value: name, label: copy.distributions[name] }))]
   const distribution = justify.mixed ? null : distributed ? justify.value! : 'packed'
   const wrapping = !wrap.mixed && wrap.value !== 'nowrap'
+  const axis = direction.mixed || !direction.value ? null : direction.value.startsWith('row') ? 'row' as const : 'column' as const
+  const reversed = !direction.mixed && Boolean(direction.value?.endsWith('reverse'))
+  const reverseWrap = !wrap.mixed && wrap.value === 'wrap-reverse'
   return <>
-    <InspectorGroup label={copy.direction}>
-      <AppearanceSelect id="flex-direction" label={copy.direction} value={direction.mixed ? null : direction.value ?? null} placeholder={copy.mixed} options={flexDirections.map(value => ({ value, label: copy.directions[value] }))} disabled={disabled} onChange={value => { layout().setDirection(value as FlexDirection, ids) }} />
-      <InspectorRadioGroup label={copy.wrap} value={wrap.mixed ? null : wrap.value ?? null} disabled={disabled} options={flexWraps.map(value => ({ value, label: copy.wraps[value] }))} onChange={value => { layout().setWrap(value, ids) }} />
-    </InspectorGroup>
-    <InspectorGroup label={copy.alignment}>
-      <InspectorRow>
-        <InspectorFixedSlot><InspectorAnchorGrid label={copy.alignment} cells={cells.length ? cells : anchorCells('row', 'nowrap', { mixed: true, value: undefined }, { mixed: true, value: undefined })} disabled={disabled || !anchorable} onSelect={choose} /></InspectorFixedSlot>
-        <InspectorGroup>
-          <AppearanceSelect id="flex-distribution" label={copy.distribution} value={distribution} placeholder={copy.mixed} options={distributionOptions} disabled={disabled} onChange={value => { layout().setAlignment({ justify: value === 'packed' ? 'start' : value as MainDistribution }, ids) }} />
-          {wrapping && <AppearanceSelect id="flex-align-content" label={copy.alignContent} value={alignContent.mixed ? null : alignContent.value ?? defaultOption} placeholder={copy.mixed} options={[{ value: defaultOption, label: copy.defaultValue }, ...contentDistributions.map(value => ({ value, label: copy.contentDistributions[value] }))]} disabled={disabled} onChange={value => { layout().setAlignContent(value === defaultOption ? null : value as typeof contentDistributions[number], ids) }} />}
-        </InspectorGroup>
-      </InspectorRow>
-    </InspectorGroup>
+    <InspectorFlexPanel alignment={<InspectorAnchorGrid label={copy.alignment} cells={cells.length ? cells : anchorCells('row', 'nowrap', { mixed: true, value: undefined }, { mixed: true, value: undefined })} disabled={disabled || !anchorable} onSelect={choose} />} controls={<>
+        <InspectorFlexDirection label={copy.direction} rowLabel={copy.directions.row} columnLabel={copy.directions.column} reverseLabel={copy.reverseDirection} wrapLabel={copy.wrap} axis={axis} reversed={reversed} wrapped={wrapping} disabled={disabled || direction.mixed || wrap.mixed} onAxis={next => { layout().setDirection(`${next}${reversed ? '-reverse' : ''}` as FlexDirection, ids) }} onReverse={() => { if (axis) layout().setDirection(`${axis}${reversed ? '' : '-reverse'}` as FlexDirection, ids) }} onWrap={() => { layout().setWrap(wrapping ? 'nowrap' : 'wrap', ids) }} />
+        <AppearanceSelect id="flex-distribution" label={copy.distribution} value={distribution} placeholder={copy.mixed} options={distributionOptions} disabled={disabled} onChange={value => { layout().setAlignment({ justify: value === 'packed' ? 'start' : value as MainDistribution }, ids) }} />
+        {wrapping && <AppearanceSelect id="flex-align-content" label={copy.alignContent} value={alignContent.mixed ? null : alignContent.value ?? defaultOption} placeholder={copy.mixed} options={[{ value: defaultOption, label: copy.defaultValue }, ...contentDistributions.map(value => ({ value, label: copy.contentDistributions[value] }))]} disabled={disabled} onChange={value => { layout().setAlignContent(value === defaultOption ? null : value as typeof contentDistributions[number], ids) }} />}
+      </>} />
+    {wrapping && <InspectorCheck id="flex-wrap-reverse" label={copy.wraps['wrap-reverse']} checked={reverseWrap} disabled={disabled || wrap.mixed} onChange={next => { layout().setWrap(next ? 'wrap-reverse' : 'wrap', ids) }} />}
   </>
 }
 
@@ -269,6 +279,7 @@ function GapControls({ context }: { context: Context }) {
   const split = gaps.some(gap => typeof gap === 'object') || (gaps.every(gap => gap === undefined) && splitDraft)
   const part = (key: 'x' | 'y') => agree(gaps.map(gap => typeof gap === 'object' ? gap[key] : gap))
   const columns = part('x'), rows = part('y')
+  const tokens = context.numericTokens.filter(token => token.value >= 0)
   const withGap = (current: NodeLayout | undefined, gap: LayoutGap): NodeLayout | null => current?.container ? { ...current, container: { ...current.container, gap } } : null
   const own = (node: ComponentNode, key: 'x' | 'y') => { const gap = node.layout?.container?.gap; return typeof gap === 'object' ? gap[key] : gap ?? 0 }
   const writePart = (key: 'x' | 'y', value: number) => writeEach(nodes, node => ({ x: key === 'x' ? value : own(node, 'x'), y: key === 'y' ? value : own(node, 'y') }), gap => { layout().setGap(gap, ids) }, (node, gap) => withGap(node.layout, gap) ?? node.layout!)
@@ -281,14 +292,14 @@ function GapControls({ context }: { context: Context }) {
   return <InspectorGroup label={copy.gap}>
     {split
       ? <InspectorRow>
-        <InspectorScrubField id="container-gap-x" label={copy.columnGap} prefix={copy.prefixes.x} value={shown(columns)} placeholder={mixedPlaceholder(columns)} min={0} max={limit} disabled={disabled} onCommit={value => writePart('x', value)} onScrubStart={() => scrubSession(nodes, (current, value) => { const gap = current?.container?.gap; return withGap(current, { x: value, y: typeof gap === 'object' ? gap.y : gap ?? 0 }) })} />
-        <InspectorScrubField id="container-gap-y" label={copy.rowGap} prefix={copy.prefixes.y} value={shown(rows)} placeholder={mixedPlaceholder(rows)} min={0} max={limit} disabled={disabled} onCommit={value => writePart('y', value)} onScrubStart={() => scrubSession(nodes, (current, value) => { const gap = current?.container?.gap; return withGap(current, { x: typeof gap === 'object' ? gap.x : gap ?? 0, y: value }) })} />
+        <InspectorScrubField id="container-gap-x" label={copy.columnGap} prefix={copy.prefixes.x} value={shown(columns)} placeholder={mixedPlaceholder(columns)} min={0} max={limit} tokens={tokens} tokenLabel={copy.numericToken(copy.columnGap)} disabled={disabled} onCommit={value => writePart('x', value)} onScrubStart={() => scrubSession(nodes, (current, value) => { const gap = current?.container?.gap; return withGap(current, { x: value, y: typeof gap === 'object' ? gap.y : gap ?? 0 }) })} />
+        <InspectorScrubField id="container-gap-y" label={copy.rowGap} prefix={copy.prefixes.y} value={shown(rows)} placeholder={mixedPlaceholder(rows)} min={0} max={limit} tokens={tokens} tokenLabel={copy.numericToken(copy.rowGap)} disabled={disabled} onCommit={value => writePart('y', value)} onScrubStart={() => scrubSession(nodes, (current, value) => { const gap = current?.container?.gap; return withGap(current, { x: typeof gap === 'object' ? gap.x : gap ?? 0, y: value }) })} />
+        <InspectorIconButton label={copy.joinGap} icon="block" disabled={disabled} onClick={() => toggle(false)} />
       </InspectorRow>
       : <InspectorRow>
-        <InspectorScrubField id="container-gap" label={copy.gap} prefix={copy.prefixes.gap} value={shown(columns)} placeholder={mixedPlaceholder(columns)} min={0} max={limit} disabled={disabled} onCommit={value => { layout().setGap(value, ids) }} onClear={() => { layout().setGap(null, ids) }} onScrubStart={() => scrubSession(nodes, (current, value) => withGap(current, value))} />
-        <InspectorRowSpacer />
+        <InspectorScrubField id="container-gap" label={copy.gap} prefix={copy.prefixes.gap} value={shown(columns)} placeholder={mixedPlaceholder(columns)} min={0} max={limit} tokens={tokens} tokenLabel={copy.numericToken(copy.gap)} disabled={disabled} onCommit={value => { layout().setGap(value, ids) }} onClear={() => { layout().setGap(null, ids) }} onScrubStart={() => scrubSession(nodes, (current, value) => withGap(current, value))} />
+        <InspectorIconButton label={copy.splitGap} icon="flex-row" disabled={disabled} onClick={() => toggle(true)} />
       </InspectorRow>}
-    <InspectorCheck id="container-gap-split" label={copy.splitGap} checked={split} disabled={disabled} onChange={toggle} />
   </InspectorGroup>
 }
 
@@ -435,7 +446,6 @@ type SpacingKind = 'padding' | 'margin'
 type SpacingMode = 'all' | 'axes' | 'sides'
 type SpacingPart = 'all' | 'x' | 'y' | 'top' | 'right' | 'bottom' | 'left'
 type Side = number | 'auto'
-const spacingModeList: readonly SpacingMode[] = ['all', 'axes', 'sides']
 const partsOf: Record<SpacingMode, readonly SpacingPart[]> = { all: ['all'], axes: ['x', 'y'], sides: ['top', 'right', 'bottom', 'left'] }
 const shapeOf = (value: unknown): SpacingMode | undefined => value === undefined ? undefined : typeof value === 'object' && value !== null ? ('x' in value ? 'axes' : 'sides') : 'all'
 /** Reads one part of a stored value as the shape `mode` would present it (axes read left/top, all reads top). */
@@ -500,14 +510,15 @@ function SpacingGroup({ context, kind }: { context: Context; kind: SpacingKind }
     const number: Agreement<number | undefined> = raw.mixed ? { mixed: true, value: undefined } : { mixed: false, value: typeof raw.value === 'number' ? raw.value : undefined }
     const label = copy.spacingField(kindLabel, copy.spacingParts[part])
     const prefix = part === 'all' ? copy.prefixes.all : part === 'x' ? copy.prefixes.x : part === 'y' ? copy.prefixes.y : part === 'top' ? copy.prefixes.top : part === 'right' ? copy.prefixes.right : part === 'bottom' ? copy.prefixes.bottom : copy.prefixes.left
-    const input = <InspectorScrubField key={part} id={`spacing-${kind}-${part}`} label={label} prefix={prefix} value={shown(number)} placeholder={auto ? copy.autoValue : mixedPlaceholder(number)} min={kind === 'margin' ? -limit : 0} max={limit} disabled={disabled || auto} onCommit={value => writePart(part, value)} {...(part === 'all' ? { onClear: clear } : {})} onScrubStart={() => scrubSession(nodes, (current, value, node) => setSpacing(current, spacingWith(node, shaped(baseSides(node), mode ?? 'all', part, value))))} />
+    const tokens = context.numericTokens.filter(token => kind === 'margin' || token.value >= 0)
+    const input = <InspectorScrubField key={part} id={`spacing-${kind}-${part}`} label={label} prefix={prefix} value={shown(number)} placeholder={auto ? copy.autoValue : mixedPlaceholder(number)} min={kind === 'margin' ? -limit : 0} max={limit} tokens={tokens} tokenLabel={copy.numericToken(label)} disabled={disabled || auto} onCommit={value => writePart(part, value)} {...(part === 'all' ? { onClear: clear } : {})} onScrubStart={() => scrubSession(nodes, (current, value, node) => setSpacing(current, spacingWith(node, shaped(baseSides(node), mode ?? 'all', part, value))))} />
     if (kind === 'padding') return input
     return <InspectorRow key={part} lead>{input}<InspectorCheck id={`spacing-margin-${part}-auto`} label={copy.marginAuto(copy.spacingParts[part])} checked={auto} disabled={disabled} onChange={checked => writePart(part, checked ? 'auto' : 0)} /></InspectorRow>
   }
   const parts = mode ? partsOf[mode] : []
   const pairs = [parts.slice(0, 2), parts.slice(2, 4)].filter(pair => pair.length > 0)
-  return <InspectorGroup label={kindLabel}>
-    <InspectorRadioGroup label={copy.spacingMode(kindLabel)} value={mode} disabled={disabled} options={spacingModeList.map(value => ({ value, label: copy.spacingModes[value] }))} onChange={changeMode} />
+  return <InspectorGroup>
+    <InspectorSpacingHeading label={kindLabel} control={<InspectorSpacingMode label={copy.spacingMode(kindLabel)} value={mode} labels={copy.spacingModes} disabled={disabled} onChange={changeMode} />} />
     {kind === 'padding'
       ? pairs.map(pair => <InspectorRow key={pair.join('-')}>{pair.map(field)}{pair.length === 1 && <InspectorRowSpacer />}</InspectorRow>)
       : parts.map(field)}

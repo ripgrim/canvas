@@ -44,6 +44,50 @@ Import the same fixture through GitHub using an approved repository selection. V
 
 Negative control: select a repository the signed-in actor cannot access. The server and desktop both deny import without revealing repository metadata.
 
+## Repository discovery and synchronization
+
+### AT-REPO-CONNECT-001: Local and managed repository connection
+
+From the desktop Repository panel, cancel the folder picker, choose a nested folder inside a real local Git repository, clone a public GitHub repository, relaunch, and scan both sources. The local connection resolves to the repository root. The clone exists only at the desktop-managed `workspace/<opaque repository id>/repo` path. The renderer receives only the opaque id, display name, source kind, and scan result. It never receives a canonical filesystem path, Git credentials, or an arbitrary command surface.
+
+Negative controls: path-like clone owner/name values, extra IPC keys, a non-Git local folder, an invalid sender frame, a clone failure, and a scanner source-link escape must fail. A failed clone removes only its newly allocated managed workspace.
+
+### AT-SCAN-001: shadcn source discovery
+
+Scan checked-in Vite and monorepo fixtures with root and nested `components.json` files, configured UI aliases, `components/ui`, shared `packages/ui`, and local registry sources. Also scan a package-bound monorepo app with `src/components/ui` and `src/styles.css` but no `components.json`; it must be reported as automatically detected and expose the same component and token evidence. Compare the discovered package, path, export, declaration form, props, and slots with an independently written manifest. Scanning must not run package hooks, repository scripts, plugins, or imported component code.
+
+Negative controls: a repository script that writes a marker never runs; a source link escaping the repository grant is rejected; anonymous defaults and server-only exports are reported unsupported rather than presented as usable components. A connected repository without a manifest or package-bound `components/ui` root is shown as unsupported, not as a successful `0 components and 0 tokens` scan.
+
+### AT-TOK-001: shadcn token provenance
+
+Parse a checked-in `globals.css` fixture containing base and dark tokens, `@layer`, `@theme inline`, OKLCH values, aliases, and unrelated local variables. Assert exact selector, at-rule, theme, alias, path, and source-location evidence. Prepare one canonical token edit and compare the full file with independent golden bytes.
+
+Negative controls: duplicate canonical declarations, an alias cycle, a runtime-computed value, and stale source bytes each block Save without changing a file.
+
+### AT-REPO-TOKEN-001: Importable repository color catalog
+
+Scan base, dark, alias, color, spacing, radius, and composite CSS custom properties. Verify that one compact row represents each color property across themes, simple aliases resolve to a real swatch, and non-color values remain excluded from the import list. In a browser, verify a light color alias does not inherit the canvas normalizer's black sentinel and a font alias chain does not become an importable color.
+
+Long component and token catalogs render inside independently scrollable inset list surfaces. Verify each surface has real vertical overflow and wheel and keyboard scrolling remain inside the nested viewport. When two or more tokens are selected, the bulk import action spans the inset surface at its bottom edge, remains outside the scrolling rows, and uses a surface-colored upward fade so the final visible row recedes beneath it.
+
+Negative controls: alias cycles and unsupported composite values must not receive an invented color preview or an enabled import action.
+
+### AT-REPO-TOKEN-002: Atomic repository token import
+
+Import one token from its row, then select two unimported tokens and use the bulk action. Verify that Select all selects only importable tokens, Shift-click selects the contiguous range from the last token interaction, and token-row text cannot be selected. Verify that clicking a selectable row toggles its checkbox, clicking the checkbox still toggles exactly once, and nested Import actions do not also toggle row selection. Verify that the file receives source-backed color tokens with stable CSS property bindings, one bulk action creates one undo entry, imported properties cannot be duplicated, and Undo removes the whole bulk import together.
+
+### AT-COMP-001: real TypeScript components
+
+Index a real shadcn Button with static variants, Card parts, Input, and a stateful portal Dialog. Insert source-bound instances and verify actual prop types, variants, slots, providers, interaction, and portal behavior in the isolated preview. A static copied JSX version must fail the behavior and identity assertions.
+
+### AT-SYNC-001: incremental pull
+
+Record component and token identities, then make a non-semantic edit, an implementation edit, a verified move and rename, an ambiguous replacement, a token edit, and a temporary parse failure. Confirm changed-file-only indexing, stable identity only where evidence supports it, explicit missing or ambiguous states, and last-good preview retention.
+
+### AT-SYNC-002: reviewed push
+
+Prepare a prop or variant edit and a token edit from semantic source evidence. Confirm exact golden diffs and no write before explicit approval. Then change the same semantic target externally and exercise Keep source, Keep canvas change, and Edit manually. Every choice produces a fresh diff and approval digest. Inject a failure after the first file replacement and verify byte-for-byte rollback.
+
 ## Identity
 
 ### AT-ID-001: Identity survives a commit
@@ -122,7 +166,9 @@ Verify shallow select, deep select, parent and child traversal, multiselect, loc
 
 ### AT-CAN-002: Layout and snap
 
-Verify fixed, fit, fill, min and max constraints, padding, gap, direction, alignment, wrap, absolute position, clipping, snap guides, align, distribute, nudge, large nudge, and frame resize.
+Verify fixed, fit, fill, padding, gap, direction, alignment, wrap, absolute position, clipping, snap guides, align, distribute, nudge, large nudge, and frame resize.
+
+Width and Height expose their valid sizing modes from controls attached to the value fields. A freeform or absolute item does not claim flex-only sizing. A flex item exposes the modes supported by its parent. Changing the menu preserves the measured pose, creates one undo entry, and does not require a separate Sizing section.
 
 ### AT-CAN-003: Content types
 
@@ -140,15 +186,16 @@ Verify mouse, touchpad, pointer capture, and keyboard-only manipulation. Draggin
 
 ### AT-AUTH-001: Better Auth desktop round trip
 
-1. Request sign-in through the narrow preload API and confirm the Electron main process uses its Better Auth client to open the system browser.
-2. Confirm the system browser opens the hosted flow.
-3. Complete auth and return through a registered application link using PKCE and state.
-4. Confirm main validates state and exchanges the one-time result.
-5. Confirm the renderer receives only required session display data, with no token, cookie, or auth client.
-6. Inspect the configured storage behavior and document its protection properties; do not assume encryption.
-7. Restart the renderer and verify the main-held session remains usable.
+1. Start a configured desktop without a session. Confirm the full-screen sign-in boundary renders before project services can issue repository commands and the narrow preload API is the only renderer auth surface.
+2. Request sign-in and confirm the Electron main process opens the system browser on `/sign-in` with the fixed desktop client id, one state value, and one PKCE challenge.
+3. Confirm the hosted screen accepts only the exact desktop request. A signed-out browser offers GitHub. An existing browser session transfers that user without starting another provider sign-in.
+4. Complete auth and return through the registered `com.comp-canvas.desktop` application link. Confirm the main process accepts the exact authority-form callback emitted by Better Auth, validates the pending owner and lifetime, and exchanges the one-time result.
+5. Confirm the desktop shows a full-screen finishing state during exchange, then opens the editor only after a user is returned.
+6. Confirm the renderer receives only required session display data, with no token, cookie, auth client, database URL, or provider secret.
+7. Inspect the configured storage behavior and document its protection properties; do not assume encryption.
+8. Restart the renderer and verify the main-held session remains usable.
 
-Negative controls: replay the callback, alter state, use an unregistered scheme, and deliver the link to an unexpected window. Each must fail.
+Negative controls: duplicate hosted parameters, raw provider error text, callback replay, altered state, invalid base64url, an unregistered scheme, a wrong callback path, and delivery to an unexpected window. Each must fail. A malformed callback must leave the desktop in a recoverable fixed-copy error state instead of a permanent loader. Inspect the production browser bundle and fail if it contains PostgreSQL, Better Auth server code, database URLs, or secret names.
 
 ### AT-AUTH-002: Object authorization
 
@@ -159,6 +206,18 @@ Negative control: bypass the UI guard and call the API. Unauthorized access must
 ### AT-AUTH-003: Revocation
 
 Revoke a member and a share link. Verify later HTTP requests and active subscriptions lose access. Confirm revoked state is shown without leaking project content.
+
+### AT-GHAPP-001: GitHub App installation grants
+
+Connect a GitHub App installation with a valid single-use state and a GitHub user who can see that installation. Live-check the selected repository through GitHub before storing the grant. Verify invalid state, a spoofed setup `installation_id`, another user's installation, an invalid webhook signature, and a duplicate delivery all fail. Installation suspension, deletion, and repository removal invalidate later scans and writes.
+
+Targeted mutation: trust the callback `installation_id` without the live installation and repository intersection check. The suite must fail.
+
+### AT-REPO-LINK-001: Project repository authorization
+
+Call repository-link, scan, pull, patch preparation, and write APIs directly as Owner, Editor, Reviewer, Viewer, an unrelated signed-in user, and a signed-out user. Verify project membership, tenant installation grant, stable repository ID, repository selection, link status, grant generation, and current GitHub access at enqueue, job start, and immediately before a write. A cross-tenant installation, repository from another installation, removed membership, and suspended installation must fail without revealing repository metadata.
+
+Targeted mutations: independently remove the project-member predicate and the installation-repository predicate. Each weakened build must fail the suite.
 
 ## Electron and isolation
 
@@ -230,6 +289,10 @@ Use observable engine events to verify the four-region shell, project opening, a
 
 Visual review fixture: compare shell geometry and hierarchy against the supplied authorized Wonder/Paper reference evidence, including file bar, left rail, canvas/tool strip/zoom controls, and right inspector. Match only verified details; record unknown startup, autosave, conflict, and GitHub writeback behaviors as unknown rather than asserting parity. This is a design review criterion and must include screenshots plus the tested viewport and platform.
 
+Web and desktop start on the same Recents home. An account with no files shows the empty home without opening or offering a fixture. Repository controls are absent in the browser editor and remain available only in the desktop editor.
+
+At 1500 by 922, verify Recents uses the fixed left rail, a persistent New file action, grid and list controls, Paper-shaped 256:168 grid thumbnails, 96-pixel list thumbnails, relative edit dates, and search with an independent no-results state. Creating a file must persist the default Page 1 document and navigate to its permanent file URL. Evidence: `apps/web/tests/home-screen.mjs` and `outputs/home-screen/`.
+
 ### AT-UX-004: Share access behavior
 
 Open Share and verify it changes no permissions. Copy a link and verify it changes no permissions. Change link visibility and verify the consequence is stated before commit, public access requires confirmation, and the hosted service confirms the resulting state. Verify invite failure preserves entered recipients and role. Test local-only sharing consent against the exact listed upload set.
@@ -292,9 +355,13 @@ A click with the Rectangle tool creates exactly 500 x 500 with one visible liter
 
 Two solid fills render bottom-to-top and reorder changes pixels; a hidden top fill reveals the next fill without deleting it; linear, radial, and conic gradients render with their interpolation; per-fill blend lists align with layers; one solid text fill maps to `color` and other text fills clip a background; opacity and every blend mode apply to primitive and component roots; outline and each border side render independently; image fills resolve only through the trusted local asset map. Evidence: `packages/preview-runtime/tests/*`, `apps/web/tests/appearance.mjs`.
 
+A token-bound color can carry an instance opacity override. Rendering multiplies the resolved token alpha by that override without changing the token, detaching the binding, or changing node opacity.
+
 ### AT-APP-004: Inspector states and transitions
 
 Eligibility follows the matrix (Text has no Outline or Border); absent, hidden, and removed are distinct; `+` follows the exact Fill, Outline, and Border sequences; mixed values show a mixed state and a replace action that changes every eligible node in one batch; type switching restores cached state; a multi-node edit is one undo step; gradient and reorder drags commit once and Escape restores with no history. Evidence: `appearance-adapters.test.ts`, `document-store.test.ts`, `apps/web/tests/appearance.mjs`.
+
+When a solid fill color is token-bound, its fill opacity field remains editable. Committing the field preserves the token id, records one history entry, and survives save and reopen.
 
 ### AT-APP-005: Component preservation and editor chrome
 

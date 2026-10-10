@@ -6,6 +6,16 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "node scripts/dev.mjs",
+    "db:up": "docker compose --env-file .env.local up -d --wait postgres",
+    "db:setup": "pnpm db:up && pnpm db:migrate",
+    "db:migrate": "node scripts/local-auth-cli.mjs migrate",
+    "db:generate": "node scripts/local-auth-cli.mjs generate",
+    "db:check": "node scripts/local-auth-cli.mjs check",
+    "db:shell": "docker compose --env-file .env.local exec postgres psql -U design_editor -d design_editor",
+    "db:restart": "docker compose --env-file .env.local restart postgres",
+    "db:down": "docker compose --env-file .env.local down",
+    "db:logs": "docker compose --env-file .env.local logs -f postgres",
+    "db:status": "docker compose --env-file .env.local ps postgres",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "pnpm -r typecheck",
@@ -17,6 +27,8 @@
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "@types/node": "^24.0.0",
+    "auth": "1.7.7",
+    "dotenv": "18.0.7",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   },

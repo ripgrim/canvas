@@ -4,11 +4,15 @@ const empty = Object.freeze({ baseline: null, document: null })
 let snapshot = empty
 const listeners = new Set()
 const components = new Map()
+const registryComponents = new Map()
+const sourceComponent = Symbol('design-editor-source-component')
 const subscribe = listener => { listeners.add(listener); return () => listeners.delete(listener) }
 const getSnapshot = () => snapshot
 const same = (left, right) => JSON.stringify(left) === JSON.stringify(right)
 
-export function configureSourceBindings(baseline) {
+export function configureSourceBindings(baseline, registry = []) {
+  registryComponents.clear()
+  for (const binding of registry) if (binding && typeof binding.componentId === 'string' && typeof binding.Component === 'function') registryComponents.set(binding.componentId, binding.Component[sourceComponent] ?? binding.Component)
   snapshot = { baseline: structuredClone(baseline), document: structuredClone(baseline) }
 }
 
@@ -45,7 +49,9 @@ function locations(document) {
 
 function renderDetached(document, id) {
   const node = document.nodes[id]
-  const Component = node && components.get(node.componentId)
+  // Transformed source modules register their original export. The verified runtime registry is the fallback for a
+  // source module that was imported but did not execute a bound instance in the baseline tree.
+  const Component = node && (components.get(node.componentId) ?? registryComponents.get(node.componentId))
   if (!node || !Component) return null
   const slots = Object.fromEntries(Object.entries(node.children).filter(([, ids]) => ids.length).map(([slot, ids]) => [slot, ids.map(child => renderDetached(document, child))]))
   return React.createElement(Component, { ...node.props, ...slots, key: node.id, 'data-preview-instance': node.id, 'data-preview-component': node.componentId })
@@ -95,10 +101,12 @@ export function bindSourceComponent(componentId, exportName, Component) {
     return React.createElement(React.Fragment, null, retained ? React.createElement(Component, { ...next, key: instanceId }) : null, ...extras)
   }
   Object.defineProperty(BoundComponent, 'name', { value: exportName })
+  Object.defineProperty(BoundComponent, sourceComponent, { value: Component })
   return BoundComponent
 }
 
 export function disposeSourceBindings() {
   snapshot = empty
   listeners.clear()
+  registryComponents.clear()
 }

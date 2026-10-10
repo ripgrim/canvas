@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Atom } from './types'
 import type { Appearance, FileDocument, Paint, Stroke } from '@canvas/repo-engine/file-document'
 import { childrenOf, nodeAppearance, worldPosition } from '@canvas/repo-engine/file-document'
-import { createDocumentStore } from './document-store'
+import { componentInsertionPoint, createDocumentStore } from './document-store'
 import type { Scene } from './canvas-scene'
 
 const atom = (name: string, componentId: string, props: Atom['props']): Atom => ({ name, kind: 'atom', componentId, path: `src/${name}.tsx`, exportName: name, fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props })
@@ -140,6 +140,24 @@ describe('AT-CAN file loading and pages', () => {
     expect(store.commands.deletePage('page-2')).toBe(true)
     expect(store.commands.deletePage('page-1')).toBe(false)
     expect(file(store).pages.map(page => page.id)).toEqual(['page-1'])
+  })
+})
+
+describe('AT-REPO-TOKEN-002 repository token import', () => {
+  it('imports source tokens atomically, skips existing properties, and undoes the batch once', () => {
+    const store = loaded()
+    expect(store.commands.theme.importSourceTokens([
+      { property: '--background', name: 'Background', fallback: { kind: 'hex', hex: '#ffffff' } },
+      { property: '--accent', name: 'Accent', fallback: { kind: 'oklch', l: 0.6, c: 0.2, h: 300 } },
+      { property: '--accent', name: 'Duplicate accent', fallback: { kind: 'hex', hex: '#000000' } },
+    ])).toBe(2)
+    expect(Object.values(file(store).theme.tokens).map(token => ({ name: token.name, value: token.value }))).toEqual([
+      { name: 'Background', value: { kind: 'source', property: '--background', fallback: { kind: 'hex', hex: '#ffffff' } } },
+      { name: 'Accent', value: { kind: 'source', property: '--accent', fallback: { kind: 'oklch', l: 0.6, c: 0.2, h: 300 } } },
+    ])
+    expect(store.commands.theme.importSourceTokens([{ property: '--accent', name: 'Accent', fallback: { kind: 'hex', hex: '#000000' } }])).toBe(0)
+    store.undo()
+    expect(file(store).theme.tokens).toEqual({})
   })
 })
 
@@ -281,7 +299,7 @@ describe('AT-CAN primitive canvas commands', () => {
 
     store.select('card')
     expect(store.commands.nudge(4, 6)).toBe(false)
-    const scene: Scene = { nodes: [], byId: new Map([['card', { id: 'card', kind: 'component', name: 'Card', parentId: null, rect: { x: 10.2, y: 20.7, width: 300.4, height: 200 }, clip: false, depth: 0, order: 0, flow: false }]]) }
+    const scene: Scene = { nodes: [], byId: new Map([['card', { id: 'card', kind: 'component', name: 'Card', parentId: null, rect: { x: 10.2, y: 20.7, width: 300.4, height: 200 }, rotation: 0, clip: false, depth: 0, order: 0, flow: false }]]) }
     expect(store.commands.nudge(4, 6, scene)).toBe(true)
     expect((file(store).nodes.card as { layout?: unknown }).layout).toEqual({
       item: { position: { mode: 'absolute', left: { kind: 'px', value: 14 }, top: { kind: 'px', value: 27 } }, width: { value: { kind: 'px', value: 300 } } },
@@ -290,6 +308,28 @@ describe('AT-CAN primitive canvas commands', () => {
 })
 
 describe('AT-CAN component instances in slots', () => {
+  it('inserts a root instance at a deterministic world point and selects the same persistent id', () => {
+    const store = loaded()
+    store.setViewport({ x: 40, y: -20, zoom: 2 })
+    store.setViewportSize({ width: 800, height: 600 })
+    expect(componentInsertionPoint(store.getSnapshot())).toEqual({ x: -20, y: 10 })
+    expect(store.commands.insertAt('card-component', componentInsertionPoint(store.getSnapshot()))).toBe(true)
+    expect(store.getSnapshot().selection).toEqual(['new-1'])
+    expect(file(store).nodes['new-1']).toEqual({
+      id: 'new-1', type: 'component', componentId: 'card-component', exportName: 'Card', props: { heading: 'Card' }, themeMode: 'inherit',
+      layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: -20 }, top: { kind: 'px', value: 10 } } } },
+    })
+    expect(file(store).relationships['new-1']!.parentId).toBe('root-1')
+  })
+
+  it('keeps a slot insertion in component-owned flow even when a drop point is provided', () => {
+    const store = loaded()
+    expect(store.commands.insertAt('label-component', { x: 120, y: 80 }, { parentId: 'card', slot: 'footer' })).toBe(true)
+    expect(file(store).nodes['new-1']).not.toHaveProperty('layout')
+    expect(childrenOf(file(store), 'card', 'footer')).toEqual(['footer-label', 'new-1'])
+    expect(store.getSnapshot().selection).toEqual(['new-1'])
+  })
+
   it('inserts the real component identity into a slot and duplicates the nested tree with fresh ids', () => {
     const store = loaded()
     expect(store.commands.insert('label-component', { parentId: 'card', slot: 'footer' }, { children: 'Create account' })).toBe(true)

@@ -127,4 +127,14 @@ describe('AT-CODE-003 browser runtime import graph', () => {
     expect(check(source).join('\n')).toContain('Server-only module')
     expect(check("import { createServerFn } from '@tanstack/react-start'; export const query = createServerFn().handler(() => 'public')")).toEqual([])
   })
+
+  it('allows only the generated TanStack route-tree edge to the hosted auth handler', () => {
+    const serverRoute = 'apps/web/src/routes/api.auth.$.ts'
+    const sources = {
+      'apps/web/src/routeTree.gen.ts': "import { Route } from './routes/api.auth.$'; export const routeTree = Route",
+      [serverRoute]: "import database from 'pg'; export const Route = database",
+    }
+    expect(checkRuntimeGraph(sources, { entries: ['apps/web/src/routeTree.gen.ts'] })).toEqual([])
+    expect(checkRuntimeGraph({ ...sources, [entry]: "import { Route } from '../../../apps/web/src/routes/api.auth.$'; export const leaked = Route" }, { entries: [entry] }).join('\n')).toContain('Server-only module reached')
+  })
 })

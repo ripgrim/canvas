@@ -1,5 +1,7 @@
 /** Pure style derivation for primitive scene nodes and component roots rendered inside the preview. */
 
+import { cornerRadiiStyle } from './appearance-styles.mjs'
+
 /** Ink for text elements that predate appearance. The editor seeds an appearance on new nodes. */
 export const legacyTextColor = '#202124'
 
@@ -96,11 +98,13 @@ export function appearanceStyle(appearance, assets, kind) {
       style[property] = value ? stroke(value) : '0'
     }
   }
+  Object.assign(style, cornerRadiiStyle(appearance))
   return style
 }
 
 export function canvasElementStyle(element, assets = undefined, offset = { x: 0, y: 0 }) {
-  const style = { position: 'absolute', left: `${element.x - offset.x}px`, top: `${element.y - offset.y}px`, width: `${element.width}px`, height: `${element.height}px`, boxSizing: 'border-box', pointerEvents: 'none', margin: 0, transformOrigin: 'center', transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined }
+  const transforms = [...(element.rotation ? [`rotate(${element.rotation}deg)`] : []), ...(element.flipX || element.flipY ? [`scale(${element.flipX ? -1 : 1}, ${element.flipY ? -1 : 1})`] : [])]
+  const style = { position: 'absolute', left: `${element.x - offset.x}px`, top: `${element.y - offset.y}px`, width: `${element.width}px`, height: `${element.height}px`, boxSizing: 'border-box', pointerEvents: 'none', margin: 0, transformOrigin: 'center', transform: transforms.length ? transforms.join(' ') : undefined }
   const appearance = appearanceStyle(element.appearance, assets, element.kind)
   if (element.kind === 'frame') return { ...style, ...appearance, overflow: element.clip === false ? 'visible' : 'hidden' }
   if (element.kind === 'rectangle' || element.kind === 'shader') return { ...style, ...appearance }

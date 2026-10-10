@@ -3,12 +3,28 @@ import { getNodeSlots } from '@canvas/repo-engine/document'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { pageNodes } from '@canvas/repo-engine/file-document'
 import type { Atom } from './types'
-import { Button, Icon, Layout, Text } from '../../design-system/atoms'
+import { Button, FieldLabel, Icon, Input, Layout, Popup, Text } from '../../design-system/atoms'
 import { PropertySelect } from '../../design-system/property-atoms'
 import type { PropertyOption } from '../../design-system/property-atoms'
 import { documentStore } from './document-store'
+import { componentInsertionPoint } from './document-store'
 import type { InsertTarget } from './document-store'
 import { propertiesCopy as copy } from './properties-copy'
+import { componentDragMime, encodeComponentDrag } from './component-drag'
+import { editorStore } from './store'
+import { componentSyncQueue } from './component-sync-queue'
+
+const syncCopy = {
+  queuedForDesktop: 'Added.',
+  setUpSync: 'Sync components',
+  syncTitle: 'Sync components',
+  sourceLocation: 'Source',
+  syncDestination: 'Destination',
+  queueSync: 'Sync',
+  cancelSync: 'Cancel',
+  syncQueued: 'Queued.',
+  syncBridgeNeeded: 'Desktop sync is unavailable.',
+} as const
 
 export type ComponentDestination = { value: string; label: string; target: InsertTarget }
 
@@ -32,10 +48,28 @@ export function componentDestinations(file: FileDocument | null, pageId: string 
 
 export function ComponentLibrary({ atoms }: { atoms: Atom[] }) {
   const { file, pageId, blocked } = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
+  const editor = useSyncExternalStore(editorStore.subscribe, editorStore.getSnapshot, editorStore.getSnapshot)
   const [destination, setDestination] = useState('root')
+  const [message, setMessage] = useState<string | null>(null)
+  const [syncOpen, setSyncOpen] = useState(false)
+  const [sourceLocation, setSourceLocation] = useState('components/ui')
+  const [syncDestination, setSyncDestination] = useState('packages/ui')
   const choices = componentDestinations(file, pageId, atoms)
   const active = choices.find(choice => choice.value === destination) ?? choices[0]!
   const options: PropertyOption[] = choices.map(choice => ({ value: choice.value, label: choice.label }))
-  if (!atoms.length) return <Layout roleName="library-content"><Text roleName="muted">{copy.empty}</Text></Layout>
-  return <Layout roleName="library-content"><Text roleName="muted">{copy.fromCode}</Text><PropertySelect id="component-add-to" label={copy.addTo} value={active.value} options={options} onChange={setDestination} disabled={!file || blocked} /><Layout roleName="component-list">{atoms.filter(atom => atom.kind === 'atom').map(atom => <Button key={atom.componentId} disabled={!file || blocked || atom.status !== 'bound'} title={atom.status === 'bound' ? copy.add(atom.name) : copy.unavailable} onClick={() => documentStore.commands.insert(atom.componentId, active.target)}><Icon name="component" />{copy.add(atom.name)}</Button>)}</Layout></Layout>
+  const insert = (componentId: string) => {
+    const inserted = documentStore.commands.insertAt(componentId, componentInsertionPoint(documentStore.getSnapshot()), active.target)
+    if (inserted && file && editor.capabilities.runtime === 'browser') {
+      componentSyncQueue.queueBrowserUse(file.fileId, componentId)
+      setMessage(syncCopy.queuedForDesktop)
+      return
+    }
+    setMessage(inserted ? null : copy.insertFailed)
+  }
+  const unresolved = file ? [...new Set(Object.values(file.nodes).flatMap(node => node.type === 'component' && !atoms.some(atom => atom.componentId === node.componentId && atom.status === 'bound') ? [node.componentId] : []))] : []
+  const submitSync = () => { if (!file) return; void componentSyncQueue.submit({ fileId: file.fileId, componentIds: unresolved, sourceLocation: sourceLocation.trim(), destination: syncDestination.trim() }).then(queued => { setMessage(queued ? syncCopy.syncQueued : syncCopy.syncBridgeNeeded); if (queued) setSyncOpen(false) }) }
+  return <Layout roleName="library-content">{editor.capabilities.runtime === 'desktop' && unresolved.length > 0 && <Button variant="outline" onClick={() => setSyncOpen(true)}>{syncCopy.setUpSync}</Button>}{atoms.length === 0 && <Text roleName="muted">{copy.empty}</Text>}{choices.length > 1 && <PropertySelect id="component-add-to" label={copy.addTo} value={active.value} options={options} onChange={setDestination} disabled={!file || blocked} />}<Layout roleName="component-list">{atoms.filter(atom => atom.kind === 'atom').map(atom => {
+    const available = Boolean(file) && !blocked && atom.status === 'bound'
+    return <Button key={atom.componentId} label={copy.add(atom.name)} draggable={available} disabled={!available} title={available ? copy.drag(atom.name) : copy.unavailable} onDragStart={event => { setMessage(null); event.dataTransfer.setData(componentDragMime, encodeComponentDrag({ componentId: atom.componentId, target: active.target })); event.dataTransfer.effectAllowed = 'copy' }} onClick={() => insert(atom.componentId)}><Icon name="component" />{atom.name}</Button>
+  })}</Layout>{message && <Layout roleName="canvas-status" role="status" aria-live="polite"><Text>{message}</Text></Layout>}<Popup open={syncOpen} onOpenChange={setSyncOpen} title={syncCopy.syncTitle} mode={editor.mode} closeLabel={syncCopy.cancelSync}><Layout roleName="stack"><FieldLabel htmlFor="component-sync-source">{syncCopy.sourceLocation}</FieldLabel><Input id="component-sync-source" label={syncCopy.sourceLocation} value={sourceLocation} onChange={event => setSourceLocation(event.currentTarget.value)} /></Layout><Layout roleName="stack"><FieldLabel htmlFor="component-sync-destination">{syncCopy.syncDestination}</FieldLabel><Input id="component-sync-destination" label={syncCopy.syncDestination} value={syncDestination} onChange={event => setSyncDestination(event.currentTarget.value)} /></Layout><Button variant="primary" disabled={!sourceLocation.trim() || !syncDestination.trim()} onClick={submitSync}>{syncCopy.queueSync}</Button></Popup></Layout>
 }

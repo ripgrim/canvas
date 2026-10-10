@@ -1,12 +1,12 @@
-// Token-bound color fields in the real editor: bound presentation, persistence, rename, theme changes, Edit token,
+// Token-bound color fields in the real editor: bound presentation, persistence, rename, theme changes,
 // Rebind, Unlink per effective theme, mixed selections, and unresolvable bindings. Requires the dev servers on 4317/4318.
 //
 // CC-TB-001 bound fields show the token, not an editable color.  CC-TB-002 the binding survives picker close, reselect
 // and reopen.  CC-TB-003 rename updates the name, never the id.  CC-TB-004 the swatch follows each node's effective
 // theme and the preview theme.  CC-TB-005 Unlink writes each node's own literal, alpha included, in one undo step.
 // CC-TB-007 a missing token is shown as an error with no swatch and Unlink unavailable.  CC-TB-008 Rebind writes the
-// token id on every selected node in one undo step.  CC-TB-011 mixed tokens and mixed sources.  CC-TB-012 Edit token
-// opens the Theme tab on that token and writes nothing.  CC-TB-013 no-ops write nothing; unrelated undo keeps bindings.
+// token id on every selected node in one undo step.  CC-TB-011 mixed tokens and mixed sources.  CC-TB-012 token
+// fields omit redundant hex and the obsolete Edit token action.  CC-TB-013 no-ops write nothing; unrelated undo keeps bindings.
 import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -72,7 +72,6 @@ const file = {
     surface: { id: 'surface', type: 'color', name: 'Surface', orderKey: 'X', value: { kind: 'source', property: '--surface', fallback: hex('#ffffff') } },
     ink: { id: 'ink', type: 'color', name: 'Ink', orderKey: 'Y', value: { kind: 'source', property: '--ink', fallback: hex('#202124') } },
     ...chainTokens,
-    // Last in theme order, so Edit token has to scroll the list to reach it.
     scrim: { id: 'scrim', type: 'color', name: 'Scrim', orderKey: 'zz', value: literal('#11223380') },
   } },
 }
@@ -94,6 +93,10 @@ async function selectLayer(page, id, additive = false) {
 const field = (page, name) => rail(page).getByRole('group', { name, exact: true })
 const chipOf = (page, name) => field(page, name).locator('.token-chip')
 const contextOf = (page, name) => field(page, name).locator('.token-field-context')
+async function chooseToken(page, label, option) {
+  await rail(page).getByRole('button', { name: label, exact: true }).click()
+  await page.locator('.token-chooser-popup').getByRole('option', { name: option, exact: true }).click()
+}
 const undoDisabled = page => page.locator('.canvas-floating-actions button[aria-label="Undo document edit"]').isDisabled()
 async function historyDepth(page) {
   let steps = 0
@@ -123,39 +126,52 @@ async function run() {
   await waitEditor(page)
   await page.getByRole('tree', { name: 'Layers' }).locator('[data-instance-id="rect-accent"]').waitFor({ timeout: 20_000 })
 
-  // CC-TB-001: the bound fill shows the token chip and read-only context; nothing editable can detach it.
+  // CC-TB-001 and AT-APP-004: the binding stays read only while its per-fill opacity remains editable.
   await selectLayer(page, 'rect-accent')
-  await field(page, 'Fill 1 color: Accent token, #7C3AED, 100% opacity').waitFor()
-  assert.equal(await chipOf(page, 'Fill 1 color: Accent token, #7C3AED, 100% opacity').innerText(), 'Accent')
-  assert.equal(await contextOf(page, 'Fill 1 color: Accent token, #7C3AED, 100% opacity').innerText(), '#7C3AED · 100%')
+  await field(page, 'Fill 1 color: Accent token, 100% opacity').waitFor()
+  assert.equal(await chipOf(page, 'Fill 1 color: Accent token, 100% opacity').innerText(), 'Accent')
   assert.equal(await rail(page).getByRole('textbox', { name: 'Fill 1 color', exact: true }).count(), 0, 'no editable hex while bound')
-  assert.equal(await rail(page).getByRole('textbox', { name: 'Fill 1 opacity', exact: true }).count(), 0, 'no separate alpha control while bound')
+  const boundOpacity = rail(page).getByRole('textbox', { name: 'Fill 1 opacity', exact: true })
+  assert.equal(await boundOpacity.count(), 1, 'bound fills keep a separate opacity control')
+  const opacityDepth = await historyDepth(page)
+  await act(page, async () => { await boundOpacity.click(); await boundOpacity.fill('65'); await boundOpacity.press('Enter') })
+  let boundFill = await fillOf(page, 'rect-accent')
+  assert.deepEqual(boundFill.color, { kind: 'token', tokenId: 'accent' }, 'opacity keeps the token binding')
+  assert.equal(boundFill.opacity, 0.65)
+  assert.equal(await boundOpacity.inputValue(), '65')
+  assert.equal(await historyDepth(page), opacityDepth + 1, 'bound opacity is one undo step')
+  await act(page, () => page.keyboard.press('Control+z'))
+  boundFill = await fillOf(page, 'rect-accent')
+  assert.deepEqual(boundFill.color, { kind: 'token', tokenId: 'accent' })
+  assert.equal(boundFill.opacity, undefined)
+  assert.equal(await boundOpacity.inputValue(), '100')
   assert.equal(await rail(page).getByRole('button', { name: 'Edit Fill 1 color', exact: true }).count(), 0, 'no color picker while bound')
-  for (const name of ['Unlink fill 1 color', 'Edit token Accent from fill 1 color']) await rail(page).getByRole('button', { name, exact: true }).waitFor()
-  await rail(page).getByRole('combobox', { name: 'Rebind fill 1 color', exact: true }).waitFor()
+  await rail(page).getByRole('button', { name: 'Unlink fill 1 color', exact: true }).waitFor()
+  assert.equal(await rail(page).getByRole('button', { name: /^Edit token / }).count(), 0, 'bound colors never expose Edit token')
+  await rail(page).getByRole('button', { name: 'Rebind fill 1 color', exact: true }).waitFor()
   // Alias outline: the alias token's own name, with its target as context.
-  assert.equal(await chipOf(page, 'Outline color: Brand token, Alias to Accent, #7C3AED, 100% opacity').innerText(), 'Brand')
-  assert.equal(await contextOf(page, 'Outline color: Brand token, Alias to Accent, #7C3AED, 100% opacity').innerText(), 'Alias to Accent')
+  assert.equal(await chipOf(page, 'Outline color: Brand token, Alias to Accent, 100% opacity').innerText(), 'Brand')
+  assert.equal(await contextOf(page, 'Outline color: Brand token, Alias to Accent, 100% opacity').innerText(), 'Alias to Accent')
   // Border rows: the bound side shows the chip, the literal side keeps its editable field.
-  await field(page, 'Top border color: Accent token, #7C3AED, 100% opacity').waitFor()
+  await field(page, 'Top border color: Accent token, 100% opacity').waitFor()
   await rail(page).getByRole('textbox', { name: 'Left border color', exact: true }).waitFor()
   await railShot(page, '01-bound-fill-outline-border')
   await selectLayer(page, 'rect-gradient')
-  assert.equal(await chipOf(page, 'Stop 1 color: Accent token, #7C3AED, 100% opacity').innerText(), 'Accent')
+  assert.equal(await chipOf(page, 'Stop 1 color: Accent token, 100% opacity').innerText(), 'Accent')
   await rail(page).getByRole('button', { name: 'Unlink stop 1 color', exact: true }).waitFor()
   await selectLayer(page, 'text-accent')
-  await field(page, 'Fill 1 color: Accent token, #7C3AED, 100% opacity').waitFor()
+  await field(page, 'Fill 1 color: Accent token, 100% opacity').waitFor()
   await selectLayer(page, 'rect-scrim')
-  assert.equal(await contextOf(page, 'Fill 1 color: Scrim token, #112233, 50% opacity').innerText(), '#112233 · 50%', 'alpha is read-only context')
-  record('CC-TB-001: bound fills, stops, text fills, outline (alias) and border sides show the token chip and read-only context; no editable color, alpha or picker')
+  assert.equal(await rail(page).getByRole('textbox', { name: 'Fill 1 opacity', exact: true }).inputValue(), '100', 'the bound fill override is separate from the token alpha')
+  record('CC-TB-001, CC-TB-012 and AT-APP-004: bound colors keep token identity while fill opacity remains editable')
 
   // CC-TB-004: the same Surface token resolves in each Card's own effective theme.
   await selectLayer(page, 'card-light')
-  await field(page, 'Fill 1 color: Surface token, #FFFFFF, 100% opacity').scrollIntoViewIfNeeded()
+  await field(page, 'Fill 1 color: Surface token, 100% opacity').scrollIntoViewIfNeeded()
   await shot(page, '02-bound-light-context')
   await railShot(page, '02-bound-light-context-rail')
   await selectLayer(page, 'card-dark')
-  await field(page, 'Fill 1 color: Surface token, #242427, 100% opacity').scrollIntoViewIfNeeded()
+  await field(page, 'Fill 1 color: Surface token, 100% opacity').scrollIntoViewIfNeeded()
   await shot(page, '03-bound-dark-context')
   // The same field in the dark editor appearance, to check the atoms against both editor themes.
   await page.getByRole('button', { name: 'Switch editor appearance to dark', exact: true }).click()
@@ -166,31 +182,38 @@ async function run() {
   await railShot(page, '03-bound-dark-context-rail')
   // A node that inherits follows the preview theme; the stored id never changes.
   await selectLayer(page, 'rect-ink')
-  await field(page, 'Fill 1 color: Ink token, #202124, 100% opacity').waitFor()
+  await field(page, 'Fill 1 color: Ink token, 100% opacity').waitFor()
   const beforeTheme = await storedFile(page)
   await page.getByRole('combobox', { name: 'Canvas default theme' }).selectOption('dark')
-  await field(page, 'Fill 1 color: Ink token, #EEEEEF, 100% opacity').waitFor()
+  await field(page, 'Fill 1 color: Ink token, 100% opacity').waitFor()
   assert.deepEqual((await storedFile(page)).nodes['rect-ink'].appearance, beforeTheme.nodes['rect-ink'].appearance, 'theme change keeps the binding')
   await page.getByRole('combobox', { name: 'Canvas default theme' }).selectOption('default')
-  await field(page, 'Fill 1 color: Ink token, #202124, 100% opacity').waitFor()
+  await field(page, 'Fill 1 color: Ink token, 100% opacity').waitFor()
   record('CC-TB-004: Surface shows #FFFFFF on the light Card and #242427 on the dark Card; Ink follows the preview theme with its id unchanged')
 
-  // CC-TB-012: Edit token selects and reveals the token in the Theme tab and writes nothing.
+  // CC-TB-012: token-bound rows do not expose the obsolete Edit token action.
   await selectLayer(page, 'rect-scrim')
   const beforeEdit = await revisionOf(page)
-  await rail(page).getByRole('button', { name: 'Edit token Scrim from fill 1 color', exact: true }).click()
-  await page.waitForTimeout(300)
-  const tabSwitched = (await sidebarTab(page, 'Theme').getAttribute('aria-selected')) === 'true'
-  if (!tabSwitched) await sidebarTab(page, 'Theme').click()
-  const scrimRow = page.getByRole('listbox', { name: 'Color tokens' }).getByRole('option', { name: /^Scrim, / })
-  await scrimRow.waitFor()
-  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label')?.startsWith('Scrim, ') === true)
-  assert.equal(await scrimRow.getAttribute('aria-selected'), 'true', 'the requested token is selected')
-  const inView = await scrimRow.evaluate(row => { const list = row.closest('[role="listbox"]')?.parentElement ?? document.body; let scroller = row.parentElement; while (scroller && scroller.scrollHeight <= scroller.clientHeight) scroller = scroller.parentElement; const area = (scroller ?? list).getBoundingClientRect(); const box = row.getBoundingClientRect(); return box.top >= area.top - 1 && box.bottom <= area.bottom + 1 && (scroller?.scrollTop ?? 0) > 0 })
-  assert.ok(inView, 'the requested row was scrolled into view')
-  await assertNoWrite(page, beforeEdit, 'Edit token writes nothing')
-  await shot(page, '04-edit-token-theme-tab')
-  record('CC-TB-012: Edit token selects, focuses and scrolls to Scrim in the Theme tab without writing', tabSwitched ? 'tab switched by the request' : 'tab switch pending the Editor.tsx change; opened by hand')
+  assert.equal(await rail(page).getByRole('button', { name: /^Edit token / }).count(), 0)
+  const compactField = field(page, 'Fill 1 color: Scrim token, 50% opacity')
+  const compactLine = compactField.locator('..')
+  const rebindButton = rail(page).getByRole('button', { name: 'Rebind fill 1 color', exact: true })
+  const unlinkButton = rail(page).getByRole('button', { name: 'Unlink fill 1 color', exact: true })
+  const [fieldBox, rebindBox, unlinkBox] = await Promise.all([compactField.boundingBox(), rebindButton.boundingBox(), unlinkButton.boundingBox()])
+  assert.ok(fieldBox && rebindBox && unlinkBox, 'the bound field and both token actions are visible')
+  assert.deepEqual([rebindBox.width, rebindBox.height, unlinkBox.width, unlinkBox.height], [24, 24, 24, 24], 'token actions use square 24px geometry')
+  assert.equal(fieldBox.height, 24, 'the token field uses the same control height')
+  assert.deepEqual([Math.round(fieldBox.y), Math.round(rebindBox.y), Math.round(unlinkBox.y)], [Math.round(fieldBox.y), Math.round(fieldBox.y), Math.round(fieldBox.y)], 'value and actions share one row')
+  assert.equal(await compactLine.locator('.appearance-line').count(), 0, 'the field is not wrapped in a second appearance row')
+  assert.equal(await rebindButton.innerText(), '', 'Rebind is icon-only')
+  assert.equal(await unlinkButton.innerText(), '', 'Unlink is icon-only')
+  assert.equal(await unlinkButton.locator('svg.icon[aria-hidden="true"]').count(), 1, 'Unlink uses the existing icon set')
+  assert.equal(await rebindButton.getAttribute('title'), 'Rebind fill 1 color', 'icon-only Rebind keeps its tooltip')
+  assert.equal(await unlinkButton.getAttribute('title'), 'Unlink fill 1 color', 'icon-only Unlink keeps its tooltip')
+  await assertNoWrite(page, beforeEdit, 'rendering the bound token row writes nothing')
+  await railShot(page, '04-token-row-without-hex-or-edit')
+  record('CC-TB-012 / AT-APP-004: bound token rows keep value, opacity, and 24px icon actions on one line with accessible names and tooltips')
+  await sidebarTab(page, 'Theme').click()
 
   // CC-TB-003: rename updates the visible name; the stored binding keeps the id.
   const accentRow = page.getByRole('listbox', { name: 'Color tokens' }).getByRole('option', { name: /^Accent, / })
@@ -201,8 +224,8 @@ async function run() {
   await page.getByRole('button', { name: 'Close', exact: true }).click()
   await sidebarTab(page, 'Design').click()
   await selectLayer(page, 'rect-accent')
-  assert.equal(await chipOf(page, 'Fill 1 color: Violet token, #7C3AED, 100% opacity').innerText(), 'Violet')
-  assert.equal(await contextOf(page, 'Outline color: Brand token, Alias to Violet, #7C3AED, 100% opacity').innerText(), 'Alias to Violet')
+  assert.equal(await chipOf(page, 'Fill 1 color: Violet token, 100% opacity').innerText(), 'Violet')
+  assert.equal(await contextOf(page, 'Outline color: Brand token, Alias to Violet, 100% opacity').innerText(), 'Alias to Violet')
   const renamed = await storedFile(page)
   assert.deepEqual(renamed.nodes['rect-accent'].appearance.fills[0].color, { kind: 'token', tokenId: 'accent' })
   assert.equal(renamed.theme.tokens.accent.name, 'Violet')
@@ -213,29 +236,29 @@ async function run() {
   await rail(page).getByRole('slider', { name: 'Stop 2', exact: true }).click()
   await rail(page).getByRole('button', { name: 'Edit Stop 2 color', exact: true }).click()
   await page.locator('.color-picker-popup').waitFor()
-  await page.locator('.color-picker-close').click()
+  await page.keyboard.press('Escape')
   await page.locator('.color-picker-popup').waitFor({ state: 'detached' })
   await rail(page).getByRole('slider', { name: 'Stop 1', exact: true }).click()
-  assert.equal(await chipOf(page, 'Stop 1 color: Violet token, #7C3AED, 100% opacity').innerText(), 'Violet')
+  assert.equal(await chipOf(page, 'Stop 1 color: Violet token, 100% opacity').innerText(), 'Violet')
   assert.equal(await page.locator('.color-picker-popup').count(), 0, 'opening a bound stop does not open a picker')
   await selectLayer(page, 'rect-literal')
   await selectLayer(page, 'rect-accent')
-  await field(page, 'Fill 1 color: Violet token, #7C3AED, 100% opacity').waitFor()
+  await field(page, 'Fill 1 color: Violet token, 100% opacity').waitFor()
   const beforeReload = await storedFile(page)
   await page.reload({ waitUntil: 'domcontentloaded' })
   await waitEditor(page)
   await selectLayer(page, 'rect-accent')
-  await field(page, 'Fill 1 color: Violet token, #7C3AED, 100% opacity').waitFor()
+  await field(page, 'Fill 1 color: Violet token, 100% opacity').waitFor()
   assert.deepEqual((await storedFile(page)).nodes, beforeReload.nodes, 'reopening rewrites nothing')
   record('CC-TB-002: the binding stays visible after a picker closes on another stop, after reselecting, and after reopening the file')
 
   // CC-TB-013: an unrelated edit and its undo keep the binding; rebinding to the same token writes nothing.
   await act(page, async () => { const opacity = rail(page).getByRole('textbox', { name: 'Opacity', exact: true }); await opacity.click(); await opacity.fill('50'); await opacity.press('Enter') })
   await act(page, () => page.keyboard.press('Control+z'))
-  await field(page, 'Fill 1 color: Violet token, #7C3AED, 100% opacity').waitFor()
+  await field(page, 'Fill 1 color: Violet token, 100% opacity').waitFor()
   assert.deepEqual((await fillOf(page, 'rect-accent')).color, { kind: 'token', tokenId: 'accent' })
   const beforeNoop = await revisionOf(page)
-  await rail(page).getByRole('combobox', { name: 'Rebind fill 1 color', exact: true }).selectOption({ label: 'Violet' })
+  await chooseToken(page, 'Rebind fill 1 color', 'Violet')
   await assertNoWrite(page, beforeNoop, 'rebinding to the bound token writes nothing')
   record('CC-TB-013: unrelated undo keeps the binding; a no-op Rebind writes nothing')
 
@@ -247,12 +270,12 @@ async function run() {
   await railShot(page, '05-mixed-tokens')
   const depthBefore = await historyDepth(page)
   const outlineBefore = (await storedFile(page)).nodes['rect-accent'].appearance.outline
-  await act(page, () => rail(page).getByRole('combobox', { name: 'Rebind fill 1 color on every layer', exact: true }).selectOption({ label: 'Scrim' }))
+  await act(page, () => chooseToken(page, 'Rebind fill 1 color on every layer', 'Scrim'))
   let stored = await storedFile(page)
   assert.deepEqual(stored.nodes['rect-accent'].appearance.fills[0], { id: 'accent-fill', type: 'solid', color: { kind: 'token', tokenId: 'scrim' } })
   assert.deepEqual(stored.nodes['rect-ink'].appearance.fills[0], { id: 'ink-fill', type: 'solid', color: { kind: 'token', tokenId: 'scrim' } })
   assert.deepEqual(stored.nodes['rect-accent'].appearance.outline, outlineBefore, 'other slots untouched')
-  await field(page, 'Fill 1 color: Scrim token, #112233, 50% opacity').waitFor()
+  await field(page, 'Fill 1 color: Scrim token, 50% opacity').waitFor()
   assert.equal(await historyDepth(page), depthBefore + 1, 'Rebind all is one undo step')
   await act(page, () => page.keyboard.press('Control+z'))
   await field(page, 'Fill 1 color: Mixed tokens').waitFor()
@@ -313,20 +336,17 @@ async function run() {
   await unlinkMissing.click({ force: true })
   await assertNoWrite(page, beforeMissing, 'Unlink on a missing token writes nothing')
   await railShot(page, '08-missing-token')
-  await act(page, () => rail(page).getByRole('combobox', { name: 'Rebind fill 1 color', exact: true }).selectOption({ label: 'Ink' }))
+  await act(page, () => chooseToken(page, 'Rebind fill 1 color', 'Ink'))
   assert.deepEqual((await fillOf(page, 'rect-literal')).color, { kind: 'token', tokenId: 'ink' }, 'Rebind repairs the missing binding')
   await selectLayer(page, 'rect-deep')
   const deep = field(page, 'Fill 1 color: Chain 1 alias chain is too long')
   await deep.waitFor()
   assert.equal(await deep.locator('.token-field-swatch').count(), 0)
   assert.equal(await rail(page).getByRole('button', { name: 'Unlink fill 1 color', exact: true }).getAttribute('aria-disabled'), 'true')
-  await rail(page).getByRole('button', { name: 'Edit token Chain 1 from fill 1 color', exact: true }).waitFor()
+  assert.equal(await rail(page).getByRole('button', { name: /^Edit token / }).count(), 0, 'unresolvable tokens also omit Edit token')
   assert.deepEqual((await fillOf(page, 'rect-deep')).color, { kind: 'token', tokenId: 'chain-1' }, 'no silent detach')
   await railShot(page, '09-unresolved-token')
-  record('CC-TB-007: Missing token: ghost-token shows no swatch, Unlink is unavailable with a reason and writes nothing, Rebind repairs it; a too-deep alias chain is an error with Edit token')
-
-  assert.ok(tabSwitched, 'Edit token must switch the sidebar to the Theme tab (needs Library in Editor.tsx to derive its view from themeFocus)')
-  record('CC-TB-012: Edit token switched the sidebar to the Theme tab')
+  record('CC-TB-007: Missing token shows no swatch, Unlink is unavailable with a reason and writes nothing, Rebind repairs it; unresolvable aliases omit Edit token')
   if (evidence.error) throw new Error(evidence.error)
   evidence.status = 'passed'
 }

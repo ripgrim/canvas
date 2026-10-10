@@ -11,6 +11,7 @@
 .property-field[data-compact] { display: block; }
 .property-field[data-compact] .property-label { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .property-label, .property-value > span:first-child { overflow: hidden; color: var(--cte-text-muted); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-regular); white-space: nowrap; text-overflow: ellipsis; }
+.property-scrub-label[data-scrub-handle] { cursor: ew-resize; touch-action: none; user-select: none; }
 
 .property-control { display: flex; align-items: center; gap: var(--space-xxs); min-width: 0; height: 24px; padding: 0 var(--space-s); border-radius: var(--radius-s); background: var(--neutral-1); box-shadow: var(--border-shadow-s); transition: box-shadow var(--motion-duration) var(--motion-easing), background var(--motion-duration) var(--motion-easing); }
 .theme-dark .property-control { background: var(--neutral-3); }

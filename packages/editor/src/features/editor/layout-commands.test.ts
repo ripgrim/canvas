@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NodeLayout } from '@canvas/repo-engine/layout'
-import { positionAbsolute, positionFlow, setAspectRatio, setAxisBound, setAxisLength, setAxisSizing, setAxisSizingMany, setInset, setSpacing, setZIndex, sizingModeOf } from './layout-commands'
+import { flipTransform, positionAbsolute, positionFlow, rotateTransformQuarter, setAspectRatio, setAxisBound, setAxisLength, setAxisSizing, setAxisSizingMany, setInset, setSpacing, setTransformRotation, setZIndex, sizingModeOf } from './layout-commands'
 
 const px = (value: number) => ({ kind: 'px' as const, value })
 const percent = (value: number) => ({ kind: 'percent' as const, value })
@@ -28,6 +28,19 @@ describe('positioning transitions', () => {
     expect(setZIndex(absolute, null)!.item.position).toEqual({ mode: 'absolute', left: px(12), top: px(34), right: px(8) })
     expect(setZIndex(absolute, 7.4)!.item.position.zIndex).toBe(7)
     expect(setZIndex(undefined, 1)).toBeNull()
+  })
+})
+
+describe('transform actions', () => {
+  it('AT-CAN-002: quarter turns and reflected axes preserve each other and omit identity state', () => {
+    const start: NodeLayout = { item: { position: { mode: 'flow' } } }
+    const rotated = rotateTransformQuarter(start)
+    expect(rotated.item.transform).toEqual({ rotate: 90 })
+    const flippedX = flipTransform(rotated, 'width')
+    expect(flippedX.item.transform).toEqual({ rotate: 90, scale: { x: -1, y: 1 } })
+    expect(flipTransform(flippedX, 'height').item.transform).toEqual({ rotate: 90, scale: -1 })
+    expect(flipTransform(flipTransform(start, 'width'), 'width').item.transform).toBeUndefined()
+    expect(setTransformRotation({ ...flippedX, container: { display: 'block' } }, 360)).toEqual({ item: { position: { mode: 'flow' }, transform: { scale: { x: -1, y: 1 } } }, container: { display: 'block' } })
   })
 })
 

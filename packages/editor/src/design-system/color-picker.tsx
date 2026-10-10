@@ -4,6 +4,7 @@ import { Popover } from '@base-ui/react/popover'
 import { colorCopy as copy } from '../features/editor/color-copy'
 import { formatHex, formatRgb, hslToRgb, hsvToRgb, lchToRgb, parseColor, rgbToHsl, rgbToHsv, rgbToLch } from '../features/editor/color'
 import type { Color, Hsv } from '../features/editor/color'
+import { InspectorScrubHandle } from './inspector-atoms'
 import './color-picker.css'
 
 export type ColorPickerProps = {
@@ -175,20 +176,20 @@ function ColorDraft({ label, value, onChange, allowAlpha }: { label: string; val
     commit(candidate)
   }
   const updateField = (key: keyof Fields, next: string) => setStored({ ...draft, base: value, fields: { ...fields, [key]: next }, error: null })
-  const alphaValue = () => {
-    if (!fields.alpha.trim()) return allowAlpha ? null : 1
-    const next = Number(fields.alpha)
+  const alphaValue = (source: Fields = fields) => {
+    if (!source.alpha.trim()) return allowAlpha ? null : 1
+    const next = Number(source.alpha)
     return allowAlpha && inRange(next, 100) ? next / 100 : allowAlpha ? null : 1
   }
-  const commitFields = (group: 'lch' | 'hsl' | 'rgb' | 'hex') => {
-    const alpha = alphaValue()
+  const commitFields = (group: 'lch' | 'hsl' | 'rgb' | 'hex', source: Fields = fields) => {
+    const alpha = alphaValue(source)
     if (alpha === null) { commit(null); return }
     if (group === 'hex') {
-      const parsed = parseColor(fields.hex.startsWith('#') ? fields.hex : `#${fields.hex}`)
+      const parsed = parseColor(source.hex.startsWith('#') ? source.hex : `#${source.hex}`)
       commit(parsed ? { ...parsed, a: parsed.a < 1 ? parsed.a : alpha } : null)
       return
     }
-    const fieldValues = group === 'lch' ? [fields.l, fields.c, fields.lh] : group === 'hsl' ? [fields.hh, fields.s, fields.light] : [fields.r, fields.g, fields.b]
+    const fieldValues = group === 'lch' ? [source.l, source.c, source.lh] : group === 'hsl' ? [source.hh, source.s, source.light] : [source.r, source.g, source.b]
     if (fieldValues.some(part => !part.trim())) { commit(null); return }
     const numbers = fieldValues.map(Number)
     if (numbers.some(part => !Number.isFinite(part))) { commit(null); return }
@@ -224,8 +225,14 @@ function ColorDraft({ label, value, onChange, allowAlpha }: { label: string; val
   const previous = parseColor(value)
   const eyedropperAvailable = typeof window !== 'undefined' && 'EyeDropper' in window
 
-  const row = (name: 'lch' | 'hsl' | 'rgb', keys: Array<keyof Fields>, labels: string[]) => <div className="color-picker-value-row">
-    <div className="color-picker-inputs">{keys.map((key, index) => <label key={key}><input value={fields[key]} inputMode="decimal" aria-label={`${name.toUpperCase()} ${labels[index]}`} onChange={event => updateField(key, event.currentTarget.value)} onBlur={() => commitFields(name)} onKeyDown={keyCommit(name)} /><span>{labels[index]}</span></label>)}</div>
+  const numericField = (group: 'lch' | 'hsl' | 'rgb' | 'hex', key: keyof Fields, label: string, maximum: number, precision: number, className?: string) => {
+    const parsed = Number(fields[key])
+    const numeric = fields[key].trim() && Number.isFinite(parsed) ? parsed : null
+    const nextFields = (next: number) => ({ ...fields, [key]: String(next) })
+    return <label key={key} className={className}><input value={fields[key]} inputMode="decimal" aria-label={group === 'hex' ? copy.alpha : `${group.toUpperCase()} ${label}`} onChange={event => updateField(key, event.currentTarget.value)} onBlur={() => commitFields(group)} onKeyDown={keyCommit(group)} /><InspectorScrubHandle className="color-picker-number-label" value={numeric} min={0} max={maximum} precision={precision} onPreview={next => { if (next !== null) updateField(key, String(next)) }} onCommit={next => commitFields(group, nextFields(next))} onCancel={cancel}>{label}</InspectorScrubHandle></label>
+  }
+  const row = (name: 'lch' | 'hsl' | 'rgb', keys: Array<keyof Fields>, labels: string[], maximums: number[], precision: number) => <div className="color-picker-value-row">
+    <div className="color-picker-inputs">{keys.map((key, index) => numericField(name, key, labels[index]!, maximums[index]!, precision))}</div>
     <CopyButton label={name.toUpperCase()} value={keys.map(key => fields[key]).join(' ')} onCopied={() => noteCopied(name)} />
   </div>
 
@@ -255,11 +262,11 @@ function ColorDraft({ label, value, onChange, allowAlpha }: { label: string; val
         <span><span>{copy.previous}</span><i style={{ backgroundColor: previous ? formatRgb(previous) : 'transparent' }} /></span>
         <span><span>{copy.next}</span><i style={{ backgroundColor: swatch }} /></span>
       </div>
-      {row('lch', ['l', 'c', 'lh'], ['L', 'C', 'H'])}
-      {row('hsl', ['hh', 's', 'light'], ['H', 'S', 'L'])}
-      {row('rgb', ['r', 'g', 'b'], ['R', 'G', 'B'])}
+      {row('lch', ['l', 'c', 'lh'], ['L', 'C', 'H'], [100, 150, 360], 1)}
+      {row('hsl', ['hh', 's', 'light'], ['H', 'S', 'L'], [360, 100, 100], 1)}
+      {row('rgb', ['r', 'g', 'b'], ['R', 'G', 'B'], [255, 255, 255], 0)}
       <div className="color-picker-value-row color-picker-hex-row">
-        <div className="color-picker-inputs"><label><input value={fields.hex} spellCheck={false} aria-label={copy.hex} aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} onChange={event => updateField('hex', event.currentTarget.value)} onBlur={() => commitFields('hex')} onKeyDown={keyCommit('hex')} /><span>{copy.hex}</span></label>{allowAlpha && <label className="color-picker-alpha-field"><input value={fields.alpha} inputMode="decimal" aria-label={copy.alpha} onChange={event => updateField('alpha', event.currentTarget.value)} onBlur={() => commitFields('hex')} onKeyDown={keyCommit('hex')} /><span>%</span></label>}</div>
+        <div className="color-picker-inputs"><label><input value={fields.hex} spellCheck={false} aria-label={copy.hex} aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} onChange={event => updateField('hex', event.currentTarget.value)} onBlur={() => commitFields('hex')} onKeyDown={keyCommit('hex')} /><span>{copy.hex}</span></label>{allowAlpha && numericField('hex', 'alpha', '%', 100, 1, 'color-picker-alpha-field')}</div>
         <CopyButton label={copy.hex} value={`${fields.hex} / ${fields.alpha}%`} onCopied={() => noteCopied('hex')} />
       </div>
       <div className="color-picker-status" aria-live="polite">{error ? <span id={errorId} className="color-picker-error" role="alert">{error}</span> : !color ? copy.unsupportedValue : copied ? `${copy.copied} ${copied.toUpperCase()}` : null}</div>

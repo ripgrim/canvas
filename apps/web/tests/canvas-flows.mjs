@@ -123,11 +123,11 @@ async function run() {
   assert.equal(await numberField(page, 'X position').inputValue(), '-380')
   assert.equal(await numberField(page, 'Y position').inputValue(), '-300')
   assert.equal(await numberField(page, 'Width').inputValue(), '400')
-  await page.locator('.dimension-badge').waitFor()
-  assert.equal(await page.locator('.dimension-badge').innerText(), '400 x 300')
+  const initialOutline = await waitPainted(page, frameId)
+  assert.deepEqual({ width: Math.round(initialOutline.width / cam.zoom), height: Math.round(initialOutline.height / cam.zoom) }, { width: 400, height: 300 })
   assert.equal(await page.locator('.resize-handle').count(), 8)
   const frameBox = await page.frameLocator('iframe[title="Canvas"]').locator(`[data-preview-canvas="${frameId}"]`).boundingBox()
-  const outline = await waitPainted(page, frameId)
+  const outline = initialOutline
   for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(frameBox[key] - outline[key]) <= 1.5, `${key}: rendered ${frameBox[key]} vs outline ${outline[key]}`)
   record('Frame drawn at negative world coordinates renders and matches its selection outline', JSON.stringify({ frameBox, outline }))
   assert.equal(await page.locator('.tool-rail [aria-pressed="true"], .tool-rail [data-active]').count() >= 0, true)
@@ -203,7 +203,8 @@ async function run() {
   assert.ok(Math.abs(handleBox.width - 7) <= 1 && Math.abs(handleBox.height - 7) <= 1, `handle ${handleBox.width}x${handleBox.height}`)
   await drag(page, { x: handleBox.x + 3.5, y: handleBox.y + 3.5 }, { x: handleBox.x + 43.5, y: handleBox.y + 3.5 })
   assert.equal(await numberField(page, 'Width').inputValue(), '440')
-  assert.equal(await page.locator('.dimension-badge').innerText(), '440 x 300')
+  const resizedOutline = await waitPainted(page, frameId)
+  assert.deepEqual({ width: Math.round(resizedOutline.width / cam.zoom), height: Math.round(resizedOutline.height / cam.zoom) }, { width: 440, height: 300 })
   await page.keyboard.press('Control+z')
   assert.equal(await numberField(page, 'Width').inputValue(), '400')
   record('Corner resize anchors the opposite side and undoes in one step')
@@ -289,10 +290,10 @@ async function run() {
   await shot(page, '06-fit-all')
   record('Pointer-anchored zoom, 8x grid threshold with 7.5x hysteresis, world-anchored grid, screen-sized handles, Space and middle-button panning, and fit all', JSON.stringify({ zoomed: cam, panned, fitted }))
 
-  // 8. Token edits update bound fills and leave literal fills alone. Tokens live in the Theme tab; fills bind through the inspector's Fill select.
+  // 8. Token edits update bound fills and leave literal fills alone. Tokens live in the Theme tab; fills bind through the inspector's token chooser.
   await page.keyboard.press('Escape')
   const duplicateRect = (await layerIds(page)).filter(item => item.level === '2').find(item => item.id !== rectId)
-  const fillSelect = page.locator('.right-rail').getByRole('combobox', { name: 'Fill 1 color source', exact: true })
+  const fillBinding = page.locator('.right-rail').getByRole('button', { name: 'Fill 1 color source', exact: true })
   const fillValue = page.locator('.right-rail').getByRole('textbox', { name: 'Fill 1 color', exact: true })
   const tokenColor = page.getByRole('textbox', { name: 'Brand color', exact: true })
   const brandRow = page.getByRole('listbox', { name: 'Color tokens' }).getByRole('option', { name: /^Brand, / })
@@ -306,7 +307,8 @@ async function run() {
   }
   const bindToBrand = async id => {
     await layers(page).locator(`[role="treeitem"][data-instance-id="${id}"]`).click()
-    await fillSelect.selectOption({ label: 'Brand' })
+    await fillBinding.click()
+    await page.locator('.token-chooser-popup').getByRole('option', { name: 'Brand', exact: true }).click()
   }
   const rectFillBefore = await rgbOf(page, rectId)
   assert.equal(await rgbOf(page, frameId), 'rgb(255, 255, 255)', 'a new frame carries a literal white fill')
@@ -329,7 +331,7 @@ async function run() {
   assert.notEqual(rectFillBefore, 'rgb(15, 118, 110)')
   assert.equal(await rgbOf(page, duplicateRect.id), 'rgb(15, 118, 110)', 'every node bound to the token renders its color')
   // A bound fill shows the token chip with the resolved color as read-only context instead of an editable hex field.
-  await page.locator('.right-rail').getByRole('group', { name: 'Fill 1 color: Brand token, #0F766E, 100% opacity' }).waitFor()
+  await page.locator('.right-rail').getByRole('group', { name: 'Fill 1 color: Brand token, 100% opacity' }).waitFor()
   assert.equal(await fillValue.count(), 0, 'a bound fill has no editable hex input')
   await editBrand('#dc2626')
   await waitRgb(page, rectId, 'rgb(220, 38, 38)')
@@ -408,20 +410,23 @@ async function run() {
   const cardRendered = await preview.locator('[data-preview-instance="browser-local-composition:card"]').boundingBox()
   for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(cardOutline[key] - cardRendered[key]) <= 1.5, `card ${key}: ${cardOutline[key]} vs ${cardRendered[key]}`)
   const cardCamera = await camera(page)
-  assert.equal(await page.locator('.dimension-badge').innerText(), `${Math.round(cardRendered.width / cardCamera.zoom)} x ${Math.round(cardRendered.height / cardCamera.zoom)}`)
+  assert.deepEqual(
+    { width: Math.round(cardOutline.width / cardCamera.zoom), height: Math.round(cardOutline.height / cardCamera.zoom) },
+    { width: Math.round(cardRendered.width / cardCamera.zoom), height: Math.round(cardRendered.height / cardCamera.zoom) },
+  )
   // Shallow click on the live button selects the Card's direct child, like Wonder E29.
   const buttonBox = await preview.getByRole('button', { name: 'Sign in' }).boundingBox()
   await page.mouse.click(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2)
   assert.deepEqual((await layerIds(page)).filter(item => item.selected === 'true').map(item => item.id), ['sample-instance-button'])
   const buttonOutline = await waitPainted(page, 'sample-instance-button')
   for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(buttonOutline[key] - buttonBox[key]) <= 1.5, `button ${key}: ${buttonOutline[key]} vs ${buttonBox[key]}`)
-  // Dragging the Card by its label moves the whole component in world space; undo restores it.
-  const label = page.locator('.node-label[data-node-label="browser-local-composition:card"]')
-  const labelBox = await label.boundingBox()
-  await drag(page, { x: labelBox.x + 10, y: labelBox.y + labelBox.height / 2 }, { x: labelBox.x + 40, y: labelBox.y + labelBox.height / 2 + 25 })
+  // A selected component drags from its rendered body, even where a child covers the hit point; undo restores it.
+  await layers(page).getByRole('treeitem', { name: 'Card' }).click()
+  const cardDragStart = { x: cardRendered.x + cardRendered.width / 2, y: cardRendered.y + cardRendered.height / 2 }
+  await drag(page, cardDragStart, { x: cardDragStart.x + 30, y: cardDragStart.y + 25 })
   await page.waitForTimeout(300)
   const movedCard = await preview.locator('[data-preview-instance="browser-local-composition:card"]').boundingBox()
-  assert.ok(Math.abs(movedCard.x - cardRendered.x - 30) <= 1.5 && Math.abs(movedCard.y - cardRendered.y - 25) <= 1.5, `label drag moved by (${movedCard.x - cardRendered.x}, ${movedCard.y - cardRendered.y})`)
+  assert.ok(Math.abs(movedCard.x - cardRendered.x - 30) <= 1.5 && Math.abs(movedCard.y - cardRendered.y - 25) <= 1.5, `body drag moved by (${movedCard.x - cardRendered.x}, ${movedCard.y - cardRendered.y})`)
   assert.ok(Math.abs(movedCard.width - cardRendered.width) <= 1.5 && Math.abs(movedCard.height - cardRendered.height) <= 1.5, `leaving the host flow keeps the measured size: ${movedCard.width}x${movedCard.height} vs ${cardRendered.width}x${cardRendered.height}`)
   const movedOutline = await waitPainted(page, 'browser-local-composition:card')
   for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(movedOutline[key] - movedCard[key]) <= 1.5, `moved card ${key}`)
@@ -467,7 +472,7 @@ async function run() {
   await page.keyboard.press('Control+z')
   await layers(page).getByRole('treeitem', { name: 'Card' }).waitFor()
   await preview.getByRole('button', { name: 'Sign in' }).waitFor()
-  record('Imported Card: outline and badge follow the live DOM, shallow click picks its child, Enter/Shift+Enter walk the hierarchy, flow reorder by sibling midpoint, label drag moves it, delete leaves nothing, undo restores it')
+  record('Imported Card: canvas HUD follows the live DOM, shallow click picks its child, Enter/Shift+Enter walk the hierarchy, flow reorder by sibling midpoint, selected-body drag moves it, delete leaves nothing, undo restores it')
   evidence.status = 'passed'
 }
 

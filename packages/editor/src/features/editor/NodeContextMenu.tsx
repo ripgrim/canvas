@@ -8,6 +8,7 @@ import { documentStore as store } from './document-store'
 import { duplicatePlan, frameSelectionPlan, layerOrderPlan, ungroupPlan } from './context-menu-commands'
 import { measuredChildren } from './layout-measure'
 import { sceneGeometry } from './scene-geometry'
+import { canvasCopy as copy } from './canvas-copy'
 
 type CopyBuffer = { fileId: string; pageId: string; nodeIds: string[] }
 let copyBuffer: CopyBuffer | null = null
@@ -30,13 +31,15 @@ function componentCode(file: FileDocument, pageId: string, selection: readonly s
   catch { return null }
 }
 
-export function NodeContextMenu({ position, onClose }: { position: { x: number; y: number }; onClose: () => void }) {
+export function NodeContextMenu({ position, onClose, onRename }: { position: { x: number; y: number }; onClose: () => void; onRename?: (nodeId: string) => void }) {
   const state = useSyncExternalStore(store.subscribe, store.getViewSnapshot, store.getViewSnapshot)
   const file = state.file
   const pageId = state.pageId
   if (!file || !pageId) return null
   const selection = state.selection.filter(id => Boolean(file.nodes[id]))
   const first = selection[0]
+  const firstNode = first ? file.nodes[first] : undefined
+  const renameKind = firstNode?.type === 'component' ? firstNode.exportName : firstNode?.type ?? 'layer'
   const parent = first ? ancestorsOf(file, first)[0] : undefined
   const children = selection.flatMap(id => Object.keys(file.relationships).filter(candidate => file.relationships[candidate]?.parentId === id))
   const bufferValid = Boolean(copyBuffer && copyBuffer.fileId === file.fileId && copyBuffer.pageId === pageId && copyBuffer.nodeIds.every(id => Boolean(file.nodes[id])))
@@ -66,6 +69,9 @@ export function NodeContextMenu({ position, onClose }: { position: { x: number; 
   const frame = frameSelectionPlan(file, pageId, selection, () => crypto.randomUUID())
   const ungroup = ungroupPlan(file, selection)
   const groups: ContextMenuAction[][] = [
+    [
+      action('rename', copy.renameType(renameKind), first && selection.length === 1 ? () => { if (onRename) onRename(first); else store.setRenaming(first) } : undefined, { shortcut: 'F2', disabled: !first || selection.length !== 1, ...(!first || selection.length !== 1 ? { reason: 'Select one layer to rename it' } : {}) }),
+    ],
     [
       action('select-parent', 'Select parent', parent && file.nodes[parent]?.type !== 'root' ? () => store.select(parent) : undefined, { disabled: !parent || file.nodes[parent]?.type === 'root' }),
       action('select-children', 'Select children', children.length ? () => store.selectMany(children) : undefined, { shortcut: 'Enter', disabled: !children.length }),

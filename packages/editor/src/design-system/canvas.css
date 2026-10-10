@@ -20,18 +20,18 @@
 .canvas-floating-actions .button .icon { width: 16px; height: 16px; }
 .canvas-floating-actions .button:disabled { color: var(--neutral-5); }
 .canvas-hud > * { position: absolute; }
-.resize-handles { pointer-events: none; }
+.resize-handles { pointer-events: none; transform-origin: center; }
 /* Handle visuals are painted on the HUD canvas; these are transparent hit targets of the same size. */
 .resize-handle { position: absolute; width: 7px; height: 7px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; transform: translate(-50%, -50%); pointer-events: auto; touch-action: none; }
 .resize-handle[data-edge] { width: 6px; height: 6px; border: 0; background: transparent; }
 .resize-handle[data-edge][data-handle="top"], .resize-handle[data-edge][data-handle="bottom"] { width: calc(100% - 14px); }
 .resize-handle[data-edge][data-handle="left"], .resize-handle[data-edge][data-handle="right"] { height: calc(100% - 14px); }
-.node-label { position: absolute; margin: 0; padding: 0 0 2px; border: 0; background: transparent; color: var(--neutral-7); font-family: var(--font-ui); font-size: var(--size-xxs); line-height: var(--line-xxs); letter-spacing: var(--letter-spacing-xxs); font-weight: var(--weight-ui-regular); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; transform: translateY(-100%); cursor: move; pointer-events: auto; }
-.node-label[data-selected] { color: var(--color-1); }
+.node-label { position: absolute; margin: 0; padding: 0; border: 0; background: transparent; color: var(--cte-text-muted); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-regular); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; transform: translateY(-100%); cursor: move; pointer-events: auto; }
+.node-label[data-selected] { color: var(--color-4); font-weight: var(--weight-ui-medium); }
 .node-label-editor { position: absolute; z-index: 1; box-sizing: border-box; min-width: 80px; padding: 0 var(--space-xxs); border: 1px solid var(--color-1); border-radius: var(--radius-xs); background: var(--neutral-1); color: var(--neutral-10); font-family: var(--font-ui); font-size: var(--size-xxs); line-height: var(--line-xxs); letter-spacing: var(--letter-spacing-xxs); outline: none; pointer-events: auto; transform: translateY(-100%); }
 textarea.node-label-editor { transform: none; resize: none; font-size: var(--size-xs); line-height: var(--line-xs); }
-.dimension-badge { position: absolute; display: inline-flex; align-items: center; padding: 4px 6px; border-radius: 4px; background: var(--color-1); color: #ffffff; font-family: var(--font-ui); font-size: var(--size-xxs); line-height: 11px; letter-spacing: var(--letter-spacing-xxs); font-weight: var(--weight-ui-regular); white-space: nowrap; transform: translate(-50%, 10px); pointer-events: none; }
-.node-label-hit { height: 18px; overflow: hidden; opacity: 0; color: transparent; background: transparent; box-shadow: none; }
+.dimension-badge { position: absolute; display: inline-flex; align-items: center; min-height: 20px; padding: 0 var(--space-xs); border-radius: var(--radius-xs); background: var(--color-4); color: var(--cte-accent-text); font-family: var(--font-data); font-size: var(--size-xxs); line-height: var(--line-xxs); letter-spacing: var(--letter-spacing-xxs); font-weight: var(--weight-data-regular); white-space: nowrap; transform: translate(-50%, var(--space-xs)); pointer-events: none; }
+.node-label-hit { height: var(--line-xs); overflow: hidden; opacity: 0; color: transparent; background: transparent; box-shadow: none; }
 .document-tree { display: flex; flex-direction: column; padding: var(--space-xxs) 0; }
 .document-layer-item { display: flex; align-items: center; gap: var(--space-xxs); min-width: 0; height: 30px; margin: 0 var(--space-xs); padding: 0 var(--space-xxs); padding-left: calc(var(--space-xxs) + var(--layer-depth) * var(--space-l)); border-radius: var(--radius-xs); color: var(--neutral-9); cursor: pointer; transition: background var(--motion-duration) var(--motion-easing); }
 .document-layer-item:hover { background: var(--neutral-2); }

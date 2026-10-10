@@ -8,6 +8,7 @@
     "./home": "./src/pages/HomePage.tsx",
     "./file": "./src/pages/FilePage.tsx",
     "./bootstrap": "./src/bootstrap.tsx",
+    "./auth": "./src/auth.ts",
     "./capabilities": "./src/capabilities.ts",
     "./theme.css": "./src/design-system/theme.css",
     "./styles.css": "./src/design-system/styles.css"
@@ -18,7 +19,10 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
+    "@canvas/auth": "workspace:*",
     "@canvas/repo-engine": "workspace:*",
+    "@canvas/repository": "workspace:*",
+    "@canvas/scanner": "workspace:*",
     "@canvas/preview-runtime": "workspace:*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

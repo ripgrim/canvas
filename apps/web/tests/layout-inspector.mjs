@@ -27,7 +27,9 @@ const revisionOf = async page => (await stored(page, fileId)).file.revision
 const waitRevision = (page, atLeast) => page.waitForFunction(([key, atLeast]) => (JSON.parse(localStorage.getItem(key) ?? 'null')?.file.revision ?? -1) >= atLeast, [contentKey(fileId), atLeast], { timeout: 10_000 })
 const field = (page, label) => rail(page).getByRole('textbox', { name: label, exact: true })
 const combo = (page, label) => rail(page).getByRole('combobox', { name: label, exact: true })
-const scrubHandle = (page, id) => rail(page).locator(`label[for="${id}"] [data-scrub-handle]`)
+const sizing = (page, label) => rail(page).getByRole('button', { name: new RegExp(`^${label}:`) })
+const sizingValue = async (page, label) => (await sizing(page, label).getAttribute('aria-label')).slice(label.length + 2)
+const scrubHandle = (page, id) => rail(page).locator(`#${id}`).locator('xpath=..').locator('[data-scrub-handle]')
 const blur = page => page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
 const undoDisabled = page => page.locator('.canvas-floating-actions button[aria-label="Undo document edit"]').isDisabled()
 const redoDisabled = page => page.locator('.canvas-floating-actions button[aria-label="Redo document edit"]').isDisabled()
@@ -45,12 +47,17 @@ async function historyDepth(page) {
 /** Runs one editing action and waits until its save lands. */
 async function act(page, action) { const before = await revisionOf(page); await action(); await waitRevision(page, before + 1); await page.waitForTimeout(250) }
 async function commit(page, label, value) { const input = field(page, label); await input.click(); await input.fill(String(value)); await input.press('Enter'); await page.waitForTimeout(150) }
-async function choose(page, label, option) { await combo(page, label).click(); await page.getByRole('option', { name: option, exact: true }).click(); await page.waitForTimeout(150) }
+async function choose(page, label, option) {
+  if (label.endsWith(' sizing')) { await sizing(page, label).click(); await page.getByRole('radio', { name: option, exact: true }).click() }
+  else { await combo(page, label).click(); await page.getByRole('option', { name: option, exact: true }).click() }
+  await page.waitForTimeout(150)
+}
 async function selectLayer(page, id, modifiers = []) { await page.getByRole('tree', { name: 'Layers' }).locator(`[data-instance-id="${id}"]`).click({ modifiers }); await page.waitForTimeout(250) }
 const styleOf = (page, id) => preview(page).locator(`[data-preview-instance="${id}"]`).evaluate(element => {
   const style = getComputedStyle(element)
-  return { width: style.width, height: style.height, position: style.position, right: style.right, left: style.left, zIndex: style.zIndex, inline: element.getAttribute('style') ?? '' }
+  return { width: style.width, height: style.height, position: style.position, right: style.right, left: style.left, zIndex: style.zIndex, transform: style.transform, inline: element.getAttribute('style') ?? '' }
 })
+const primitiveStyleOf = (page, id) => preview(page).locator(`[data-preview-canvas="${id}"]`).evaluate(element => { const style = getComputedStyle(element); return { transform: style.transform, inline: element.getAttribute('style') ?? '' } })
 async function waitStyle(page, id, predicate, label) {
   let last = null
   for (let attempt = 0; attempt < 80; attempt++) { last = await styleOf(page, id).catch(() => null); if (last && predicate(last)) return last; await page.waitForTimeout(100) }
@@ -73,11 +80,13 @@ const file = {
   pages: [{ id: 'page-1', name: 'Inspector', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
-    card: { id: 'card', type: 'component', name: 'Login card', componentId: 'sample-card', exportName: 'Card', props: {} },
+    box: { id: 'box', type: 'rectangle', name: 'Transform box', styles: { left: 420, top: 80, width: 120, height: 80 } },
+    card: { id: 'card', type: 'component', name: 'Login card', componentId: 'sample-card', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } }, container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'stretch' } } } },
     'label-a': { id: 'label-a', type: 'component', name: 'Email label', componentId: 'sample-label', exportName: 'Label', props: { children: 'Email' }, layout: { item: { position: { mode: 'flow' }, width: { value: px(120) } } } },
     'label-b': { id: 'label-b', type: 'component', name: 'Password label', componentId: 'sample-label', exportName: 'Label', props: { children: 'Password' } },
   },
   relationships: {
+    box: { parentId: 'root-1', orderKey: 'U' },
     card: { parentId: 'root-1', orderKey: 'V' },
     'label-a': { parentId: 'card', orderKey: 'V', slot: 'children' },
     'label-b': { parentId: 'card', orderKey: 'W', slot: 'children' },
@@ -109,25 +118,18 @@ async function run() {
   }, [indexKey, contentKey(fileId), JSON.stringify({ schemaVersion: 1, file }), fileId])
   await open(page)
 
-  // 1. LAY-SIZE-001 (Relative): a nested Label inside the Card.
+  // 1. LAY-SIZE-001: a nested Label inside a flex Card keeps its authored fixed width.
   await selectLayer(page, 'label-a')
-  await section(page, 'sizing').waitFor()
+  await section(page, 'layout').waitFor()
   const before = await measure(page)
-  // Hand derivation: host content 352, card border 1 + padding 28 per side, so the card content box is 352 - 58 = 294 wide.
-  // The label is 120 wide: 120 / 294 = 0.408, rounded to 41 percent.
   const content = before.card.width - before.sides.Left.border - before.sides.Left.padding - before.sides.Right.border - before.sides.Right.padding
   assert.ok(Math.abs(content - 294) < 0.01, `card content width is 294: ${content}`)
   assert.ok(Math.abs(before.a.width - 120) < 0.01, `label width is 120: ${before.a.width}`)
-  assert.equal(Math.round((before.a.width / content) * 100), 41, 'the measured rectangles give 41 percent')
   assert.equal((await styleOf(page, 'label-a')).width, '120px')
-  await act(page, () => choose(page, 'Width sizing', 'Relative'))
-  assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.width, { value: { kind: 'percent', value: 41 } }, 'stored percent equals the measured ratio')
-  // 41% of 294 is 120.54 px: the preview now resolves the percent, not the old 120 px.
-  const relative = await waitStyle(page, 'label-a', style => style.width !== '120px', 'preview width follows the percent')
-  assert.ok(Math.abs(Number.parseFloat(relative.width) - 120.54) < 0.02, `computed width ${relative.width}`)
-  assert.ok(/width:\s*41%/.test(relative.inline), `inline width is the percent: ${relative.inline}`)
-  record('LAY-SIZE-001: Width to Relative stores the measured ratio and the preview resolves it', `41% -> ${relative.width}`)
-  await shot(section(page, 'sizing'), 'sizing-relative')
+  assert.equal(await sizingValue(page, 'Width sizing'), 'Fixed')
+  assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.width, { value: px(120) })
+  record('LAY-SIZE-001: flex-item width stays fixed at the authored 120 px')
+  await shot(section(page, 'layout'), 'layout-fixed')
 
   // 2. LAY-SIZE-001 (undo and reload): Height to Fixed, then a typed value; one Ctrl+Z restores the prior record.
   await act(page, () => choose(page, 'Height sizing', 'Fixed'))
@@ -148,14 +150,14 @@ async function run() {
   await waitStyle(page, 'label-a', style => style.height === '40px', 'reloaded preview renders 40px')
   await selectLayer(page, 'label-a')
   assert.equal(await field(page, 'Height').inputValue(), '40')
-  assert.equal((await combo(page, 'Height sizing').innerText()).trim(), 'Fixed')
+  assert.equal(await sizingValue(page, 'Height sizing'), 'Fixed')
   record('LAY-SIZE-001: Fixed height round-trips through undo (one step) and reload')
 
   // 3. Absolute with insets: leaving the flow stores the measured local point from the card padding edge (28, 28).
-  await act(page, () => rail(page).getByRole('radio', { name: 'Absolute', exact: true }).click())
+  await act(page, () => rail(page).getByRole('button', { name: 'Absolute', exact: true }).click())
   let layout = (await nodeOf(page, 'label-a')).layout
   assert.deepEqual(layout.item.position, { mode: 'absolute', left: px(28), top: px(28) })
-  assert.deepEqual(layout.item.width, { value: { kind: 'percent', value: 41 } }, 'sizing survives leaving the flow')
+  assert.deepEqual(layout.item.width, { value: px(120) }, 'sizing survives leaving the flow')
   const moved = await measure(page)
   assert.ok(Math.abs(moved.a.x - before.a.x) < 0.6 && Math.abs(moved.a.y - before.a.y) < 0.6, `the label stays in place: ${JSON.stringify({ before: before.a, after: moved.a })}`)
   await act(page, () => commit(page, 'X position', ''))
@@ -168,17 +170,17 @@ async function run() {
   // Absolute insets count from the padding edge: card right edge minus its 1 px border minus 10.
   assert.ok(Math.abs((anchored.card.x + anchored.card.width - 1 - 10) - (anchored.a.x + anchored.a.width)) < 0.6, 'the label right edge sits 10 px inside the card padding box')
   record('Absolute: measured local point, X cleared, right 10 and z-index 2 stored and rendered', JSON.stringify({ right: placed.right, zIndex: placed.zIndex }))
-  await shot(section(page, 'position'), 'position-absolute')
+  await shot(section(page, 'layout'), 'layout-absolute')
 
   // 4. LAY-GEST-004: back to In flow drops insets and z-index while sizing survives.
-  await act(page, () => rail(page).getByRole('radio', { name: 'In flow', exact: true }).click())
+  await act(page, () => rail(page).getByRole('button', { name: 'Absolute', exact: true }).click())
   layout = (await nodeOf(page, 'label-a')).layout
-  assert.deepEqual(layout.item, { position: { mode: 'flow' }, width: { value: { kind: 'percent', value: 41 } }, height: { value: px(40) } })
+  assert.deepEqual(layout.item, { position: { mode: 'flow' }, width: { value: px(120) }, height: { value: px(40) }, flex: { shrink: 0 } })
   await waitStyle(page, 'label-a', style => style.position !== 'absolute' && style.zIndex === 'auto', 'flow restored in the preview')
   assert.equal(await rail(page).getByText('Locked to layout', { exact: true }).count(), 1, 'a flow child shows the locked note')
   assert.equal(await field(page, 'Right inset').count(), 0, 'flow nodes have no inset fields')
   record('LAY-GEST-004: flow -> absolute -> flow clears insets and z-index and keeps width and height')
-  await shot(section(page, 'position'), 'position-flow')
+  await shot(section(page, 'layout'), 'layout-flow')
 
   // 5. LAY-GEST-002: a pointer scrub on the Height prefix is one revision and one undo step.
   const depth = await historyDepth(page)
@@ -215,32 +217,86 @@ async function run() {
   assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.height, { value: px(60) })
   await waitStyle(page, 'label-a', style => style.height === '60px', 'the preview returns to the stored height')
   assert.equal(await historyDepth(page), quietDepth, 'and records no history')
-  assert.equal(await rail(page).locator('[data-section="sizing"]').count(), 1, 'Escape during a scrub keeps the selection')
+  assert.equal(await rail(page).locator('[data-section="layout"]').count(), 1, 'Escape during a scrub keeps the selection')
   record('LAY-GEST-001: Escape during a scrub restores the preview with no revision or history change')
 
   // 7. LAY-SIZE-003: two Labels to Fixed in one revision, each with its own measured width.
   await selectLayer(page, 'label-a')
   await selectLayer(page, 'label-b', ['Control'])
-  assert.equal((await combo(page, 'Width sizing').innerText()).trim(), 'Mixed', 'Relative and Auto widths show Mixed')
+  assert.equal(await sizingValue(page, 'Width sizing'), 'Mixed', 'Relative and Auto widths show Mixed')
   const pair = await measure(page)
-  // Hand derivation: label-a is 41% of 294 = 120.54 -> 121; label-b stretches across the card content box -> 294.
-  assert.ok(Math.abs(pair.a.width - 120.54) < 0.02 && Math.abs(pair.b.width - 294) < 0.01, JSON.stringify(pair))
+  assert.ok(Math.abs(pair.a.width - 120) < 0.02 && Math.abs(pair.b.width - 294) < 0.01, JSON.stringify(pair))
   const multiDepth = await historyDepth(page)
   const multiRevision = await revisionOf(page)
   await act(page, () => choose(page, 'Width sizing', 'Fixed'))
   await page.waitForTimeout(400)
   assert.equal(await revisionOf(page), multiRevision + 1, 'one revision for both nodes')
-  assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.width, { value: px(121) })
+  assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.width, { value: px(120) })
   assert.deepEqual((await nodeOf(page, 'label-b')).layout.item.width, { value: px(294) })
   assert.equal(await historyDepth(page), multiDepth + 1, 'one undo step for both nodes')
-  record('LAY-SIZE-003: multi-select Fixed stores per-node measured widths (121 and 294) in one revision and one undo step')
+  record('LAY-SIZE-003: multi-select Fixed stores per-node measured widths (120 and 294) in one revision and one undo step')
   await shot(rail(page), 'multi-select-rail')
 
-  // Section screenshots for a single selection, including Layout and Spacing.
+  // 8. AT-CAN-002/004/005: component transform actions persist, preview immediately, and undo one action at a time.
+  await selectLayer(page, 'label-a')
+  const componentDepth = await historyDepth(page)
+  await act(page, () => rail(page).getByRole('button', { name: 'Rotate 90 degrees clockwise', exact: true }).click())
+  assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.transform, { rotate: 90 })
+  await waitStyle(page, 'label-a', style => /rotate\(90deg\)/.test(style.inline), 'component rotation previews')
+  assert.equal(await historyDepth(page), componentDepth + 1, 'component quarter turn is one undo step')
+  await act(page, () => page.keyboard.press('Control+z'))
+  assert.equal((await nodeOf(page, 'label-a')).layout.item.transform, undefined, 'one undo removes the quarter turn')
+  await act(page, () => page.keyboard.press('Control+Shift+z'))
+  await act(page, () => rail(page).getByRole('button', { name: 'Flip horizontally', exact: true }).click())
+  await act(page, () => rail(page).getByRole('button', { name: 'Flip vertically', exact: true }).click())
+  assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.transform, { rotate: 90, scale: -1 })
+  await waitStyle(page, 'label-a', style => /rotate\(90deg\).*scale\(-1\)/.test(style.inline), 'component flips preview')
+  const componentHud = await page.locator('.canvas-hud-canvas').evaluate(canvas => JSON.parse(canvas.dataset.hud ?? '{}'))
+  assert.ok(Math.abs(componentHud.quads['label-a'][1].y - componentHud.quads['label-a'][0].y) > 1, 'component selection outline follows its rotation')
+  await shot(section(page, 'layout'), 'layout-component-transforms')
+  await shot(page, 'layout-component-selection')
+  record('AT-CAN-002, AT-CAN-004 and AT-CAN-005: component rotate and flips preview, persist, and undo atomically')
+
+  // 9. The same Paper controls are real persistent transforms for primitives, including reload and one-step undo.
+  await selectLayer(page, 'box')
+  const primitiveDepth = await historyDepth(page)
+  await act(page, () => rail(page).getByRole('button', { name: 'Rotate 90 degrees clockwise', exact: true }).click())
+  await act(page, () => rail(page).getByRole('button', { name: 'Flip horizontally', exact: true }).click())
+  await act(page, () => rail(page).getByRole('button', { name: 'Flip vertically', exact: true }).click())
+  assert.deepEqual((await nodeOf(page, 'box')).styles, { left: 420, top: 80, width: 120, height: 80, rotation: 90, flipX: true, flipY: true })
+  assert.match((await primitiveStyleOf(page, 'box')).inline, /rotate\(90deg\) scale\(-1, -1\)/)
+  assert.equal(await historyDepth(page), primitiveDepth + 3, 'three primitive actions are three discrete undo steps')
+  await act(page, () => page.keyboard.press('Control+z'))
+  assert.equal((await nodeOf(page, 'box')).styles.flipY, undefined, 'one undo removes only the last flip')
+  await act(page, () => page.keyboard.press('Control+Shift+z'))
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await open(page)
+  assert.deepEqual((await nodeOf(page, 'box')).styles, { left: 420, top: 80, width: 120, height: 80, rotation: 90, flipX: true, flipY: true })
+  assert.deepEqual((await nodeOf(page, 'label-a')).layout.item.transform, { rotate: 90, scale: -1 })
+  record('AT-DOC-002 and AT-DOC-003: primitive and component transforms survive reload')
+  await selectLayer(page, 'box')
+  await shot(section(page, 'layout'), 'layout-primitive-transforms')
+
+  // 10. Flex uses the compact Paper controls without dropping reverse, wrap, distribution, gap or sizing semantics.
   await selectLayer(page, 'card')
-  await shot(section(page, 'layout'), 'layout-card')
-  await shot(section(page, 'spacing'), 'spacing-card')
+  await act(page, () => rail(page).getByRole('radio', { name: 'Block', exact: true }).click())
+  await act(page, () => rail(page).getByRole('radio', { name: 'Flex', exact: true }).click())
+  const matrix = await rail(page).locator('.inspector-anchor-grid').boundingBox()
+  assert.ok(matrix && Math.round(matrix.width) === 112 && Math.round(matrix.height) === 88, `alignment matrix is 112 x 88: ${JSON.stringify(matrix)}`)
+  const column = rail(page).getByRole('button', { name: 'Column', exact: true })
+  if (await column.getAttribute('aria-pressed') !== 'true') await act(page, () => column.click())
+  await act(page, () => rail(page).getByRole('button', { name: 'Wrap', exact: true }).click())
+  await act(page, () => rail(page).getByRole('button', { name: 'Align bottom right', exact: true }).click())
+  await act(page, () => commit(page, 'Gap', 8))
+  assert.equal((await nodeOf(page, 'card')).layout.container.flex.direction, 'column')
+  assert.equal((await nodeOf(page, 'card')).layout.container.flex.wrap, 'wrap')
+  assert.equal((await nodeOf(page, 'card')).layout.container.flex.justify, 'end')
+  assert.equal((await nodeOf(page, 'card')).layout.container.flex.align, 'end')
+  assert.equal((await nodeOf(page, 'card')).layout.container.gap, 8)
+  await shot(section(page, 'container'), 'container-card')
+  await shot(section(page, 'container'), 'spacing-card')
   await shot(page, 'editor-card-selected')
+  record('AT-UX-002 and AT-UX-003: compact Flex controls retain direction, wrap, alignment, distribution and gap behavior')
   evidence.status = 'passed'
 }
 

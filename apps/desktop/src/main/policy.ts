@@ -1,5 +1,6 @@
-import type { RepositoryRequest } from '../preload/contracts'
+import type { AuthRequest, RepositoryConnectionRequest, RepositoryRequest } from '../preload/contracts'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
+import { parseGitHubCloneRequest } from '@canvas/repository'
 
 export { localDevelopmentUrl as editorDevelopmentUrl } from './web-target'
 
@@ -77,11 +78,31 @@ export function parseRepositoryRequest(value: unknown): RepositoryRequest {
     return { method, args: [file as FileDocument, args[1]] }
   }
   if (args.length > 2 || args.some((arg) => typeof arg !== 'string' || arg.length > 128)) throw new Error('Invalid command.')
-  if ((method === 'inspectFixture' || method === 'refresh') && args.length === 0) return { method, args: [] }
+  if ((method === 'listFiles' || method === 'inspectFixture' || method === 'refresh' || method === 'scanShadcn') && args.length === 0) return { method, args: [] }
+  if (method === 'openFile' && args.length === 1 && /^[A-Za-z0-9_-]{1,80}$/.test(args[0])) return { method, args: [args[0]] }
   if (method === 'prepareLabelPadding' && args.length === 1 && /^(?:0|\d{1,3}(?:\.\d{1,2})?(?:px|rem))(?: (?:0|\d{1,3}(?:\.\d{1,2})?(?:px|rem))){0,3}$/.test(args[0])) return { method, args: [args[0]] }
   if (method === 'prepareToken' && args.length === 1 && /^#[\da-fA-F]{6}$/.test(args[0])) return { method, args: [args[0]] }
   if (method === 'preparePromotion' && args.length === 1 && /^[A-Z][A-Za-z0-9]{0,63}$/.test(args[0])) return { method, args: [args[0]] }
   if ((method === 'prepareUndo' || method === 'prepareRedo') && args.length === 1 && /^[A-Za-z0-9_-]{1,128}$/.test(args[0])) return { method, args: [args[0]] }
   if (method === 'savePrepared' && args.length === 2 && /^[A-Za-z0-9_-]{1,128}$/.test(args[0]) && /^[\da-f]{64}$/.test(args[1])) return { method, args: [args[0], args[1]] }
   throw new Error('Invalid command.')
+}
+
+export function parseRepositoryConnectionRequest(value: unknown): RepositoryConnectionRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid repository connection command.')
+  const candidate = value as Record<string, unknown>
+  if (Object.keys(candidate).sort().join(',') !== 'args,method' || typeof candidate.method !== 'string' || !Array.isArray(candidate.args)) throw new Error('Invalid repository connection command.')
+  if (['pickLocal', 'getCurrent', 'scanCurrent'].includes(candidate.method) && candidate.args.length === 0) {
+    return { method: candidate.method as 'pickLocal' | 'getCurrent' | 'scanCurrent', args: [] }
+  }
+  if (candidate.method === 'cloneGitHub' && candidate.args.length === 1) return { method: 'cloneGitHub', args: [parseGitHubCloneRequest(candidate.args[0])] }
+  throw new Error('Invalid repository connection command.')
+}
+
+export function parseAuthRequest(value: unknown): AuthRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid auth command.')
+  const candidate = value as Record<string, unknown>
+  if (Object.keys(candidate).sort().join(',') !== 'args,method' || !Array.isArray(candidate.args) || candidate.args.length !== 0) throw new Error('Invalid auth command.')
+  if (candidate.method === 'getSession' || candidate.method === 'signInWithGitHub' || candidate.method === 'signOut') return { method: candidate.method, args: [] }
+  throw new Error('Invalid auth command.')
 }

@@ -2,19 +2,37 @@ import { useId, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { Popover } from '@base-ui/react/popover'
 import { Icon } from './atoms'
+import type { IconName } from './atoms'
 import './token-field.css'
 
 /**
  * Read-only presentation of a color bound to a theme token. Nothing here edits the color: changing the binding goes
- * through `TokenActions` (Rebind, Unlink, Edit token), so a bound value can never be detached by typing into it.
+ * through `TokenActions` (Rebind and Unlink), so a bound value can never be detached by typing into it.
  */
 
-/** Swatch, token name in the value position, and the resolved value as static context. */
-export function TokenBoundField({ label, color, name, context }: { label: string; color: string; name: string; context: string }) {
+/** Swatch and token name, with either static context or a fill-owned opacity override. */
+export function TokenBoundField({ id, label, color, name, context, opacity, opacityLabel, opacityMixed = false, disabled = false, onOpacityCommit }: { id: string; label: string; color: string; name: string; context: string; opacity: number | undefined; opacityLabel: string; opacityMixed?: boolean; disabled?: boolean; onOpacityCommit: ((opacity: number) => void) | undefined }) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const cancelled = useRef(false)
+  const editable = opacity !== undefined && onOpacityCommit !== undefined
+  const currentOpacity = opacity ?? 1
+  const blocked = disabled || opacityMixed
+  const commit = (raw: string) => {
+    setDraft(null)
+    const next = Number(raw.replace('%', '').trim())
+    if (!raw.trim() || !Number.isFinite(next) || blocked || !onOpacityCommit) return
+    onOpacityCommit(Math.max(0, Math.min(100, next)) / 100)
+  }
   return <div className="token-field" role="group" aria-label={label} title={label}>
     <span className="token-field-swatch" aria-hidden="true"><span className="token-field-swatch-fill" style={{ background: color }} /></span>
     <span className="token-chip" aria-hidden="true">{name}</span>
-    <span className="token-field-context" aria-hidden="true">{context}</span>
+    {editable
+      ? <label className="token-field-opacity" htmlFor={id}><input id={id} aria-label={opacityLabel} inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={4} disabled={blocked} value={draft ?? (opacityMixed ? '' : String(Math.round(currentOpacity * 100)))} placeholder={opacityMixed ? 'Mixed' : undefined} onChange={event => setDraft(event.currentTarget.value)} onBlur={event => { if (cancelled.current) { cancelled.current = false; return } if (draft !== null) commit(event.currentTarget.value) }} onKeyDown={event => {
+        if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() }
+        else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelled.current = true; setDraft(null); event.currentTarget.blur() }
+        else if (!blocked && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) { event.preventDefault(); setDraft(null); onOpacityCommit?.(Math.max(0, Math.min(100, Math.round(currentOpacity * 100) + (event.shiftKey ? 10 : 1) * (event.key === 'ArrowUp' ? 1 : -1))) / 100) }
+      }} /><span aria-hidden="true">%</span></label>
+      : <span className="token-field-context" aria-hidden="true">{context}</span>}
   </div>
 }
 
@@ -33,7 +51,7 @@ export function MissingTokenField({ id, label, text }: { id: string; label: stri
   </div>
 }
 
-/** One line of binding actions under the field. */
+/** Compact binding actions that share the value row. */
 export function TokenActions({ children }: { children: ReactNode }) { return <div className="token-actions">{children}</div> }
 
 export type TokenChooserOption = Readonly<{ value: string; label: string; color?: string; disabled?: boolean }>
@@ -74,11 +92,8 @@ export function TokenChooser({ id, label, placeholder, options, disabled = false
   </Popover.Root>
 }
 
-/**
- * A text action. `reason` keeps the button focusable but unavailable, and names why; `describedBy` points at the
- * visible diagnostic it depends on.
- */
-export function TokenActionButton({ label, text, disabled = false, reason, describedBy, onClick }: { label: string; text: string; disabled?: boolean; reason?: string | undefined; describedBy?: string | undefined; onClick: () => void }) {
+/** `reason` keeps the icon action focusable but unavailable and names why it cannot run. */
+export function TokenActionButton({ label, icon, disabled = false, reason, describedBy, onClick }: { label: string; icon: IconName; disabled?: boolean; reason?: string | undefined; describedBy?: string | undefined; onClick: () => void }) {
   const blocked = reason !== undefined
-  return <button type="button" className="token-action" aria-label={label} title={reason ?? label} disabled={disabled} aria-disabled={blocked || undefined} aria-describedby={blocked ? describedBy : undefined} onClick={() => { if (!blocked) onClick() }}>{text}</button>
+  return <button type="button" className="token-action" aria-label={label} title={reason ?? label} disabled={disabled} aria-disabled={blocked || undefined} aria-describedby={blocked ? describedBy : undefined} onClick={() => { if (!blocked) onClick() }}><Icon name={icon} /></button>
 }

@@ -36,7 +36,7 @@ const fixture = (): FileDocument => validateFileDocument({
     solo: { ...buttonNode('solo'), appearance: { opacity: 0.5, borders: { all: { color: lit('#ff0000'), width: 2, style: 'solid' } } } },
     outer: primitive('outer', 'frame', { left: -50, top: 60, width: 400, height: 300, overflow: 'visible' }, { fills: [solid('outer:fill:1', tok('surface'))] }),
     inner: primitive('inner', 'frame', { left: 12, top: 18, width: 100, height: 80 }, { fills: [solid('inner:fill:1', lit('#ABCDEF'))] }),
-    dot: primitive('dot', 'shape', { left: 4, top: 6, width: 8, height: 8, rotation: 45 }, { fills: [{ id: 'dot:fill:1', type: 'gradient', shape: 'linear', angle: 90, center, length: 1, interpolation: 'srgb', stops: [{ id: 'b', position: 1, color: tok('surface') }, { id: 'a', position: 0, color: lit('#000000') }] }] }),
+    dot: primitive('dot', 'shape', { left: 4, top: 6, width: 8, height: 8, rotation: 45, flipX: true }, { fills: [{ id: 'dot:fill:1', type: 'gradient', shape: 'linear', angle: 90, center, length: 1, interpolation: 'srgb', stops: [{ id: 'b', position: 1, color: tok('surface') }, { id: 'a', position: 0, color: lit('#000000') }] }] }),
     caption: { ...primitive('caption', 'text', { left: 0, top: 400, width: 200, height: 24 }), text: 'Welcome' },
   },
   relationships: {
@@ -108,7 +108,7 @@ describe('preview projection', () => {
     expect(document.canvas.elements).toStrictEqual([
       { id: 'outer', kind: 'frame', name: 'outer name', x: -50, y: 60, width: 400, height: 300, rotation: 0, appearance: flat('#ffffff'), parentId: null, clip: false },
       { id: 'inner', kind: 'frame', name: 'inner name', x: 12, y: 18, width: 100, height: 80, rotation: 0, appearance: flat('#abcdef'), parentId: 'outer', clip: true },
-      { id: 'dot', kind: 'shape', name: 'dot name', x: 4, y: 6, width: 8, height: 8, rotation: 45, appearance: ramp('#ffffff'), parentId: 'inner' },
+      { id: 'dot', kind: 'shape', name: 'dot name', x: 4, y: 6, width: 8, height: 8, rotation: 45, flipX: true, appearance: ramp('#ffffff'), parentId: 'inner' },
       { id: 'caption', kind: 'text', name: 'caption name', x: 0, y: 400, width: 200, height: 24, rotation: 0, text: 'Welcome', parentId: null },
     ])
     expect(document).not.toHaveProperty('assets')

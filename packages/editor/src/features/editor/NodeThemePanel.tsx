@@ -16,7 +16,7 @@ const icons: Partial<Record<NodeThemeMode, IconName>> = { light: 'sun', dark: 'm
 const schemes: readonly ColorScheme[] = ['light', 'dark']
 const sourceKey = (effective: EffectiveNodeTheme) => effective.source.kind === 'ancestor' ? `ancestor:${effective.source.nodeId}` : effective.source.kind
 
-/** The secondary line for a selection whose stored modes all read `inherit`: where the effective scheme comes from. */
+/** Accessible context for an inherited selection: where its effective scheme comes from. */
 function inheritedLine(file: FileDocument, effective: readonly EffectiveNodeTheme[]): string | undefined {
   const first = effective[0]
   if (!first) return undefined
@@ -51,6 +51,7 @@ export function NodeThemeSection({ nodes, disabled }: { nodes: readonly ThemedNo
   const value = stored.every(mode => mode === stored[0]) ? stored[0]! : null
   const themes = nodes.flatMap(node => { const theme = documentStore.nodeTheme(node.id); return theme ? [theme] : [] })
   const description = value === 'inherit' ? inheritedLine(file, themes.map(theme => theme.effective)) : undefined
+  const accessibleLabel = description ? `${copy.theme}. ${description}` : copy.theme
 
   const notes = new Set<string>(unavailable.values())
   for (const theme of themes) {
@@ -72,7 +73,7 @@ export function NodeThemeSection({ nodes, disabled }: { nodes: readonly ThemedNo
   })
   const ids = nodes.map(node => node.id)
   return <InspectorSection id="theme" title={copy.theme}>
-    <InspectorRadioGroup label={copy.theme} value={value} options={options} disabled={disabled} showLabels mixedLabel={copy.mixedThemeModes} {...(description ? { description } : {})} onChange={mode => { documentStore.commands.nodeTheme.set(ids, mode) }} />
+    <InspectorRadioGroup label={accessibleLabel} value={value} options={options} disabled={disabled} showLabels mixedLabel={copy.mixedThemeModes} onChange={mode => { documentStore.commands.nodeTheme.set(ids, mode) }} />
     {[...notes].map(note => <InspectorNote key={note} icon="alert">{note}</InspectorNote>)}
   </InspectorSection>
 }

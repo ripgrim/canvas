@@ -2,8 +2,11 @@ import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { config as loadEnvironment } from 'dotenv'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+loadEnvironment({ path: resolve(root, '.env'), quiet: true })
+loadEnvironment({ path: resolve(root, '.env.local'), quiet: true, override: true })
 const children = new Set()
 let stopping = false
 const launch = (command, args, cwd) => {

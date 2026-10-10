@@ -9,6 +9,8 @@ import { canvasGestures, resizeHandles } from './canvas-gestures'
 import { worldRectToScreen } from './canvas-math'
 import type { Rect } from './canvas-math'
 import { canvasCopy as copy } from './canvas-copy'
+import { canvasHudChrome, nodeHudGeometry, topHudFace } from './canvas-hud-painter'
+import type { HudOrientedRect } from './canvas-hud-painter'
 
 type StaticHudState = Pick<ReturnType<typeof documentStore.getSnapshot>, 'file' | 'pageId' | 'viewport' | 'viewportSize' | 'selection' | 'tool' | 'renaming'>
 let cachedSource: ReturnType<typeof documentStore.getSnapshot> | null = null
@@ -28,6 +30,7 @@ export function SelectionHud() {
   if (!state.file || !state.pageId) return null
   const scene = buildScene(state.file, state.pageId, geometry.nodes)
   const toScreen = (rect: Rect) => worldRectToScreen(rect, state.viewport, state.viewportSize)
+  const oriented = (id: string, rect: Rect): HudOrientedRect => nodeHudGeometry(scene.byId.get(id)!, rect, geometry.nodes[id], state.viewport, state.viewportSize)
   const liveRect = (id: string): Rect | null => scene.byId.get(id)?.rect ?? null
   const selected = state.selection.filter(id => scene.byId.has(id))
   const selectedRects = selected.map(id => liveRect(id)!).filter(Boolean)
@@ -45,9 +48,11 @@ export function SelectionHud() {
     {roots.map(node => {
       const rect = liveRect(node.id) ?? node.rect
       if (renamingNode?.id === node.id) return null
-      return <NodeLabel key={node.id} id={node.id} rect={toScreen(rect)} name={node.name} selected={selected.includes(node.id)} onPointerDown={event => { if (canvasGestures.labelPointerDown(event, node.id)) capture(event) }} {...handlers} onDoubleClick={() => documentStore.setRenaming(node.id)} />
+      const face = topHudFace(oriented(node.id, rect).quad)
+      const label = { x: face.start.x + face.normal.x * canvasHudChrome.labelGap, y: face.start.y + face.normal.y * canvasHudChrome.labelGap, width: Math.max(48, face.length), angle: face.angle }
+      return <NodeLabel key={node.id} id={node.id} pose={label} name={node.name} selected={selected.includes(node.id)} onPointerDown={event => { if (canvasGestures.labelPointerDown(event, node.id)) capture(event) }} {...handlers} onDoubleClick={() => documentStore.setRenaming(node.id)} />
     })}
-    {showHandles && selectedRects[0] && <ResizeHandles id={selected[0]!} rect={toScreen(selectedRects[0])} handles={resizeHandles} labelFor={handle => copy.resizeHandle(scene.byId.get(selected[0]!)!.name, handle)} onHandlePointerDown={(event, handle) => { if (canvasGestures.handlePointerDown(event, selected[0]!, handle as HandleName)) capture(event) }} {...handlers} />}
+    {showHandles && selectedRects[0] && (() => { const selection = oriented(selected[0]!, selectedRects[0]); return <ResizeHandles id={selected[0]!} rect={selection.base} rotation={scene.byId.get(selected[0]!)!.rotation} handles={resizeHandles} labelFor={handle => copy.resizeHandle(scene.byId.get(selected[0]!)!.name, handle)} onHandlePointerDown={(event, handle) => { if (canvasGestures.handlePointerDown(event, selected[0]!, handle as HandleName)) capture(event) }} {...handlers} /> })()}
     {renamingNode && (renamingNode.kind === 'text'
       ? <NodeLabelEditor id={renamingNode.id} rect={toScreen(renamingNode.rect)} value={(() => { const node = state.file!.nodes[renamingNode.id]; return node && node.type === 'text' ? node.text ?? '' : '' })()} label={copy.editText} multiline onCommit={value => { documentStore.commands.setText(renamingNode.id, value); documentStore.setRenaming(null) }} onCancel={() => documentStore.setRenaming(null)} />
       : <NodeLabelEditor id={renamingNode.id} rect={toScreen(renamingNode.rect)} value={renamingNode.name} label={copy.renameLabel(renamingNode.name)} multiline={false} onCommit={value => { documentStore.commands.rename(renamingNode.id, value); documentStore.setRenaming(null) }} onCancel={() => documentStore.setRenaming(null)} />)}

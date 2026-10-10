@@ -321,6 +321,17 @@ describe('portal ownership through the verified adapter in source mode', () => {
   }, 90_000)
   afterAll(async () => { await preview?.close() }, 30_000)
 
+  it('AT-PRV-001 mounts a newly inserted registered component as its real source export', async () => {
+    const document = source()
+    document.revision = 2
+    document.rootIds = [...document.rootIds, 'card-added']
+    document.nodes['card-added'] = { id: 'card-added', componentId: 'atom-card', exportName: 'Card', props: { heading: 'Added card' }, children: {}, theme: light }
+    await preview.send({ type: 'set-document', document })
+    await preview.frame.waitForSelector('section[data-preview-instance="card-added"][data-preview-component="atom-card"]')
+    const inserted = await preview.frame.locator('[data-preview-instance="card-added"]').evaluate(element => ({ tag: element.tagName.toLowerCase(), className: element.className, text: element.textContent }))
+    expect(inserted).toEqual({ tag: 'section', className: 'fixture-card', text: 'Added card' })
+  })
+
   it('CC-NT-013: a dialog portal opened from a dark card takes its owner theme, a child override wins, and releasing the claim restores the root', async () => {
     await preview.send({ type: 'set-document', document: darkLogin() })
     await probe(preview)

@@ -3,7 +3,7 @@ import { childrenOf as fileChildrenOf, pageRoot } from '@canvas/repo-engine/file
 import { documentStore } from './document-store'
 import type { CanvasTransient, MoveCommit } from './document-store'
 import { sceneGeometry } from './scene-geometry'
-import { buildScene, childrenOf, clickTarget, containingFrameAt, descendants, drillTarget, marqueeTargets, symmetricDifference } from './canvas-scene'
+import { ancestors, buildScene, childrenOf, clickTarget, containingFrameAt, descendants, drillTarget, marqueeTargets, symmetricDifference } from './canvas-scene'
 import type { Scene, SceneNode } from './canvas-scene'
 import { canvasCreationBounds } from './canvas-drawing'
 import { dragThresholdCss, flowInsertIndex, handleDragThresholdCss, normalizeRect, resizeRect, roundRect, screenToWorld, snapRect, snapThresholdCss } from './canvas-math'
@@ -19,7 +19,7 @@ type Base = { pointerId: number; startClient: Point; startWorld: Point; camera: 
 type Gesture =
   | (Base & { kind: 'pan'; startCamera: Camera })
   | (Base & { kind: 'marquee' })
-  | (Base & { kind: 'press'; target: SceneNode; deferred: boolean })
+  | (Base & { kind: 'press'; target: SceneNode; dragTarget: SceneNode; deferred: boolean })
   | (Base & { kind: 'move'; ids: string[]; startRects: Record<string, Rect>; flow: { id: string; parentId: string } | null })
   | (Base & { kind: 'draw'; elementKind: PrimitiveKind })
   | (Base & { kind: 'resize'; id: string; handle: ResizeHandle; startRect: Rect })
@@ -165,8 +165,17 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
       if (state.tool !== 'move' && state.tool !== 'scale') return false
       const target = clickTarget(base.scene, base.startWorld, state.selection, deep(event))
       if (!target) { gesture = { ...base, kind: 'marquee' }; return true }
-      if (state.selection.includes(target.id)) gesture = { ...base, kind: 'press', target, deferred: true }
-      else { store.select(target.id, { additive: event.shiftKey }); gesture = { ...base, kind: 'press', target, deferred: false } }
+      const selectedContainer = !event.shiftKey && !deep(event) && state.selection.length === 1
+        ? base.scene.byId.get(state.selection[0]!)
+        : undefined
+      const dragTarget = selectedContainer
+        && (selectedContainer.kind === 'frame' || selectedContainer.kind === 'component')
+        && ancestors(base.scene, target.id).some(node => node.id === selectedContainer.id)
+        ? selectedContainer
+        : target
+      const deferred = state.selection.includes(target.id) || dragTarget.id !== target.id
+      if (!deferred) store.select(target.id, { additive: event.shiftKey })
+      gesture = { ...base, kind: 'press', target, dragTarget, deferred }
       return true
     },
     /** Pointer down on a root label: Wonder drags the whole root from its label. */
@@ -177,7 +186,7 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
       const node = base.scene.byId.get(id)
       if (!node) return false
       if (!state.selection.includes(id)) store.select(id, { additive: event.shiftKey })
-      gesture = { ...base, kind: 'press', target: node, deferred: state.selection.includes(id) }
+      gesture = { ...base, kind: 'press', target: node, dragTarget: node, deferred: state.selection.includes(id) }
       return true
     },
     handlePointerDown: (event: PointerLike, id: string, handle: ResizeHandle): boolean => {
@@ -203,8 +212,8 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
       if (current.kind === 'press') {
         if (distance(current, event) < dragThresholdCss) return
         const state = store.getSnapshot()
-        const flow = current.target.flow && current.target.parentId ? { id: current.target.id, parentId: current.target.parentId } : null
-        const ids = flow ? [current.target.id] : (state.selection.includes(current.target.id) ? state.selection : [current.target.id]).filter(id => movable(current.scene, id))
+        const flow = current.dragTarget.flow && current.dragTarget.parentId ? { id: current.dragTarget.id, parentId: current.dragTarget.parentId } : null
+        const ids = flow ? [current.dragTarget.id] : (state.selection.includes(current.dragTarget.id) ? state.selection : [current.dragTarget.id]).filter(id => movable(current.scene, id))
         if (!ids.length) return
         gesture = beginMove(current, ids, flow)
         store.setHover(null)

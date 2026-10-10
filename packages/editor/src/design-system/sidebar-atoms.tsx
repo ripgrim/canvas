@@ -1,4 +1,5 @@
-import type { KeyboardEvent, ReactNode } from 'react'
+import { useRef } from 'react'
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import { Icon } from './atoms'
 import type { IconName } from './atoms'
 import './sidebar.css'
@@ -27,10 +28,11 @@ export function SidebarAction({ label, icon, disabled, reason, onSelect }: { lab
   return <button type="button" className="sidebar-action" aria-label={label} title={disabled && reason ? `${label}: ${reason}` : label} aria-disabled={disabled || undefined} onClick={() => { if (!disabled) onSelect?.() }}><Icon name={icon} /></button>
 }
 
-export function SidebarPageRow({ pageId, name, selected, onSelect }: { pageId?: string | undefined; name: string; selected: boolean; onSelect: () => void }) {
-  return <div role="button" tabIndex={0} className="sidebar-page-row" data-page-id={pageId} data-selected={selected ? 'true' : 'false'} aria-current={selected ? 'page' : undefined} onClick={onSelect} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect() } }}>
+export function SidebarPageRow({ pageId, name, selected, renaming = false, renameLabel, onSelect, onRename, onRenameCommit, onRenameCancel, onContextMenu }: { pageId?: string | undefined; name: string; selected: boolean; renaming?: boolean; renameLabel?: string; onSelect: () => void; onRename?: () => void; onRenameCommit?: (name: string) => void; onRenameCancel?: () => void; onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void }) {
+  const cancelled = useRef(false)
+  return <div role="button" tabIndex={renaming ? -1 : 0} className="sidebar-page-row" data-page-id={pageId} data-selected={selected ? 'true' : 'false'} aria-current={selected ? 'page' : undefined} onClick={onSelect} onDoubleClick={event => { event.stopPropagation(); onRename?.() }} onContextMenu={onContextMenu} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect() } if (event.key === 'F2' && onRename) { event.preventDefault(); onRename() } }}>
     <span className="sidebar-page-icon" aria-hidden="true"><Icon name="file" /></span>
-    <span className="sidebar-page-name">{name}</span>
+    {renaming ? <input className="sidebar-inline-name" aria-label={renameLabel} defaultValue={name} autoFocus maxLength={128} onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); onRenameCommit?.(event.currentTarget.value) } if (event.key === 'Escape') { event.preventDefault(); cancelled.current = true; onRenameCancel?.() } }} onBlur={event => { if (cancelled.current) { cancelled.current = false; return }; onRenameCommit?.(event.currentTarget.value) }} /> : <span className="sidebar-page-name">{name}</span>}
   </div>
 }
 

@@ -308,6 +308,12 @@ describe('AT-APP-003 and AT-SEC-003 appearance protocol', () => {
     expect(acceptPreviewCommand({ origin: 'http://127.0.0.1:4319', source: parent, data }, 'http://127.0.0.1:4319', parent, 4)).toBeNull()
   })
 
+  it('AT-DOC-002: accepts optional primitive flips and rejects non-boolean flip state', () => {
+    const { appearance: _appearance, ...plain } = element(undefined)
+    expect(isPreviewDocument({ ...fixtureDocument(), canvas: { elements: [{ ...plain, flipX: true, flipY: true }] } })).toBe(true)
+    expect(isPreviewDocument({ ...fixtureDocument(), canvas: { elements: [{ ...plain, flipX: 1 }] } })).toBe(false)
+  })
+
   it.each([
     ['unknown asset key', { 'photo-1': { mime: 'image/png', data: png, name: 'x' } }],
     ['svg mime', { 'photo-1': { mime: 'image/svg+xml', data: png } }],

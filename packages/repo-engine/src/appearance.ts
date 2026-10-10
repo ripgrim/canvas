@@ -2,7 +2,7 @@
  * Node appearance: blending (visibility, opacity, mix blend mode), ordered fills, one optional outline, and canonical
  * borders. Stored bottom-to-top for fills; logical defaults are omitted. Shared by primitives and component instances.
  */
-import { colorToCss, isColor } from './color.js'
+import { colorToCss, colorToHex, isColor } from './color.js'
 import type { Color } from './color.js'
 import { record, validId } from './document.js'
 
@@ -15,35 +15,42 @@ export type GradientInterpolation = 'oklab' | 'oklch' | 'srgb'
 export type StrokeStyle = 'solid' | 'dashed' | 'dotted'
 export type BorderSide = 'top' | 'bottom' | 'left' | 'right'
 export const borderSides: readonly BorderSide[] = ['top', 'bottom', 'left', 'right']
+export const cornerRadiusKeys = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as const
+export type CornerRadiusKey = typeof cornerRadiusKeys[number]
+export type CornerRadii = { all: number } | Record<CornerRadiusKey, number>
 export type ImageFit = 'cover' | 'contain' | 'stretch' | 'tile'
 export type ColorValue = { kind: 'literal'; color: Color } | { kind: 'token'; tokenId: string }
 export type GradientStop = { id: string; position: number; midpoint?: number; color: ColorValue }
-export type SolidPaint = { id: string; type: 'solid'; color: ColorValue; visible?: false; blendMode?: StoredBlendMode; cache?: PaintCache }
+export type SolidPaint = { id: string; type: 'solid'; color: ColorValue; opacity?: number; visible?: false; blendMode?: StoredBlendMode; cache?: PaintCache }
 export type GradientPaint = { id: string; type: 'gradient'; shape: GradientShape; angle: number; center: { x: number; y: number }; length: number; interpolation: GradientInterpolation; stops: GradientStop[]; visible?: false; blendMode?: StoredBlendMode; cache?: PaintCache }
 export type ImagePaint = { id: string; type: 'image'; assetId: string; fit: ImageFit; visible?: false; blendMode?: StoredBlendMode; cache?: PaintCache }
 export type Paint = SolidPaint | GradientPaint | ImagePaint
 /** Type-specific state kept when a fill switches type, so switching back restores what the user had. */
-export type PaintCache = { solid?: Pick<SolidPaint, 'color'>; gradient?: Pick<GradientPaint, 'shape' | 'angle' | 'center' | 'length' | 'interpolation' | 'stops'>; image?: Pick<ImagePaint, 'assetId' | 'fit'> }
+export type PaintCache = { solid?: Pick<SolidPaint, 'color' | 'opacity'>; gradient?: Pick<GradientPaint, 'shape' | 'angle' | 'center' | 'length' | 'interpolation' | 'stops'>; image?: Pick<ImagePaint, 'assetId' | 'fit'> }
 export type Stroke = { color: ColorValue; width: number; style: StrokeStyle; visible?: false }
 export type Outline = Stroke & { offset: number }
 /** Either one record for every side or individual sides, never both. */
 export type Borders = { all: Stroke } | { top?: Stroke; bottom?: Stroke; left?: Stroke; right?: Stroke }
-export type Appearance = { visible?: false; opacity?: number; blendMode?: StoredBlendMode; fills?: Paint[]; outline?: Outline; borders?: Borders }
+export type Appearance = { visible?: false; opacity?: number; blendMode?: StoredBlendMode; fills?: Paint[]; outline?: Outline; borders?: Borders; cornerRadii?: CornerRadii }
 export type ImageAsset = { id: string; name: string; mime: ImageMime; width: number; height: number; bytes: number; data: string }
 export const imageMimes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
 export type ImageMime = typeof imageMimes[number]
 export type AppearanceKind = 'frame' | 'rectangle' | 'shape' | 'shader' | 'text' | 'component'
-export type AppearanceSection = 'blending' | 'fill' | 'outline' | 'border'
+export type AppearanceSection = 'blending' | 'fill' | 'outline' | 'border' | 'radius'
 
-export const appearanceLimits = { fills: 16, stops: 16, width: 1000, offset: 1000, assetBytes: 1_500_000, assetDimension: 16_384 }
+export const appearanceLimits = { fills: 16, stops: 16, width: 1000, offset: 1000, radius: 100_000, assetBytes: 1_500_000, assetDimension: 16_384 }
 const own = (object: object, key: string) => Object.hasOwn(object, key)
 const finite = (value: unknown, min: number, max: number): value is number => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
 const fail = (message: string): never => { throw new Error(message) }
 function ensure(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message) }
 
+/** Corner radius is available only where the rendered DOM root owns a rectangular box. */
+export const supportsCornerRadii = (kind: AppearanceKind): boolean => ['frame', 'rectangle', 'shader', 'component'].includes(kind)
+
 /** Which sections a node kind exposes. Text has no outline or border; Paper uses a separate text stroke there. */
 export function eligibleSections(kind: AppearanceKind): readonly AppearanceSection[] {
-  return kind === 'text' ? ['blending', 'fill'] : ['blending', 'fill', 'outline', 'border']
+  if (kind === 'text') return ['blending', 'fill']
+  return ['blending', 'fill', 'outline', 'border', ...(supportsCornerRadii(kind) ? ['radius' as const] : [])]
 }
 
 export function isColorValue(value: unknown): value is ColorValue {
@@ -82,7 +89,12 @@ function validateGradientBody(value: Record<string, unknown>) {
 function validateCache(value: unknown) {
   ensure(record(value), 'Invalid fill cache')
   exact(value, [], ['solid', 'gradient', 'image'], 'fill cache')
-  if (own(value, 'solid')) { if (!record(value.solid) || Object.keys(value.solid).length !== 1 || !isColorValue(value.solid.color)) fail('Invalid fill cache') }
+  if (own(value, 'solid')) {
+    const solid = value.solid
+    ensure(record(solid), 'Invalid fill cache')
+    exact(solid, ['color'], ['opacity'], 'fill cache')
+    if (!isColorValue(solid.color) || own(solid, 'opacity') && (!finite(solid.opacity, 0, 1) || solid.opacity === 1)) fail('Invalid fill cache')
+  }
   if (own(value, 'gradient')) { ensure(record(value.gradient), 'Invalid fill cache'); exact(value.gradient, ['shape', 'angle', 'center', 'length', 'interpolation', 'stops'], [], 'fill cache'); validateGradientBody(value.gradient) }
   if (own(value, 'image')) { if (!record(value.image) || Object.keys(value.image).length !== 2 || !validId(value.image.assetId) || !['cover', 'contain', 'stretch', 'tile'].includes(value.image.fit as string)) fail('Invalid fill cache') }
 }
@@ -94,7 +106,11 @@ export function validatePaint(value: unknown): Paint {
   if (!validId(paint.id)) fail('Invalid fill identity')
   visibleField(paint, 'fill'); blendField(paint, 'fill')
   if (own(paint, 'cache')) validateCache(paint.cache)
-  if (paint.type === 'solid') { exact(paint, ['id', 'type', 'color'], optional, 'fill'); if (!isColorValue(paint.color)) fail('Invalid fill color') }
+  if (paint.type === 'solid') {
+    exact(paint, ['id', 'type', 'color'], [...optional, 'opacity'], 'fill')
+    if (!isColorValue(paint.color)) fail('Invalid fill color')
+    if (own(paint, 'opacity') && (!finite(paint.opacity, 0, 1) || paint.opacity === 1)) fail('Invalid fill opacity')
+  }
   else if (paint.type === 'gradient') { exact(paint, ['id', 'type', 'shape', 'angle', 'center', 'length', 'interpolation', 'stops'], optional, 'fill'); validateGradientBody(paint) }
   else if (paint.type === 'image') { exact(paint, ['id', 'type', 'assetId', 'fit'], optional, 'fill'); if (!validId(paint.assetId) || !['cover', 'contain', 'stretch', 'tile'].includes(paint.fit as string)) fail('Invalid image fill') }
   else fail('Unsupported fill type')
@@ -125,11 +141,19 @@ export function validateBorders(value: unknown): Borders {
   return value as unknown as Borders
 }
 
+export function validateCornerRadii(value: unknown): CornerRadii {
+  ensure(record(value), 'Invalid corner radii')
+  const keys = Object.keys(value)
+  if (keys.length === 1 && own(value, 'all') && finite(value.all, 0, appearanceLimits.radius)) return value as CornerRadii
+  if (keys.length !== cornerRadiusKeys.length || !cornerRadiusKeys.every(key => own(value, key) && finite(value[key], 0, appearanceLimits.radius))) fail('Invalid corner radii')
+  return value as CornerRadii
+}
+
 /** Validates the structure of an appearance record; token and asset existence are checked by the file validator. */
 export function validateAppearance(value: unknown, kind: AppearanceKind): Appearance {
   ensure(record(value), 'Invalid appearance')
   const sections = eligibleSections(kind)
-  exact(value, [], ['visible', 'opacity', 'blendMode', 'fills', 'outline', 'borders'], 'appearance')
+  exact(value, [], ['visible', 'opacity', 'blendMode', 'fills', 'outline', 'borders', 'cornerRadii'], 'appearance')
   visibleField(value, 'node'); blendField(value, 'node')
   if (own(value, 'opacity') && (!finite(value.opacity, 0, 1) || value.opacity === 1)) fail('Invalid node opacity')
   if (own(value, 'fills')) {
@@ -140,6 +164,7 @@ export function validateAppearance(value: unknown, kind: AppearanceKind): Appear
   }
   if (own(value, 'outline')) { if (!sections.includes('outline')) fail('This node has no outline'); validateOutline(value.outline) }
   if (own(value, 'borders')) { if (!sections.includes('border')) fail('This node has no borders'); validateBorders(value.borders) }
+  if (own(value, 'cornerRadii')) { if (!sections.includes('radius')) fail('This node has no corner radius'); validateCornerRadii(value.cornerRadii) }
   return value as unknown as Appearance
 }
 
@@ -174,7 +199,7 @@ export const assetReferences = (appearance: Appearance): string[] => (appearance
 export function mapAppearanceColors(appearance: Appearance, replace: (value: ColorValue) => ColorValue): Appearance {
   const stroke = (value: Stroke): Stroke => ({ ...value, color: replace(value.color) })
   const stops = (list: GradientStop[]) => list.map(stop => ({ ...stop, color: replace(stop.color) }))
-  const cache = (value: PaintCache | undefined): PaintCache | undefined => value ? { ...value, ...(value.solid ? { solid: { color: replace(value.solid.color) } } : {}), ...(value.gradient ? { gradient: { ...value.gradient, stops: stops(value.gradient.stops) } } : {}) } : undefined
+  const cache = (value: PaintCache | undefined): PaintCache | undefined => value ? { ...value, ...(value.solid ? { solid: { ...value.solid, color: replace(value.solid.color) } } : {}), ...(value.gradient ? { gradient: { ...value.gradient, stops: stops(value.gradient.stops) } } : {}) } : undefined
   const paint = (value: Paint): Paint => {
     const shared = value.cache ? { cache: cache(value.cache)! } : {}
     if (value.type === 'solid') return { ...value, color: replace(value.color), ...shared }
@@ -196,12 +221,18 @@ export function canonicalAppearance(input: Appearance | undefined): Appearance |
   if (input.outline) next.outline = canonicalStroke(input.outline) as Outline
   const borders = canonicalBorders(input.borders)
   if (borders) next.borders = borders
+  const cornerRadii = canonicalCornerRadii(input.cornerRadii)
+  if (cornerRadii) next.cornerRadii = cornerRadii
   return Object.keys(next).length ? next : undefined
 }
 const canonicalStroke = <T extends Stroke>(stroke: T): T => { const { visible, ...rest } = stroke; return (visible === false ? { ...rest, visible: false } : rest) as T }
 export function canonicalPaint(paint: Paint): Paint {
   const { visible, blendMode, cache, ...rest } = paint
   const cleanCache = cache && Object.keys(cache).length ? { cache } : {}
+  if (rest.type === 'solid') {
+    const { opacity, ...solid } = rest
+    return { ...solid, ...(opacity !== undefined && opacity !== 1 ? { opacity } : {}), ...(visible === false ? { visible: false } : {}), ...(blendMode && blendMode !== ('normal' as string) ? { blendMode } : {}), ...cleanCache }
+  }
   return { ...rest, ...(visible === false ? { visible: false } : {}), ...(blendMode && blendMode !== ('normal' as string) ? { blendMode } : {}), ...cleanCache } as Paint
 }
 /** An `all` record stays `all` and sides stay sides: four equal sides are the state before the user combines them. Empty records disappear. */
@@ -212,6 +243,22 @@ export function canonicalBorders(borders: Borders | undefined): Borders | undefi
   const present = borderSides.filter(side => sides[side])
   if (!present.length) return undefined
   return Object.fromEntries(present.map(side => [side, canonicalStroke(sides[side]!)])) as Borders
+}
+
+/** Four equal corners collapse to the compact `all` representation. Explicit zero overrides imported root styles. */
+export function canonicalCornerRadii(value: CornerRadii | undefined): CornerRadii | undefined {
+  if (!value) return undefined
+  if ('all' in value) return { all: value.all }
+  const first = value.topLeft
+  if (cornerRadiusKeys.every(key => value[key] === first)) return { all: first }
+  return Object.fromEntries(cornerRadiusKeys.map(key => [key, value[key]])) as Record<CornerRadiusKey, number>
+}
+
+/** Expands storage to four values in visual reading order. */
+export function expandedCornerRadii(value: CornerRadii | undefined): Record<CornerRadiusKey, number> {
+  if (!value) return { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 }
+  if ('all' in value) return { topLeft: value.all, topRight: value.all, bottomLeft: value.all, bottomRight: value.all }
+  return { topLeft: value.topLeft, topRight: value.topRight, bottomLeft: value.bottomLeft, bottomRight: value.bottomRight }
 }
 
 // Defaults and transitions --------------------------------------------------------------------------------------------
@@ -238,14 +285,15 @@ export function nextBorders(borders: Borders | undefined, stroke: Stroke = defau
 export function convertPaint(paint: Paint, type: Paint['type'], ids: () => string, resolveSecond: (color: ColorValue) => ColorValue): Paint {
   if (paint.type === type) return paint
   const cache: PaintCache = { ...(paint.cache ?? {}) }
-  if (paint.type === 'solid') cache.solid = { color: paint.color }
+  if (paint.type === 'solid') cache.solid = { color: paint.color, ...(paint.opacity !== undefined ? { opacity: paint.opacity } : {}) }
   else if (paint.type === 'gradient') cache.gradient = { shape: paint.shape, angle: paint.angle, center: paint.center, length: paint.length, interpolation: paint.interpolation, stops: paint.stops }
   else cache.image = { assetId: paint.assetId, fit: paint.fit }
   const shared = { id: paint.id, ...(paint.visible === false ? { visible: false as const } : {}), ...(paint.blendMode ? { blendMode: paint.blendMode } : {}), cache }
   if (type === 'solid') {
     const color = cache.solid?.color ?? (paint.type === 'gradient' ? [...paint.stops].sort((left, right) => left.position - right.position)[0]!.color : literal('#dddddd'))
+    const opacity = cache.solid?.opacity
     delete cache.solid
-    return { ...shared, type: 'solid', color }
+    return { ...shared, type: 'solid', color, ...(opacity !== undefined ? { opacity } : {}) }
   }
   if (type === 'gradient') {
     const body = cache.gradient ?? (paint.type === 'solid' ? defaultGradient(paint.color, resolveSecond(paint.color), [ids(), ids()]) : defaultGradient(literal('#dddddd'), literal('#a4a4a4'), [ids(), ids()]))
@@ -266,7 +314,17 @@ export type PreviewFill =
   | { type: 'gradient'; shape: GradientShape; angle: number; center: { x: number; y: number }; length: number; interpolation: GradientInterpolation; stops: PreviewStop[]; blendMode?: BlendMode }
   | { type: 'image'; assetId: string; fit: ImageFit; blendMode?: BlendMode }
 export type PreviewStroke = { color: string; width: number; style: StrokeStyle }
-export type PreviewAppearance = { visible?: false; opacity?: number; blendMode?: BlendMode; fills?: PreviewFill[]; outline?: PreviewStroke & { offset: number }; borders?: Partial<Record<BorderSide, PreviewStroke>> }
+export type PreviewAppearance = { visible?: false; opacity?: number; blendMode?: BlendMode; fills?: PreviewFill[]; outline?: PreviewStroke & { offset: number }; borders?: Partial<Record<BorderSide, PreviewStroke>>; cornerRadii?: CornerRadii }
+
+/** Multiplies an independent paint opacity into a color without changing the stored color or token. */
+export function applyColorOpacity(color: Color, opacity: number | undefined): Color {
+  if (opacity === undefined) return color
+  if (color.kind === 'oklch') return { ...color, alpha: (color.alpha ?? 1) * opacity }
+  const hex = colorToHex(color)
+  const rgb = hex.slice(0, 7)
+  const alpha = hex.length === 9 ? Number.parseInt(hex.slice(7), 16) / 255 : 1
+  return { kind: 'hex', hex: `${rgb}${Math.round(alpha * opacity * 255).toString(16).padStart(2, '0')}` }
+}
 
 /**
  * Render-ready appearance: colors resolved to CSS, hidden fills and strokes dropped, borders expanded to sides.
@@ -274,7 +332,7 @@ export type PreviewAppearance = { visible?: false; opacity?: number; blendMode?:
  */
 export function projectAppearance(appearance: Appearance | undefined, resolve: (value: ColorValue) => Color | null, hasAsset: (assetId: string) => boolean): PreviewAppearance | undefined {
   if (!appearance) return undefined
-  const css = (value: ColorValue) => { const color = resolve(value); return color ? colorToCss(color) : null }
+  const css = (value: ColorValue, opacity?: number) => { const color = resolve(value); return color ? colorToCss(applyColorOpacity(color, opacity)) : null }
   const out: PreviewAppearance = {}
   if (appearance.visible === false) out.visible = false
   if (appearance.opacity !== undefined) out.opacity = appearance.opacity
@@ -283,7 +341,7 @@ export function projectAppearance(appearance: Appearance | undefined, resolve: (
   for (const paint of appearance.fills ?? []) {
     if (paint.visible === false) continue
     const blend = paint.blendMode ? { blendMode: paint.blendMode } : {}
-    if (paint.type === 'solid') { const color = css(paint.color); if (color) fills.push({ type: 'solid', color, ...blend }) }
+    if (paint.type === 'solid') { const color = css(paint.color, paint.opacity); if (color) fills.push({ type: 'solid', color, ...blend }) }
     else if (paint.type === 'gradient') {
       const stops = [...paint.stops].sort((left, right) => left.position - right.position).map(stop => { const color = css(stop.color); return color ? { color, position: stop.position, ...(stop.midpoint !== undefined && stop.midpoint !== 0.5 ? { midpoint: stop.midpoint } : {}) } : null })
       if (stops.every(Boolean)) fills.push({ type: 'gradient', shape: paint.shape, angle: paint.angle, center: paint.center, length: paint.length, interpolation: paint.interpolation, stops: stops as PreviewStop[], ...blend })
@@ -298,6 +356,8 @@ export function projectAppearance(appearance: Appearance | undefined, resolve: (
     for (const side of borderSides) { const value = source[side]; const projected = value ? stroke(value) : null; if (projected) sides[side] = projected }
     if (Object.keys(sides).length) out.borders = sides
   }
+  const cornerRadii = canonicalCornerRadii(appearance.cornerRadii)
+  if (cornerRadii) out.cornerRadii = cornerRadii
   // An authored fill list whose fills are all hidden still projects (as an empty record) so text renders transparent, not the legacy ink.
   return Object.keys(out).length || appearance.fills ? out : undefined
 }

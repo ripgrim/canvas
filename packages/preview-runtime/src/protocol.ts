@@ -15,8 +15,9 @@ export type PreviewFill =
   | { type: 'image'; assetId: string; fit: 'cover' | 'contain' | 'stretch' | 'tile'; blendMode?: PreviewBlendMode }
 export type PreviewStroke = { color: string; width: number; style: 'solid' | 'dashed' | 'dotted' }
 export type PreviewBorderSide = 'top' | 'bottom' | 'left' | 'right'
+export type PreviewCornerRadii = { all: number } | { topLeft: number; topRight: number; bottomLeft: number; bottomRight: number }
 /** Render-ready appearance. Fills are in storage order, bottom to top. */
-export type PreviewAppearance = { visible?: false; opacity?: number; blendMode?: PreviewBlendMode; fills?: PreviewFill[]; outline?: PreviewStroke & { offset: number }; borders?: Partial<Record<PreviewBorderSide, PreviewStroke>> }
+export type PreviewAppearance = { visible?: false; opacity?: number; blendMode?: PreviewBlendMode; fills?: PreviewFill[]; outline?: PreviewStroke & { offset: number }; borders?: Partial<Record<PreviewBorderSide, PreviewStroke>>; cornerRadii?: PreviewCornerRadii }
 export const previewImageMimes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
 export type PreviewAsset = { mime: typeof previewImageMimes[number]; data: string }
 /** Effective design theme of one instance; `explicit` marks the root the theme layer stamps, the rest inherit through the DOM or a portal owner claim. */
@@ -31,7 +32,7 @@ export function isPreviewNodeTheme(value: unknown): value is PreviewNodeTheme {
   if (value.attribute !== null && (typeof value.attribute !== 'string' || !themeIdPattern.test(value.attribute))) return false
   return typeof value.explicit === 'boolean'
 }
-export type PreviewCanvasElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; x: number; y: number; width: number; height: number; rotation: number; text?: string; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance }
+export type PreviewCanvasElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; x: number; y: number; width: number; height: number; rotation: number; flipX?: boolean; flipY?: boolean; text?: string; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance }
 export type PreviewDocument = { version: 1; revision: number; rootIds: string[]; nodes: Record<string, PreviewDocumentNode>; frame: { width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean; name?: string }; canvas?: { elements: PreviewCanvasElement[] }; background?: string; assets?: Record<string, PreviewAsset> }
 export type PreviewRegistryBinding = { componentId: string; exportName: string; entryPath: string }
 /** The design theme applied to the preview document root. `attribute` becomes `data-theme`; null clears it for the base theme. */
@@ -106,7 +107,7 @@ const oneOf = (value: unknown, options: readonly string[]) => typeof value === '
 const blendField = (value: Record<string, unknown>) => !Object.hasOwn(value, 'blendMode') || oneOf(value.blendMode, previewBlendModes)
 /** Required keys must all be present; every other key must be one of the optional keys. */
 const shape = (value: Record<string, unknown>, required: string[], optional: string[] = []) => required.every(key => Object.hasOwn(value, key)) && Object.keys(value).every(key => required.includes(key) || optional.includes(key))
-export const previewAppearanceLimits = { fills: 16, stops: 16, strokeWidth: 1000, outlineOffset: 1000, assets: 64, assetData: 2_000_004 }
+export const previewAppearanceLimits = { fills: 16, stops: 16, strokeWidth: 1000, outlineOffset: 1000, radius: 100_000, assets: 64, assetData: 2_000_004 }
 
 function isPreviewStroke(value: unknown, outline: boolean): boolean {
   if (!record(value) || !shape(value, ['color', 'width', 'style', ...(outline ? ['offset'] : [])])) return false
@@ -129,9 +130,16 @@ function isPreviewPaint(value: unknown, assets: Record<string, unknown> | undefi
   return stops.every((stop, index) => index === 0 || stop.position >= stops[index - 1]!.position)
 }
 
+function isPreviewCornerRadii(value: unknown): value is PreviewCornerRadii {
+  if (!record(value)) return false
+  if (shape(value, ['all'])) return numberWithin(value.all, 0, previewAppearanceLimits.radius)
+  return shape(value, ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'])
+    && [value.topLeft, value.topRight, value.bottomLeft, value.bottomRight].every(radius => numberWithin(radius, 0, previewAppearanceLimits.radius))
+}
+
 /** Validates a render-ready appearance. Image fills must name an asset present in `assets`. Text has no outline or borders. */
 export function isPreviewAppearance(value: unknown, assets: Record<string, unknown> | undefined, kind: PreviewCanvasElement['kind'] | 'component' = 'component'): value is PreviewAppearance {
-  if (!record(value) || !shape(value, [], ['visible', 'opacity', 'blendMode', 'fills', 'outline', 'borders'])) return false
+  if (!record(value) || !shape(value, [], ['visible', 'opacity', 'blendMode', 'fills', 'outline', 'borders', 'cornerRadii'])) return false
   if (Object.hasOwn(value, 'visible') && value.visible !== false) return false
   if (Object.hasOwn(value, 'opacity') && !numberWithin(value.opacity, 0, 1)) return false
   if (!blendField(value)) return false
@@ -142,6 +150,7 @@ export function isPreviewAppearance(value: unknown, assets: Record<string, unkno
     const borders = value.borders
     if (!record(borders) || Object.keys(borders).length < 1 || !shape(borders, [], ['top', 'bottom', 'left', 'right']) || !Object.values(borders).every(side => isPreviewStroke(side, false))) return false
   }
+  if (Object.hasOwn(value, 'cornerRadii') && (!['component', 'frame', 'rectangle', 'shader'].includes(kind) || !isPreviewCornerRadii(value.cornerRadii))) return false
   return true
 }
 
@@ -169,11 +178,13 @@ function validFixtureProp(exportName: string, name: string, value: unknown): boo
 
 export function isPreviewCanvasElement(value: unknown, assets?: Record<string, unknown>): value is PreviewCanvasElement {
   if (!record(value)) return false
-  const optional = ['text', 'clip', 'appearance'].filter(name => Object.hasOwn(value, name))
+  const optional = ['flipX', 'flipY', 'text', 'clip', 'appearance'].filter(name => Object.hasOwn(value, name))
   if (!exactFields(value, ['id', 'kind', 'name', 'x', 'y', 'width', 'height', 'rotation', 'parentId', ...optional])) return false
   if (!validId(value.id) || !['frame', 'rectangle', 'shape', 'shader', 'text'].includes(value.kind as string) || !validName(value.name)) return false
   if (!finiteWithin(value.x, coordinateLimit) || !finiteWithin(value.y, coordinateLimit) || !finiteWithin(value.rotation, coordinateLimit)) return false
   if (!finiteWithin(value.width, coordinateLimit) || !finiteWithin(value.height, coordinateLimit) || (value.width as number) < 1 || (value.height as number) < 1) return false
+  if (Object.hasOwn(value, 'flipX') && typeof value.flipX !== 'boolean') return false
+  if (Object.hasOwn(value, 'flipY') && typeof value.flipY !== 'boolean') return false
   if (Object.hasOwn(value, 'appearance') && !isPreviewAppearance(value.appearance, assets, value.kind as PreviewCanvasElement['kind'])) return false
   if (Object.hasOwn(value, 'text') && (typeof value.text !== 'string' || value.text.length > 10_000)) return false
   if (value.kind === 'text' ? typeof value.text !== 'string' : Object.hasOwn(value, 'text')) return false

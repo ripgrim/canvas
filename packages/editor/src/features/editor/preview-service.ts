@@ -97,7 +97,7 @@ export function createPreviewConnection() {
     const document = documentStore.getSnapshot()
     const preview = state.snapshot?.preview
     if (geometryGeneration !== (preview?.activeGeneration ?? null)) { geometryGeneration = preview?.activeGeneration ?? null; cancelTransientFrame(); transientSignature = '[]'; sceneGeometry.clear() }
-    if (!state.previewReady || !target || !preview?.origin || preview.activeGeneration === null) return
+    if (!state.previewReady || !target || !preview?.origin || preview.activeGeneration === null) { sceneGeometry.clear(); return }
     const envelope = { channel: 'design-editor-preview', version: protocolVersion, generation: preview.activeGeneration } as const
     const camera = { x: document.viewport.x, y: document.viewport.y, zoom: document.viewport.zoom, width: document.viewportSize.width, height: document.viewportSize.height }
     const nextCamera = JSON.stringify(camera)
@@ -170,6 +170,16 @@ export function createPreviewConnection() {
     },
     stop: () => { window.removeEventListener('message', handleMessage); stopEditor?.(); stopDocument?.(); stopEditor = undefined; stopDocument = undefined; listening = false; cancelTransientFrame(); target = null; signature = ''; cameraSignature = ''; transientSignature = '[]'; geometryGeneration = null; sceneGeometry.clear(); documentStore.setEditPolicy(undefined) },
     sync,
+    disconnect: () => {
+      target = null
+      sceneGeometry.clear()
+      documentStore.setEditPolicy(undefined)
+      signature = ''
+      cameraSignature = ''
+      cancelTransientFrame()
+      transientSignature = '[]'
+      editorStore.set({ previewReady: false, runtimeInstanceIds: null })
+    },
     connect: (frame: Window | null) => {
       target = frame
       sceneGeometry.clear()

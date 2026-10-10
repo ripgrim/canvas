@@ -73,7 +73,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
   const container = document.getElementById('preview-root')
   let props = initialProps
   if (sourceDocument && !isPreviewDocument(sourceDocument, registry)) throw new Error('Invalid source binding document')
-  if (sourceDocument) configureSourceBindings(sourceDocument)
+  if (sourceDocument) configureSourceBindings(sourceDocument, registry)
   let editorDocument = sourceDocument
   let interactionMode = 'interact'
   let selectedNodeIds = []

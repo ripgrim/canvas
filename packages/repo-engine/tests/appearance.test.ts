@@ -17,8 +17,8 @@ const pixel = (): ImageAsset => ({ id: 'img', name: 'Pixel', mime: 'image/png', 
 const full = (): Appearance => ({
   visible: false, opacity: 0.4, blendMode: 'multiply',
   fills: [
-    { id: 'f1', type: 'solid', color: lit('#112233'), blendMode: 'screen', cache: { gradient: gradientBody(), image: { assetId: 'img', fit: 'tile' } } },
-    { id: 'f2', type: 'gradient', ...gradientBody(), visible: false, cache: { solid: { color: tok('brand') }, image: { assetId: 'img', fit: 'stretch' } } },
+    { id: 'f1', type: 'solid', color: lit('#112233'), opacity: 0.65, blendMode: 'screen', cache: { gradient: gradientBody(), image: { assetId: 'img', fit: 'tile' } } },
+    { id: 'f2', type: 'gradient', ...gradientBody(), visible: false, cache: { solid: { color: tok('brand'), opacity: 0.4 }, image: { assetId: 'img', fit: 'stretch' } } },
     { id: 'f3', type: 'image', assetId: 'img', fit: 'contain', cache: { solid: { color: lit('#abcdef') }, gradient: gradientBody() } },
   ],
   outline: { color: lit('#ff0000'), width: 2, style: 'dashed', offset: -3, visible: false },
@@ -68,7 +68,11 @@ describe('appearance validation', () => {
     ['a stored normal fill blend mode', value => { value.fills[0]!.blendMode = 'normal' }, 'Invalid fill blend mode'],
     ['an unknown blend mode', value => { value.blendMode = 'add' }, 'Invalid node blend mode'],
     ['an unknown appearance key', value => { value.shadow = 1 }, 'Unsupported appearance field'],
-    ['an unknown fill key', value => { value.fills[0]!.opacity = 0.5 }, 'Unsupported fill field'],
+    ['a stored fill opacity of 1', value => { value.fills[0]!.opacity = 1 }, 'Invalid fill opacity'],
+    ['a fill opacity above 1', value => { value.fills[0]!.opacity = 1.5 }, 'Invalid fill opacity'],
+    ['a negative fill opacity', value => { value.fills[0]!.opacity = -0.1 }, 'Invalid fill opacity'],
+    ['opacity on a gradient', value => { value.fills[1]!.opacity = 0.5 }, 'Unsupported fill field'],
+    ['an unknown fill key', value => { value.fills[0]!.blur = 0.5 }, 'Unsupported fill field'],
     ['an unknown stop key', value => { (gradientFill(value).stops as Record<string, unknown>[])[0]!.alpha = 1 }, 'Unsupported gradient stop field'],
     ['an unknown cache key', value => { (value.fills[0]!.cache as Record<string, unknown>).pattern = {} }, 'Unsupported fill cache field'],
     ['an offset on a border', value => { value.borders = { all: { ...stroke('#000000'), offset: 1 } } }, 'Unsupported border field'],
@@ -100,6 +104,7 @@ describe('appearance validation', () => {
     ['an image fill with an unknown fit', value => { value.fills[2]!.fit = 'fill' }, 'Invalid image fill'],
     ['a malformed literal color', value => { value.fills[0]!.color = { kind: 'literal', color: { kind: 'hex', hex: 'red' } } }, 'Invalid fill color'],
     ['a malformed cached image', value => { (value.fills[0]!.cache as Record<string, unknown>).image = { assetId: 'img', fit: 'fill' } }, 'Invalid fill cache'],
+    ['a default cached fill opacity', value => { (value.fills[1]!.cache as Record<string, unknown>).solid = { color: tok('brand'), opacity: 1 } }, 'Invalid fill cache'],
   ]
   it.each(rejects)('rejects %s', (_label, change, message) => {
     expect(thrown(() => validateAppearance(mutate(change), 'frame'))).toBe(message)
@@ -146,6 +151,11 @@ describe('appearance canonicalization', () => {
     expect(hidden).toStrictEqual({ fills: [{ id: 'f', type: 'solid', color: lit('#000000'), visible: false }] })
     const outline = canonicalAppearance({ outline: { ...stroke('#000000'), offset: 2, visible: undefined } as unknown as Outline })
     expect(outline).toStrictEqual({ outline: { color: lit('#000000'), width: 1, style: 'solid', offset: 2 } })
+  })
+
+  it('keeps a non-default solid opacity and drops the logical default', () => {
+    expect(canonicalAppearance({ fills: [{ id: 'f', type: 'solid', color: tok('brand'), opacity: 0.65 }] })).toStrictEqual({ fills: [{ id: 'f', type: 'solid', color: tok('brand'), opacity: 0.65 }] })
+    expect(canonicalAppearance({ fills: [{ id: 'f', type: 'solid', color: tok('brand'), opacity: 1 }] })).toStrictEqual({ fills: [{ id: 'f', type: 'solid', color: tok('brand') }] })
   })
 
   it('keeps every non-default field of a full record', () => {
@@ -207,17 +217,17 @@ describe('fill type conversion', () => {
   const counter = () => { let next = 0; const ids = () => `g${++next}`; return Object.assign(ids, { count: () => next }) }
 
   it('turns a solid into a default gradient from the color and the resolved second stop, caching the solid', () => {
-    const solid: Paint = { id: 'f1', type: 'solid', color: lit('#336699'), visible: false, blendMode: 'overlay' }
+    const solid: Paint = { id: 'f1', type: 'solid', color: lit('#336699'), opacity: 0.65, visible: false, blendMode: 'overlay' }
     const ids = counter()
     const seen: ColorValue[] = []
     const result = convertPaint(solid, 'gradient', ids, color => { seen.push(color); return lit('#aabbcc') })
     expect(result).toStrictEqual({
-      id: 'f1', visible: false, blendMode: 'overlay', cache: { solid: { color: lit('#336699') } },
+      id: 'f1', visible: false, blendMode: 'overlay', cache: { solid: { color: lit('#336699'), opacity: 0.65 } },
       type: 'gradient', shape: 'linear', angle: 180, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'oklab',
       stops: [{ id: 'g1', position: 0, midpoint: 0.5, color: lit('#336699') }, { id: 'g2', position: 1, midpoint: 0.5, color: lit('#aabbcc') }],
     })
     expect(seen).toEqual([lit('#336699')])
-    expect(solid).toStrictEqual({ id: 'f1', type: 'solid', color: lit('#336699'), visible: false, blendMode: 'overlay' })
+    expect(solid).toStrictEqual({ id: 'f1', type: 'solid', color: lit('#336699'), opacity: 0.65, visible: false, blendMode: 'overlay' })
   })
 
   it('restores the cached solid when converting a gradient back, and the cached gradient after that', () => {
@@ -354,5 +364,11 @@ describe('appearance projection', () => {
     expect(projectAppearance(undefined, resolve, hasAsset)).toBeUndefined()
     expect(projectAppearance({}, resolve, hasAsset)).toBeUndefined()
     expect(projectAppearance({ borders: { top: { ...stroke('#000000'), visible: false } } }, resolve, hasAsset)).toBeUndefined()
+  })
+
+  it('multiplies a solid fill override into the resolved color alpha without changing the token', () => {
+    const appearance: Appearance = { fills: [{ id: 'brand', type: 'solid', color: tok('brand'), opacity: 0.65 }, { id: 'scrim', type: 'solid', color: lit('#11223380'), opacity: 0.5 }] }
+    expect(projectAppearance(appearance, resolve, hasAsset)).toStrictEqual({ fills: [{ type: 'solid', color: '#3366cca6' }, { type: 'solid', color: '#11223340' }] })
+    expect(appearance).toStrictEqual({ fills: [{ id: 'brand', type: 'solid', color: tok('brand'), opacity: 0.65 }, { id: 'scrim', type: 'solid', color: lit('#11223380'), opacity: 0.5 }] })
   })
 })

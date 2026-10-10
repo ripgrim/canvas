@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { contentSecurityPolicy, hostedContentSecurityPolicy, isTrustedSender, parseRepositoryRequest, secureWebPreferences } from '../src/main/policy'
+import { contentSecurityPolicy, hostedContentSecurityPolicy, isTrustedSender, parseAuthRequest, parseRepositoryConnectionRequest, parseRepositoryRequest, secureWebPreferences } from '../src/main/policy'
 
 describe('Electron policy', () => {
   it('requires the expected main frame, the editor origin (any route path), and the owning window', () => {
@@ -33,7 +33,10 @@ describe('Electron policy', () => {
   })
 
   it('permits narrowly typed source operations', () => {
+    expect(parseRepositoryRequest({ method: 'listFiles', args: [] })).toEqual({ method: 'listFiles', args: [] })
+    expect(parseRepositoryRequest({ method: 'openFile', args: ['fixture-project'] })).toEqual({ method: 'openFile', args: ['fixture-project'] })
     expect(parseRepositoryRequest({ method: 'inspectFixture', args: [] })).toEqual({ method: 'inspectFixture', args: [] })
+    expect(parseRepositoryRequest({ method: 'scanShadcn', args: [] })).toEqual({ method: 'scanShadcn', args: [] })
     expect(parseRepositoryRequest({ method: 'prepareLabelPadding', args: ['12px'] })).toEqual({ method: 'prepareLabelPadding', args: ['12px'] })
     expect(parseRepositoryRequest({ method: 'prepareToken', args: ['#ff00aa'] })).toEqual({ method: 'prepareToken', args: ['#ff00aa'] })
     expect(parseRepositoryRequest({ method: 'preparePromotion', args: ['LoginPanel'] })).toEqual({ method: 'preparePromotion', args: ['LoginPanel'] })
@@ -41,6 +44,30 @@ describe('Electron policy', () => {
     expect(parseRepositoryRequest({ method: 'refresh', args: [] })).toEqual({ method: 'refresh', args: [] })
     expect(parseRepositoryRequest({ method: 'prepareUndo', args: ['transaction-1'] })).toEqual({ method: 'prepareUndo', args: ['transaction-1'] })
     expect(parseRepositoryRequest({ method: 'prepareRedo', args: ['transaction-2'] })).toEqual({ method: 'prepareRedo', args: ['transaction-2'] })
+  })
+
+  it('permits only bounded repository connection operations', () => {
+    expect(parseRepositoryConnectionRequest({ method: 'pickLocal', args: [] })).toEqual({ method: 'pickLocal', args: [] })
+    expect(parseRepositoryConnectionRequest({ method: 'getCurrent', args: [] })).toEqual({ method: 'getCurrent', args: [] })
+    expect(parseRepositoryConnectionRequest({ method: 'scanCurrent', args: [] })).toEqual({ method: 'scanCurrent', args: [] })
+    expect(parseRepositoryConnectionRequest({ method: 'cloneGitHub', args: [{ owner: 'shadcn-ui', name: 'ui' }] })).toEqual({ method: 'cloneGitHub', args: [{ owner: 'shadcn-ui', name: 'ui' }] })
+    for (const input of [
+      { method: 'pickLocal', args: ['C:\\private'] },
+      { method: 'cloneGitHub', args: [{ owner: '../escape', name: 'repo' }] },
+      { method: 'cloneGitHub', args: [{ owner: 'owner', name: 'repo', url: 'https://attacker.test' }] },
+      { method: 'cloneGitHub', args: [{ owner: 'owner', name: 'repo;calc' }] },
+      { method: 'cloneGitHub', args: [{ owner: 'owner', name: 'repo' }], root: 'C:\\private' },
+    ]) expect(() => parseRepositoryConnectionRequest(input)).toThrow()
+  })
+
+  it('permits only renderer-safe auth commands without payloads', () => {
+    for (const method of ['getSession', 'signInWithGitHub', 'signOut'] as const) expect(parseAuthRequest({ method, args: [] })).toEqual({ method, args: [] })
+    for (const input of [
+      { method: 'authenticate', args: ['token'] },
+      { method: 'signInWithGitHub', args: ['https://attacker.test'] },
+      { method: 'getCookie', args: [] },
+      { method: 'getSession', args: [], extra: true },
+    ]) expect(() => parseAuthRequest(input)).toThrow('Invalid auth command.')
   })
 
   it('allows only canonical SHA-256 script hashes in the production policy', () => {

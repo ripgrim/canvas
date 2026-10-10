@@ -20,7 +20,7 @@ export * from './appearance.js'
 export const fileSchemaVersion = 6 as const
 export type PrimitiveKind = 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'
 export const primitiveKinds: readonly PrimitiveKind[] = ['frame', 'rectangle', 'shape', 'shader', 'text']
-export type PrimitiveStyles = { left: number; top: number; width: number; height: number; rotation?: number; overflow?: 'clip' | 'visible' }
+export type PrimitiveStyles = { left: number; top: number; width: number; height: number; rotation?: number; flipX?: boolean; flipY?: boolean; overflow?: 'clip' | 'visible' }
 export type RootNode = { id: string; type: 'root' }
 /**
  * `themeMode` is the stored per-node theme choice (schema v5). Migration and insertion write it explicitly; a node
@@ -67,10 +67,12 @@ const sourceProperty = (value: unknown): value is string => typeof value === 'st
 
 function validateStyles(value: unknown, kind: PrimitiveKind): value is PrimitiveStyles {
   if (!record(value)) return false
-  fields(value, ['left', 'top', 'width', 'height', ...(own(value, 'rotation') ? ['rotation'] : []), ...(own(value, 'overflow') ? ['overflow'] : [])], 'node styles')
+  fields(value, ['left', 'top', 'width', 'height', ...(own(value, 'rotation') ? ['rotation'] : []), ...(own(value, 'flipX') ? ['flipX'] : []), ...(own(value, 'flipY') ? ['flipY'] : []), ...(own(value, 'overflow') ? ['overflow'] : [])], 'node styles')
   if (!finite(value.left, -limits.coordinate, limits.coordinate) || !finite(value.top, -limits.coordinate, limits.coordinate)) return false
   if (!finite(value.width, 1, limits.coordinate) || !finite(value.height, 1, limits.coordinate)) return false
   if (own(value, 'rotation') && !finite(value.rotation, -limits.coordinate, limits.coordinate)) return false
+  if (own(value, 'flipX') && typeof value.flipX !== 'boolean') return false
+  if (own(value, 'flipY') && typeof value.flipY !== 'boolean') return false
   if (own(value, 'overflow') && (kind !== 'frame' || !['clip', 'visible'].includes(value.overflow as string))) return false
   return true
 }

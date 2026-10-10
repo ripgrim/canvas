@@ -30,6 +30,15 @@ try {
   assert.equal(await menu.getByRole('menuitem', { name: 'Copy Ctrl+C' }).isEnabled(), true)
   await page.screenshot({ path: join(evidenceRoot, 'layer-context-menu.png') })
 
+  // AT-CAN-005 / AT-UX-002: the first Escape belongs to the menu and preserves selection; the next reaches the editor.
+  await page.keyboard.press('Escape')
+  await menu.waitFor({ state: 'hidden' })
+  assert.equal(await tree.locator('[role="treeitem"][aria-selected="true"]').count(), 1, 'closing the menu keeps the node selected')
+  await page.keyboard.press('Escape')
+  assert.equal(await tree.locator('[role="treeitem"][aria-selected="true"]').count(), 0, 'a second Escape clears editor selection')
+  await layer.click({ button: 'right' })
+  await menu.waitFor()
+
   await menu.getByRole('menuitem', { name: 'Copy Ctrl+C' }).click()
   await layer.click({ button: 'right' })
   assert.equal(await menu.getByRole('menuitem', { name: 'Paste on top Ctrl+Shift+V' }).isEnabled(), true)

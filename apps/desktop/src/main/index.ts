@@ -1,9 +1,9 @@
-import { app, BrowserWindow, ipcMain, protocol, session } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, protocol, session } from 'electron'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { repositoryChannel } from '../preload/contracts'
-import type { RepositoryResponse } from '../preload/contracts'
-import { contentSecurityPolicy, hostedContentSecurityPolicy, isTrustedSender, parseRepositoryRequest, secureWebPreferences } from './policy'
+import { authChannel, authSessionChangedChannel, repositoryChannel, repositoryConnectionChannel } from '../preload/contracts'
+import type { AuthResponse, RepositoryConnectionResponse, RepositoryResponse } from '../preload/contracts'
+import { contentSecurityPolicy, hostedContentSecurityPolicy, isTrustedSender, parseAuthRequest, parseRepositoryConnectionRequest, parseRepositoryRequest, secureWebPreferences } from './policy'
 import { localCapabilityArguments, resolveEditorTarget } from './web-target'
 import { RepositoryProcess } from './repo-process'
 import { bundledAssetResponse, bundledScriptHashes } from './assets'
@@ -12,16 +12,60 @@ import { createDocument } from '@canvas/repo-engine/document'
 import { createPreviewRuntime } from '@canvas/preview-runtime'
 import type { PreviewBinding } from '@canvas/preview-runtime'
 import type { ProjectSnapshot, SaveResult } from '@canvas/repo-engine'
+import { RepositoryConnections } from './repository-connections'
+import { createElectronAuthClient } from '@canvas/auth/electron'
+import { canAccessAuthenticatedProject, DesktopAuthService } from './auth-service'
+import { authCallbackFromArguments, desktopAuthCallbackPath, desktopAuthClientOptions, desktopAuthScheme } from './auth-config'
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'design-editor', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }])
 
 const directory = dirname(fileURLToPath(import.meta.url))
 const development = process.argv.includes('--development') && !app.isPackaged
+const smoke = process.env.DESIGN_EDITOR_SMOKE === '1'
 let repository: RepositoryProcess | undefined
+let repositoryConnections: RepositoryConnections | undefined
+let authService: DesktopAuthService | undefined
+let editorWindow: BrowserWindow | undefined
 let preview: ReturnType<typeof createPreviewRuntime> | undefined
 let shutdown: Promise<void> | undefined
 let shutdownComplete = false
 const retiredPreviews = new Map<number, string>()
+const pendingAuthCallbacks: string[] = []
+
+function routeAuthCallback(url: string): void {
+  const service = authService
+  const window = editorWindow
+  if (!service || !window || window.isDestroyed()) {
+    pendingAuthCallbacks.splice(0, pendingAuthCallbacks.length, url)
+    return
+  }
+  void service.handleCallback(url, window.id).catch(() => { service.rejectCallback() })
+}
+
+function registerAuthProtocol(): void {
+  if (process.defaultApp && process.argv[1]) app.setAsDefaultProtocolClient(desktopAuthScheme, process.execPath, [resolve(process.argv[1]), ...(development ? ['--development'] : [])])
+  else app.setAsDefaultProtocolClient(desktopAuthScheme)
+}
+
+registerAuthProtocol()
+const primaryInstance = app.requestSingleInstanceLock()
+if (!primaryInstance) app.quit()
+else {
+  const initialAuthCallback = authCallbackFromArguments(process.argv)
+  if (initialAuthCallback) pendingAuthCallbacks.push(initialAuthCallback)
+  app.on('second-instance', (_event, commandLine) => {
+    if (editorWindow && !editorWindow.isDestroyed()) {
+      if (editorWindow.isMinimized()) editorWindow.restore()
+      editorWindow.focus()
+    }
+    const callback = authCallbackFromArguments(commandLine)
+    if (callback) routeAuthCallback(callback)
+  })
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    if (url.startsWith(`${desktopAuthScheme}:`)) routeAuthCallback(url)
+  })
+}
 
 async function rebuildPreview(snapshot: ProjectSnapshot): Promise<void> {
   if (!preview) return
@@ -34,6 +78,10 @@ function disposeServices(): Promise<void> {
   if (shutdown) return shutdown
   repository?.dispose()
   repository = undefined
+  repositoryConnections?.dispose()
+  repositoryConnections = undefined
+  authService?.dispose()
+  authService = undefined
   const activePreview = preview
   preview = undefined
   shutdown = activePreview?.dispose() ?? Promise.resolve()
@@ -59,17 +107,21 @@ async function createEditor(): Promise<void> {
   const target = resolveEditorTarget(process.env.DESIGN_EDITOR_WEB_URL, development)
   const editorUrl = target.url
   if (target.localCapabilities) {
-    const fixtureRoot = await resolveFixtureGrant({
-      defaultRoot: resolve(directory, '../../../../fixtures/component-repo'),
-      argv: process.argv,
-      smokeEnabled: process.env.DESIGN_EDITOR_SMOKE === '1',
-      packaged: app.isPackaged,
-    })
-    repository = new RepositoryProcess(resolve(directory, 'repo-worker.js'), fixtureRoot)
-    await repository.start()
-    const initialSnapshot = await repository.execute({ method: 'inspectFixture', args: [] }) as ProjectSnapshot
-    preview = createPreviewRuntime({ repositoryRoot: fixtureRoot, editorOrigin: target.origin, executionTrust: 'fixture-only' })
-    await preview.start(previewBinding(initialSnapshot))
+    repositoryConnections = new RepositoryConnections(app.getPath('userData'), resolve(directory, 'scan-worker.js'))
+    await repositoryConnections.start()
+    if (process.env.DESIGN_EDITOR_SMOKE === '1') {
+      const fixtureRoot = await resolveFixtureGrant({
+        defaultRoot: resolve(directory, '../../../../fixtures/component-repo'),
+        argv: process.argv,
+        smokeEnabled: true,
+        packaged: app.isPackaged,
+      })
+      repository = new RepositoryProcess(resolve(directory, 'repo-worker.js'), fixtureRoot)
+      await repository.start()
+      const initialSnapshot = await repository.execute({ method: 'inspectFixture', args: [] }) as ProjectSnapshot
+      preview = createPreviewRuntime({ repositoryRoot: fixtureRoot, editorOrigin: target.origin, executionTrust: 'fixture-only' })
+      await preview.start(previewBinding(initialSnapshot))
+    }
   }
   const csp = target.localCapabilities ? contentSecurityPolicy(target.development, preview?.snapshot().origin ?? null, target.development ? [] : await bundledScriptHashes(resolve(directory, '../renderer'))) : hostedContentSecurityPolicy()
   const editorSession = session.fromPartition(target.localCapabilities ? 'persist:design-editor-shell' : 'design-editor-hosted')
@@ -98,6 +150,14 @@ async function createEditor(): Promise<void> {
       ...(target.localCapabilities ? { preload: resolve(directory, '../preload/index.cjs'), additionalArguments: localCapabilityArguments(target) } : {}),
     },
   })
+  editorWindow = window
+  const authOptions = desktopAuthClientOptions(process.env, development)
+  authService = new DesktopAuthService({
+    client: authOptions ? createElectronAuthClient(authOptions) : null,
+    target: { scheme: desktopAuthScheme, path: desktopAuthCallbackPath },
+  })
+  authService.subscribe(value => { if (!window.isDestroyed()) window.webContents.send(authSessionChangedChannel, value) })
+  await authService.start()
   window.removeMenu()
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())
@@ -115,16 +175,21 @@ async function createEditor(): Promise<void> {
     }
   })
   ipcMain.removeHandler(repositoryChannel)
+  ipcMain.removeHandler(repositoryConnectionChannel)
+  ipcMain.removeHandler(authChannel)
   if (target.localCapabilities) ipcMain.handle(repositoryChannel, async (event, payload: unknown): Promise<RepositoryResponse> => {
     const frame = event.senderFrame
     if (!frame || !isTrustedSender({ webContentsId: event.sender.id, isMainFrame: frame === window.webContents.mainFrame, url: frame.url }, window.webContents.id, editorUrl)) {
       return { ok: false, error: 'This window cannot access the project.' }
     }
+    if (!canAccessAuthenticatedProject(authService?.getSession(), development || smoke)) return { ok: false, error: 'Sign in to access the project.' }
     try {
       const request = parseRepositoryRequest(payload)
+      if (request.method === 'listFiles') return { ok: true, value: process.env.DESIGN_EDITOR_SMOKE === '1' ? [{ id: 'fixture-project', name: 'Fixture', location: 'Local' }] : [] }
       if (!repository) throw new Error('No repository grant.')
-      const value = await repository.execute(request)
-      if (request.method === 'inspectFixture' || request.method === 'refresh' || request.method === 'saveFile') {
+      if (request.method === 'openFile' && request.args[0] !== 'fixture-project') throw new Error('Unknown file.')
+      const value = await repository.execute(request.method === 'openFile' ? { method: 'inspectFixture', args: [] } : request)
+      if (request.method === 'inspectFixture' || request.method === 'openFile' || request.method === 'refresh' || request.method === 'saveFile') {
         const snapshot = value as ProjectSnapshot
         if (request.method === 'refresh') await rebuildPreview(snapshot)
         return { ok: true, value: { ...snapshot, preview: preview?.snapshot() } }
@@ -139,12 +204,58 @@ async function createEditor(): Promise<void> {
       return { ok: false, error: 'The command could not finish. Refresh the project and try again.' }
     }
   })
-  window.once('ready-to-show', () => window.show())
+  if (target.localCapabilities) ipcMain.handle(repositoryConnectionChannel, async (event, payload: unknown): Promise<RepositoryConnectionResponse> => {
+    const frame = event.senderFrame
+    if (!frame || !isTrustedSender({ webContentsId: event.sender.id, isMainFrame: frame === window.webContents.mainFrame, url: frame.url }, window.webContents.id, editorUrl)) {
+      return { ok: false, error: 'This window cannot access repositories.' }
+    }
+    if (!canAccessAuthenticatedProject(authService?.getSession(), development || smoke)) return { ok: false, error: 'Sign in to access repositories.' }
+    try {
+      const request = parseRepositoryConnectionRequest(payload)
+      const service = repositoryConnections
+      if (!service) throw new Error('Repository connection service is unavailable.')
+      if (request.method === 'pickLocal') {
+        const selected = await dialog.showOpenDialog(window, { title: 'Choose a repository', buttonLabel: 'Choose repository', properties: ['openDirectory'] })
+        if (selected.canceled || selected.filePaths.length !== 1) return { ok: true, value: null }
+        return { ok: true, value: await service.connectLocal(selected.filePaths[0]!) }
+      }
+      if (request.method === 'cloneGitHub') return { ok: true, value: await service.cloneGitHub(request.args[0]) }
+      if (request.method === 'scanCurrent') return { ok: true, value: await service.scanCurrent() }
+      return { ok: true, value: await service.getCurrent() }
+    } catch {
+      return { ok: false, error: 'The repository could not be connected. Check the folder or GitHub name and try again.' }
+    }
+  })
+  if (target.localCapabilities) ipcMain.handle(authChannel, async (event, payload: unknown): Promise<AuthResponse> => {
+    const frame = event.senderFrame
+    if (!frame || !isTrustedSender({ webContentsId: event.sender.id, isMainFrame: frame === window.webContents.mainFrame, url: frame.url }, window.webContents.id, editorUrl)) {
+      return { ok: false, error: 'This window cannot access the account.' }
+    }
+    try {
+      const request = parseAuthRequest(payload)
+      const service = authService
+      if (!service) throw new Error('Auth service is unavailable.')
+      if (request.method === 'signInWithGitHub') return { ok: true, value: await service.requestSignIn(window.id) }
+      if (request.method === 'signOut') return { ok: true, value: await service.signOut() }
+      return { ok: true, value: service.getSession() }
+    } catch {
+      return { ok: false, error: 'The account command could not finish.' }
+    }
+  })
+  const showEditor = () => {
+    if (!window.isDestroyed() && !window.isVisible()) window.show()
+  }
+  window.once('ready-to-show', showEditor)
   window.once('closed', () => {
     ipcMain.removeHandler(repositoryChannel)
+    ipcMain.removeHandler(repositoryConnectionChannel)
+    ipcMain.removeHandler(authChannel)
+    editorWindow = undefined
     void disposeServices()
   })
   await window.loadURL(editorUrl)
+  showEditor()
+  while (pendingAuthCallbacks.length) routeAuthCallback(pendingAuthCallbacks.shift()!)
 }
 
 app.on('window-all-closed', () => app.quit())
@@ -153,7 +264,7 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   void disposeServices().finally(() => { shutdownComplete = true; app.quit() })
 })
-app.whenReady().then(createEditor).catch((error: unknown) => {
+if (primaryInstance) app.whenReady().then(createEditor).catch((error: unknown) => {
   console.error('Design editor startup failed:', error instanceof Error ? error.message : 'Unknown startup error')
   app.quit()
 })

@@ -4,7 +4,7 @@
  * store, so multi-selection edits can gather results and commit them as one batch (one undo entry).
  */
 import { applyDefiniteMainAxis, autoLength, classifySizing, normalizeItem, transitionSizing } from '@canvas/repo-engine/layout'
-import type { AxisSize, DisplayMode, FlexDirection, InsetLength, LayoutItem, LayoutLength, NodeLayout, NodeSpacing, SizingMode } from '@canvas/repo-engine/layout'
+import type { AxisSize, DisplayMode, FlexDirection, InsetLength, LayoutItem, LayoutLength, NodeLayout, NodeSpacing, NodeTransform, SizingMode } from '@canvas/repo-engine/layout'
 
 export type Axis = 'width' | 'height'
 export type InsetSide = 'left' | 'right' | 'top' | 'bottom'
@@ -14,6 +14,38 @@ export type SizingTarget = { id: string; layout: NodeLayout | undefined; measure
 export const emptyLayout = (): NodeLayout => ({ item: { position: { mode: 'flow' } } })
 const withItem = (layout: NodeLayout | undefined, item: LayoutItem): NodeLayout => ({ ...(layout ?? emptyLayout()), item })
 const itemOf = (layout: NodeLayout | undefined): LayoutItem => layout?.item ?? emptyLayout().item
+
+const scaleOf = (transform: NodeTransform | undefined): { x: number; y: number } => typeof transform?.scale === 'number' ? { x: transform.scale, y: transform.scale } : transform?.scale ?? { x: 1, y: 1 }
+const normalizedTransform = (rotate: number, scale: { x: number; y: number }): NodeTransform | undefined => {
+  const rotation = ((rotate % 360) + 360) % 360
+  const sameScale = scale.x === scale.y
+  const storedScale = scale.x === 1 && scale.y === 1 ? undefined : sameScale ? scale.x : scale
+  if (rotation === 0 && storedScale === undefined) return undefined
+  return { ...(rotation === 0 ? {} : { rotate: rotation }), ...(storedScale === undefined ? {} : { scale: storedScale }) }
+}
+const withTransform = (layout: NodeLayout | undefined, transform: NodeTransform | undefined): NodeLayout => {
+  const item = { ...itemOf(layout) }
+  if (transform) item.transform = transform
+  else delete item.transform
+  return withItem(layout, item)
+}
+
+/** Sets the authored rotation while preserving either flip axis and omitting an identity transform. */
+export function setTransformRotation(layout: NodeLayout | undefined, rotate: number): NodeLayout {
+  return withTransform(layout, normalizedTransform(rotate, scaleOf(layout?.item.transform)))
+}
+
+/** Adds one clockwise quarter turn to the node's current transform. */
+export function rotateTransformQuarter(layout: NodeLayout | undefined): NodeLayout {
+  return setTransformRotation(layout, (layout?.item.transform?.rotate ?? 0) + 90)
+}
+
+/** Toggles one reflected scale axis while preserving rotation and the other axis. */
+export function flipTransform(layout: NodeLayout | undefined, axis: Axis): NodeLayout {
+  const scale = scaleOf(layout?.item.transform)
+  const next = axis === 'width' ? { ...scale, x: -scale.x } : { ...scale, y: -scale.y }
+  return withTransform(layout, normalizedTransform(layout?.item.transform?.rotate ?? 0, next))
+}
 
 /** Flow to absolute: the node keeps its sizing and gains px left/top from its current parent-local position. */
 export function positionAbsolute(layout: NodeLayout | undefined, local: { x: number; y: number }): NodeLayout {

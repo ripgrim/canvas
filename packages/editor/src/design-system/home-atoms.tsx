@@ -1,42 +1,45 @@
 import type { KeyboardEventHandler, ReactNode } from 'react'
 import { Icon } from './atoms'
-import { CompCanvasWordmark, CompLogo } from './brand'
+import { CompLogo } from './brand'
 import './home.css'
 
 function Spinner() { return <svg className="home-spinner" viewBox="0 0 22 22" aria-hidden="true" fill="none" strokeWidth="var(--icon-stroke-width)" strokeLinecap="round"><circle className="home-spinner-track" cx="11" cy="11" r="9" /><path className="home-spinner-arc" d="M11 2a9 9 0 0 1 9 9" /></svg> }
 
 export type HomePhaseState = 'active' | 'done'
+export type HomeViewMode = 'grid' | 'list'
 
 export function HomeRoot({ mode, label, onKeyDown, children }: { mode: 'light' | 'dark'; label: string; onKeyDown?: KeyboardEventHandler<HTMLElement>; children: ReactNode }) {
   return <main className={`theme-${mode} home-root`} aria-label={label} onKeyDown={onKeyDown}>{children}</main>
 }
 
-export function HomeHeader({ children }: { children: ReactNode }) { return <header className="home-header">{children}</header> }
+export function HomeSidebar({ accountName, search, current, footer }: { accountName: string; search: ReactNode; current: string; footer?: ReactNode }) {
+  const initial = accountName.trim().charAt(0).toLocaleUpperCase() || 'C'
+  return <aside className="home-sidebar"><div className="home-account"><span className="home-account-avatar" aria-hidden="true">{initial}</span><span className="home-account-name">{accountName}</span></div>{search}<nav className="home-nav" aria-label="Home"><span className="home-nav-item" aria-current="page"><Icon name="file" />{current}</span></nav><span className="home-sidebar-spacer" />{footer && <footer className="home-sidebar-footer">{footer}</footer>}</aside>
+}
 
-/** Product wordmark: the Comp mark followed by "canvas"; `name` is the accessible product name. */
-export function HomeBrand({ name }: { name: string }) { return <span className="home-brand"><CompCanvasWordmark height={20} label={name} /></span> }
+export function HomeMain({ children }: { children: ReactNode }) { return <div className="home-main">{children}</div> }
 
-export function HomeHeaderActions({ children }: { children: ReactNode }) { return <span className="home-header-actions">{children}</span> }
+export function HomeToolbar({ title, actions }: { title: string; actions: ReactNode }) { return <header className="home-toolbar"><div className="home-toolbar-inner"><h1 className="home-title">{title}</h1><span className="home-toolbar-actions">{actions}</span></div></header> }
 
 export function HomeContent({ children }: { children: ReactNode }) { return <div className="home-content">{children}</div> }
 
-export function HomeSection({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
-  return <section className="home-section" aria-label={title}><div className="home-section-header"><h2 className="home-section-title">{title}</h2>{actions && <span className="home-section-actions">{actions}</span>}</div>{children}</section>
-}
+export function HomeSection({ title, children }: { title: string; children: ReactNode }) { return <section className="home-section" aria-label={title}>{children}</section> }
 
 export function HomeSearch({ id, label, value, onChange }: { id: string; label: string; value: string; onChange: (value: string) => void }) {
   return <label className="home-search" htmlFor={id}><Icon name="search" /><input id={id} className="home-search-input" type="search" placeholder={label} aria-label={label} aria-keyshortcuts="Control+K Meta+K" value={value} onChange={event => onChange(event.currentTarget.value)} /></label>
 }
 
-export function HomeFileGrid({ label, children }: { label: string; children: ReactNode }) { return <ul className="home-file-grid" aria-label={label}>{children}</ul> }
-
-export function HomeFileCard({ name, detail, meta, openLabel, disabled, busy, onOpen }: { name: string; detail: string; meta?: string | undefined; openLabel: string; disabled?: boolean; busy?: boolean; onOpen: () => void }) {
-  return <li className="home-file-item"><button type="button" className="home-file-card" aria-label={openLabel} aria-busy={busy || undefined} disabled={disabled} onClick={onOpen}><span className="home-file-tile" aria-hidden="true"><Icon name="file" /></span><span className="home-file-text"><span className="home-file-name">{name}</span><span className="home-file-detail">{detail}</span>{meta && <span className="home-file-meta">{meta}</span>}</span></button></li>
+export function HomeViewSwitch({ value, gridLabel, listLabel, onChange }: { value: HomeViewMode; gridLabel: string; listLabel: string; onChange: (value: HomeViewMode) => void }) {
+  return <span className="home-view-switch" role="group" aria-label="View"><button type="button" className="home-view-button" aria-label={gridLabel} aria-pressed={value === 'grid'} onClick={() => onChange('grid')}><Icon name="grid" /></button><button type="button" className="home-view-button" aria-label={listLabel} aria-pressed={value === 'list'} onClick={() => onChange('list')}><Icon name="list" /></button></span>
 }
 
-export function HomeEmpty({ title, body, action }: { title: string; body: string; action?: ReactNode }) {
-  return <div className="home-empty"><span className="home-empty-glyph" aria-hidden="true"><Icon name="folder" /></span><span className="home-empty-title">{title}</span><span className="home-empty-body">{body}</span>{action}</div>
+export function HomeFileGrid({ label, mode, children }: { label: string; mode: HomeViewMode; children: ReactNode }) { return <ul className="home-file-grid" data-view={mode} aria-label={label}>{children}</ul> }
+
+export function HomeFileCard({ name, meta, thumbnailUrl, openLabel, disabled, busy, onOpen }: { name: string; meta?: string | undefined; thumbnailUrl?: string | undefined; openLabel: string; disabled?: boolean; busy?: boolean; onOpen: () => void }) {
+  return <li className="home-file-item"><button type="button" className="home-file-card" aria-label={openLabel} aria-busy={busy || undefined} disabled={disabled} onClick={onOpen}><span className="home-file-text"><span className="home-file-name">{name}</span>{meta && <span className="home-file-meta">{meta}</span>}</span><span className="home-file-thumbnail" aria-hidden="true">{thumbnailUrl && <img src={thumbnailUrl} alt="" loading="lazy" decoding="async" />}</span></button></li>
 }
+
+export function HomeEmpty({ title, action }: { title: string; action?: ReactNode }) { return <div className="home-empty"><span className="home-empty-title">{title}</span>{action}</div> }
 
 export function HomeNote({ children }: { children: ReactNode }) { return <p className="home-note">{children}</p> }
 

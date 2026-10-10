@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
-import { previewTransientMoves } from './preview-service'
+import { previewConnection, previewTransientMoves } from './preview-service'
+import { sceneGeometry } from './scene-geometry'
 
 const file: FileDocument = {
   schemaVersion: 6,
@@ -39,5 +40,12 @@ describe('AT-CAN-005 preview transient move projection', () => {
   it('returns no preview offset outside a live move', () => {
     expect(previewTransientMoves(file, 'page-1', null)).toEqual([])
     expect(previewTransientMoves(file, 'page-1', { kind: 'pan' })).toEqual([])
+  })
+
+  it('clears measured component geometry while the preview is disconnected', () => {
+    sceneGeometry.update({ ghost: { componentId: 'atom-card', rect: { x: 10, y: 20, width: 300, height: 200 } } })
+    expect(sceneGeometry.getSnapshot().nodes.ghost).toBeDefined()
+    previewConnection.sync()
+    expect(sceneGeometry.getSnapshot().nodes).toEqual({})
   })
 })

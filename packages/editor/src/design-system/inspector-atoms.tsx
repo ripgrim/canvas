@@ -19,6 +19,10 @@ export function InspectorGroup({ label, children }: { label?: string; children: 
   return <div className="inspector-group">{label && <span className="inspector-group-label">{label}</span>}{children}</div>
 }
 
+export function InspectorFlexPanel({ alignment, controls }: { alignment: ReactNode; controls: ReactNode }) { return <div className="inspector-flex-panel"><div className="inspector-fixed-slot">{alignment}</div><div className="inspector-flex-panel-controls">{controls}</div></div> }
+
+export function InspectorSpacingHeading({ label, control }: { label: string; control: ReactNode }) { return <div className="inspector-spacing-heading"><span className="inspector-spacing-heading-label">{label}</span>{control}</div> }
+
 /** `lead` keeps the first control compact and lets the second take the remaining width. */
 export function InspectorRow({ lead = false, children }: { lead?: boolean; children: ReactNode }) { return <div className="inspector-row" data-lead={lead || undefined}>{children}</div> }
 
@@ -31,37 +35,7 @@ function clamp(value: number, min: number, max: number) { return Math.min(max, M
 type NumberFieldProps = { id: string; label: string; prefix?: ReactNode; value: number | null; placeholder?: string; min?: number; max?: number; suffix?: string; precision?: number; disabled?: boolean; onCommit: (value: number) => void; onScrubStart?: () => InspectorScrubSession | null }
 
 export function InspectorNumberField(props: NumberFieldProps) {
-  if (props.onScrubStart && props.prefix !== undefined) return <InspectorScrubField {...props} prefix={props.prefix} />
-  return <InspectorPlainNumberField {...props} />
-}
-
-function InspectorPlainNumberField({ id, label, prefix, value, placeholder, min = -100000, max = 100000, suffix, disabled = false, onCommit }: NumberFieldProps) {
-  const [draft, setDraft] = useState<string | null>(null)
-  const cancelled = useRef(false)
-  const shown = draft ?? (value === null ? '' : String(Math.round(value * 100) / 100))
-  const commit = (raw: string) => {
-    setDraft(null)
-    if (!raw.trim()) return
-    const next = Number(raw)
-    if (!Number.isFinite(next)) return
-    const clamped = clamp(Math.round(next), min, max)
-    if (clamped !== value) onCommit(clamped)
-  }
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() }
-    else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelled.current = true; setDraft(null); event.currentTarget.blur() }
-    else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && value !== null) {
-      event.preventDefault()
-      const step = (event.shiftKey ? 10 : 1) * (event.key === 'ArrowUp' ? 1 : -1)
-      setDraft(null)
-      onCommit(clamp(Math.round(value + step), min, max))
-    }
-  }
-  return <label className="inspector-field" htmlFor={id} data-disabled={disabled || undefined}>
-    {prefix !== undefined && <span className="inspector-field-prefix" aria-hidden="true">{prefix}</span>}
-    <input id={id} className="inspector-input" aria-label={label} inputMode="numeric" autoComplete="off" spellCheck={false} disabled={disabled} value={shown} placeholder={placeholder} onChange={event => setDraft(event.currentTarget.value)} onBlur={event => { if (cancelled.current) { cancelled.current = false; return } if (draft !== null) commit(event.currentTarget.value) }} onKeyDown={onKeyDown} />
-    {suffix && <span className="inspector-field-suffix" aria-hidden="true">{suffix}</span>}
-  </label>
+  return <InspectorScrubField {...props} />
 }
 
 export function InspectorTextField({ id, label, value, disabled = false, maxLength = 128, onCommit }: { id: string; label: string; value: string; disabled?: boolean; maxLength?: number; onCommit: (value: string) => void }) {
@@ -160,6 +134,36 @@ export function InspectorIconButton({ label, title = label, icon, disabled = fal
   return <button type="button" className="inspector-icon-button" aria-label={label} title={title} disabled={disabled} onClick={onClick}><Icon name={icon} /></button>
 }
 
+function TransformGlyph({ kind }: { kind: 'rotate' | 'flip-x' | 'flip-y' }) {
+  if (kind === 'rotate') return <svg viewBox="0 0 16 16" aria-hidden="true"><g transform="translate(16 0) scale(-1 1)"><path d="M9.5 2.5L6 4.5V3H4.5C3.11929 3 2 4.11929 2 5.5V8H1V5.5C1 3.567 2.567 2 4.5 2H6V0.5L9.5 2.5Z" fill="currentColor" /><rect x="5.5" y="6.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" /></g></svg>
+  const triangles = <><path d="M1.5 12.5H5.5V3.5L1.5 12.5Z" /><path d="M12.5 12.5H8.5V3.5L12.5 12.5Z" /></>
+  return <svg viewBox="0 0 14 16" aria-hidden="true" className={kind === 'flip-y' ? 'inspector-transform-flip-y' : undefined}>{triangles}</svg>
+}
+
+/** Paper-style quarter-turn and reflection actions sharing one compact segmented surface. */
+export function InspectorTransformActions({ actionsLabel, rotateLabel, flipXLabel, flipYLabel, absoluteLabel, flipXPressed = false, flipYPressed = false, absolutePressed, disabled = false, onRotate, onFlipX, onFlipY, onAbsolute }: { actionsLabel: string; rotateLabel: string; flipXLabel: string; flipYLabel: string; absoluteLabel?: string; flipXPressed?: boolean; flipYPressed?: boolean; absolutePressed?: boolean; disabled?: boolean; onRotate: () => void; onFlipX: () => void; onFlipY: () => void; onAbsolute?: () => void }) {
+  const action = (kind: 'rotate' | 'flip-x' | 'flip-y', label: string, pressed: boolean | undefined, onClick: () => void) => <button key={kind} type="button" className="inspector-transform-action" aria-label={label} title={label} disabled={disabled} {...(pressed === undefined ? {} : { 'aria-pressed': pressed })} onClick={onClick}><TransformGlyph kind={kind} /></button>
+  return <div className="inspector-transform-actions" role="group" aria-label={actionsLabel} data-position-toggle={onAbsolute ? '' : undefined}>{action('rotate', rotateLabel, undefined, onRotate)}{action('flip-x', flipXLabel, flipXPressed, onFlipX)}{action('flip-y', flipYLabel, flipYPressed, onFlipY)}{onAbsolute && absoluteLabel && <button type="button" className="inspector-transform-action" aria-label={absoluteLabel} title={absoluteLabel} aria-pressed={absolutePressed} disabled={disabled} onClick={onAbsolute}><Icon name="selection" /></button>}</div>
+}
+
+function FlexDirectionGlyph({ axis }: { axis: 'row' | 'column' }) {
+  return <svg viewBox="0 0 16 16" aria-hidden="true" className={axis === 'column' ? 'inspector-flex-column-glyph' : undefined}><path d="M2.5 8h11M10 4.5 13.5 8 10 11.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" /></svg>
+}
+
+/** Compact Paper-style row/column choice with a separate wrap cell. Reverse variants stay feature-owned. */
+export function InspectorFlexDirection({ label, rowLabel, columnLabel, reverseLabel, wrapLabel, axis, reversed, wrapped, disabled = false, onAxis, onReverse, onWrap }: { label: string; rowLabel: string; columnLabel: string; reverseLabel: string; wrapLabel: string; axis: 'row' | 'column' | null; reversed: boolean; wrapped: boolean; disabled?: boolean; onAxis: (axis: 'row' | 'column') => void; onReverse: () => void; onWrap: () => void }) {
+  const direction = (value: 'row' | 'column', text: string) => <button type="button" className="inspector-flex-direction-button" aria-label={text} title={text} aria-pressed={axis === value} disabled={disabled} onClick={() => onAxis(value)}><FlexDirectionGlyph axis={value} /></button>
+  return <div className="inspector-flex-direction" role="group" aria-label={label}>{direction('row', rowLabel)}{direction('column', columnLabel)}<button type="button" className="inspector-flex-direction-button" aria-label={reverseLabel} title={reverseLabel} aria-pressed={reversed} disabled={disabled || axis === null} onClick={onReverse}><Icon name="redo" /></button><button type="button" className="inspector-flex-wrap-button" aria-label={wrapLabel} title={wrapLabel} aria-pressed={wrapped} disabled={disabled} onClick={onWrap}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h9a3 3 0 0 1 0 6H5m0-2-2 2 2 2" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" /></svg></button></div>
+}
+
+export type InspectorSpacingModeValue = 'all' | 'axes' | 'sides'
+
+/** Paper-style compact spacing topology selector. Icons come from the editor's existing icon set. */
+export function InspectorSpacingMode({ label, value, labels, disabled = false, onChange }: { label: string; value: InspectorSpacingModeValue | null; labels: Record<InspectorSpacingModeValue, string>; disabled?: boolean; onChange: (value: InspectorSpacingModeValue) => void }) {
+  const icons: Record<InspectorSpacingModeValue, IconName> = { all: 'block', axes: 'flex-row', sides: 'freeform' }
+  return <div className="inspector-spacing-mode" role="group" aria-label={label}>{(['all', 'axes', 'sides'] as const).map(mode => <button key={mode} type="button" className="inspector-spacing-mode-button" aria-label={labels[mode]} title={labels[mode]} aria-pressed={value === mode} disabled={disabled} onClick={() => onChange(mode)}><Icon name={icons[mode]} /></button>)}</div>
+}
+
 /** One gradient stop: position, color, and a trailing action on the first line; the color source below. */
 export function InspectorPaintStop({ label, position, color, binding, action }: { label: string; position: ReactNode; color: ReactNode; binding: ReactNode; action: ReactNode }) {
   return <div className="inspector-paint-stop" role="group" aria-label={label}><span className="inspector-paint-stop-position">{position}</span><span className="inspector-paint-stop-color">{color}</span><span className="inspector-paint-stop-action">{action}</span><span className="inspector-paint-stop-binding">{binding}</span></div>
@@ -238,7 +242,7 @@ export function InspectorColorField({ id, label, opacityLabel, value, title, inh
         if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); setOpacityDraft(null); emit(joinHex(parts.rgb, parts.opacity + (event.shiftKey ? 10 : 1) * (event.key === 'ArrowUp' ? 1 : -1))); return }
         keys(event, () => setOpacityDraft(null))
       }} />
-      <span className="inspector-field-suffix" aria-hidden="true">%</span>
+      <InspectorScrubHandle className="inspector-field-suffix" value={parts.opacity} min={0} max={100} disabled={disabled} onPreview={next => setOpacityDraft(next === null ? null : String(next))} onCommit={next => commitOpacity(String(next))} onCancel={() => setOpacityDraft(null)}>%</InspectorScrubHandle>
     </label>}
   </span>
 }
@@ -251,7 +255,7 @@ const roundTo = (value: number, precision: number) => { const factor = 10 ** pre
 type ScrubFieldProps = {
   id: string
   label: string
-  prefix: ReactNode
+  prefix?: ReactNode
   value: number | null
   placeholder?: string
   min?: number
@@ -267,15 +271,112 @@ type ScrubFieldProps = {
   onCommit: (value: number) => void
   /** Called when a field holding a value is emptied; without it an empty field restores the value. */
   onClear?: () => void
-  /** Starts a scrub once the pointer has moved on the prefix; returning null leaves the value alone. */
+  /** Starts a scrub once the pointer has moved on a visible prefix or unit affordance; returning null leaves the value alone. */
+  onScrubStart?: () => InspectorScrubSession | null
+  tokens?: readonly InspectorNumericToken[]
+  tokenLabel?: string
+}
+
+export type InspectorNumericToken = Readonly<{ name: string; value: number; displayValue: string }>
+
+type ScrubHandleProps = {
+  children: ReactNode
+  className?: string
+  ariaHidden?: boolean
+  value: number | null
+  min?: number
+  max?: number
+  precision?: number
+  sensitivity?: number
+  largeStep?: number
+  disabled?: boolean
+  onPreview: (value: number | null) => void
+  onCommit: (value: number) => void
+  onCancel?: () => void
   onScrubStart?: () => InspectorScrubSession | null
 }
 
+/** Shared horizontal scrub gesture used by every numeric affordance, regardless of its visual field treatment. */
+export function InspectorScrubHandle({ children, className, ariaHidden = true, value, min = -100000, max = 100000, precision = 0, sensitivity = 0.25, largeStep, disabled = false, onPreview, onCommit, onCancel, onScrubStart }: ScrubHandleProps) {
+  const scrubbable = !disabled && value !== null
+  const onPointerDown = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    if (!scrubbable || value === null || event.button !== 0) return
+    event.preventDefault()
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    const pointerId = event.pointerId
+    const handle = event.currentTarget
+    const start = value
+    const step = 10 ** -precision
+    let session: InspectorScrubSession | null = null
+    let last = start
+    let previousX = event.clientX
+    let travel = 0
+    let lockAcquired = false
+    let finished = false
+    const finish = (cancel: boolean) => {
+      if (finished) return
+      finished = true
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', lost)
+      window.removeEventListener('keydown', key, true)
+      document.removeEventListener('pointerlockchange', lockChange)
+      document.removeEventListener('pointerlockerror', lockError)
+      if (document.pointerLockElement === handle) document.exitPointerLock()
+      const current = session
+      session = null
+      onPreview(null)
+      if (!current) return
+      if (cancel) current.cancel(); else current.end()
+    }
+    const begin = () => {
+      if (onScrubStart) return onScrubStart()
+      return { move: () => undefined, end: () => { if (last !== start) onCommit(last) }, cancel: () => onCancel?.() }
+    }
+    const move = (next: PointerEvent) => {
+      if (next.pointerId !== pointerId) return
+      const movement = document.pointerLockElement === handle ? next.movementX : next.clientX - previousX
+      previousX = next.clientX
+      travel += movement
+      if (!session) {
+        if (Math.abs(travel) < 3) return
+        session = begin()
+        if (!session) { finish(true); return }
+      }
+      const quantum = next.shiftKey ? largeStep ?? step * 10 : step
+      const accumulated = travel * sensitivity * step
+      const quantized = Math.trunc(accumulated / quantum) * quantum
+      const current = clamp(roundTo(start + quantized, precision), min, max)
+      if (current === last) return
+      last = current
+      onPreview(current)
+      session.move(current)
+    }
+    const up = (next: PointerEvent) => { if (next.pointerId === pointerId) finish(false) }
+    const lost = (next: PointerEvent) => { if (next.pointerId === pointerId) finish(true) }
+    const lockChange = () => {
+      if (document.pointerLockElement === handle) { lockAcquired = true; return }
+      if (lockAcquired) finish(true)
+    }
+    const lockError = () => undefined
+    const key = (next: globalThis.KeyboardEvent) => { if (next.key !== 'Escape') return; if (session) { next.preventDefault(); next.stopPropagation() } finish(true) }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', lost)
+    window.addEventListener('keydown', key, true)
+    document.addEventListener('pointerlockchange', lockChange)
+    document.addEventListener('pointerlockerror', lockError)
+    try { void handle.requestPointerLock().then(() => { if (finished && document.pointerLockElement === handle) document.exitPointerLock() }).catch(() => undefined) } catch { /* Client coordinates remain available. */ }
+  }
+  return <span className={className} data-scrub-area={scrubbable || undefined} data-scrub-handle={scrubbable || undefined} aria-hidden={ariaHidden || undefined} onPointerDown={onPointerDown}>{children}</span>
+}
+
 /**
- * Number field whose prefix scrubs horizontally. The scrub only opens a session after a few pixels of movement, so a
- * click never starts a gesture; Escape or pointer cancel ends it without a commit. Listeners live only for the drag.
+ * Number field whose visible prefix and unit affordances scrub horizontally. The scrub only opens a session after a
+ * few pixels of movement, so a click never starts a gesture; Escape or pointer cancel ends it without a commit.
+ * Listeners live only for the drag.
  */
-export function InspectorScrubField({ id, label, prefix, value, placeholder, min = -100000, max = 100000, suffix, precision = 0, sensitivity = 0.25, largeStep, disabled = false, onCommit, onClear, onScrubStart }: ScrubFieldProps) {
+export function InspectorScrubField({ id, label, prefix, value, placeholder, min = -100000, max = 100000, suffix, precision = 0, sensitivity = 0.25, largeStep, disabled = false, onCommit, onClear, onScrubStart, tokens = [], tokenLabel = 'Choose numeric token' }: ScrubFieldProps) {
   const [draft, setDraft] = useState<string | null>(null)
   const [scrubbing, setScrubbing] = useState<number | null>(null)
   const cancelled = useRef(false)
@@ -298,57 +399,13 @@ export function InspectorScrubField({ id, label, prefix, value, placeholder, min
       onCommit(clamp(roundTo(value + step * (event.shiftKey ? 10 : 1) * (event.key === 'ArrowUp' ? 1 : -1), precision), min, max))
     }
   }
-  const scrubbable = Boolean(onScrubStart) && !disabled && value !== null
-  const onPointerDown = (event: ReactPointerEvent<HTMLSpanElement>) => {
-    if (!scrubbable || !onScrubStart || value === null || event.button !== 0) return
-    event.preventDefault()
-    const pointerId = event.pointerId
-    const originX = event.clientX
-    const start = value
-    let session: InspectorScrubSession | null = null
-    let last = start
-    const finish = (cancel: boolean) => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      window.removeEventListener('pointercancel', lost)
-      window.removeEventListener('keydown', key, true)
-      const current = session
-      session = null
-      setScrubbing(null)
-      if (!current) return
-      if (cancel) current.cancel(); else current.end()
-    }
-    const move = (next: PointerEvent) => {
-      if (next.pointerId !== pointerId) return
-      const delta = next.clientX - originX
-      if (!session) {
-        if (Math.abs(delta) < 3) return
-        session = onScrubStart()
-        if (!session) { finish(true); return }
-      }
-      const quantum = next.shiftKey ? largeStep ?? step * 10 : step
-      const accumulated = delta * sensitivity * step
-      const quantized = Math.trunc(accumulated / quantum) * quantum
-      const current = clamp(roundTo(start + quantized, precision), min, max)
-      if (current === last) return
-      last = current
-      setScrubbing(current)
-      session.move(current)
-    }
-    const up = (next: PointerEvent) => { if (next.pointerId === pointerId) finish(false) }
-    const lost = (next: PointerEvent) => { if (next.pointerId === pointerId) finish(true) }
-    // Capture phase on window runs before the editor keyboard service, so Escape cancels the scrub instead of clearing the selection.
-    const key = (next: globalThis.KeyboardEvent) => { if (next.key !== 'Escape') return; if (session) { next.preventDefault(); next.stopPropagation() } finish(true) }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-    window.addEventListener('pointercancel', lost)
-    window.addEventListener('keydown', key, true)
-  }
-  return <label className="inspector-field" htmlFor={id} data-disabled={disabled || undefined} data-scrubbing={scrubbing !== null || undefined}>
-    <span className="inspector-field-prefix" data-scrub-area={scrubbable || undefined} data-scrub-handle={scrubbable || undefined} aria-hidden="true" onPointerDown={onPointerDown}>{prefix}</span>
+  const scrub = { value, min, max, precision, sensitivity, disabled, onPreview: setScrubbing, onCommit, ...(largeStep === undefined ? {} : { largeStep }), ...(onScrubStart ? { onScrubStart } : {}) }
+  return <div className="inspector-field" data-disabled={disabled || undefined} data-scrubbing={scrubbing !== null || undefined}>
+    {prefix !== undefined && <InspectorScrubHandle className="inspector-field-prefix" {...scrub}>{prefix}</InspectorScrubHandle>}
     <input id={id} className="inspector-input" aria-label={label} inputMode="decimal" autoComplete="off" spellCheck={false} disabled={disabled} value={shown} placeholder={placeholder} onChange={event => setDraft(event.currentTarget.value)} onBlur={event => { if (cancelled.current) { cancelled.current = false; return } if (draft !== null) commit(event.currentTarget.value) }} onKeyDown={onKeyDown} />
-    {suffix && <span className="inspector-field-suffix" aria-hidden="true">{suffix}</span>}
-  </label>
+    {tokens.length > 0 && <span className="inspector-numeric-token"><select aria-label={tokenLabel} title={tokenLabel} disabled={disabled} value="" onChange={event => { const token = tokens[Number(event.currentTarget.value)]; if (token) onCommit(token.value) }}><option value="" disabled>Token</option>{tokens.map((token, index) => <option key={`${token.name}-${token.displayValue}`} value={index}>{token.name} · {token.displayValue}</option>)}</select><Icon name="chevron" /></span>}
+    {suffix && <InspectorScrubHandle className="inspector-field-suffix" {...scrub}>{suffix}</InspectorScrubHandle>}
+  </div>
 }
 
 export type InspectorAnchorCell = Readonly<{ key: string; label: string; pressed: boolean }>

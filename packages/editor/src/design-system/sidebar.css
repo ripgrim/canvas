@@ -23,4 +23,6 @@
 .sidebar-page-icon { display: inline-flex; color: var(--neutral-6); }
 .sidebar-page-row[data-selected="true"] .sidebar-page-icon { color: var(--neutral-10); }
 .sidebar-page-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.sidebar-inline-name { flex: 1; min-width: 0; height: 22px; padding: 0 var(--space-xxs); border: 0; border-radius: var(--radius-xs); background: var(--neutral-1); color: var(--neutral-10); box-shadow: var(--border-shadow-s); font: inherit; line-height: var(--line-xs); outline: none; }
+.sidebar-inline-name:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-1) 60%, transparent); }
 @media (prefers-reduced-motion: reduce) { .sidebar-section-chevron .icon { transition: none; } }

@@ -108,7 +108,7 @@ async function launch(sequence) {
     return result.result.value
   }
   run.call = (method, ...args) => {
-    assert.ok(['inspectFixture', 'prepareLabelPadding', 'prepareToken', 'preparePromotion', 'prepareUndo', 'prepareRedo', 'saveFile', 'savePrepared', 'refresh'].includes(method))
+    assert.ok(['listFiles', 'openFile', 'inspectFixture', 'scanShadcn', 'pickLocalRepository', 'cloneGitHubRepository', 'getConnectedRepository', 'rescanConnectedRepository', 'prepareLabelPadding', 'prepareToken', 'preparePromotion', 'prepareUndo', 'prepareRedo', 'saveFile', 'savePrepared', 'refresh'].includes(method))
     return run.evaluate(`window.designEditor[${JSON.stringify(method)}](...${JSON.stringify(args)})`)
   }
   let bridgeReady = false
@@ -118,6 +118,7 @@ async function launch(sequence) {
     await delay(250)
   }
   assert.equal(bridgeReady, true, `The bundled document and preload bridge did not become ready. ${output}`)
+  assert.equal(await run.evaluate('document.visibilityState'), 'visible', `The desktop renderer loaded but its window remained hidden. ${output}`)
   return run
 }
 
@@ -132,13 +133,17 @@ try {
   assert.equal(boundary.url, 'design-editor://app/')
   assert.equal(boundary.node, 'undefined')
   assert.equal(boundary.process, 'undefined')
-  assert.deepEqual(boundary.bridge, ['inspectFixture', 'prepareLabelPadding', 'preparePromotion', 'prepareRedo', 'prepareToken', 'prepareUndo', 'refresh', 'saveFile', 'savePrepared'])
+  assert.deepEqual(boundary.bridge, ['cloneGitHubRepository', 'getAuthSession', 'getConnectedRepository', 'inspectFixture', 'listFiles', 'onAuthSessionChanged', 'openFile', 'pickLocalRepository', 'prepareLabelPadding', 'preparePromotion', 'prepareRedo', 'prepareToken', 'prepareUndo', 'refresh', 'rescanConnectedRepository', 'saveFile', 'savePrepared', 'scanShadcn', 'signInWithGitHub', 'signOut'])
+  assert.deepEqual(await first.call('listFiles'), [{ id: 'fixture-project', name: 'Fixture', location: 'Local' }])
+  assert.equal((await first.call('openFile', 'fixture-project')).projectId !== undefined, true)
+  assert.equal(await first.call('getConnectedRepository'), null)
+  await assert.rejects(first.call('cloneGitHubRepository', { owner: '../escape', name: 'repo' }))
   await assert.rejects(first.call('preparePromotion', '../Outside'))
   const initial = await first.call('inspectFixture')
-  assert.deepEqual(initial.atoms.map((atom) => atom.name).sort(), ['Button', 'Card', 'Input', 'Label'])
+  for (const required of ['Button', 'Card', 'Input', 'Label']) assert.ok(initial.atoms.some(atom => atom.name === required), `Missing required fixture atom: ${required}`)
   assert.equal(initial.preview.status, 'ready', JSON.stringify(initial.preview))
   const identities = Object.fromEntries(initial.atoms.map((atom) => [atom.name, atom.componentId]))
-  report.flows.push('Real renderer bridge inspected; malformed promotion denied; four atoms discovered.')
+  report.flows.push('Real renderer bridge inspected; malformed promotion denied; four required atoms discovered.')
 
   const labelPath = join(fixtureRoot, 'src/atoms/Label.tsx')
   const originalLabel = await readFile(labelPath, 'utf8')

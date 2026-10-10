@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "pnpm --filter @canvas/web build && pnpm --filter @canvas/preview-runtime build && pnpm --filter @canvas/repo-engine build && pnpm build && electron .",
+    "dev": "pnpm --filter @canvas/web build && pnpm --filter @canvas/preview-runtime build && pnpm --filter @canvas/repo-engine build && pnpm --filter @canvas/scanner build && pnpm --filter @canvas/repository build && pnpm --filter @canvas/auth build && pnpm build && electron .",
     "dev:renderer": "pnpm --filter @canvas/web dev",
     "build": "node ../../scripts/sync-web-assets.mjs && vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts",
     "start": "electron .",
@@ -14,8 +14,11 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
+    "@canvas/auth": "workspace:*",
     "@canvas/preview-runtime": "workspace:*",
     "@canvas/repo-engine": "workspace:*",
+    "@canvas/repository": "workspace:*",
+    "@canvas/scanner": "workspace:*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "zustand": "5.0.15",

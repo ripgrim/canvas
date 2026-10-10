@@ -32,7 +32,8 @@ const attachHud = (element: HTMLCanvasElement | null) => canvasHudPainter.attach
 export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcuts, placeholder, status, theme }: CanvasWorkspaceProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
-  const availability = Object.fromEntries(editorTools.map(tool => [tool, state.file ? { available: true, reason: '' } : { available: false, reason: copy.openFileForTools }])) as unknown as EditorToolAvailability
+  const connected = Boolean(src && ready)
+  const availability = Object.fromEntries(editorTools.map(tool => [tool, !state.file ? { available: false, reason: copy.openFileForTools } : !connected ? { available: false, reason: copy.connectPreviewForTools } : { available: true, reason: '' }])) as unknown as EditorToolAvailability
   const selectTool = (tool: EditorTool) => store.setTool(tool)
   const grid = gridBackground(state.viewport, state.viewportSize, typeof window === 'undefined' ? 1 : window.devicePixelRatio)
   return <Surface roleName="canvas-area" label={copy.preview}>
@@ -41,9 +42,8 @@ export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcu
       {src && <LiveCanvasPreview key={src} src={src} title={copy.preview} onReady={onReady} onError={onError} />}
       <CanvasPixelGrid visible={state.gridVisible} size={grid.size} position={grid.position} lineWidth={grid.lineWidth} />
       <CanvasWorldOrigin camera={state.viewport} />
-      <CanvasStage onOpenContextMenu={setContextMenu} onDismissContextMenu={() => setContextMenu(null)} />
-      <CanvasHudCanvas attach={attachHud} />
-      <SelectionHud />
+      <CanvasStage active={connected} onOpenContextMenu={setContextMenu} onDismissContextMenu={() => setContextMenu(null)} />
+      {connected && <><CanvasHudCanvas attach={attachHud} /><SelectionHud /></>}
     </CanvasViewport>
     {(!src || !ready) && placeholder}
     <EditorToolRail active={state.tool} availability={availability} shortcuts={{ move: 'V', scale: 'K', hand: 'H', frame: 'F', shader: 'S', text: 'T', rectangle: 'R', shape: 'O', interact: 'I' }} onSelect={selectTool} />

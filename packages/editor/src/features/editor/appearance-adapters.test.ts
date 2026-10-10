@@ -3,12 +3,13 @@ import { blendModes } from '@canvas/repo-engine/appearance'
 import type { Appearance, ColorValue, GradientPaint, Outline, Paint, Stroke } from '@canvas/repo-engine/appearance'
 import type { ColorToken, FileDocument, FileNode, FileTheme } from '@canvas/repo-engine/file-document'
 import type { DesignTheme } from '@canvas/repo-engine/design-themes'
-import { aggregateBlending, aggregateBorders, aggregateFills, aggregateOutline, bindingState, blendModeGroups, borderEntries, changedFillFields, colorAt, colorAtSlot, colorTokenOptions, darkerHex, editStroke, effectiveAppearance, eligibleFor, gradientBarCss, mergePaint, midpointAt, midpointHandles, mixHex, moveItem, overridesFor, rebindColor, stableKey, storageIndex, tokenStatus, unlinkColor, UnresolvedTokenError, withBorder, withColorAtSlot, withFill, withFills, withPaintBlend, withPaintVisibility } from './appearance-adapters'
+import { aggregateBlending, aggregateBorders, aggregateFills, aggregateOutline, bindingState, blendModeGroups, borderEntries, changedFillFields, colorAt, colorAtSlot, colorTokenOptions, darkerHex, editStroke, effectiveAppearance, eligibleFor, gradientBarCss, mergePaint, midpointAt, midpointHandles, mixHex, moveItem, overridesFor, rebindColor, stableKey, storageIndex, tokenStatus, unlinkColor, UnresolvedTokenError, withBorder, withColorAtSlot, withFill, withFills, withPaintBlend, withPaintOpacity, withPaintVisibility } from './appearance-adapters'
 import type { ColorSlot } from './appearance-adapters'
 import { createDocumentStore } from './document-store'
+import { validateFileDocument } from '@canvas/repo-engine/file-document'
 
 const hex = (value: string) => ({ kind: 'literal' as const, color: { kind: 'hex' as const, hex: value } })
-const solid = (id: string, value: string, extra: Partial<Paint> = {}): Paint => ({ id, type: 'solid', color: hex(value), ...extra } as Paint)
+const solid = (id: string, value: string, extra: Partial<Paint> = {}): Extract<Paint, { type: 'solid' }> => ({ id, type: 'solid', color: hex(value), ...extra } as Extract<Paint, { type: 'solid' }>)
 const gradient = (id: string, stops: [number, string, number?][]): GradientPaint => ({ id, type: 'gradient', shape: 'linear', angle: 180, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'oklab', stops: stops.map(([position, color, midpoint], index) => ({ id: `${id}-s${index}`, position, color: hex(color), ...(midpoint === undefined ? {} : { midpoint }) })) })
 const stroke = (value: string, width = 1, extra: Partial<Stroke> = {}): Stroke => ({ color: hex(value), width, style: 'solid', ...extra })
 const node = (id: string, type: FileNode['type'], appearance?: Appearance): FileNode => type === 'root' ? { id, type } : type === 'component' ? { id, type, componentId: 'c', exportName: 'Button', props: {}, ...(appearance ? { appearance } : {}) } : { id, type, name: id, styles: { left: 0, top: 0, width: 10, height: 10 }, ...(appearance ? { appearance } : {}) }
@@ -61,6 +62,13 @@ describe('fills', () => {
     expect(aggregateFills([a, b])).toEqual({ state: 'field-mixed', value: a.fills, mixed: [[], ['visible', 'color']] })
   })
 
+  it('reports solid opacity independently and never treats the default as stored state', () => {
+    const opaque = { fills: [solid('a', '#ff0000')] }
+    const faded = { fills: [solid('b', '#ff0000', { opacity: 0.65 })] }
+    expect(aggregateFills([opaque, faded])).toEqual({ state: 'field-mixed', value: opaque.fills, mixed: [['opacity']] })
+    expect(withPaintOpacity(faded.fills[0]!, 1)).toEqual({ id: 'b', type: 'solid', color: hex('#ff0000') })
+  })
+
   it('treats different counts or types as structure mixed and offers the first non-empty list', () => {
     const one = { fills: [solid('a', '#ff0000')] }
     const two = { fills: [solid('b', '#ff0000'), solid('c', '#00ff00')] }
@@ -99,6 +107,9 @@ describe('fills', () => {
     expect(mergePaint(solid('b', '#00ff00', { blendMode: 'multiply' }), before, after)).toEqual({ id: 'b', type: 'solid', color: hex('#00ff00'), blendMode: 'multiply', visible: false })
     const recolored = { ...before, color: hex('#123456') } as Paint
     expect(mergePaint(solid('c', '#00ff00', { visible: false }), before, recolored)).toEqual({ id: 'c', type: 'solid', color: hex('#123456'), visible: false })
+    const faded = withPaintOpacity(before, 0.65)
+    expect(changedFillFields(before, faded)).toEqual(['opacity'])
+    expect(mergePaint(solid('d', '#00ff00', { visible: false }), before, faded)).toEqual({ id: 'd', type: 'solid', color: hex('#00ff00'), visible: false, opacity: 0.65 })
   })
 
   it('replaces the fill at a storage index and drops empty lists', () => {
@@ -259,6 +270,22 @@ describe('CC-TB-005: unlink computes each node\'s literal in its own effective t
     const file = store.getSnapshot().file!
     expect(unlinkColor(file, 'dark', bound('scrim'), store.sources())).toEqual({ kind: 'literal', color: { kind: 'hex', hex: '#11223380' } })
     expect(unlinkColor(file, 'dark', bound('scrim'), store.paletteFor('dark'))).not.toEqual({ kind: 'literal', color: { kind: 'hex', hex: '#11223380' } })
+  })
+
+  it('persists a bound fill opacity as one undoable fill edit without changing the token', () => {
+    const store = loaded()
+    const appearance = (store.getSnapshot().file!.nodes.light as { appearance?: Appearance }).appearance!
+    const paint = appearance.fills![0]!
+    if (paint.type !== 'solid') throw new Error('Expected a solid fill')
+    const gesture = store.commands.appearance.gesture
+    gesture.begin()
+    gesture.preview({ light: { ...appearance, fills: [{ ...paint, opacity: 0.65 }] } })
+    expect(gesture.commit()).toBe(true)
+    const saved = store.getSnapshot().file!
+    const reopened = validateFileDocument(JSON.parse(JSON.stringify(saved)), [])
+    expect((reopened.nodes.light as { appearance?: Appearance }).appearance!.fills![0]).toEqual({ id: 'light-fill', type: 'solid', color: { kind: 'token', tokenId: 'scrim' }, opacity: 0.65 })
+    expect(store.undo()).toBe(true)
+    expect((store.getSnapshot().file!.nodes.light as { appearance?: Appearance }).appearance!.fills![0]).toEqual({ id: 'light-fill', type: 'solid', color: { kind: 'token', tokenId: 'scrim' } })
   })
 })
 

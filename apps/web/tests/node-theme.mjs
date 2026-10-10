@@ -1,4 +1,5 @@
-// Per-node theme in the real editor against a seeded v5 file: the Theme row (segments, icons, inherited and mixed lines),
+// Per-node theme in the real editor against a seeded v6 file: the Theme row (segments, icons, accessible inheritance,
+// and the visible mixed-mode line),
 // radio semantics and keyboard, one undo step for a multi-selection, the preview stamping `data-theme` on the Card's own
 // root while the document root keeps the light canvas default, and independence from the editor appearance. Expected
 // colors come from the bundled sample stylesheet (`:root` --surface #ffffff, `[data-theme='dark']` --surface #242427).
@@ -22,7 +23,7 @@ const shot = async (target, name) => { await target.screenshot({ path: join(evid
 const preview = page => page.frameLocator('iframe[title="Canvas"]')
 const rail = page => page.locator('.right-rail')
 const themeSection = page => rail(page).locator('[data-section="theme"]')
-const themeGroup = page => themeSection(page).getByRole('radiogroup', { name: 'Theme', exact: true })
+const themeGroup = page => themeSection(page).getByRole('radiogroup')
 const radio = (page, name) => themeGroup(page).getByRole('radio', { name, exact: true })
 const stored = page => page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), contentKey(fileId))
 const revisionOf = async page => (await stored(page)).file.revision
@@ -110,17 +111,18 @@ async function run() {
     { name: 'Light', checked: 'false', tabIndex: -1, disabled: null, icon: true, text: 'Light' },
     { name: 'Dark', checked: 'false', tabIndex: -1, disabled: null, icon: true, text: 'Dark' },
   ])
-  await expect(themeGroup(page)).toHaveAccessibleDescription('Inherited: Light from canvas default')
-  await expect(themeSection(page)).toContainText('Inherited: Light from canvas default')
-  record('CC-NT-017: Theme row shows Inherit, Light with sun and Dark with moon; Inherit checked and inherited from the canvas default')
+  await expect(themeGroup(page)).toHaveAccessibleName('Theme. Inherited: Light from canvas default')
+  await expect(themeSection(page)).not.toContainText('Inherited: Light from canvas default')
+  record('CC-NT-017: Theme row shows Inherit, Light with sun and Dark with moon; inheritance remains accessible without a visible helper line')
   await shot(themeSection(page), 'theme-row-light')
 
   // 2. CC-NT-018: same stored Inherit with different effective themes (Email label is light, Promo label inherits dark).
   await selectLayer(page, 'label-a')
   await selectLayer(page, 'label-c', ['Control'])
   assert.deepEqual(await checkedRadios(page), ['Inherit'])
-  await expect(themeGroup(page)).toHaveAccessibleDescription('Effective themes: Mixed')
-  record('CC-NT-018: same stored Inherit with different effective themes keeps Inherit checked and reads Effective themes: Mixed')
+  await expect(themeGroup(page)).toHaveAccessibleName('Theme. Effective themes: Mixed')
+  await expect(themeSection(page)).not.toContainText('Effective themes: Mixed')
+  record('CC-NT-018: same stored Inherit with different effective themes keeps Inherit checked and exposes the effective mix accessibly')
   await shot(themeSection(page), 'theme-row-effective-mixed')
 
   // 3. CC-NT-018: different stored modes (Login card inherit, Promo card dark) check nothing and describe the mix.
@@ -159,10 +161,12 @@ async function run() {
   assert.equal(await storedMode(page, 'card'), 'dark')
   await selectLayer(page, 'label-a')
   assert.deepEqual(await checkedRadios(page), ['Inherit'])
-  await expect(themeGroup(page)).toHaveAccessibleDescription('Inherited: Dark from Login card')
+  await expect(themeGroup(page)).toHaveAccessibleName('Theme. Inherited: Dark from Login card')
+  await expect(themeSection(page)).not.toContainText('Inherited: Dark from Login card')
   await shot(themeSection(page), 'theme-row-dark')
   await selectLayer(page, 'card')
   assert.deepEqual(await checkedRadios(page), ['Dark'])
+  await expect(themeGroup(page)).toHaveAccessibleName('Theme')
   assert.equal(await themeGroup(page).getAttribute('aria-describedby'), null, 'an explicit mode has no inherited line')
   await page.reload({ waitUntil: 'domcontentloaded' })
   await open(page)

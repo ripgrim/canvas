@@ -4,12 +4,13 @@ import { colorToCss, colorToHex, hexColor } from '@canvas/repo-engine/color'
 import { resolveColorValue } from '@canvas/repo-engine/file-document'
 import type { ComponentNode, FileDocument, FileNode, PrimitiveNode, PrimitiveStyles } from '@canvas/repo-engine/file-document'
 import { ColorPicker } from '../../design-system/color-picker'
-import { InspectorCheck, InspectorHeading, InspectorNumberField, InspectorRow, InspectorSection, InspectorStack, InspectorTextField } from '../../design-system/inspector-atoms'
+import { InspectorCheck, InspectorHeading, InspectorNumberField, InspectorRow, InspectorSection, InspectorStack, InspectorTextField, InspectorTransformActions } from '../../design-system/inspector-atoms'
 import { InspectorColorField } from '../../design-system/inspector-atoms'
 import { TokenChooser } from '../../design-system/token-field-atoms'
 import { AppearanceSections } from './AppearancePanels'
 import { LayoutSections } from './LayoutPanels'
 import { NodeThemeSection } from './NodeThemePanel'
+import { RadiusSection } from './RadiusSection'
 import { SelectionColorsPanel } from './SelectionColorsPanel'
 import type { StyledNode } from './appearance-adapters'
 import { colorTokenOptions } from './appearance-adapters'
@@ -59,28 +60,30 @@ export function PageInspector() {
 type AppearanceProps = { file: FileDocument; overrides: Overrides; mode: Mode; disabled: boolean }
 
 function PrimitiveInspector({ nodes, file, overrides, mode, disabled }: AppearanceProps & { nodes: readonly PrimitiveNode[] }) {
-  const apply = (patch: Partial<PrimitiveStyles>) => { for (const node of nodes) documentStore.commands.setStyles(node.id, patch) }
+  type StylePatch = { [K in keyof PrimitiveStyles]?: PrimitiveStyles[K] | undefined }
+  const apply = (patch: StylePatch) => { documentStore.commands.setStylesMany(Object.fromEntries(nodes.map(node => [node.id, patch]))) }
   const value = (key: 'left' | 'top' | 'width' | 'height' | 'rotation') => same(nodes.map(node => key === 'rotation' ? node.styles.rotation ?? 0 : node.styles[key]))
   const single = nodes.length === 1 ? nodes[0]! : null
+  const transform = (next: (node: PrimitiveNode) => StylePatch) => { documentStore.commands.setStylesMany(Object.fromEntries(nodes.map(node => [node.id, next(node)]))) }
+  const rotated = (node: PrimitiveNode) => ({ rotation: (((node.styles.rotation ?? 0) + 90) % 360 + 360) % 360 })
+  const flipX = nodes.length > 0 && nodes.every(node => node.styles.flipX === true)
+  const flipY = nodes.length > 0 && nodes.every(node => node.styles.flipY === true)
   return <>
     {single && <InspectorSection id="name" title={copy.name}><InspectorTextField key={single.id} id="element-name" label={copy.name} value={single.name} disabled={disabled} onCommit={name => { documentStore.commands.rename(single.id, name) }} /></InspectorSection>}
-    <InspectorSection id="position" title={copy.position}>
+    <InspectorSection id="layout" title={copy.layout}>
       <InspectorRow>
         <InspectorNumberField id="position-x" label={copy.x} prefix="X" value={value('left')} placeholder={copy.mixed} min={-1000000} max={1000000} disabled={disabled} onCommit={left => apply({ left })} />
         <InspectorNumberField id="position-y" label={copy.y} prefix="Y" value={value('top')} placeholder={copy.mixed} min={-1000000} max={1000000} disabled={disabled} onCommit={top => apply({ top })} />
-      </InspectorRow>
-      <InspectorRow>
         <InspectorNumberField id="position-rotation" label={copy.rotation} prefix="R" suffix="°" value={value('rotation')} placeholder={copy.mixed} min={-360} max={360} disabled={disabled} onCommit={rotation => apply({ rotation })} />
-        <span aria-hidden="true" />
       </InspectorRow>
-    </InspectorSection>
-    <InspectorSection id="layout" title={copy.layout}>
       <InspectorRow>
         <InspectorNumberField id="layout-width" label={copy.width} prefix="W" value={value('width')} placeholder={copy.mixed} min={1} max={1000000} disabled={disabled} onCommit={width => apply({ width })} />
         <InspectorNumberField id="layout-height" label={copy.height} prefix="H" value={value('height')} placeholder={copy.mixed} min={1} max={1000000} disabled={disabled} onCommit={height => apply({ height })} />
+        <InspectorTransformActions actionsLabel={copy.transformActions} rotateLabel={copy.rotate90} flipXLabel={copy.flipHorizontal} flipYLabel={copy.flipVertical} flipXPressed={flipX} flipYPressed={flipY} disabled={disabled} onRotate={() => transform(rotated)} onFlipX={() => transform(node => ({ flipX: node.styles.flipX ? undefined : true }))} onFlipY={() => transform(node => ({ flipY: node.styles.flipY ? undefined : true }))} />
       </InspectorRow>
       {nodes.every(node => node.type === 'frame') && <InspectorCheck id="layout-clip" label={copy.clip} checked={nodes.every(node => node.styles.overflow !== 'visible')} disabled={disabled} onChange={clip => apply({ overflow: clip ? 'clip' : 'visible' })} />}
     </InspectorSection>
+    <RadiusSection nodes={nodes} overrides={overrides} disabled={disabled} />
     {single?.type === 'text' && <InspectorSection id="typography" title={copy.typography}>
       <InspectorTextField key={single.id} id="typography-text" label={copy.textContent} value={single.text ?? ''} maxLength={10000} disabled={disabled} onCommit={text => { documentStore.commands.setText(single.id, text) }} />
     </InspectorSection>}
@@ -93,6 +96,7 @@ function ComponentInspector({ node, file, overrides, mode, disabled }: Appearanc
   return <>
     <InspectorSection id="name" title={copy.name}><InspectorTextField key={node.id} id="node-name" label={copy.name} value={node.name ?? node.exportName} disabled={disabled} onCommit={name => { documentStore.commands.rename(node.id, name) }} /></InspectorSection>
     <LayoutSections key={node.id} nodes={[node]} file={file} disabled={disabled} />
+    <RadiusSection nodes={[node]} overrides={overrides} disabled={disabled} />
     <NodeThemeSection nodes={[node]} disabled={disabled} />
     <AppearanceSections file={file} nodes={[node]} overrides={overrides} mode={mode} disabled={disabled} />
   </>
@@ -112,8 +116,8 @@ export function SelectionInspector() {
   const node = nodes[0]
   if (state.selection.length === 1 && node?.type === 'component') return <InspectorStack><ComponentInspector node={node} {...shared} />{colors}</InspectorStack>
   const components = nodes.filter(isComponent)
-  if (components.length === state.selection.length) return <InspectorStack>{heading}<LayoutSections key={state.selection.join(' ')} nodes={components} file={file} disabled={state.blocked} /><NodeThemeSection nodes={components} disabled={state.blocked} /><AppearanceSections nodes={components} {...shared} />{colors}</InspectorStack>
+  if (components.length === state.selection.length) return <InspectorStack>{heading}<LayoutSections key={state.selection.join(' ')} nodes={components} file={file} disabled={state.blocked} /><RadiusSection nodes={components} overrides={state.appearanceOverrides} disabled={state.blocked} /><NodeThemeSection nodes={components} disabled={state.blocked} /><AppearanceSections nodes={components} {...shared} />{colors}</InspectorStack>
   // Primitives and components together: only the theme and the shared appearance sections apply.
   const styled = nodes.filter(isStyled)
-  return <InspectorStack>{heading}<NodeThemeSection nodes={styled} disabled={state.blocked} /><AppearanceSections nodes={styled} {...shared} />{colors}</InspectorStack>
+  return <InspectorStack>{heading}<RadiusSection nodes={styled} overrides={state.appearanceOverrides} disabled={state.blocked} /><NodeThemeSection nodes={styled} disabled={state.blocked} /><AppearanceSections nodes={styled} {...shared} />{colors}</InspectorStack>
 }

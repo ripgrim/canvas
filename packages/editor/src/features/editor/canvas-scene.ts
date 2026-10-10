@@ -16,6 +16,8 @@ export type SceneNode = {
   name: string
   parentId: string | null
   rect: Rect
+  /** Authored clockwise rotation in degrees. Selection chrome uses it to follow the rendered face. */
+  rotation: number
   clip: boolean
   depth: number
   order: number
@@ -44,9 +46,9 @@ export function buildScene(file: FileDocument | null, pageId: string | null, mea
     if (!node || node.type === 'root') return
     if (node.type === 'component') {
       const rect = measured[id]?.componentId === node.componentId ? measured[id]!.rect : null
-      if (rect) nodes.push({ id, kind: 'component', name: displayName(file, id), parentId, rect, clip: false, depth, order: order++, flow: parentId !== null && legacyLayout(node.layout).mode !== 'absolute' })
+      if (rect) nodes.push({ id, kind: 'component', name: displayName(file, id), parentId, rect, rotation: node.layout?.item.transform?.rotate ?? 0, clip: false, depth, order: order++, flow: parentId !== null && legacyLayout(node.layout).mode !== 'absolute' })
     } else {
-      nodes.push({ id, kind: node.type, name: displayName(file, id), parentId, rect: worldRect(file, id)!, clip: node.type === 'frame' && node.styles.overflow !== 'visible', depth, order: order++, flow: false })
+      nodes.push({ id, kind: node.type, name: displayName(file, id), parentId, rect: worldRect(file, id)!, rotation: node.styles.rotation ?? 0, clip: node.type === 'frame' && node.styles.overflow !== 'visible', depth, order: order++, flow: false })
     }
     for (const child of childrenOf(file, id)) visit(child, id, depth + 1)
   }

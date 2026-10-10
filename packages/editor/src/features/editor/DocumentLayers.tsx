@@ -17,10 +17,12 @@ export function DocumentLayers() {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const [collapsed, setCollapsed] = useState<string[]>([])
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const [renamingLayer, setRenamingLayer] = useState<string | null>(null)
   const file = state.file
   const root = file && state.pageId ? pageRoot(file, state.pageId) : null
   if (!file || !root) return <Layout roleName="library-content"><Text roleName="muted">{copy.empty}</Text></Layout>
   const toggle = (id: string) => setCollapsed(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])
+  const beginRename = (id: string) => { store.select(id); setRenamingLayer(id) }
   /** Dropping onto a row places the dragged node right before it (same parent); dropping onto a frame nests inside it. */
   const dropBefore = (file: FileDocument, dragged: string, targetId: string) => {
     const relationship = file.relationships[targetId]
@@ -37,7 +39,7 @@ export function DocumentLayers() {
     if (!node || node.type === 'root') return null
     const name = displayName(file, id)
     const expanded = !collapsed.includes(id)
-    const common = { id, name, toggleLabel: expanded ? copy.collapse(name) : copy.expand(name), depth, selected: state.selection.includes(id), expanded, onSelect: (modifiers: { additive: boolean; range: boolean }) => store.select(id, modifiers), onToggle: () => toggle(id), onRename: () => { store.select(id); store.setRenaming(id) }, onDrop: (dragged: string) => dropBefore(file, dragged, id), onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); if (!state.selection.includes(id)) store.select(id); setContextMenu({ x: event.clientX, y: event.clientY }) } }
+    const common = { id, name, toggleLabel: expanded ? copy.collapse(name) : copy.expand(name), depth, selected: state.selection.includes(id), expanded, renaming: renamingLayer === id, renameLabel: copy.renameLabel(name), onSelect: (modifiers: { additive: boolean; range: boolean }) => store.select(id, modifiers), onToggle: () => toggle(id), onRename: () => beginRename(id), onRenameCommit: (value: string) => { store.commands.rename(id, value); setRenamingLayer(null) }, onRenameCancel: () => setRenamingLayer(null), onDrop: (dragged: string) => dropBefore(file, dragged, id), onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); if (!state.selection.includes(id)) store.select(id); setRenamingLayer(null); setContextMenu({ x: event.clientX, y: event.clientY }) } }
     if (node.type === 'component') {
       const atom = state.atoms.find(item => item.componentId === node.componentId)
       const slots = atom ? getNodeSlots(atom) : []
@@ -49,5 +51,5 @@ export function DocumentLayers() {
     const children = childrenOf(file, id)
     return <DocumentLayerItem key={id} {...common} childrenCount={children.length} icon={icons[node.type]!}>{children.map(child => render(child, depth + 1))}</DocumentLayerItem>
   }
-  return <Layout roleName="component-list"><DocumentTree label={copy.layers}>{childrenOf(file, root).map(id => render(id, 0))}</DocumentTree>{state.error && <Layout roleName="canvas-status" aria-live="polite"><Text>{state.error}</Text>{state.dirty && <Button onClick={() => store.retryPersistence()}>{copy.retry}</Button>}</Layout>}{contextMenu && <NodeContextMenu position={contextMenu} onClose={() => setContextMenu(null)} />}</Layout>
+  return <Layout roleName="component-list"><DocumentTree label={copy.layers}>{childrenOf(file, root).map(id => render(id, 0))}</DocumentTree>{state.error && <Layout roleName="canvas-status" aria-live="polite"><Text>{state.error}</Text>{state.dirty && <Button onClick={() => store.retryPersistence()}>{copy.retry}</Button>}</Layout>}{contextMenu && <NodeContextMenu position={contextMenu} onRename={beginRename} onClose={() => setContextMenu(null)} />}</Layout>
 }

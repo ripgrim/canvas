@@ -1,5 +1,6 @@
 import { realpath } from 'node:fs/promises'
 import { createRepoEngine } from '@canvas/repo-engine'
+import { scanShadcnRepository } from '@canvas/scanner/shadcn'
 import { validatePreviewFiles } from '@canvas/preview-runtime'
 import { parseRepositoryRequest } from './policy'
 import type { RepositoryRequest, RepositoryResult } from '../preload/contracts'
@@ -20,7 +21,10 @@ let queue: Promise<void> = Promise.resolve()
 async function execute(request: RepositoryRequest): Promise<RepositoryResult> {
   if (await realpath(requestedRoot!) !== grant) throw new Error('Repository grant changed.')
   switch (request.method) {
+    case 'listFiles':
+    case 'openFile': throw new Error('Shell file commands cannot run in the repository worker.')
     case 'inspectFixture': return engine.inspectFixture()
+    case 'scanShadcn': return scanShadcnRepository(grant)
     case 'refresh': return engine.refresh()
     case 'prepareLabelPadding': return engine.prepareLabelPadding(request.args[0])
     case 'prepareToken': return engine.prepareToken(request.args[0])

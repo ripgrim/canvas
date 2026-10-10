@@ -31,9 +31,13 @@ export function normalizeCssColor(value: string): string | null {
   if (/^#[0-9a-fA-F]{8}$/.test(value)) return value.slice(0, 7).toLowerCase()
   if (colorScratch === undefined) colorScratch = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d', { willReadFrequently: true })
   if (!colorScratch) return null
-  colorScratch.fillStyle = '#000000'
+  colorScratch.fillStyle = '#010203'
   colorScratch.fillStyle = value
-  const normalized = colorScratch.fillStyle
+  const first = String(colorScratch.fillStyle)
+  colorScratch.fillStyle = '#040506'
+  colorScratch.fillStyle = value
+  const normalized = String(colorScratch.fillStyle)
+  if (first !== normalized) return null
   if (typeof normalized === 'string' && /^#[0-9a-fA-F]{6}$/.test(normalized)) return normalized.toLowerCase()
   if (typeof normalized === 'string' && /^#[0-9a-fA-F]{8}$/.test(normalized)) return normalized.slice(0, 7).toLowerCase()
   colorScratch.clearRect(0, 0, 1, 1)

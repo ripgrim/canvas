@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { canonicalAppearance, convertPaint, defaultOutline } from '@canvas/repo-engine/appearance'
+import { applyColorOpacity, canonicalAppearance, convertPaint, defaultOutline } from '@canvas/repo-engine/appearance'
 import type { Appearance, BlendMode, BorderSide, ColorValue, GradientInterpolation, GradientPaint, GradientShape, ImageFit, ImagePaint, Outline, Paint, Stroke, StrokeStyle } from '@canvas/repo-engine/appearance'
 import { resolveColorValue } from '@canvas/repo-engine/file-document'
 import type { FileCommand, FileDocument, SourcePalette } from '@canvas/repo-engine/file-document'
@@ -12,11 +12,10 @@ import { AppearanceDragHandle, AppearanceFieldGlyph, AppearanceFilePicker, Appea
 import type { DragSession, FilePickerHandle } from '../../design-system/appearance-atoms'
 import { ColorPicker } from '../../design-system/color-picker'
 import { MissingTokenField, MixedTokensField, TokenActionButton, TokenActions, TokenBoundField, TokenChooser } from '../../design-system/token-field-atoms'
-import { aggregateBlending, aggregateBorders, aggregateFills, aggregateOutline, bindingState, blendModeGroups, borderEntries, colorAt, colorAtSlot, colorTokenOptions, darkerHex, editStroke, effectiveAppearance, eligibleFor, entriesToBorders, gradientBarCss, mergePaint, midpointAt, midpointHandles, moveItem, overridesFor, rebindColor, storageIndex, unlinkColor, UnresolvedTokenError, withBorder, withColorAtSlot, withFill, withFills, withOutline, withoutStop, withPaintBlend, withPaintVisibility, withStop, withStrokeVisibility } from './appearance-adapters'
+import { aggregateBlending, aggregateBorders, aggregateFills, aggregateOutline, bindingState, blendModeGroups, borderEntries, colorAt, colorAtSlot, colorTokenOptions, darkerHex, editStroke, effectiveAppearance, eligibleFor, entriesToBorders, gradientBarCss, mergePaint, midpointAt, midpointHandles, moveItem, overridesFor, rebindColor, storageIndex, unlinkColor, UnresolvedTokenError, withBorder, withColorAtSlot, withFill, withFills, withOutline, withoutStop, withPaintBlend, withPaintOpacity, withPaintVisibility, withStop, withStrokeVisibility } from './appearance-adapters'
 import type { BindingEntry, BindingState, BorderEntry, BorderKey, ColorSlot, FillField, StrokeField, StyledNode } from './appearance-adapters'
 import { documentStore } from './document-store'
 import { inspectorCopy as copy } from './inspector-copy'
-import { themeFocus } from './theme-focus'
 import { tokenFieldCopy as tokenCopy } from './token-field-copy'
 
 type Mode = 'light' | 'dark'
@@ -59,7 +58,7 @@ function freshTargets(ids: readonly string[]): Target[] {
 }
 
 type ColorLabels = { binding: string; color: string; opacity: string }
-type ColorPartsProps = { id: string; context: Context; slot: ColorSlot; value: ColorValue; mixed?: boolean; labels: ColorLabels; picker?: { open: boolean; onOpenChange: (open: boolean) => void }; onChange: (value: ColorValue) => void; onBindingAction?: () => void }
+type ColorPartsProps = { id: string; context: Context; slot: ColorSlot; value: ColorValue; mixed?: boolean; labels: ColorLabels; picker?: { open: boolean; onOpenChange: (open: boolean) => void }; opacity?: number; opacityMixed?: boolean; onOpacityChange?: (opacity: number) => void; onChange: (value: ColorValue) => void; onBindingAction?: () => void }
 type ColorParts = { bound: boolean; binding: ReactNode; color: ReactNode }
 
 /** The color stored at one slot on every selected node that has it. */
@@ -114,10 +113,10 @@ function literalParts({ id, context, value, mixed = false, labels, picker, onCha
 }
 
 /**
- * A bound slot: the token in the value position with read-only resolved context, and explicit Rebind, Unlink and Edit
- * token actions. Nothing here edits the color, so a binding cannot be replaced by accident.
+ * A bound slot: the token in the value position with read-only opacity context and explicit Rebind and Unlink actions.
+ * Nothing here edits the color, so a binding cannot be replaced by accident.
  */
-function boundParts({ id, context, slot, labels, onBindingAction }: ColorPartsProps, state: Exclude<BindingState, { kind: 'empty' | 'literal' | 'mixed-literals' }>, entries: readonly BindingEntry[]): ColorParts {
+function boundParts({ id, context, slot, labels, opacity, opacityMixed = false, onOpacityChange, onBindingAction }: ColorPartsProps, state: Exclude<BindingState, { kind: 'empty' | 'literal' | 'mixed-literals' }>, entries: readonly BindingEntry[]): ColorParts {
   const { file, disabled } = context
   const target = labels.color
   const diagnosticId = `${id}-diagnostic`
@@ -125,8 +124,7 @@ function boundParts({ id, context, slot, labels, onBindingAction }: ColorPartsPr
   const multiple = state.kind === 'mixed-tokens' || state.kind === 'mixed-sources'
   const rebind = <TokenChooser id={`${id}-rebind`} label={multiple ? tokenCopy.rebindAllLabel(target) : tokenCopy.rebindLabel(target)} placeholder={multiple ? tokenCopy.rebindAll : tokenCopy.rebind} options={chooserOptions(context)} disabled={disabled} onChoose={tokenId => acted(rebindSlot(context, slot, tokenId))} />
   const unlinkable = state.kind === 'bound' || (multiple && state.unlinkable)
-  const unlink = <TokenActionButton label={multiple ? tokenCopy.unlinkEachLabel(target) : tokenCopy.unlinkLabel(target)} text={tokenCopy.unlink} disabled={disabled} reason={unlinkable ? undefined : tokenCopy.unlinkUnavailable} describedBy={diagnosticId} onClick={() => acted(unlinkSlot(context, slot))} />
-  const edit = (tokenId: string, name: string) => <TokenActionButton label={tokenCopy.editLabel(name, target)} text={tokenCopy.editToken} onClick={() => { themeFocus.request(tokenId) }} />
+  const unlink = <TokenActionButton label={multiple ? tokenCopy.unlinkEachLabel(target) : tokenCopy.unlinkLabel(target)} icon="unlink" disabled={disabled} reason={unlinkable ? undefined : tokenCopy.unlinkUnavailable} describedBy={diagnosticId} onClick={() => acted(unlinkSlot(context, slot))} />
   if (state.kind === 'bound') {
     const colors = entries.map(entry => resolveColorValue(file.theme, entry.value, context.paletteOf(entry.nodeId)) ?? fallbackColor)
     const primary = shownColor(colors[0]!)
@@ -134,7 +132,8 @@ function boundParts({ id, context, slot, labels, onBindingAction }: ColorPartsPr
     const colorText = varies ? tokenCopy.variesByTheme : tokenCopy.colorText(primary.hex, primary.opacity)
     const contextText = state.aliasOf ? tokenCopy.aliasTo(state.aliasOf.name) : varies ? tokenCopy.variesByTheme : tokenCopy.context(primary.hex, primary.opacity)
     const detail = state.aliasOf ? `${tokenCopy.aliasTo(state.aliasOf.name)}, ${colorText}` : colorText
-    return { bound: true, color: <TokenBoundField label={tokenCopy.boundLabel(target, state.token.name, detail)} color={colorToCss(colors[0]!)} name={state.token.name} context={contextText} />, binding: <TokenActions>{rebind}{unlink}{edit(state.tokenId, state.token.name)}</TokenActions> }
+    const swatch = applyColorOpacity(colors[0]!, opacity)
+    return { bound: true, color: <TokenBoundField id={`${id}-opacity`} label={tokenCopy.boundLabel(target, state.token.name, detail)} color={colorToCss(swatch)} name={state.token.name} context={contextText} opacity={opacity} opacityLabel={labels.opacity} opacityMixed={opacityMixed} disabled={disabled} onOpacityCommit={onOpacityChange} />, binding: <TokenActions>{rebind}{unlink}</TokenActions> }
   }
   if (multiple) {
     const text = state.kind === 'mixed-tokens' ? tokenCopy.mixedTokens : tokenCopy.mixedSources
@@ -144,7 +143,7 @@ function boundParts({ id, context, slot, labels, onBindingAction }: ColorPartsPr
   return {
     bound: true,
     color: <MissingTokenField id={diagnosticId} label={tokenCopy.stateLabel(target, text)} text={text} />,
-    binding: <TokenActions>{rebind}{unlink}{state.kind !== 'missing' && edit(state.tokenId, state.token.name)}</TokenActions>,
+    binding: <TokenActions>{rebind}{unlink}</TokenActions>,
   }
 }
 
@@ -158,8 +157,7 @@ function colorParts(props: ColorPartsProps): ColorParts {
 
 function ColorLine(props: ColorPartsProps & { trailing?: ReactNode }) {
   const parts = colorParts(props)
-  if (!parts.bound) return <AppearanceLine>{parts.color}{parts.binding}{props.trailing}</AppearanceLine>
-  return <><AppearanceLine>{parts.color}{props.trailing}</AppearanceLine><AppearanceLine>{parts.binding}</AppearanceLine></>
+  return <AppearanceLine layout="value-actions">{parts.color}{parts.binding}{props.trailing}</AppearanceLine>
 }
 
 // Blending ----------------------------------------------------------------------------------------------------------
@@ -250,7 +248,7 @@ function FillRow({ context, paint, index, row, count, mixed }: FillRowProps) {
       <AppearanceVisibilityButton visible={paint.visible !== false && !isMixed('visible')} showLabel={copy.showFill(number)} hideLabel={copy.hideFill(number)} disabled={disabled} onChange={visible => write(withPaintVisibility(paint, visible))} />
       <AppearanceRemoveButton label={copy.removeFill(number)} disabled={disabled} onClick={() => { commands().removeFill(ids, index) }} />
     </AppearanceLine>
-    {paint.type === 'solid' && <ColorLine id={`fill-${paint.id}`} context={context} slot={{ kind: 'fill', index }} value={paint.color} mixed={isMixed('color')} labels={{ binding: copy.fillBinding(number), color: copy.fillColor(number), opacity: copy.fillOpacity(number) }} onChange={color => write({ ...paint, color })} />}
+    {paint.type === 'solid' && <ColorLine id={`fill-${paint.id}`} context={context} slot={{ kind: 'fill', index }} value={paint.color} mixed={isMixed('color')} opacity={paint.opacity ?? 1} opacityMixed={isMixed('opacity')} labels={{ binding: copy.fillBinding(number), color: copy.fillColor(number), opacity: copy.fillOpacity(number) }} onOpacityChange={opacity => write(withPaintOpacity(paint, opacity))} onChange={color => write({ ...paint, color })} />}
     {paint.type === 'gradient' && <GradientBody context={context} paint={paint} index={index} number={number} isMixed={isMixed} write={write} live={live} />}
     {paint.type === 'image' && <ImageBody context={context} paint={paint} number={number} isMixed={isMixed} write={write} onChoose={() => picker.current?.open()} />}
     <AppearanceFilePicker label={copy.imageFile(number)} accept={imageAccept} disabled={disabled} pickerRef={picker} onFile={file => { void chooseImage(file) }} />

@@ -22,7 +22,7 @@ export type ThemeProjectionContext = { themes: readonly DesignTheme[]; previewTh
 export type ThemeDiagnostic = { nodeId: string; reason: 'missing-theme' | 'ambiguous-theme' | 'cycle' | 'missing-node' | 'base-theme-inside-attribute'; candidates?: string[] }
 const isThemeContext = (value: SourcePalette | ThemeProjectionContext): value is ThemeProjectionContext => typeof (value as ThemeProjectionContext).palette === 'function' && Array.isArray((value as ThemeProjectionContext).themes)
 const baseTheme: DesignTheme = { id: defaultDesignThemeId, name: 'Default', selector: ':root', attribute: null, colorScheme: 'light' }
-export type PreviewPageElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; x: number; y: number; width: number; height: number; rotation: number; text?: string; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance }
+export type PreviewPageElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; x: number; y: number; width: number; height: number; rotation: number; flipX?: boolean; flipY?: boolean; text?: string; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance }
 export type PreviewPageAsset = { mime: ImageMime; data: string }
 export type PreviewPageDocument = { version: 1; revision: number; rootIds: string[]; nodes: Record<string, PreviewPageNode>; frame: { name?: string; width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean }; canvas: { elements: PreviewPageElement[] }; background?: string; assets?: Record<string, PreviewPageAsset> }
 export type PreviewLayoutEntry = { nodeId: string; mode: DocumentNodeLayout['mode']; x: number; y: number; order: number; width?: number; height?: number; declarations?: Record<string, string> }
@@ -123,6 +123,7 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
     if (!node || node.type === 'root' || node.type === 'component') return
     elements.push({
       id, kind: node.type, name: node.name, x: node.styles.left, y: node.styles.top, width: node.styles.width, height: node.styles.height, rotation: node.styles.rotation ?? 0,
+      ...(node.styles.flipX ? { flipX: true } : {}), ...(node.styles.flipY ? { flipY: true } : {}),
       parentId, ...appearanceOf(id, themeOf(id).palette),
       ...(node.type === 'text' ? { text: node.text ?? '' } : {}),
       ...(node.type === 'frame' ? { clip: node.styles.overflow !== 'visible' } : {}),

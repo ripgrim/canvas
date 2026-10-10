@@ -10,6 +10,7 @@
     "dev:preview": "vite --config vite.preview.config.ts --host 127.0.0.1 --port 4318 --strictPort"
   },
   "dependencies": {
+    "@canvas/auth": "workspace:*",
     "@canvas/editor": "workspace:*",
     "@canvas/repo-engine": "workspace:*",
     "@canvas/preview-runtime": "workspace:*",

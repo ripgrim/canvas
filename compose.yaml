@@ -1,0 +1,22 @@
+name: design-editor
+
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: design_editor
+      POSTGRES_USER: design_editor
+      POSTGRES_PASSWORD: design_editor_local
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - design-editor-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U design_editor -d design_editor"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  design-editor-postgres:
