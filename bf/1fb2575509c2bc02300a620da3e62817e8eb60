@@ -1,0 +1,831 @@
+packages/scanner/tsconfig.build.json
+  s_012c57818fbf95::t_367116fb8ea06b 1-13
+packages/editor/src/design-system/token-field-atoms.tsx
+  s_012c57818fbf95::t_da165dba711b82 10
+  s_012c57818fbf95::t_002450f1473eef 13,15-17,19-25,29,31-32,34-35
+  s_012c57818fbf95::t_082748d575492f 18,30,33
+  s_012c57818fbf95::t_62d5ad455c591e 5,54,95-96,98
+  s_012c57818fbf95::t_af70ea07953c36 14
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_5bb6c8172fec6b 67-68,70,73-76,78
+  s_012c57818fbf95::t_0ce8d58d2a4808 49-54
+  s_012c57818fbf95::t_1724fe5d3bfcbb 47-48,55-56,58,60-66,79-90
+  s_012c57818fbf95::t_e63a272289f51a 69
+  s_012c57818fbf95::t_1d8471335cd0cc 169,364
+  s_012c57818fbf95::t_00f6b25f44a57e 72
+  s_012c57818fbf95::t_7e4a9967731a8a 189
+  s_012c57818fbf95::t_806ace48962946 77
+  s_012c57818fbf95::t_8885ddb92b26d6 210-221
+  s_012c57818fbf95::t_1a446a28091743 294-295
+  s_012c57818fbf95::t_efce76fc50934a 71
+  s_012c57818fbf95::t_298ea987d0b5f6 171,292,358-359
+  s_012c57818fbf95::t_fc521939096d0a 57,59
+  s_012c57818fbf95::t_2b3c0b2852c968 170
+  s_012c57818fbf95::t_fc9eecdcfaf67a 190-192
+  s_012c57818fbf95::t_04ec69c3e8b253 293
+  s_012c57818fbf95::t_a380750f14e813 365
+  s_012c57818fbf95::t_312b0cab68b957 193-196,198
+packages/editor/src/features/editor/AppearancePanels.tsx
+  s_012c57818fbf95::t_4786736ef93151 3,135-136
+  s_012c57818fbf95::t_2a799969345551 127
+  s_012c57818fbf95::t_e8b0f66bc66623 15,61,119,251
+  s_012c57818fbf95::t_62d5ad455c591e 160
+  s_012c57818fbf95::t_0f6899ba7f9b64 116-117,146
+packages/editor/src/features/application/auth-service.test.ts
+  s_012c57818fbf95::t_f158d6bf1cd170 9-21
+  s_012c57818fbf95::t_02939d3c22434e 1-8,22-37
+packages/editor/src/design-system/property.css
+  s_012c57818fbf95::t_b66f83c9b5fed8 14
+packages/repo-engine/src/file-document.ts
+  s_012c57818fbf95::t_cc10bc8982d970 23,70,74-75
+packages/repository/tsconfig.build.json
+  s_012c57818fbf95::t_753279eb1a332e 1-11
+apps/web/tests/repository-token-import.mjs
+  s_012c57818fbf95::t_cd177ad8e641e5 148,151-155,157
+  s_012c57818fbf95::t_84c98df638a9ab 216
+  s_012c57818fbf95::t_e8fa0e1062fe0d 123-124
+  s_012c57818fbf95::t_cbba2d7318fe87 75,141-144
+  s_012c57818fbf95::t_24bf9ad6963347 1-11,14-16,18-37,39-42,44-49,70-72,76-87,91-92,94,96-104,106-110,112,120,126,135-136,159-161,189,214,217-219,221-223,225-233,236,238-239,246-251,253-257
+  s_012c57818fbf95::t_eb2a9dae282bd9 121,138,234-235
+  s_012c57818fbf95::t_fc521939096d0a 73,125
+  s_012c57818fbf95::t_56a038a4dc235e 197
+  s_012c57818fbf95::t_7859f3ba65e212 237
+  s_012c57818fbf95::t_7c61803075d7a0 224
+  s_012c57818fbf95::t_c85d10c4943863 13
+  s_012c57818fbf95::t_f63dc24032c62c 163-181
+  s_012c57818fbf95::t_d046f39f6f7413 182-188
+  s_012c57818fbf95::t_250b4efeaf887c 190-196
+  s_012c57818fbf95::t_4b04dbd2451249 113-117
+  s_012c57818fbf95::t_afce728cd6c3fb 17,88-90,252
+  s_012c57818fbf95::t_67c8f73a31ff96 118-119
+  s_012c57818fbf95::t_ab90cdeee04574 50-69,74,122,127-134,137,139-140,145-147,150,156,158,162,198-200,203-204,220
+  s_012c57818fbf95::t_da18cc0db62b3f 149
+  s_012c57818fbf95::t_2dc6ea9042a76a 201-202,205-213,215
+  s_012c57818fbf95::t_687719f45240c7 111
+  s_012c57818fbf95::t_d900a714a2b54d 12,38,43
+  s_012c57818fbf95::t_bf0919f32c23ae 93,95,105,240-245
+packages/repository/tsconfig.json
+  s_012c57818fbf95::t_753279eb1a332e 1-5
+packages/editor/src/features/editor/layout-panels-sizing.test.ts
+  s_012c57818fbf95::t_31e37e8fe3f3e6 2,27-30
+  s_012c57818fbf95::t_80c4037a1b9050 4
+  s_012c57818fbf95::t_1cb7e0aeb164f5 1,3,5-8,11-12,14-15,17-19,23-24,31-32
+  s_012c57818fbf95::t_f6e6a8e8737984 9-10,13,16,20-22,25-26
+packages/preview-runtime/src/browser-runtime.mjs
+  s_012c57818fbf95::t_2a44560acb8450 76
+packages/editor/src/design-system/sidebar.css
+  s_012c57818fbf95::t_c2c8dffd83a35b 26-27
+apps/desktop/vite.main.config.ts
+  s_012c57818fbf95::t_67b6eb0b82589c 9
+  s_012c57818fbf95::t_0e30afe63d2659 10
+packages/editor/src/features/editor/preview-transient.test.ts
+  s_012c57818fbf95::t_4b04dbd2451249 3-4,44-50
+packages/editor/src/features/editor/repository-service.ts
+  s_012c57818fbf95::t_5b948884cd2911 16,23,63,69
+  s_012c57818fbf95::t_d25f662f022596 5-6,11,15,20,22,24,28-29,31,45,50,55,60,62,64,68
+  s_012c57818fbf95::t_a09bb798fce056 1-4,7-10,12-14,17-19,21,25-27,30,32-44,46-49,51-54,56-59,61,65-67,70-72
+apps/desktop/package.json
+  s_012c57818fbf95::t_67b6eb0b82589c 20
+  s_012c57818fbf95::t_0e30afe63d2659 8
+  s_012c57818fbf95::t_c6c362a1f4ca2b 17
+  s_012c57818fbf95::t_b8ddb277a647fe 21
+packages/editor/src/design-system/color-picker.css
+  s_012c57818fbf95::t_f4f5e2babc1423 39
+scripts/check-runtime-boundaries.mjs
+  s_012c57818fbf95::t_3f683de3b10a96 12-13,215-219
+  s_012c57818fbf95::t_afac6332af9837 24
+apps/web/src/routes/sign-in.tsx
+  s_012c57818fbf95::t_77d4ab0dd2c13f 8-14
+  s_012c57818fbf95::t_2dda7e2c3d35eb 19
+  s_012c57818fbf95::t_a148368e320437 1-7,15-18
+packages/editor/src/features/editor/appearance-adapters.ts
+  s_012c57818fbf95::t_dddc2d04831c7c 6,70,75,124-127,139
+apps/desktop/src/preload/contracts.ts
+  s_012c57818fbf95::t_b177e092a41e7f 11,14,37,43
+  s_012c57818fbf95::t_4a7ae7abb81c07 5,10,18-21,51-59
+  s_012c57818fbf95::t_2f59fd82323e4e 15,38
+  s_012c57818fbf95::t_b24623709f853a 17
+  s_012c57818fbf95::t_2791d07ddb707b 6,30-33,60-68
+  s_012c57818fbf95::t_5315d7398b0b1f 4
+  s_e18d232d8e09ca::t_10c9d2e7bd3b81 69
+packages/editor/src/features/application/DesktopAuthBoundary.tsx
+  s_012c57818fbf95::t_f158d6bf1cd170 13
+  s_012c57818fbf95::t_3bebc57c2c9e77 1-12,14-19
+packages/editor/src/features/editor/properties-copy.ts
+  s_012c57818fbf95::t_9ddf16914b17f2 5,8,10
+.env.example
+  s_012c57818fbf95::t_dd64f8ff37666a 6
+  s_012c57818fbf95::t_338e7945778a2d 4,7,11,16
+  s_012c57818fbf95::t_03e52d43517490 5,8-10,12-15
+  s_012c57818fbf95::t_9c00ffaae0afb1 1-3
+packages/editor/src/features/editor/component-sync-queue.ts
+  s_012c57818fbf95::t_20d1a9fe412bf6 1-31
+apps/web/tests/node-theme.mjs
+  s_012c57818fbf95::t_58ab8a4779bde3 1-2,26,114-116,123-125,164-165,169
+packages/editor/src/auth.ts
+  s_012c57818fbf95::t_3bebc57c2c9e77 1-2
+apps/web/src/adapters/desktop.ts
+  s_012c57818fbf95::t_04788037396d92 43-46
+  s_012c57818fbf95::t_f839c576f4ffa7 1,11-14
+  s_012c57818fbf95::t_2f59fd82323e4e 3,5,21,41
+  s_012c57818fbf95::t_1bd45390de8428 23,26
+  s_012c57818fbf95::t_0951b68bb3b382 4,17,19-20,40
+  s_012c57818fbf95::t_24624c258a039b 6-10,15
+  s_012c57818fbf95::t_9209822cf1f3aa 31-36,39
+packages/repository/src/node.ts
+  s_012c57818fbf95::t_f850b3d20e2106 19-20
+  s_012c57818fbf95::t_57908479cf8aae 128-130,140
+  s_012c57818fbf95::t_753279eb1a332e 1-2,4-6,8-18,21,23-24,27-28,31-38,40-48,122-127,131-132,143-149,151,153-159,170-171,174-177,179-181,183-184,194-195
+  s_012c57818fbf95::t_62ad53098a2af7 3,49-50,65-75,77-80,82-84,87-94,96,101-102,105-106,120-121
+  s_012c57818fbf95::t_6df00b87dcf3d9 39
+  s_012c57818fbf95::t_0623520482d5cc 7,22,51-64,150,152,160,162,169,172-173,178,185-193
+  s_012c57818fbf95::t_d1e76c341e7f01 26
+  s_012c57818fbf95::t_3aa774ec25f3c1 81,85-86,95,97-100,103-104
+  s_012c57818fbf95::t_e5761d27686080 107-119
+  s_012c57818fbf95::t_959f9e21856fe5 25,29-30,133-139,141-142,182
+  s_012c57818fbf95::t_3ed6c0529526a1 161,163-168
+  s_012c57818fbf95::t_7ba10e65a0c7bd 76
+packages/editor/src/features/editor/document-store.test.ts
+  s_012c57818fbf95::t_da7a9288a54798 302
+  s_012c57818fbf95::t_4bc214bddf9f2d 319
+  s_012c57818fbf95::t_cc9d7486fff6f9 146-163
+  s_012c57818fbf95::t_2a44560acb8450 5,311-318,320-332
+apps/desktop/src/main/scan-worker.ts
+  s_012c57818fbf95::t_adc3dd32b059b9 1-14
+apps/desktop/src/main/auth-config.ts
+  s_012c57818fbf95::t_90999423f90661 2,4-5,19
+  s_012c57818fbf95::t_0e30afe63d2659 1,3,6-7,9-18,20-28
+  s_012c57818fbf95::t_6bafe9bc4c55f0 8
+apps/web/tests/browser-interactions.mjs
+  s_012c57818fbf95::t_3253aca1475dcc 255
+  s_012c57818fbf95::t_e49f213e12ce27 258-261
+apps/web/src/shell/HostedSignInRoute.tsx
+  s_012c57818fbf95::t_56d9743e370735 14
+  s_012c57818fbf95::t_2dda7e2c3d35eb 12
+  s_012c57818fbf95::t_a148368e320437 1-11,13,15
+packages/preview-runtime/src/protocol.ts
+  s_012c57818fbf95::t_fdafef22c4d954 18,20,110,133-139,142,153
+  s_012c57818fbf95::t_cc10bc8982d970 35,181,186-187
+packages/preview-runtime/tests/scene-protocol.test.ts
+  s_012c57818fbf95::t_0bf0cd4aa413fb 61-62
+packages/scanner/package.json
+  s_012c57818fbf95::t_5315d7398b0b1f 14-17
+  s_012c57818fbf95::t_367116fb8ea06b 1-13,18-34
+packages/editor/src/design-system/sidebar-atoms.tsx
+  s_012c57818fbf95::t_5ef961a4a75d98 31,35
+  s_012c57818fbf95::t_b75de7293b07cf 1-2,32-33
+packages/auth/src/web.ts
+  s_012c57818fbf95::t_90999423f90661 16,49-55
+  s_012c57818fbf95::t_353a6f85789380 1-15,17-48,56-63
+packages/editor/src/design-system/auth-atoms.tsx
+  s_012c57818fbf95::t_3bebc57c2c9e77 1-42
+packages/auth/src/index.ts
+  s_012c57818fbf95::t_dedc1850aca51d 71-85,137
+  s_012c57818fbf95::t_56d9743e370735 91,139-144
+  s_012c57818fbf95::t_90999423f90661 3-6
+  s_012c57818fbf95::t_353a6f85789380 1,31-36,131-132,145-152
+  s_012c57818fbf95::t_9a6784f67d5936 2,8,10,28-29,124-130,133-136,138,153-158
+  s_012c57818fbf95::t_8160eadddb7c1b 7,9,11-27,30,37-44,46-70,86-90,92-123,159-161,163-165,167,194
+  s_012c57818fbf95::t_817f597cb4bd37 45,162,166,168-193
+packages/editor/src/features/home/store.ts
+  s_012c57818fbf95::t_832b89c068c5f5 15,27,65-66,73
+packages/editor/src/features/editor/CanvasStage.tsx
+  s_012c57818fbf95::t_9ddf16914b17f2 2,12,45-56,59
+  s_012c57818fbf95::t_f1ea3cab9006b0 13-14,19,57-58
+  s_012c57818fbf95::t_fa56329dfaef17 17,60
+packages/editor/src/features/editor/CanvasWorkspace.tsx
+  s_012c57818fbf95::t_fa56329dfaef17 35-36,45-46
+packages/editor/package.json
+  s_012c57818fbf95::t_3bebc57c2c9e77 11
+  s_012c57818fbf95::t_c6c362a1f4ca2b 22
+  s_012c57818fbf95::t_67b6eb0b82589c 24-25
+apps/desktop/tests/auth-service.test.ts
+  s_012c57818fbf95::t_2791d07ddb707b 1,3-4,6-8,10-12,14-21,30-35,37-42,44,47,50-55,57-60,69-73,76,86-87
+  s_012c57818fbf95::t_f158d6bf1cd170 36,46,48-49
+  s_012c57818fbf95::t_ff8ee0aea1b503 2
+  s_012c57818fbf95::t_5bcb621fe5ffad 9,43,45,56,75
+  s_012c57818fbf95::t_56d9743e370735 13,66,74,77-85
+  s_012c57818fbf95::t_ee176bc9b38d6c 61-65,67-68
+  s_012c57818fbf95::t_f00506ae41f9c6 5,22-29
+packages/editor/src/design-system/token-field.css
+  s_012c57818fbf95::t_da165dba711b82 1
+  s_012c57818fbf95::t_002450f1473eef 8-13
+  s_012c57818fbf95::t_62d5ad455c591e 2,5,21,42-43
+apps/desktop/src/main/auth-service.ts
+  s_012c57818fbf95::t_2791d07ddb707b 1-18,21-23,28-39,41-68,72,74-86,88-92,94-111,118-124
+  s_012c57818fbf95::t_f00506ae41f9c6 24-27
+  s_012c57818fbf95::t_ee176bc9b38d6c 69
+  s_012c57818fbf95::t_f158d6bf1cd170 87,116
+  s_012c57818fbf95::t_56d9743e370735 70,112-115
+  s_012c57818fbf95::t_8854cc3ba61a56 19-20,117
+  s_012c57818fbf95::t_13e4db79d0638b 40,71,73,93
+packages/editor/src/features/editor/DocumentLayers.tsx
+  s_012c57818fbf95::t_742f587c44c08b 20,25,42
+  s_012c57818fbf95::t_1dff6388e63812 54
+packages/editor/src/features/editor/InspectorPanels.tsx
+  s_012c57818fbf95::t_a07c39b7ad1a7f 7,68-70,73,82
+  s_012c57818fbf95::t_fdafef22c4d954 13,86,99,119,122
+  s_012c57818fbf95::t_11b650aac9c6ca 63-64,67
+packages/auth/tsconfig.json
+  s_012c57818fbf95::t_8160eadddb7c1b 1-3,5
+  s_012c57818fbf95::t_be4d545d1b6e49 4
+packages/auth/tests/native-auth.test.ts
+  s_012c57818fbf95::t_dedc1850aca51d 47,57
+  s_012c57818fbf95::t_6bafe9bc4c55f0 56
+  s_012c57818fbf95::t_9a6784f67d5936 42-44,48-53,60,73-79
+  s_012c57818fbf95::t_817f597cb4bd37 14,16-23
+  s_012c57818fbf95::t_56d9743e370735 2,54-55,58-59,61-72
+  s_012c57818fbf95::t_8160eadddb7c1b 1,3-13,15,24-41,80-81
+  s_012c57818fbf95::t_d929902e32061d 45-46
+apps/web/tests/token-binding.mjs
+  s_012c57818fbf95::t_12fd2073fed872 239
+  s_012c57818fbf95::t_ed919830468797 141,147
+  s_012c57818fbf95::t_4590e363a52d5b 96-99,151,261,273,339
+  s_012c57818fbf95::t_6c2460190de859 242,246,251,258,278,346,349
+  s_012c57818fbf95::t_536b47a60cb8f6 129,134-140,142-146,166
+  s_012c57818fbf95::t_58ab8a4779bde3 198-212,215
+  s_012c57818fbf95::t_17e0aceff27061 1,8-9,131-132,149-150,153-154,156,160,163,170,174,185,188,191,194,197,213-214,216,227-228
+  s_012c57818fbf95::t_41054063f0c1ff 165
+packages/editor/src/features/application/HostedSignInScreen.tsx
+  s_012c57818fbf95::t_3bebc57c2c9e77 1-25
+packages/preview-runtime/src/appearance-styles.mjs
+  s_012c57818fbf95::t_5392416d7bab4c 1-15
+packages/repo-engine/tests/appearance.test.ts
+  s_012c57818fbf95::t_23d3ae861ad73a 20-21,71-75,107,156-160,220,225,230,368-373
+packages/editor/src/features/editor/ComponentPromotion.tsx
+  s_012c57818fbf95::t_04382b6fdff3c9 1-29
+packages/editor/src/features/editor/ComponentPromotion.test.ts
+  s_012c57818fbf95::t_04382b6fdff3c9 1-21
+scripts/local-auth-cli.mjs
+  s_012c57818fbf95::t_686c860343fbb6 1,3-4,6-15,18-22,43-47,49-53
+  s_012c57818fbf95::t_d4a7a87508d2c8 28
+  s_012c57818fbf95::t_ef2c56bf66aead 16-17
+  s_012c57818fbf95::t_f816a0af7d49cb 32-34,38-42
+  s_012c57818fbf95::t_9c00ffaae0afb1 2,5,23-27,29-31,35-37,48
+packages/editor/src/features/editor/SelectionHud.tsx
+  s_012c57818fbf95::t_d7c0a6bbc2c0c9 12,33
+  s_012c57818fbf95::t_42a4ebdaef5fa0 13,51-53,55
+scripts/dev.mjs
+  s_012c57818fbf95::t_a148368e320437 5,8,42
+  s_012c57818fbf95::t_735a09bf13d832 9
+apps/web/vite.config.ts
+  s_012c57818fbf95::t_a148368e320437 1,4-5,7-16
+packages/editor/src/features/editor/design-theme.ts
+  s_012c57818fbf95::t_cbba2d7318fe87 34,36-40
+packages/editor/src/features/editor/appearance-adapters.test.ts
+  s_012c57818fbf95::t_a8120d1d375151 285
+  s_012c57818fbf95::t_d3c62fb1772935 6,9,65-71,110-112,274-276,284,286-289
+  s_012c57818fbf95::t_a0c64d8a9c4481 12
+  s_012c57818fbf95::t_5a95f1151d805a 279
+  s_012c57818fbf95::t_2699d9a05a51f4 277-278,280-283
+apps/desktop/src/main/scanner-process.ts
+  s_012c57818fbf95::t_24624c258a039b 27
+  s_012c57818fbf95::t_5315d7398b0b1f 3
+  s_012c57818fbf95::t_adc3dd32b059b9 1-2,4-26,28-49
+packages/editor/src/features/application/HomeScreen.tsx
+  s_012c57818fbf95::t_e6320afb165d1e 4,7,10-16,24,32
+  s_012c57818fbf95::t_832b89c068c5f5 21
+packages/repo-engine/src/file-preview.ts
+  s_012c57818fbf95::t_cc10bc8982d970 25,126
+packages/editor/src/features/editor/token-field-copy.ts
+  s_012c57818fbf95::t_0f6899ba7f9b64 5-6
+apps/web/src/features/auth/hosted-auth-service.ts
+  s_012c57818fbf95::t_56d9743e370735 3,11-15,17,27-33,39,41-45,48
+  s_012c57818fbf95::t_a148368e320437 1-2,4-5,9-10,16,18-19,21-26,34-35,37-38,40,46,50-51,53-59
+  s_012c57818fbf95::t_90999423f90661 6-8,20,36,47,49,52
+packages/editor/src/features/editor/component-drag.test.ts
+  s_012c57818fbf95::t_2a44560acb8450 1-27
+packages/auth/src/electron.ts
+  s_012c57818fbf95::t_f62fc4fa93c60c 11
+  s_012c57818fbf95::t_353a6f85789380 19,24,69
+  s_012c57818fbf95::t_36a7fe3d35be5c 4,65-68,70-76,79
+  s_012c57818fbf95::t_b11f5d157957d3 5,9,12
+  s_012c57818fbf95::t_8d5da63eea1995 6,30-54,81,83-96,98-109
+  s_012c57818fbf95::t_9202d7f2c68b5d 8,10
+  s_012c57818fbf95::t_9a6784f67d5936 1-3,7,13-18,20-23,25-29,55-64,77-78,80,82,97,110-125
+apps/web/tests/selected-container-drag.mjs
+  s_012c57818fbf95::t_155d1e837f33f9 114
+  s_012c57818fbf95::t_9f7d0685c2f011 14-21,96-100
+  s_012c57818fbf95::t_5b0b0089d9eef1 1-13,22-32,34-95,101-103,117,119-121
+  s_012c57818fbf95::t_f6663ffe16bf69 33
+  s_012c57818fbf95::t_05dfbfd2c132cc 104-113,115-116,118
+packages/editor/src/features/editor/canvas-gestures.test.ts
+  s_012c57818fbf95::t_0a0aa4cebda07f 1-78,107-115
+  s_012c57818fbf95::t_5b0b0089d9eef1 79-106
+apps/desktop/src/main/repository-connections.ts
+  s_012c57818fbf95::t_adc3dd32b059b9 3-9,11-13,16-18,20-21,31,33-35,45-46,50-52,59-61,65-70,102-103
+  s_012c57818fbf95::t_3ed6c0529526a1 2,10,19,22,29-30,47-49
+  s_012c57818fbf95::t_5315d7398b0b1f 1
+  s_012c57818fbf95::t_dc020a6259526a 23-28
+  s_012c57818fbf95::t_3aa774ec25f3c1 32,39,71,73-75
+  s_012c57818fbf95::t_54dc8388866d80 14-15,36-38,40-44,53-58,62-64,72,76-101
+packages/auth/auth.ts
+  s_012c57818fbf95::t_353a6f85789380 3
+  s_012c57818fbf95::t_29b6788a22eeb5 1
+  s_012c57818fbf95::t_8fa14ae26210b7 2
+packages/editor/src/features/editor/RepositoryPanel.tsx
+  s_012c57818fbf95::t_4f1dac8c113fae 88
+  s_012c57818fbf95::t_832b89c068c5f5 38,67,83,89
+  s_012c57818fbf95::t_d25f662f022596 3,5,12,20,31-32,68-69,84-87
+  s_012c57818fbf95::t_54388a72e67889 22-29,70,72-75,77-80
+  s_012c57818fbf95::t_806ace48962946 4,18,36,40-54,61-64,76
+  s_012c57818fbf95::t_a8dfbb21cb4fa1 1,7-8,13,15-16,21,66,82,90
+  s_012c57818fbf95::t_cc9d7486fff6f9 9,17,19,33-35,37,56-60,81
+  s_012c57818fbf95::t_30a400b3500e1e 10,14,39
+  s_012c57818fbf95::t_e8fa0e1062fe0d 30,71
+apps/web/package.json
+  s_012c57818fbf95::t_a148368e320437 13
+packages/auth/src/hosted.server.ts
+  s_012c57818fbf95::t_afac6332af9837 1-13
+packages/editor/src/design-system/home-atoms.tsx
+  s_012c57818fbf95::t_28274e28c393ae 3,9,15-18,20,26,32-33,36-39,42-43
+  s_012c57818fbf95::t_5e8738c1b7a9d4 22
+apps/desktop/src/main/policy.ts
+  s_012c57818fbf95::t_2791d07ddb707b 1,100-108
+  s_012c57818fbf95::t_4a7ae7abb81c07 3,90-99
+  s_012c57818fbf95::t_b177e092a41e7f 81
+  s_012c57818fbf95::t_2f59fd82323e4e 82
+packages/scanner/src/shadcn.ts
+  s_012c57818fbf95::t_367116fb8ea06b 1-6,9-16,19-87,89-100,102-108,110-111,160-292,294-312
+  s_012c57818fbf95::t_eb40b7feb99e3d 17
+  s_012c57818fbf95::t_5315d7398b0b1f 7-8
+  s_012c57818fbf95::t_e1138325c81f71 18,88,101,109,112-159,293
+packages/editor/src/design-system/inspector.css
+  s_012c57818fbf95::t_704bc09ccaf01d 107-114
+  s_012c57818fbf95::t_975085835fc1d5 91
+  s_012c57818fbf95::t_ab376d603ce7a0 136,138
+  s_012c57818fbf95::t_da165dba711b82 8,65
+  s_012c57818fbf95::t_6e9fa3ec207c3a 18
+  s_012c57818fbf95::t_6730d84ded9aaa 93,104-106,115-131
+  s_012c57818fbf95::t_b6ea25481d9f3d 132-134
+  s_012c57818fbf95::t_656fe5e4745a64 92,94-103
+packages/preview-runtime/tests/corner-radii-styles.test.ts
+  s_012c57818fbf95::t_496a070f8da5ff 1-3,5-22
+  s_012c57818fbf95::t_7113f124bbc1dd 4
+packages/editor/src/design-system/property-atoms.tsx
+  s_012c57818fbf95::t_c95e8c687d0f77 15
+  s_012c57818fbf95::t_b66f83c9b5fed8 1,5,11-14,16,18,21
+packages/editor/src/features/editor/LayoutPanels.tsx
+  s_012c57818fbf95::t_d6bacaa3a57ada 99,108,125-128,145-147,149,151,153-154,157,164-165,169-173
+  s_012c57818fbf95::t_ab376d603ce7a0 262-264
+  s_012c57818fbf95::t_533aa0874de05d 11,158,160-161
+  s_012c57818fbf95::t_92e4eded746f98 55
+  s_012c57818fbf95::t_d859c08e2ef80a 8,21,23,45-54,97,102,162,174,210,219
+  s_012c57818fbf95::t_217d2fdfc47a4e 3,14,17,129-131,150,152,155-156,163
+  s_012c57818fbf95::t_975085835fc1d5 7,266,270,521
+  s_012c57818fbf95::t_1cb7e0aeb164f5 56-57,61-63
+  s_012c57818fbf95::t_ff83ef68d544ae 96,282,295-296,300,513-514,520
+  s_012c57818fbf95::t_31e37e8fe3f3e6 64-68,148
+  s_012c57818fbf95::t_f6e6a8e8737984 58-60,159
+  s_012c57818fbf95::t_46f5093dda2a0b 28,94,267-269,271,297,301
+packages/editor/src/design-system/inspector-atoms.tsx
+  s_012c57818fbf95::t_bd61dc0b229577 38,245,258,282-284,286-299,301,303,309,328,332-335,343,352,372-378,380-400
+  s_012c57818fbf95::t_e5a4b9d5bca4ff 144,146,154-164
+  s_012c57818fbf95::t_bdebf218a5b7ad 402,404,407
+  s_012c57818fbf95::t_ff22caf94dd25e 403,408
+  s_012c57818fbf95::t_656fe5e4745a64 137-143,145,147-148
+  s_012c57818fbf95::t_704bc09ccaf01d 149-153,165-166
+  s_012c57818fbf95::t_975085835fc1d5 22-25
+  s_012c57818fbf95::t_6e9fa3ec207c3a 274,401
+  s_012c57818fbf95::t_46386c5113853d 276-277,280-281,379,406
+  s_012c57818fbf95::t_c95e8c687d0f77 285,300,371
+  s_012c57818fbf95::t_8d7f021cb75438 305,307,312-315,317-318,323-325,338-340,342,347,357-361,367-368
+  s_012c57818fbf95::t_d70b0bc8af7f0b 369
+packages/editor/src/features/editor/inspector-copy.ts
+  s_012c57818fbf95::t_9d2a2d11fe5b23 152,171,179-180
+  s_012c57818fbf95::t_7af63dd6443888 24-27,151,164
+apps/web/src/routeTree.gen.ts
+  s_012c57818fbf95::t_7c7776f26ca4ba 7,9,16-20,26-30,34,36,40,42,47,49,53,55-56,61,63,75-81,89-95,101,103
+packages/editor/src/design-system/canvas.css
+  s_012c57818fbf95::t_42a4ebdaef5fa0 23
+  s_012c57818fbf95::t_291ab615fe7913 29-30,34
+  s_012c57818fbf95::t_f6663ffe16bf69 33
+packages/auth/src/electron-callback.ts
+  s_012c57818fbf95::t_f62fc4fa93c60c 1-3,6,10-22
+  s_012c57818fbf95::t_6bafe9bc4c55f0 4-5,7-9
+packages/editor/src/features/editor/document-store.ts
+  s_012c57818fbf95::t_93510b4fcff306 28
+  s_012c57818fbf95::t_9ddf16914b17f2 90,92-96,470-471,476-482,484-487
+  s_012c57818fbf95::t_4bc214bddf9f2d 473,483
+  s_012c57818fbf95::t_fb2a1982ddc80e 512-513
+  s_012c57818fbf95::t_cc9d7486fff6f9 91,717-735
+packages/editor/src/features/editor/layout-commands.ts
+  s_012c57818fbf95::t_ed7d0383d0295e 7,18-48
+  s_012c57818fbf95::t_3288d960aed521 49
+apps/desktop/src/preload/index.ts
+  s_012c57818fbf95::t_2791d07ddb707b 2,9,23-28,46-53
+  s_012c57818fbf95::t_b24623709f853a 33
+  s_012c57818fbf95::t_5315d7398b0b1f 6
+  s_012c57818fbf95::t_b177e092a41e7f 3,30
+  s_012c57818fbf95::t_4a7ae7abb81c07 8,17-22,34-37
+  s_012c57818fbf95::t_2f59fd82323e4e 31
+packages/editor/src/features/editor/repository-token-import.test.ts
+  s_012c57818fbf95::t_cc9d7486fff6f9 1-14,17-18,20-33
+  s_012c57818fbf95::t_cbba2d7318fe87 15-16,19
+apps/web/tests/naming-menus.mjs
+  s_012c57818fbf95::t_b9188e994988ec 79-80
+  s_012c57818fbf95::t_61b05f44d5b0bd 1-38,45-55,57-69,73-78,81-84,86,99-106,109,111-115,117,120-138,141-147,150,152-155,157-169
+  s_012c57818fbf95::t_a0b69d753379dc 139-140,148-149
+  s_012c57818fbf95::t_df907d06f1b2b7 151,156
+  s_012c57818fbf95::t_88071706b98886 39-44,56,70-72,85,87-98,107-108,110,116,118-119
+package.json
+  s_012c57818fbf95::t_bc7ac941ca3d33 9-18,30-31
+packages/editor/src/design-system/home.css
+  s_012c57818fbf95::t_605d0425453ffe 15
+  s_012c57818fbf95::t_5e8738c1b7a9d4 14,19-20
+  s_012c57818fbf95::t_562febe664128c 1-4,6-13,16-18,21,24,26,28-37,39-49,51,53-54,56,65,68,74
+  s_012c57818fbf95::t_05e4396d9f9c59 5
+packages/editor/src/features/editor/Editor.tsx
+  s_012c57818fbf95::t_5ef961a4a75d98 76
+  s_012c57818fbf95::t_b75de7293b07cf 17,66-67
+  s_012c57818fbf95::t_f839c576f4ffa7 29-30,38-39,41-46
+  s_012c57818fbf95::t_4b61ef108a15f3 3-4
+  s_012c57818fbf95::t_a8dfbb21cb4fa1 27-28
+  s_012c57818fbf95::t_fa56329dfaef17 85
+  s_012c57818fbf95::t_f1ea3cab9006b0 97
+  s_012c57818fbf95::t_1dff6388e63812 57-64,79
+  s_012c57818fbf95::t_04382b6fdff3c9 16,98
+apps/desktop/src/main/repo-worker.ts
+  s_012c57818fbf95::t_b24623709f853a 27
+  s_012c57818fbf95::t_3c3f7e4969f6cf 24-25
+  s_012c57818fbf95::t_b8ddb277a647fe 3
+packages/scanner/tsconfig.json
+  s_012c57818fbf95::t_367116fb8ea06b 1-5
+packages/scanner/tests/shadcn-scan.test.ts
+  s_012c57818fbf95::t_8ff797afa1e62c 37,73-121
+  s_012c57818fbf95::t_367116fb8ea06b 1-36,38-71,122-127
+  s_012c57818fbf95::t_34988b6ac54227 72
+packages/editor/src/design-system/context-menu.test.ts
+  s_012c57818fbf95::t_5b8050672a230c 1-16
+packages/editor/src/features/application/FileScreen.tsx
+  s_012c57818fbf95::t_96e681ce22a224 3,16,18-21
+apps/web/tests/home-screen.mjs
+  s_012c57818fbf95::t_1a446a28091743 1-38,42-60,62-73
+  s_012c57818fbf95::t_605d0425453ffe 39-41
+  s_012c57818fbf95::t_b39c91b71814cb 61
+packages/editor/src/design-system/sizing-field.tsx
+  s_012c57818fbf95::t_217d2fdfc47a4e 10
+  s_012c57818fbf95::t_533aa0874de05d 1-9,11-41
+apps/desktop/src/main/index.ts
+  s_012c57818fbf95::t_515d33a6e83bce 54-55
+  s_012c57818fbf95::t_0e30afe63d2659 4-6,16,18,27-28,33-37,43-45,47-53,56-68,83-84,153-160,179,227-242,252-253,258,267
+  s_012c57818fbf95::t_4e2fead724c74b 191
+  s_012c57818fbf95::t_56d9743e370735 42
+  s_012c57818fbf95::t_de32bba4bcd9ac 24,185,212
+  s_012c57818fbf95::t_ba696d119e919c 1,15,26,81-82,110,178,207-211,213-223,225-226,243-244,251
+  s_012c57818fbf95::t_6bafe9bc4c55f0 46
+  s_012c57818fbf95::t_f00506ae41f9c6 17
+  s_012c57818fbf95::t_35233aa5755533 112-124
+  s_012c57818fbf95::t_7cdd06be1480dd 245-248,257
+  s_012c57818fbf95::t_3ed6c0529526a1 111,224
+  s_012c57818fbf95::t_ee176bc9b38d6c 38-41
+  s_012c57818fbf95::t_2f59fd82323e4e 188,190,192
+packages/editor/src/features/editor/RadiusSection.test.ts
+  s_012c57818fbf95::t_d804714628fea6 1-3,5-22
+  s_012c57818fbf95::t_7113f124bbc1dd 4
+packages/editor/src/features/editor/ComponentLibrary.tsx
+  s_012c57818fbf95::t_9ddf16914b17f2 10,13,16,53,60-61,67-68,72-73
+  s_012c57818fbf95::t_d9d100b891b0b7 18
+  s_012c57818fbf95::t_20d1a9fe412bf6 6,14-15,51,54-56,62-63,65-66,69
+  s_012c57818fbf95::t_585c5c2225d5d1 17,24,27,64,70
+  s_012c57818fbf95::t_f1ea3cab9006b0 19-23,25-26,74
+  s_012c57818fbf95::t_df9315cdc93a2f 71
+packages/editor/src/features/editor/canvas-hud-painter.ts
+  s_012c57818fbf95::t_f6663ffe16bf69 270
+  s_012c57818fbf95::t_291ab615fe7913 19-22,24-42,97-110,131-132,173-175,206,210,213,231,240-241,247,249-251,255-256,263,265,268-269,272-273
+  s_012c57818fbf95::t_05dfbfd2c132cc 15,155,200
+  s_012c57818fbf95::t_42a4ebdaef5fa0 7,16-18,43-60,75-86,121-130,159,172,176-182,187-188,190,192,197-199,202-203,245,252-254
+  s_012c57818fbf95::t_d7c0a6bbc2c0c9 6,8,61-74,161
+  s_012c57818fbf95::t_7d9ec4bc75172e 23
+packages/scanner/src/paths.ts
+  s_012c57818fbf95::t_367116fb8ea06b 1-22
+apps/web/src/routes/api.auth.$.ts
+  s_012c57818fbf95::t_a148368e320437 1-8
+packages/editor/src/design-system/repository-atoms.tsx
+  s_012c57818fbf95::t_806ace48962946 24,26,37,39-40,42,45,49-50
+  s_012c57818fbf95::t_ee85181d4d9eef 5-23,27
+  s_012c57818fbf95::t_cc9d7486fff6f9 3-4,51-57
+  s_012c57818fbf95::t_efce76fc50934a 25,33
+  s_012c57818fbf95::t_10ddc9871c0bdb 30
+  s_012c57818fbf95::t_d046f39f6f7413 2,43-44,46-48
+  s_012c57818fbf95::t_00f6b25f44a57e 1,28-29,31-32,34-36,38,41
+packages/repository/src/index.ts
+  s_012c57818fbf95::t_753279eb1a332e 1-27
+packages/editor/src/features/editor/layout-panels-flex.test.ts
+  s_012c57818fbf95::t_c1f4335eedadfd 1-39
+packages/auth/tsconfig.build.json
+  s_012c57818fbf95::t_8160eadddb7c1b 1-11
+packages/editor/src/features/application/auth-copy.ts
+  s_012c57818fbf95::t_13e4db79d0638b 7-11
+  s_012c57818fbf95::t_f839c576f4ffa7 1-6,12-17
+packages/repository/package.json
+  s_012c57818fbf95::t_753279eb1a332e 1-26
+packages/editor/src/bootstrap.tsx
+  s_012c57818fbf95::t_a09bb798fce056 13
+  s_012c57818fbf95::t_e46f6758bd7b4f 20-59,61-63,65,70-71
+  s_012c57818fbf95::t_f158d6bf1cd170 60
+  s_012c57818fbf95::t_f839c576f4ffa7 14,19,64,72
+packages/editor/src/design-system/radius-atoms.tsx
+  s_012c57818fbf95::t_d804714628fea6 1-33,35-59,61
+  s_012c57818fbf95::t_20950869b32b6c 34,60
+packages/editor/src/features/home/HomeView.tsx
+  s_012c57818fbf95::t_e6320afb165d1e 4-5,22,24,31-36,40,46,48,50,52,54
+packages/editor/src/capabilities.ts
+  s_012c57818fbf95::t_f839c576f4ffa7 6,26-31,34
+  s_012c57818fbf95::t_a09bb798fce056 4,25,39-42
+  s_012c57818fbf95::t_4dca583920ca14 9
+  s_012c57818fbf95::t_5315d7398b0b1f 5
+apps/web/tests/appearance.mjs
+  s_012c57818fbf95::t_d580a710aff07d 26-32,198-210,215-222,238
+  s_012c57818fbf95::t_accce5be530452 230-231,235
+  s_012c57818fbf95::t_294506061ce3d8 34,103-106,223-229,232,234,239
+  s_012c57818fbf95::t_6a77dbf0b6313a 25,33,233
+  s_012c57818fbf95::t_dadc85b1552954 150
+  s_012c57818fbf95::t_df5bc20c43c5a5 316
+  s_012c57818fbf95::t_f15d3f30fb233a 236-237
+  s_012c57818fbf95::t_837f9cbabb0340 151-152
+  s_012c57818fbf95::t_77fb7dae85a0bc 24
+packages/repo-engine/tests/corner-radii.test.ts
+  s_012c57818fbf95::t_7113f124bbc1dd 4
+  s_012c57818fbf95::t_bc4500eb6388bb 1-3,5-22,25,27-42
+  s_012c57818fbf95::t_5392416d7bab4c 23-24,26
+packages/editor/src/features/application/auth-service.ts
+  s_012c57818fbf95::t_f839c576f4ffa7 1-18,20-33,35-43
+  s_012c57818fbf95::t_f158d6bf1cd170 34
+  s_012c57818fbf95::t_13e4db79d0638b 19
+packages/editor/src/features/home/home-copy.ts
+  s_012c57818fbf95::t_4dca583920ca14 5-6,8
+  s_012c57818fbf95::t_f1ea3cab9006b0 3,12
+packages/editor/src/features/editor/repository-token-import.ts
+  s_012c57818fbf95::t_cc9d7486fff6f9 1-36,38-97
+  s_012c57818fbf95::t_cbba2d7318fe87 37
+packages/auth/tests/electron-client.test.ts
+  s_012c57818fbf95::t_8332817f30d518 1,3-11,16-20,22-28
+  s_012c57818fbf95::t_f62fc4fa93c60c 2
+  s_012c57818fbf95::t_6bafe9bc4c55f0 12-15,21
+apps/desktop/tests/launch-smoke.mjs
+  s_012c57818fbf95::t_f04800f6b30c72 111,137-138
+  s_012c57818fbf95::t_7cdd06be1480dd 121
+  s_012c57818fbf95::t_0f3bdad735e5ea 136
+  s_012c57818fbf95::t_059ab4b3555823 139-140
+  s_012c57818fbf95::t_e660f0d21d6bc0 143,146
+packages/auth/src/server.ts
+  s_012c57818fbf95::t_90999423f90661 4,33-34,64
+  s_012c57818fbf95::t_41d676c0d9ece6 16-17,45
+  s_012c57818fbf95::t_8fa14ae26210b7 18-32,35-37,46-50,54
+  s_012c57818fbf95::t_9c00ffaae0afb1 38-44
+  s_012c57818fbf95::t_9a6784f67d5936 1-3,5-15,51-53,55-63,65-66
+packages/editor/src/features/editor/copy.ts
+  s_012c57818fbf95::t_947311ec0b1684 10-12,14,28-29
+  s_012c57818fbf95::t_04382b6fdff3c9 16,37
+packages/editor/src/design-system/color-picker.tsx
+  s_012c57818fbf95::t_f4f5e2babc1423 228,232,269
+  s_012c57818fbf95::t_9d4815288bb41d 7,179-181,184-185,188,192,229-231,233-235,265-267
+packages/editor/src/features/editor/preview-service.ts
+  s_012c57818fbf95::t_f03b33740cd040 100,173-182
+packages/editor/src/design-system/canvas-atoms.tsx
+  s_012c57818fbf95::t_9ddf16914b17f2 2,30-31
+  s_012c57818fbf95::t_42a4ebdaef5fa0 49-50,55-56
+  s_012c57818fbf95::t_5ef961a4a75d98 1,87-88,90,93
+apps/web/tests/context-menu.mjs
+  s_012c57818fbf95::t_6e9fa3ec207c3a 33-38,41
+  s_012c57818fbf95::t_49700fb6a55633 39-40
+packages/editor/src/design-system/atoms.tsx
+  s_012c57818fbf95::t_2a799969345551 19
+  s_012c57818fbf95::t_23c46012a53400 18
+apps/desktop/tests/policy.test.ts
+  s_012c57818fbf95::t_b177e092a41e7f 36
+  s_012c57818fbf95::t_2791d07ddb707b 2,61-71
+  s_012c57818fbf95::t_b24623709f853a 39
+  s_012c57818fbf95::t_be0b170527d967 49-59
+  s_012c57818fbf95::t_490b40e3697463 60
+  s_012c57818fbf95::t_2f59fd82323e4e 37
+  s_012c57818fbf95::t_3cab377e4df279 72
+packages/editor/src/features/application/HomeScreen.test.ts
+  s_012c57818fbf95::t_1a446a28091743 1-18
+packages/editor/src/design-system/context-menu.tsx
+  s_012c57818fbf95::t_a62b6aacfa261a 45
+  s_012c57818fbf95::t_97d3235d6e4de7 1-3,16-27,29,31-44,46-50,54-75,78,80-94,99-100,102-103,113-116,118-119
+packages/editor/src/features/editor/NodeContextMenu.tsx
+  s_012c57818fbf95::t_1dff6388e63812 34
+  s_012c57818fbf95::t_b75de7293b07cf 41,72,74
+  s_012c57818fbf95::t_088d5375b7ab47 42
+  s_012c57818fbf95::t_5ef961a4a75d98 11
+  s_012c57818fbf95::t_2e0956deba5ba0 73
+apps/web/tests/canvas-flows.mjs
+  s_012c57818fbf95::t_bec84dae1d9791 126-127,130,206-207,413-416
+  s_012c57818fbf95::t_6c2460190de859 334
+  s_012c57818fbf95::t_af2ddf1866d369 423-426,429,475
+  s_012c57818fbf95::t_656b356fe5fccc 293,296,310-311
+packages/repository/tests/repository.test.ts
+  s_012c57818fbf95::t_753279eb1a332e 2-5,7-46,77-88,134-135
+  s_012c57818fbf95::t_4c54f12eff3378 108-109
+  s_012c57818fbf95::t_77005f3eb5b6a6 70-74,124-133
+  s_012c57818fbf95::t_7db47044d87b52 1,57-69
+  s_012c57818fbf95::t_62ad53098a2af7 6,89-98,114-123
+  s_012c57818fbf95::t_57ae23a2c2ff87 99-107,110-113
+  s_012c57818fbf95::t_15f6d9a7cb2ce9 47-56,75-76
+packages/editor/src/features/editor/PageContextMenu.tsx
+  s_012c57818fbf95::t_c2c8dffd83a35b 5,8
+  s_012c57818fbf95::t_b75de7293b07cf 1-4,6-7,9-11
+packages/editor/src/design-system/repository.css
+  s_012c57818fbf95::t_00f6b25f44a57e 4-5,8-10,39
+  s_012c57818fbf95::t_efce76fc50934a 6-7,25,28-32
+  s_012c57818fbf95::t_806ace48962946 2-3,13,26-27
+  s_012c57818fbf95::t_d046f39f6f7413 12
+  s_012c57818fbf95::t_cc9d7486fff6f9 1,11,15-24,33-38
+  s_012c57818fbf95::t_fffea2d2bc4b09 14
+packages/editor/src/features/editor/repository-copy.ts
+  s_012c57818fbf95::t_54388a72e67889 10,15,19-21
+  s_012c57818fbf95::t_3a4a12b6848454 16
+  s_012c57818fbf95::t_806ace48962946 31
+  s_012c57818fbf95::t_cc9d7486fff6f9 25-30,32-36
+  s_012c57818fbf95::t_a8dfbb21cb4fa1 1-8,22,45
+  s_012c57818fbf95::t_d25f662f022596 9,17-18,23-24,37-44
+  s_012c57818fbf95::t_d9ff839480f93f 12-13
+  s_012c57818fbf95::t_e8fa0e1062fe0d 11,14
+packages/editor/src/features/editor/RadiusSection.tsx
+  s_012c57818fbf95::t_d804714628fea6 1-71,73-80
+  s_012c57818fbf95::t_20950869b32b6c 72
+packages/editor/src/features/editor/sidebar-copy.ts
+  s_012c57818fbf95::t_5ef961a4a75d98 13
+  s_012c57818fbf95::t_b75de7293b07cf 11-12,14-15
+packages/auth/package.json
+  s_012c57818fbf95::t_8907bd81fd7b41 36-37
+  s_012c57818fbf95::t_353a6f85789380 18-19,22-25
+  s_012c57818fbf95::t_44d26d8e16e811 40
+  s_012c57818fbf95::t_02939d3c22434e 34-35
+  s_012c57818fbf95::t_c6c362a1f4ca2b 10-13,33,38,41
+  s_012c57818fbf95::t_8160eadddb7c1b 1-9,26-32,39,42-45
+  s_012c57818fbf95::t_9a6784f67d5936 14-17
+  s_012c57818fbf95::t_afac6332af9837 20-21
+compose.yaml
+  s_012c57818fbf95::t_d4a7a87508d2c8 12
+  s_012c57818fbf95::t_338e7945778a2d 1-4,6-11,13-22
+  s_012c57818fbf95::t_9c00ffaae0afb1 5
+packages/editor/src/features/editor/repository-service.test.ts
+  s_012c57818fbf95::t_13c99d45e7d02b 1-49
+packages/editor/src/design-system/auth.css
+  s_012c57818fbf95::t_3bebc57c2c9e77 1-17
+packages/preview-runtime/src/source-bindings.mjs
+  s_012c57818fbf95::t_2a44560acb8450 7,13-14,52-54,111
+  s_012c57818fbf95::t_adce94c033e59d 8,15,104
+.env.local.example
+  s_012c57818fbf95::t_9c00ffaae0afb1 1-2
+packages/editor/src/features/editor/NodeThemePanel.tsx
+  s_012c57818fbf95::t_bb2ad831218b45 19
+  s_012c57818fbf95::t_62d5ad455c591e 54,76
+packages/editor/src/features/home/home-types.ts
+  s_012c57818fbf95::t_4dca583920ca14 3,18
+packages/repo-engine/tests/file-document.test.ts
+  s_012c57818fbf95::t_b185c0a6a5814d 365
+  s_012c57818fbf95::t_0bf0cd4aa413fb 364,366
+packages/auth/tests/server.test.ts
+  s_012c57818fbf95::t_8fa14ae26210b7 1-2,4-25,31-32
+  s_012c57818fbf95::t_9c00ffaae0afb1 3,26-30
+packages/editor/src/features/editor/canvas-hud-painter.test.ts
+  s_012c57818fbf95::t_42a4ebdaef5fa0 2,26-36
+  s_012c57818fbf95::t_291ab615fe7913 1,3-15,17-25,37-38
+  s_012c57818fbf95::t_7d9ec4bc75172e 16
+TODO.md
+  s_012c57818fbf95::t_0ce8d58d2a4808 11-20
+  s_012c57818fbf95::t_689986ff0bed5d 5-10,21-24,26-29,31-35,37-41,43
+  s_012c57818fbf95::t_1724fe5d3bfcbb 25,30,36,42
+  s_012c57818fbf95::t_e0aff4c307952c 1-4,44-82
+packages/preview-runtime/src/scene-styles.mjs
+  s_012c57818fbf95::t_cc10bc8982d970 106-107
+  s_012c57818fbf95::t_fdafef22c4d954 3-4,101
+tests/runtime-boundaries.test.ts
+  s_012c57818fbf95::t_81f2491e9f227a 130-139
+packages/editor/src/features/editor/component-drag.ts
+  s_012c57818fbf95::t_9ddf16914b17f2 1-34
+packages/scanner/src/contracts.ts
+  s_012c57818fbf95::t_e1138325c81f71 8
+  s_012c57818fbf95::t_5315d7398b0b1f 1-7,9-49
+packages/repo-engine/src/appearance.ts
+  s_012c57818fbf95::t_c52d954494f4aa 5,24,29,92,97,109-113,202,232-235,288,294,296,344
+  s_012c57818fbf95::t_fe4767953a5271 18-20,34,39,41,47-49,52-53,144-151,156,167,224-225,249-250,252,254-261,317
+  s_012c57818fbf95::t_4786736ef93151 262,319-327,335
+  s_012c57818fbf95::t_bc4500eb6388bb 359-360
+  s_012c57818fbf95::t_a8120d1d375151 93,95-96
+  s_012c57818fbf95::t_5392416d7bab4c 248,251,253
+  s_012c57818fbf95::t_a13b43840b42ab 94
+  s_012c57818fbf95::t_e4d5f8dd2566c6 263,318
+packages/repo-engine/tests/file-preview.test.ts
+  s_012c57818fbf95::t_d5ef9900922c08 39,111
+.gitignore
+  s_012c57818fbf95::t_9c00ffaae0afb1 39
+apps/web/src/routes/__root.tsx
+  s_012c57818fbf95::t_3bebc57c2c9e77 4,7
+packages/editor/src/features/editor/component-sync-queue.test.ts
+  s_012c57818fbf95::t_20d1a9fe412bf6 1-25
+packages/editor/src/features/editor/layout-commands.test.ts
+  s_012c57818fbf95::t_c59d4ecab04de1 3,34-43
+  s_012c57818fbf95::t_7a8767b456a4ef 44-46
+apps/web/tests/layout-inspector.mjs
+  s_012c57818fbf95::t_846b18768b05a2 58,83,89,123,173,183,220,296
+  s_012c57818fbf95::t_9cf9ded03edfa6 284
+  s_012c57818fbf95::t_61e4ebe63c820e 32
+  s_012c57818fbf95::t_cb191d22ef3004 289,293-294
+  s_012c57818fbf95::t_63b367464ca766 121,129-132,160,228,234,237
+  s_012c57818fbf95::t_7c89f8ab9cd862 178
+  s_012c57818fbf95::t_1ca9e8716d1638 254-255,257
+  s_012c57818fbf95::t_ba19a08200773f 286-287
+  s_012c57818fbf95::t_ad761161875b75 30-31,50-54,153,157,176,226,297
+  s_012c57818fbf95::t_06c59529850e4d 60
+  s_012c57818fbf95::t_0d397455defb3a 84,282
+  s_012c57818fbf95::t_8d92770e03fa90 240-253,256,258-280,283,285,288,290-292,295,299
+packages/editor/src/design-system/radius.css
+  s_012c57818fbf95::t_d804714628fea6 1-22
+apps/web/tests/radius-inspector.mjs
+  s_012c57818fbf95::t_d5285fd006da75 1-66,73-79,81-83
+  s_012c57818fbf95::t_5ee0359d8bb503 67-72,80
+apps/web/src/client.tsx
+  s_012c57818fbf95::t_a148368e320437 9,14,17
+packages/preview-runtime/tests/protocol.test.ts
+  s_012c57818fbf95::t_036ec35eda725d 311,315-316
+  s_012c57818fbf95::t_b185c0a6a5814d 312-314
+tests/local-auth-cli.test.ts
+  s_012c57818fbf95::t_9c00ffaae0afb1 8,17-18,24-38
+  s_012c57818fbf95::t_f816a0af7d49cb 2-4,39-44
+  s_012c57818fbf95::t_fd76dc81b34dd3 1,5-7,9-16,45-46
+  s_012c57818fbf95::t_ef2c56bf66aead 19-23
+packages/editor/src/design-system/context-menu.css
+  s_012c57818fbf95::t_5b8050672a230c 7,12-15
+  s_012c57818fbf95::t_b75de7293b07cf 1
+  s_012c57818fbf95::t_b9188e994988ec 2
+README.md
+  s_012c57818fbf95::t_f816a0af7d49cb 33-34
+  s_012c57818fbf95::t_8fa14ae26210b7 38-45,47-54
+  s_012c57818fbf95::t_338e7945778a2d 36-37,46,55-56,58-59
+  s_012c57818fbf95::t_f158d6bf1cd170 63
+  s_012c57818fbf95::t_03e52d43517490 29-30,60-62,64,69
+  s_012c57818fbf95::t_e0aff4c307952c 7-8
+  s_012c57818fbf95::t_9c00ffaae0afb1 31-32,35
+  s_012c57818fbf95::t_97528a2e14ad1f 57
+packages/editor/src/features/editor/canvas-scene.ts
+  s_012c57818fbf95::t_42a4ebdaef5fa0 19-20,49,51
+apps/desktop/tests/auth-config.test.ts
+  s_012c57818fbf95::t_0e30afe63d2659 1-13,15-26
+  s_012c57818fbf95::t_6bafe9bc4c55f0 14
+packages/editor/src/design-system/sizing-field.css
+  s_012c57818fbf95::t_e9ddcd6c83c22d 11
+  s_012c57818fbf95::t_533aa0874de05d 1-10,12-19
+packages/scanner/src/index.ts
+  s_012c57818fbf95::t_5315d7398b0b1f 1
+packages/editor/src/features/home/store.test.ts
+  s_012c57818fbf95::t_bbc40815c7548f 7
+  s_012c57818fbf95::t_df9315cdc93a2f 1-6,8-13
+apps/web/tests/component-insertion.mjs
+  s_012c57818fbf95::t_0f4041bc61c75a 67,86
+  s_012c57818fbf95::t_5ea52241ff5ef4 1-66,68-85,87-103
+packages/editor/src/design-system/repository-molecules.tsx
+  s_012c57818fbf95::t_3a4a12b6848454 17
+  s_012c57818fbf95::t_cc9d7486fff6f9 1,3-4,6,8,15-16,18-22,24-42
+  s_012c57818fbf95::t_00f6b25f44a57e 7,10,23
+  s_012c57818fbf95::t_806ace48962946 5,9,11-14
+  s_012c57818fbf95::t_fffea2d2bc4b09 2
+packages/editor/src/features/editor/canvas-copy.ts
+  s_012c57818fbf95::t_b75de7293b07cf 16
+  s_012c57818fbf95::t_fa56329dfaef17 12
+  s_012c57818fbf95::t_4bc214bddf9f2d 11
+  s_012c57818fbf95::t_9ddf16914b17f2 13
+packages/preview-runtime/tests/theme-runtime.test.ts
+  s_012c57818fbf95::t_b647b7487c6a45 324-334
+pnpm-lock.yaml
+  s_012c57818fbf95::t_5581105f0d436d 17-22,35-37,44-49,81-83,141-168,174-176,183-188,259-289,308-311,316-321,326-329,340-343,348-357,379-408,421-450,494-612,964-967,974-981,998-1001,1135-1137,1298-1300,1344-1354,1370-1377,1390-1456,1466-1486,1498-1501,1506-1509,1517-1527,1537-1540,1554-1571,1580-1592,1637-1651,1673-1675,1689-1706,1715-1717,1733-1738,1744-1751,1822-1825,1835-1838,1851-1854,1859-1862,1873-1874,1876-1910,1914-1916,1931-1950,1960-1966,1988-1991,1995-1997,2006-2012,2035-2037,2041-2043,2056-2059,2074-2079,2084-2087,2119-2122,2131-2134,2313-2315,2321-2324,2329-2332,2336-2343,2403-2406,2415-2427,2430-2436,2453-2456,2459-2474,2490-2519,2530-2580,2629-2722,2930-2934,2938-2941,2959-2960,3042-3043,3300-3305,3368-3378,3389-3445,3459-3495,3508-3523,3536-3537,3540-3547,3554-3569,3576-3579,3586-3598,3603-3610,3695-3708,3720-3723,3731-3742,3747-3748,3759-3762,3765-3768,3818-3819,3830-3831,3840-3841,3844-3852,3859-3893,3898-3903,3916-3927,3932-3941,3961-3962,3965-3966,4001-4004,4017-4018,4021-4022,4029-4030,4041-4046,4053-4054,4079-4082,4087-4088,4210-4211,4217-4221,4229-4230,4233-4238
+packages/editor/src/features/editor/canvas-gestures.ts
+  s_c7b61470b12067::t_69a3793b0eb469 6,22,168-178,189,215-216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bf1fb2575509c2bc02300a620da3e62817e8eb60",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_c7b61470b12067": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1220e-4495-7cb2-b656-8166f4f27108",
+        "model": "unknown"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
