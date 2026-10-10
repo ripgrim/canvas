@@ -8,6 +8,13 @@ const document = createBlankFile(id, 'page_cloud', 'root_cloud', 'Page 1')
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
 
 describe('desktop cloud files', () => {
+  it('carries only the registered bundled editor origin into the cloud preview URL', async () => {
+    const service = new DesktopCloudFiles({ request: async path => path.endsWith('/document') ? json({ fileId: id, revision: 0, document }) : json({ file: metadata }) }, 'https://api.canvas.test', 'design-editor://app', 'https://preview.canvas.test')
+    const opened = await service.open(id)
+    expect(new URL(opened.preview.url!).searchParams.get('editorOrigin')).toBe('design-editor://app')
+    expect(() => new DesktopCloudFiles({ request: async () => json({}) }, 'https://api.canvas.test', 'other-editor://app')).toThrow('Editor origin must be an HTTP or HTTPS origin.')
+  })
+
   it('uses the main-process authenticated request boundary for cloud files', async () => {
     const paths: string[] = []
     const request = async (path: string, init?: RequestInit) => {

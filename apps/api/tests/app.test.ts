@@ -93,6 +93,46 @@ describe('hosted control-plane API', () => {
     expect((await body(await app(request(`/api/files/${file.id}/document`, signed('alpha'))))).document).toMatchObject({ revision: 1, theme: { tokens: { first: { id: 'first' } } } })
   })
 
+  it('AT-THUMB-001 authorizes revision-bound thumbnail updates without leaking file existence', async () => {
+    const app = createApiApp({ auth: auth(), store: createMemoryControlPlane(), serviceToken })
+    const file = (await body(await app(request('/api/files', signed('alpha', 'POST', { name: 'Thumbnail' }))))).file
+    const key = `thumbnails/${file.id}/thumbnail.avif`
+    const update = (authorization: 'alpha' | 'beta' | null, expectedRevision: number, thumbnailKey: string | null, extra?: object) => app(request(`/api/files/${file.id}/thumbnail`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...(authorization ? { Authorization: `Bearer ${authorization}` } : {}) },
+      body: JSON.stringify({ expectedRevision, thumbnailKey, ...extra }),
+    }))
+
+    const saved = await update('alpha', 0, key)
+    expect(saved.status).toBe(200)
+    expect(await body(saved)).toEqual({ thumbnail: { fileId: file.id, revision: 0, thumbnailKey: key } })
+
+    for (const invalidKey of ['../thumbnail.avif', `thumbnails/${crypto.randomUUID()}/thumbnail.avif`, `${key}/extra`, '']) {
+      const invalid = await update('alpha', 0, invalidKey)
+      expect(invalid.status).toBe(400)
+      expect(await body(invalid)).toEqual({ error: { code: 'invalid_thumbnail_key', message: 'Thumbnail key is invalid.' } })
+    }
+    expect((await update('alpha', 0, key, { extra: true })).status).toBe(400)
+    expect((await update('beta', 0, key)).status).toBe(404)
+    expect((await update(null, 0, key)).status).toBe(401)
+    expect((await body(await app(request(`/api/files/${file.id}`, signed('alpha'))))).file.thumbnailKey).toBe(key)
+
+    const documentSave = await app(request(`/api/files/${file.id}/document`, signed('alpha', 'PUT', { expectedRevision: 0, document: fileDocument(file.id) })))
+    expect(documentSave.status).toBe(200)
+    expect((await body(await app(request(`/api/files/${file.id}`, signed('alpha'))))).file.thumbnailKey).toBeNull()
+
+    expect((await update('alpha', 1, key)).status).toBe(200)
+    const staleClear = await update('alpha', 0, null)
+    expect(staleClear.status).toBe(409)
+    expect(await body(staleClear)).toEqual({ error: { code: 'revision_conflict', message: 'File changed.', currentRevision: 1 } })
+    expect((await body(await app(request(`/api/files/${file.id}`, signed('alpha'))))).file.thumbnailKey).toBe(key)
+
+    const cleared = await update('alpha', 1, null)
+    expect(cleared.status).toBe(200)
+    expect(await body(cleared)).toEqual({ thumbnail: { fileId: file.id, revision: 1, thumbnailKey: null } })
+    expect((await body(await app(request(`/api/files/${file.id}`, signed('alpha'))))).file.thumbnailKey).toBeNull()
+  })
+
   it('CLOUD-FILES-SEC-001 rejects document identity, revision, and shape substitution', async () => {
     const app = createApiApp({ auth: auth(), store: createMemoryControlPlane(), serviceToken })
     const file = (await body(await app(request('/api/files', signed('alpha', 'POST', { name: 'Validated' }))))).file

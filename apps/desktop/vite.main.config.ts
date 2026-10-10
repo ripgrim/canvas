@@ -13,7 +13,7 @@ const packageEnvironment = packageMode === 'local' || packageMode === 'productio
   : undefined
 
 export default defineConfig({
-  define: { __DESIGN_EDITOR_PACKAGE_ENVIRONMENT__: JSON.stringify(packageEnvironment) },
+  define: { __DESIGN_EDITOR_PACKAGE_ENVIRONMENT__: packageEnvironment === undefined ? 'undefined' : JSON.stringify(packageEnvironment) },
   build: {
     target: 'node22',
     outDir: 'dist/main',

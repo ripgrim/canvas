@@ -1,12 +1,19 @@
 import { createHostedAuthClient } from '@canvas/auth/web'
+import type { HostedAuthClient } from '@canvas/auth/web'
 import type { DesktopSignInRequest } from '@canvas/auth'
 import { desktopAuthCallbackPath, desktopAuthClientId, desktopAuthProtocolScheme, parseDesktopSignInParameters } from '@canvas/auth'
 
-const client = createHostedAuthClient({
-  protocolScheme: desktopAuthProtocolScheme,
-  callbackPath: desktopAuthCallbackPath,
-  clientID: desktopAuthClientId,
-})
+let client: HostedAuthClient | undefined
+
+function hostedClient(): HostedAuthClient {
+  if (typeof window === 'undefined' || !['http:', 'https:'].includes(window.location.protocol)) throw new Error('Hosted sign-in requires an HTTP or HTTPS page.')
+  client ??= createHostedAuthClient({
+    protocolScheme: desktopAuthProtocolScheme,
+    callbackPath: desktopAuthCallbackPath,
+    clientID: desktopAuthClientId,
+  })
+  return client
+}
 
 type HostedAuthSnapshot = Readonly<{
   openingDesktop: boolean
@@ -37,7 +44,8 @@ export const hostedAuthService = {
     stopRedirect?.()
     stopRedirect = undefined
     publish(Object.freeze({ openingDesktop: false, request: null, providerError: null }))
-    if (typeof window === 'undefined' || window.location.pathname !== '/sign-in') return
+    if (typeof window === 'undefined' || window.location.pathname !== '/sign-in' || !['http:', 'https:'].includes(window.location.protocol)) return
+    const client = hostedClient()
     const parameters = new URLSearchParams(window.location.search)
     const request = parseDesktopSignInParameters(parameters, desktopAuthClientId)
     const error = providerError(parameters)
@@ -55,5 +63,5 @@ export const hostedAuthService = {
   },
   subscribe(listener: () => void): () => void { listeners.add(listener); return () => listeners.delete(listener) },
   getSnapshot(): HostedAuthSnapshot { return snapshot },
-  signInWithGitHub(request: DesktopSignInRequest): Promise<void> { return client.signIn('github', request) },
+  signInWithGitHub(request: DesktopSignInRequest): Promise<void> { return hostedClient().signIn('github', request) },
 }

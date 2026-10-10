@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import type { PoolClient, QueryResultRow } from 'pg'
-import type { CloudFile, CloudFileDocument, CloudFileSummary, CloudProject, ControlPlaneStore, DocumentSaveResult, JsonValue } from './index.js'
+import type { CloudFile, CloudFileDocument, CloudFileSummary, CloudProject, ControlPlaneStore, DocumentSaveResult, FileThumbnailMetadata, JsonValue, ThumbnailUpdateResult } from './index.js'
 import { emptyCanvasDocument } from './index.js'
 
 type ProjectRow = QueryResultRow & Readonly<{ id: string; name: string; created_at: Date | string; updated_at: Date | string }>
 type FileRow = QueryResultRow & Readonly<{ id: string; project_id: string | null; name: string; head_revision: string | number; thumbnail_key: string | null; created_at: Date | string; updated_at: Date | string }>
 type DocumentRow = QueryResultRow & Readonly<{ file_id: string; revision: string | number; document: Record<string, JsonValue>; updated_at: Date | string }>
+type ThumbnailRow = QueryResultRow & Readonly<{ id: string; head_revision: string | number; thumbnail_key: string | null }>
 
 const iso = (value: Date | string) => value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 const safeRevision = (value: number | string) => {
@@ -17,6 +18,7 @@ const safeRevision = (value: number | string) => {
 const projectFromRow = (row: ProjectRow): CloudProject => Object.freeze({ id: row.id, name: row.name, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at) })
 const fileFromRow = (row: FileRow): CloudFile => Object.freeze({ id: row.id, projectId: row.project_id, name: row.name, headRevision: safeRevision(row.head_revision), thumbnailKey: row.thumbnail_key, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at) })
 const documentFromRow = (row: DocumentRow): CloudFileDocument => Object.freeze({ fileId: row.file_id, revision: safeRevision(row.revision), document: Object.freeze(row.document), updatedAt: iso(row.updated_at) })
+const thumbnailFromRow = (row: ThumbnailRow): FileThumbnailMetadata => Object.freeze({ fileId: row.id, revision: safeRevision(row.head_revision), thumbnailKey: row.thumbnail_key })
 
 const projectColumns = 'id, name, created_at, updated_at'
 const fileColumns = 'id, project_id, name, head_revision, thumbnail_key, created_at, updated_at'
@@ -76,6 +78,9 @@ export function createPostgresControlPlane(pool: Pool): ControlPlaneStore {
     async saveFileDocument(ownerUserId, fileId, expectedRevision, document) {
       return saveDocument(pool, ownerUserId, fileId, expectedRevision, document)
     },
+    async setFileThumbnail(ownerUserId, fileId, expectedRevision, thumbnailKey) {
+      return setThumbnail(pool, ownerUserId, fileId, expectedRevision, thumbnailKey)
+    },
   }
   return Object.freeze(store)
 }
@@ -95,7 +100,7 @@ async function saveDocument(pool: Pool, ownerUserId: string, fileId: string, exp
       await client.query('ROLLBACK')
       return current.rows[0] ? Object.freeze({ status: 'conflict', currentRevision: safeRevision(current.rows[0].revision) }) : Object.freeze({ status: 'not-found' })
     }
-    await client.query('UPDATE app_file SET head_revision = $3, updated_at = $4 WHERE id = $1 AND owner_user_id = $2', [fileId, ownerUserId, row.revision, row.updated_at])
+    await client.query('UPDATE app_file SET head_revision = $3, thumbnail_key = NULL, updated_at = $4 WHERE id = $1 AND owner_user_id = $2', [fileId, ownerUserId, row.revision, row.updated_at])
     await client.query('COMMIT')
     return Object.freeze({ status: 'saved', document: documentFromRow(row) })
   } catch (error) {
@@ -104,4 +109,14 @@ async function saveDocument(pool: Pool, ownerUserId: string, fileId: string, exp
   } finally {
     client.release()
   }
+}
+
+async function setThumbnail(pool: Pool, ownerUserId: string, fileId: string, expectedRevision: number, thumbnailKey: string | null): Promise<ThumbnailUpdateResult> {
+  const saved = await pool.query<ThumbnailRow>('UPDATE app_file SET thumbnail_key = $4 WHERE id = $1 AND owner_user_id = $2 AND head_revision = $3 RETURNING id, head_revision, thumbnail_key', [fileId, ownerUserId, expectedRevision, thumbnailKey])
+  const row = saved.rows[0]
+  if (row) return Object.freeze({ status: 'saved', thumbnail: thumbnailFromRow(row) })
+  const current = await pool.query<QueryResultRow & { head_revision: string | number }>('SELECT head_revision FROM app_file WHERE id = $1 AND owner_user_id = $2', [fileId, ownerUserId])
+  return current.rows[0]
+    ? Object.freeze({ status: 'conflict', currentRevision: safeRevision(current.rows[0].head_revision) })
+    : Object.freeze({ status: 'not-found' })
 }

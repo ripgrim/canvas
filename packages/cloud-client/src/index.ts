@@ -21,6 +21,12 @@ export type CloudDocument<TDocument> = Readonly<{
   document: TDocument
 }>
 
+export type CloudThumbnailMetadata = Readonly<{
+  fileId: string
+  revision: number
+  thumbnailKey: string | null
+}>
+
 export class CloudApiError extends Error {
   readonly status: number
   readonly code: string | null
@@ -100,6 +106,18 @@ function parseSummary(value: unknown): CloudFileSummary {
   }
 }
 
+function parseThumbnail(value: unknown, fileId: string, expectedRevision: number): CloudThumbnailMetadata {
+  const result = object(value, 'thumbnail')
+  exact(result, ['fileId', 'revision', 'thumbnailKey'])
+  const responseFileId = identifier(result.fileId, 'file id')
+  const revision = integer(result.revision, 'thumbnail revision')
+  if (responseFileId !== fileId) throw new Error('The server returned a thumbnail for another file.')
+  if (revision !== expectedRevision) throw new Error('The server returned a thumbnail for another revision.')
+  const thumbnailKey = nullableString(result.thumbnailKey, 'thumbnail key', 512)
+  if (thumbnailKey !== null && thumbnailKey !== `thumbnails/${fileId}/thumbnail.avif`) throw new Error('The server returned an invalid thumbnail key.')
+  return { fileId: responseFileId, revision, thumbnailKey }
+}
+
 async function responseJson(response: Response): Promise<unknown> {
   const contentType = response.headers.get('content-type') ?? ''
   if (!contentType.toLowerCase().includes('application/json')) throw new CloudApiError('The server returned an invalid response.', response.status)
@@ -169,5 +187,22 @@ export function createCloudApiClient<TDocument>(options: CloudApiClientOptions<T
       if (responseFileId !== id) throw new Error('The server returned a document for another file.')
       return { fileId: responseFileId, revision: integer(body.revision, 'document revision'), document: options.validateDocument(body.document) }
     },
+    async setThumbnail(fileId: string, expectedRevision: number, thumbnailKey: string): Promise<CloudThumbnailMetadata> {
+      const id = identifier(fileId, 'file id')
+      integer(expectedRevision, 'expected revision')
+      if (thumbnailKey !== `thumbnails/${id}/thumbnail.avif`) throw new Error('Invalid thumbnail key.')
+      return updateThumbnail(id, expectedRevision, thumbnailKey)
+    },
+    async clearThumbnail(fileId: string, expectedRevision: number): Promise<CloudThumbnailMetadata> {
+      const id = identifier(fileId, 'file id')
+      integer(expectedRevision, 'expected revision')
+      return updateThumbnail(id, expectedRevision, null)
+    },
   })
+
+  async function updateThumbnail(fileId: string, expectedRevision: number, thumbnailKey: string | null): Promise<CloudThumbnailMetadata> {
+    const body = object(await checked(await call(`/api/files/${encodeURIComponent(fileId)}/thumbnail`, jsonRequest('PUT', { expectedRevision, thumbnailKey }))), 'thumbnail response')
+    exact(body, ['thumbnail'])
+    return parseThumbnail(body.thumbnail, fileId, expectedRevision)
+  }
 }

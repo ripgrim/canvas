@@ -47,4 +47,34 @@ describe('cloud api client', () => {
     const wrongFile = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ fileId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', revision: 1, document: {} })) as typeof fetch, validateDocument: value => value })
     await expect(wrongFile.openDocument(file.id)).rejects.toThrow('another file')
   })
+
+  it('AT-THUMB-001 sets and clears only the stable thumbnail key for the expected revision', async () => {
+    const key = `thumbnails/${file.id}/thumbnail.avif`
+    const requests: Array<{ url: string; body: unknown }> = []
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const input = JSON.parse(String(init?.body)) as { expectedRevision: number; thumbnailKey: string | null }
+      requests.push({ url: String(url), body: input })
+      return response({ thumbnail: { fileId: file.id, revision: input.expectedRevision, thumbnailKey: input.thumbnailKey } })
+    })
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+
+    expect(await client.setThumbnail(file.id, 3, key)).toEqual({ fileId: file.id, revision: 3, thumbnailKey: key })
+    expect(await client.clearThumbnail(file.id, 3)).toEqual({ fileId: file.id, revision: 3, thumbnailKey: null })
+    expect(requests).toEqual([
+      { url: `https://api.canvas.test/api/files/${file.id}/thumbnail`, body: { expectedRevision: 3, thumbnailKey: key } },
+      { url: `https://api.canvas.test/api/files/${file.id}/thumbnail`, body: { expectedRevision: 3, thumbnailKey: null } },
+    ])
+    expect(fetcher.mock.calls.every(([, init]) => init?.credentials === 'include' && init.method === 'PUT')).toBe(true)
+
+    await expect(client.setThumbnail(file.id, 3, '../thumbnail.avif')).rejects.toThrow('Invalid thumbnail key')
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('AT-THUMB-001 rejects thumbnail metadata for another file or revision', async () => {
+    const key = `thumbnails/${file.id}/thumbnail.avif`
+    const wrongRevision = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ thumbnail: { fileId: file.id, revision: 4, thumbnailKey: key } })) as typeof fetch, validateDocument: value => value })
+    await expect(wrongRevision.setThumbnail(file.id, 3, key)).rejects.toThrow('another revision')
+    const wrongFile = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ thumbnail: { fileId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', revision: 3, thumbnailKey: key } })) as typeof fetch, validateDocument: value => value })
+    await expect(wrongFile.setThumbnail(file.id, 3, key)).rejects.toThrow('another file')
+  })
 })

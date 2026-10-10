@@ -79,6 +79,8 @@ async function routeApi(request: Request, url: URL, options: ApiAppOptions): Pro
     }
     if (request.method === 'PUT') return saveDocument(request, options.store, user, documentId)
   }
+  const thumbnailId = routeId(url.pathname, '/api/files/', '/thumbnail')
+  if (thumbnailId && request.method === 'PUT') return setThumbnail(request, options.store, user, thumbnailId)
   const fileId = routeId(url.pathname, '/api/files/')
   if (fileId && request.method === 'GET') {
     const file = await options.store.getFile(user.id, fileId)
@@ -89,14 +91,24 @@ async function routeApi(request: Request, url: URL, options: ApiAppOptions): Pro
 
 async function saveDocument(request: Request, store: ControlPlaneStore, user: HostedSessionUser, fileId: string): Promise<Response> {
   const input = await readObject(request, 5 * 1024 * 1024)
-  if (!Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0 || input.expectedRevision === Number.MAX_SAFE_INTEGER) throw new ApiInputError('invalid_revision', 'Expected revision is invalid.')
-  const expectedRevision = input.expectedRevision as number
+  const expectedRevision = readExpectedRevision(input.expectedRevision)
   const document = readDocument(input.document, fileId, expectedRevision)
   const savedDocument = Object.freeze({ ...document, revision: expectedRevision + 1 })
   const result = await store.saveFileDocument(user.id, fileId, expectedRevision, savedDocument)
   if (result.status === 'not-found') return json(errorBody('not_found', 'File not found.'), 404)
   if (result.status === 'conflict') return json({ error: { code: 'revision_conflict', message: 'File changed.', currentRevision: result.currentRevision } }, 409)
   return json({ fileId: result.document.fileId, document: result.document.document, revision: result.document.revision })
+}
+
+async function setThumbnail(request: Request, store: ControlPlaneStore, user: HostedSessionUser, fileId: string): Promise<Response> {
+  const input = await readObject(request, 16_384)
+  if (Object.keys(input).sort().join(',') !== 'expectedRevision,thumbnailKey') throw new ApiInputError('invalid_thumbnail', 'Thumbnail metadata is invalid.')
+  const expectedRevision = readExpectedRevision(input.expectedRevision)
+  const thumbnailKey = readThumbnailKey(input.thumbnailKey, fileId)
+  const result = await store.setFileThumbnail(user.id, fileId, expectedRevision, thumbnailKey)
+  if (result.status === 'not-found') return json(errorBody('not_found', 'File not found.'), 404)
+  if (result.status === 'conflict') return json({ error: { code: 'revision_conflict', message: 'File changed.', currentRevision: result.currentRevision } }, 409)
+  return json({ thumbnail: result.thumbnail })
 }
 
 async function internalFileAccess(request: Request, options: ApiAppOptions): Promise<Response> {
@@ -146,6 +158,17 @@ function readId(value: unknown, field: string): string {
 function readNullableId(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null
   return readId(value, field)
+}
+
+function readExpectedRevision(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0 || value === Number.MAX_SAFE_INTEGER) throw new ApiInputError('invalid_revision', 'Expected revision is invalid.')
+  return value as number
+}
+
+function readThumbnailKey(value: unknown, fileId: string): string | null {
+  if (value === null) return null
+  if (value !== `thumbnails/${fileId}/thumbnail.avif`) throw new ApiInputError('invalid_thumbnail_key', 'Thumbnail key is invalid.')
+  return value
 }
 
 function readDocument(value: unknown, fileId: string, expectedRevision: number): Readonly<Record<string, JsonValue>> {

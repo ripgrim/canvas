@@ -32,6 +32,17 @@ export type DocumentSaveResult =
   | Readonly<{ status: 'conflict'; currentRevision: number }>
   | Readonly<{ status: 'not-found' }>
 
+export type FileThumbnailMetadata = Readonly<{
+  fileId: string
+  revision: number
+  thumbnailKey: string | null
+}>
+
+export type ThumbnailUpdateResult =
+  | Readonly<{ status: 'saved'; thumbnail: FileThumbnailMetadata }>
+  | Readonly<{ status: 'conflict'; currentRevision: number }>
+  | Readonly<{ status: 'not-found' }>
+
 export interface ControlPlaneStore {
   listProjects(ownerUserId: string): Promise<readonly CloudProject[]>
   createProject(ownerUserId: string, name: string): Promise<CloudProject>
@@ -41,6 +52,7 @@ export interface ControlPlaneStore {
   getFile(ownerUserId: string, fileId: string): Promise<CloudFile | null>
   getFileDocument(ownerUserId: string, fileId: string): Promise<CloudFileDocument | null>
   saveFileDocument(ownerUserId: string, fileId: string, expectedRevision: number, document: Readonly<Record<string, JsonValue>>): Promise<DocumentSaveResult>
+  setFileThumbnail(ownerUserId: string, fileId: string, expectedRevision: number, thumbnailKey: string | null): Promise<ThumbnailUpdateResult>
 }
 
 export function emptyCanvasDocument(fileId: string, pageId: string, rootNodeId: string): Readonly<Record<string, JsonValue>> {

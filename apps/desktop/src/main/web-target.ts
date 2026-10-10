@@ -1,4 +1,5 @@
 export const allowedHostedEditorOrigins: readonly string[] = Object.freeze([])
+export const bundledEditorOrigin = 'design-editor://app'
 export const bundledEditorUrl = 'design-editor://app/'
 export const localDevelopmentUrl = 'http://127.0.0.1:4317/'
 
@@ -9,7 +10,7 @@ export type EditorTarget =
 export function resolveEditorTarget(webUrl: string | undefined, development: boolean, allowedOrigins: readonly string[] = allowedHostedEditorOrigins): EditorTarget {
   if (webUrl === undefined) return development
     ? { kind: 'local', url: localDevelopmentUrl, origin: 'http://127.0.0.1:4317', development: true, localCapabilities: true }
-    : { kind: 'local', url: bundledEditorUrl, origin: 'design-editor://app', development: false, localCapabilities: true }
+    : { kind: 'local', url: bundledEditorUrl, origin: bundledEditorOrigin, development: false, localCapabilities: true }
   if (!webUrl || webUrl.length > 2048 || webUrl.includes('#')) throw new Error('The hosted editor URL must be a canonical HTTPS URL without a fragment.')
   let url: URL
   try { url = new URL(webUrl) } catch { throw new Error('The hosted editor URL is invalid.') }

@@ -18,12 +18,27 @@ try {
   assert.equal(await store.getFile('different-user', file.id), null)
   assert.equal(await store.getFileDocument('different-user', file.id), null)
   assert.deepEqual(await store.saveFileDocument('different-user', file.id, 0, { schemaVersion: 6 }), { status: 'not-found' })
+  const thumbnailKey = `thumbnails/${file.id}/thumbnail.avif`
+  assert.deepEqual(await store.setFileThumbnail('acceptance-owner', file.id, 0, thumbnailKey), {
+    status: 'saved',
+    thumbnail: { fileId: file.id, revision: 0, thumbnailKey },
+  })
+  assert.deepEqual(await store.setFileThumbnail('different-user', file.id, 0, null), { status: 'not-found' })
+  assert.equal((await store.getFile('acceptance-owner', file.id))?.thumbnailKey, thumbnailKey)
   const savedDocument = { ...initial.document, revision: 1 }
   const saved = await store.saveFileDocument('acceptance-owner', file.id, 0, savedDocument)
   assert.equal(saved.status, 'saved')
   if (saved.status !== 'saved') throw new Error('Expected document save to succeed.')
   assert.equal(saved.document.revision, 1)
   assert.equal(saved.document.document.revision, 1)
+  assert.equal((await store.getFile('acceptance-owner', file.id))?.thumbnailKey, null)
+  assert.equal((await store.setFileThumbnail('acceptance-owner', file.id, 1, thumbnailKey)).status, 'saved')
+  assert.deepEqual(await store.setFileThumbnail('acceptance-owner', file.id, 0, null), { status: 'conflict', currentRevision: 1 })
+  assert.equal((await store.getFile('acceptance-owner', file.id))?.thumbnailKey, thumbnailKey)
+  assert.deepEqual(await store.setFileThumbnail('acceptance-owner', file.id, 1, null), {
+    status: 'saved',
+    thumbnail: { fileId: file.id, revision: 1, thumbnailKey: null },
+  })
   assert.deepEqual(await store.saveFileDocument('acceptance-owner', file.id, 0, savedDocument), { status: 'conflict', currentRevision: 1 })
   assert.equal((await store.getFile('acceptance-owner', file.id))?.headRevision, 1)
   process.stdout.write('PostgreSQL control-plane acceptance passed.\n')

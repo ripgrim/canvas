@@ -32,6 +32,20 @@ Run the same cloud-shaped local stack without Electron:
 pnpm dev:cloud
 ```
 
+Build an unsigned Windows installer against the local services:
+
+```sh
+pnpm build:package:local
+```
+
+Build the production installer after copying `.env.production.example` to `.env.production` and replacing its public origins:
+
+```sh
+pnpm build:package:prod
+```
+
+Local and production artifacts are written to `apps/desktop/release/local` and `apps/desktop/release/production`. Packaging builds its child-process environment from a fixed Windows OS and toolchain allowlist, then adds only the public desktop and `VITE_` origins from the selected environment file. Ambient credentials and unrelated shell variables are not inherited.
+
 Local origins mirror the hosted service boundaries:
 
 - editor: `http://127.0.0.1:4317`

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { CloudFile, CloudFileDocument, CloudFileSummary, CloudProject, ControlPlaneStore, DocumentSaveResult, JsonValue } from './index.js'
+import type { CloudFile, CloudFileDocument, CloudFileSummary, CloudProject, ControlPlaneStore, FileThumbnailMetadata, JsonValue } from './index.js'
 import { emptyCanvasDocument } from './index.js'
 
 type OwnedProject = CloudProject & Readonly<{ ownerUserId: string }>
@@ -57,8 +57,15 @@ export function createMemoryControlPlane(): ControlPlaneStore {
       const saved = Object.freeze({ fileId, ownerUserId, revision: current.revision + 1, document: Object.freeze(structuredClone(document)), updatedAt: timestamp })
       documents.set(fileId, saved)
       const file = files.get(fileId)!
-      files.set(fileId, Object.freeze({ ...file, headRevision: saved.revision, updatedAt: timestamp }))
+      files.set(fileId, Object.freeze({ ...file, headRevision: saved.revision, thumbnailKey: null, updatedAt: timestamp }))
       return Object.freeze({ status: 'saved', document: publicDocument(saved) })
+    },
+    async setFileThumbnail(ownerUserId, fileId, expectedRevision, thumbnailKey) {
+      const file = files.get(fileId)
+      if (!file || file.ownerUserId !== ownerUserId) return Object.freeze({ status: 'not-found' })
+      if (file.headRevision !== expectedRevision) return Object.freeze({ status: 'conflict', currentRevision: file.headRevision })
+      files.set(fileId, Object.freeze({ ...file, thumbnailKey }))
+      return Object.freeze({ status: 'saved', thumbnail: publicThumbnail(fileId, expectedRevision, thumbnailKey) })
     },
   }
   return Object.freeze(store)
@@ -68,3 +75,4 @@ const updatedFirst = <T extends { updatedAt: string; id?: string; fileId?: strin
 const publicProject = ({ ownerUserId: _owner, ...project }: OwnedProject): CloudProject => Object.freeze(project)
 const publicFile = ({ ownerUserId: _owner, ...file }: OwnedFile): CloudFileSummary => Object.freeze(file)
 const publicDocument = ({ ownerUserId: _owner, ...document }: OwnedDocument): CloudFileDocument => Object.freeze(document)
+const publicThumbnail = (fileId: string, revision: number, thumbnailKey: string | null): FileThumbnailMetadata => Object.freeze({ fileId, revision, thumbnailKey })

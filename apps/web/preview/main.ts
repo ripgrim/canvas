@@ -8,8 +8,19 @@ import { Input } from '../../../tests/fixtures/component-repo-seed/src/atoms/Inp
 import { Label } from '../../../tests/fixtures/component-repo-seed/src/atoms/Label'
 import '../../../tests/fixtures/component-repo-seed/src/globals.css'
 
-const editorOrigin = new URLSearchParams(window.location.search).get('editorOrigin')
+export const bundledEditorOrigin = 'design-editor://app'
+
+export function requireEditorOrigin(value: string | null, previewOrigin: string): string {
+  if (!value || value === previewOrigin) throw new Error('A separate editor origin is required.')
+  if (value === bundledEditorOrigin) return value
+
+  let url: URL
+  try { url = new URL(value) } catch { throw new Error('A separate editor origin is required.') }
+  if (!['http:', 'https:'].includes(url.protocol) || url.origin !== value || url.username || url.password) throw new Error('A separate editor origin is required.')
+  return url.origin
+}
+
+const editorOrigin = requireEditorOrigin(new URLSearchParams(window.location.search).get('editorOrigin'), window.location.origin)
 const compositionMode = new URLSearchParams(window.location.search).get('mode') === 'composition'
-if (!editorOrigin || !/^https?:\/\//.test(editorOrigin) || new URL(editorOrigin).origin !== editorOrigin || editorOrigin === window.location.origin) throw new Error('A separate editor origin is required.')
 const registry = [{ componentId: 'sample-button', Component: Button }, { componentId: 'sample-card', Component: Card }, { componentId: 'sample-input', Component: Input }, { componentId: 'sample-label', Component: Label }].map(binding => ({ ...binding, exportName: binding.Component.name }))
 startPreview({ Component: compositionMode ? () => null : PreviewLogin, initialProps: {}, generation: 1, editorOrigin, componentId: 'bundled-sample', registry, sourceDocument: compositionMode ? null : createDocument(browserSampleAtoms, browserSampleComposition) })

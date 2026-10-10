@@ -5,6 +5,7 @@ import type { ProjectSnapshot } from '@canvas/repo-engine'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { validateFileDocument } from '@canvas/repo-engine/file-document'
 import type { PreviewSnapshot } from '@canvas/preview-runtime'
+import { bundledEditorOrigin } from './web-target'
 
 export type DesktopCloudSnapshot = ProjectSnapshot & { fileId: string; preview: PreviewSnapshot }
 export type DesktopCloudFile = Readonly<{ id: string; name: string; location: string; updatedAt: string; thumbnailUrl?: string }>
@@ -16,6 +17,11 @@ function safeOrigin(value: string | undefined, label: string): string | null {
   return url.origin
 }
 
+function safeEditorOrigin(value: string): string {
+  if (value === bundledEditorOrigin) return value
+  return safeOrigin(value, 'Editor origin') ?? (() => { throw new Error('Editor origin is required.') })()
+}
+
 export class DesktopCloudFiles {
   private readonly client
   private readonly previewOrigin: string | null
@@ -25,7 +31,7 @@ export class DesktopCloudFiles {
 
   constructor(auth: Pick<ElectronAuthClient, 'request'>, apiOrigin: string, editorOrigin: string, previewOrigin?: string, assetsOrigin?: string) {
     this.previewOrigin = safeOrigin(previewOrigin, 'Preview origin')
-    this.editorOrigin = safeOrigin(editorOrigin, 'Editor origin') ?? (() => { throw new Error('Editor origin is required.') })()
+    this.editorOrigin = safeEditorOrigin(editorOrigin)
     this.assetsOrigin = safeOrigin(assetsOrigin, 'Assets origin')
     if (this.previewOrigin === this.editorOrigin) throw new Error('Preview must use a separate origin.')
     this.client = createCloudApiClient<FileDocument>({

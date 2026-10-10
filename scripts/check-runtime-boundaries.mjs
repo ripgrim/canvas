@@ -9,8 +9,7 @@ const builtins = new Set(builtinModules.map(name => name.replace(/^node:/, '')))
 const extensions = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']
 const normalize = name => path.posix.normalize(name.replaceAll('\\', '/'))
 const isTest = name => /(?:^|\/)__tests__\//.test(name) || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(name)
-const hostedAuthRoute = name => name === 'apps/web/src/routes/api.auth.$.ts'
-const serverOnly = name => /(?:^|\/)server\//.test(name) || /\.server(?:\.[^/]*)?$/.test(name) || hostedAuthRoute(name)
+const serverOnly = name => /(?:^|\/)server\//.test(name) || /\.server(?:\.[^/]*)?$/.test(name)
 const privilegedFile = name => /^apps\/desktop\/(?:src\/)?(?:main|preload)(?:\/|\.|$)/.test(name) || /^packages\/(?:repo-engine|preview-runtime)\/(?:src|dist)\/index\.[cm]?[jt]s$/.test(name)
 const browserEntry = name => /^(?:packages\/editor\/src|apps\/web\/(?:src|preview)|apps\/desktop\/src\/renderer)\//.test(name) && !isTest(name) && !serverOnly(name)
 const assets = /\.(?:css|scss|sass|less|svg|png|jpe?g|webp|gif|ico|woff2?|ttf|otf|mp4|webm|json)(?:[?#].*)?$/i
@@ -213,8 +212,6 @@ export function checkRuntimeGraph(input, options = {}) {
       }
       const target = normalize(resolved)
       if (serverOnly(target)) {
-        // TanStack Start generates one route-tree import for this exact server handler and strips its handler from the client build.
-        if (name === 'apps/web/src/routeTree.gen.ts' && hostedAuthRoute(target)) continue
         diagnostics.push(`${at}: Server-only module reached through browser graph: ${[...chain, name, target].join(' -> ')}`); continue
       }
       if (privilegedFile(target)) { diagnostics.push(`${at}: Privileged desktop or engine module reached through browser graph: ${target}`); continue }
