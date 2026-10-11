@@ -16,7 +16,7 @@
       "outputDirectory": "dist/client",
       "productionDomain": "canvas.ripgrim.com",
       "stagingDomain": "staging.canvas.ripgrim.com",
-      "environment": ["VITE_API_ORIGIN", "VITE_PREVIEW_ORIGIN", "VITE_ASSETS_ORIGIN", "VITE_LOGIN_ORIGIN", "VITE_SYNC_ORIGIN", "VITE_DATABUDDY_CLIENT_ID"]
+      "environment": ["VITE_API_ORIGIN", "VITE_PREVIEW_ORIGIN", "VITE_ASSETS_ORIGIN", "VITE_LOGIN_ORIGIN", "VITE_SYNC_ORIGIN", "VITE_COLLABORATION_BUILD_ID", "VITE_DATABUDDY_CLIENT_ID"]
     },
     {
       "service": "login",

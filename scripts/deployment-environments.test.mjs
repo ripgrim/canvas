@@ -35,12 +35,13 @@ test('opens one staging-to-main pull request and never pushes main directly', ()
   assert.doesNotMatch(workflow, /git push[^\n]*main/)
 })
 
-test('shares an isolated staging auth cookie with the sync host', () => {
+test('CLOUD-SYNC-AUTH-001 shares staging auth and build identity with the sync host', () => {
   assert.match(stagingTemplate, /^BETTER_AUTH_URL="https:\/\/staging\.canvas\.ripgrim\.com"$/m)
   assert.match(stagingTemplate, /^AUTH_COOKIE_DOMAIN="canvas\.ripgrim\.com"$/m)
   assert.match(stagingTemplate, /^AUTH_COOKIE_PREFIX="comp-canvas-staging"$/m)
   assert.match(stagingTemplate, /^VITE_APP_URL="https:\/\/staging\.canvas\.ripgrim\.com"$/m)
   assert.match(stagingTemplate, /^VITE_API_URL="https:\/\/staging\.canvas\.ripgrim\.com"$/m)
+  assert.match(stagingTemplate, /^VITE_COLLABORATION_BUILD_ID="0\.1\.0-staging"$/m)
   assert.match(stagingTemplate, /^GITHUB_APP_AUTHORIZATION_CALLBACK_URL="https:\/\/api-staging\.canvas\.ripgrim\.com\/api\/github\/authorization\/callback"$/m)
   assert.doesNotMatch(stagingTemplate, /="https:\/\/(?:api|login|preview|assets|sync)\.canvas\.ripgrim\.com/)
 

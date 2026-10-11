@@ -297,6 +297,10 @@ export class CollaborationRoomCore {
 
   async admitAuthorized(peer: RoomPeer, authorization: RoomAuthorization, open: RoomOpenMessage): Promise<boolean> {
     if (this.#phase !== 'accepting') throw new RoomNotAcceptingError()
+    const rejectAdmission = (reason: string): false => {
+      this.#log('room_admission_rejected', { reason })
+      return false
+    }
     return this.#serialize(async () => {
       return this.#enqueuePresence(async () => {
         if (this.#phase !== 'accepting') throw new RoomNotAcceptingError()
@@ -305,15 +309,15 @@ export class CollaborationRoomCore {
           || currentClaims.protocolEpoch !== 2
           || currentClaims.fileId !== this.#options.identity.fileId
           || currentClaims.generationId !== this.#options.identity.generationId
-          || currentClaims.expiresAtUnixMs <= Date.now()) return false
+          || currentClaims.expiresAtUnixMs <= Date.now()) return rejectAdmission('capability')
         await this.#pruneUnauthorizedSessions()
         if (this.#sessions.has(peer.connectionId)
           || this.#connectionNonces.has(currentClaims.connectionNonce)
-          || [...this.#sessions.values()].some(session => session.claims.clientId === currentClaims.clientId)) return false
-        if (open.fileId !== currentClaims.fileId || open.clientId !== currentClaims.clientId) return false
+          || [...this.#sessions.values()].some(session => session.claims.clientId === currentClaims.clientId)) return rejectAdmission('duplicate')
+        if (open.fileId !== currentClaims.fileId || open.clientId !== currentClaims.clientId) return rejectAdmission('scope')
         const currentParticipants = [...this.#sessions.values()].map(current => this.#participant(current))
         if (currentParticipants.length >= maxPresenceParticipants
-          || (currentParticipants.length > 0 && !this.#presenceAdmissionFits(currentParticipants))) return false
+          || (currentParticipants.length > 0 && !this.#presenceAdmissionFits(currentParticipants))) return rejectAdmission('capacity')
         const session = Object.freeze({
           presenceId: randomUUID(),
           claims: currentClaims,
@@ -341,11 +345,11 @@ export class CollaborationRoomCore {
           this.#assertMessageFits(assigned)
           this.#assertPresenceRosterFits(plannedRoster)
         } catch (error) {
-          if (error instanceof RoomCapacityError) return false
+          if (error instanceof RoomCapacityError) return rejectAdmission('payload')
           throw error
         }
         await this.#send(peer, assigned)
-        if (!await this.#verifyCurrentClaims(currentClaims)) return false
+        if (!await this.#verifyCurrentClaims(currentClaims)) return rejectAdmission('access')
         await this.#streamProjection(peer, projectionStream)
         await this.#send(peer, plannedRoster)
         this.#sessions.set(peer.connectionId, session)

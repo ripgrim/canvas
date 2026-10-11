@@ -126,6 +126,26 @@ describe('collaboration room authority', () => {
     await room.drain()
   })
 
+  it('CLOUD-SYNC-AUTH-001 records a safe reason when capability consumption rejects admission', async () => {
+    const events: Readonly<Record<string, string | number | boolean | null>>[] = []
+    const verifier = customTickets(
+      async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 2, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
+      async () => false,
+    )
+    const room = new CollaborationRoomCore({
+      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+    }, { persistence: new FakePersistence(), tickets: verifier, projector, checkpoints, logger: { event(value) { events.push(value) } } })
+    await room.start()
+    const request = admission(new FakePeer('rejected'))
+    const authorization = await room.authorize(request.ticketContext)
+    expect(authorization).not.toBeNull()
+
+    await expect(room.admitAuthorized(request.peer, authorization!, request.open)).resolves.toBe(false)
+    expect(events).toContainEqual(expect.objectContaining({ event: 'room_admission_rejected', reason: 'capability', fileId, generationId }))
+    expect(JSON.stringify(events)).not.toContain(ticket)
+    await room.drain()
+  })
+
   it('CLOUD-SYNC-PRESENCE-001 does not query server-side access for each awareness sample', async () => {
     let current = true
     let currentChecks = 0

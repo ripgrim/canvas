@@ -59,7 +59,7 @@ export async function handleRequest(request: Request, env: SyncWorkerEnv): Promi
     [requestIdHeader]: requestId,
   })
   if (handshake.protocol) headers.set("Sec-WebSocket-Protocol", handshake.protocol)
-  return env.SYNC_COORDINATOR.fetch(new Request(request.url, { method: "GET", headers }))
+  return env.SYNC_ROOMS.get(env.SYNC_ROOMS.idFromName(roomName)).fetch(new Request(request.url, { method: "GET", headers }))
 }
 
 export default {

@@ -8,7 +8,9 @@
   "dev": {
     "port": 4321
   },
-  "services": [{ "binding": "SYNC_COORDINATOR", "service": "comp-canvas-sync-coordinator" }],
+  "durable_objects": {
+    "bindings": [{ "name": "SYNC_ROOMS", "class_name": "FileSyncRoom", "script_name": "comp-canvas-sync-coordinator" }]
+  },
   "vars": {
     "API_ORIGIN": "http://127.0.0.1:4320",
     "COLLABORATION_BUILD_ID": "0.1.0",
@@ -18,7 +20,9 @@
     "preview": {
       "name": "comp-canvas-sync-preview",
       "routes": [{ "pattern": "sync-staging.canvas.ripgrim.com", "custom_domain": true }],
-      "services": [{ "binding": "SYNC_COORDINATOR", "service": "comp-canvas-sync-coordinator-preview" }],
+      "durable_objects": {
+        "bindings": [{ "name": "SYNC_ROOMS", "class_name": "FileSyncRoom", "script_name": "comp-canvas-sync-coordinator-preview" }]
+      },
       "vars": {
         "API_ORIGIN": "https://api-staging.canvas.ripgrim.com",
         "COLLABORATION_BUILD_ID": "0.1.0-staging",

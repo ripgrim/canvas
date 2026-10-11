@@ -1,6 +1,6 @@
 # Sync Worker
 
-Public collaboration admission edge for protocol epoch 2. It validates a complete RFC6455 request, exchanges the browser session with the API admission endpoint, signs a short-lived internal admission envelope, and forwards the upgrade through the private `SYNC_COORDINATOR` service binding.
+Public collaboration admission edge for protocol epoch 2. It validates a complete RFC6455 request, exchanges the browser session with the API admission endpoint, signs a short-lived internal admission envelope, and forwards the upgrade through the coordinator's cross-script Durable Object binding.
 
 This process holds the dedicated API admission token. It does not hold the room-ticket secret, runtime address, database URL, repository credential, or source credential. Browser credentials are removed before crossing the coordinator boundary.
 

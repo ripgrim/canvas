@@ -1,7 +1,7 @@
-import type { ServiceFetcher } from "./platform.js"
+import type { DurableObjectNamespace } from "./platform.js"
 
 export type SyncWorkerEnv = Readonly<{
-  SYNC_COORDINATOR: ServiceFetcher
+  SYNC_ROOMS: DurableObjectNamespace
   API_ORIGIN: string
   COLLABORATION_ADMISSION_SERVICE_TOKEN: string
   COLLABORATION_BUILD_ID: string
@@ -54,7 +54,7 @@ export function parseAllowedOrigins(source: string): ReadonlySet<string> {
 }
 
 export function validateWorkerEnv(env: SyncWorkerEnv): WorkerConfiguration {
-  if (!env.SYNC_COORDINATOR || typeof env.SYNC_COORDINATOR.fetch !== "function") throw new Error("SYNC_COORDINATOR service binding is required.")
+  if (!env.SYNC_ROOMS || typeof env.SYNC_ROOMS.idFromName !== "function" || typeof env.SYNC_ROOMS.get !== "function") throw new Error("SYNC_ROOMS Durable Object binding is required.")
   if (encoder.encode(env.COLLABORATION_ADMISSION_SERVICE_TOKEN).byteLength < 32) throw new Error("COLLABORATION_ADMISSION_SERVICE_TOKEN must contain at least 32 bytes.")
   if (!identifier.test(env.COLLABORATION_BUILD_ID)) throw new Error("COLLABORATION_BUILD_ID is invalid.")
   const coordinatorSecret = decodeSecret(env.SYNC_COORDINATOR_INTERNAL_SECRET)

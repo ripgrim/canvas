@@ -61,6 +61,7 @@ function validate(input) {
   exact(input, 'VITE_PREVIEW_ORIGIN', expected.preview)
   exact(input, 'VITE_ASSETS_ORIGIN', expected.assets)
   exact(input, 'VITE_SYNC_ORIGIN', expected.sync)
+  exact(input, 'VITE_COLLABORATION_BUILD_ID', input.COLLABORATION_BUILD_ID)
   exact(input, 'GITHUB_APP_AUTHORIZATION_CALLBACK_URL', `${expected.api}/api/github/authorization/callback`)
 
   const trustedOrigins = new Set(input.AUTH_TRUSTED_ORIGINS.split(',').map(value => value.trim()).filter(Boolean))

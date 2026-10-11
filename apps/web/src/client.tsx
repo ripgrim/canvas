@@ -13,7 +13,7 @@ const bridge = (window as Window & { designEditor?: DesktopBridge }).designEdito
 const previewOrigin = import.meta.env.DEV ? 'http://127.0.0.1:4318' : import.meta.env.VITE_PREVIEW_ORIGIN
 const apiOrigin = import.meta.env.VITE_API_ORIGIN
 const cloudAdapter = !bridge && apiOrigin
-  ? createCloudAdapter({ apiOrigin, previewOrigin, editorOrigin: window.location.origin, assetsOrigin: import.meta.env.VITE_ASSETS_ORIGIN, loginOrigin: import.meta.env.VITE_LOGIN_ORIGIN })
+  ? createCloudAdapter({ apiOrigin, previewOrigin, editorOrigin: window.location.origin, assetsOrigin: import.meta.env.VITE_ASSETS_ORIGIN, loginOrigin: import.meta.env.VITE_LOGIN_ORIGIN, syncBuildId: import.meta.env.VITE_COLLABORATION_BUILD_ID })
   : null
 const api = bridge
   ? createDesktopAdapter(bridge)

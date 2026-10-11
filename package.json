@@ -32,7 +32,7 @@
     "cloudflare:check": "node scripts/cloudflare-r2.mjs",
     "cloudflare:setup": "node scripts/cloudflare-r2.mjs --apply",
     "cloudflare:deploy:staging": "pnpm --filter @canvas/workers exec wrangler deploy --env preview",
-    "sync:deploy:staging": "pnpm --filter @canvas/sync-runtime exec wrangler deploy --containers-rollout=immediate && pnpm --filter @canvas/sync-coordinator exec wrangler deploy --env preview && pnpm --filter @canvas/sync-worker exec wrangler deploy --env preview",
+    "sync:deploy:staging": "pnpm --filter @canvas/sync-coordinator exec wrangler deploy --env preview --containers-rollout=immediate && pnpm --filter @canvas/sync-worker exec wrangler deploy --env preview",
     "test:cloudflare-config": "node --test scripts/cloudflare-r2.test.mjs",
     "test:home-auth-parity": "node scripts/test-home-auth-parity.mjs",
     "test:stateful-shadcn": "pnpm --filter @design-editor/stateful-shadcn-fixture typecheck && node tests/stateful-shadcn-runtime.mjs",
