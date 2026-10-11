@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { PointerEvent } from 'react'
-import { CanvasHud, NodeLabel, NodeLabelEditor, ResizeHandles } from '../../design-system/canvas-atoms'
+import { CanvasHud, MobileSelectionActions, NodeLabel, NodeLabelEditor, ResizeHandles } from '../../design-system/canvas-atoms'
+import { Button, Icon } from '../../design-system/atoms'
 import type { HandleName } from '../../design-system/canvas-atoms'
 import { documentStore } from './document-store'
 import { sceneGeometry } from './scene-geometry'
@@ -11,6 +12,8 @@ import type { Rect } from './canvas-math'
 import { canvasCopy as copy } from './canvas-copy'
 import { canvasHudChrome, nodeHudGeometry, topHudFace } from './canvas-hud-painter'
 import type { HudOrientedRect } from './canvas-hud-painter'
+import { mobileQuickActionsPosition } from './mobile-editor'
+import { rotateTransformQuarter } from './layout-commands'
 
 type StaticHudState = Pick<ReturnType<typeof documentStore.getSnapshot>, 'file' | 'pageId' | 'viewport' | 'viewportSize' | 'selection' | 'tool' | 'renaming'>
 let cachedSource: ReturnType<typeof documentStore.getSnapshot> | null = null
@@ -24,7 +27,7 @@ const hudSnapshot = (): StaticHudState => {
 }
 
 /** DOM keeps only transparent pointer targets and the active inline editor. Visible chrome is Canvas2D. */
-export function SelectionHud() {
+export function SelectionHud({ onOpenDesign }: { onOpenDesign?: (() => void) | undefined }) {
   const state = useSyncExternalStore(documentStore.subscribe, hudSnapshot, hudSnapshot)
   const geometry = useSyncExternalStore(sceneGeometry.subscribe, sceneGeometry.getSnapshot, sceneGeometry.getSnapshot)
   if (!state.file || !state.pageId) return null
@@ -45,7 +48,15 @@ export function SelectionHud() {
   const roots = scene.nodes.filter(node => node.parentId === null && (node.kind === 'frame' || node.kind === 'component'))
   const showHandles = selected.length === 1 && (state.tool === 'move' || state.tool === 'scale') && state.renaming === null
   const renamingNode = state.renaming ? scene.byId.get(state.renaming) : undefined
-  return <CanvasHud>
+  const quickSelection = showHandles && selectedRects[0] ? oriented(selected[0]!, selectedRects[0]) : null
+  const rotate = () => {
+    const id = selected[0]
+    const node = id ? state.file?.nodes[id] : undefined
+    if (!id || !node || node.type === 'root') return
+    if (node.type === 'component') documentStore.commands.layout.set(id, rotateTransformQuarter(node.layout))
+    else documentStore.commands.setStyles(id, { rotation: ((node.styles.rotation ?? 0) + 90) % 360 })
+  }
+  return <><CanvasHud>
     {roots.map(node => {
       const rect = liveRect(node.id) ?? node.rect
       if (renamingNode?.id === node.id) return null
@@ -57,5 +68,5 @@ export function SelectionHud() {
     {renamingNode && (renamingNode.kind === 'text'
       ? <NodeLabelEditor id={renamingNode.id} rect={toScreen(renamingNode.rect)} value={(() => { const node = state.file!.nodes[renamingNode.id]; return node && node.type === 'text' ? node.text ?? '' : '' })()} label={copy.editText} multiline onCommit={value => { documentStore.commands.setText(renamingNode.id, value); documentStore.setRenaming(null) }} onCancel={() => documentStore.setRenaming(null)} />
       : <NodeLabelEditor id={renamingNode.id} rect={toScreen(renamingNode.rect)} value={renamingNode.name} label={copy.renameLabel(renamingNode.name)} multiline={false} onCommit={value => { documentStore.commands.rename(renamingNode.id, value); documentStore.setRenaming(null) }} onCancel={() => documentStore.setRenaming(null)} />)}
-  </CanvasHud>
+  </CanvasHud>{quickSelection && <MobileSelectionActions label={copy.quickActions} position={mobileQuickActionsPosition(quickSelection.bounds, state.viewportSize)}><Button label={copy.moveNode} active={state.tool === 'move'} onClick={() => documentStore.setTool('move')}><Icon name="move" /></Button><Button label={copy.scaleNode} active={state.tool === 'scale'} onClick={() => documentStore.setTool('scale')}><Icon name="scale" /></Button><Button label={copy.rotateClockwise} onClick={rotate}><Icon name="refresh" /></Button>{onOpenDesign && <Button label={copy.openDesign} onClick={onOpenDesign}><Icon name="selection" /></Button>}</MobileSelectionActions>}</>
 }

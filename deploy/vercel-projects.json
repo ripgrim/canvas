@@ -2,7 +2,9 @@
   "$schema": "./vercel-projects.schema.json",
   "scope": "grims-projects-c1f684ea",
   "repository": "https://github.com/ripgrim/comp-canvas.git",
-  "gitDeployments": "disabled",
+  "gitDeployments": "enabled",
+  "productionBranch": "main",
+  "stagingBranch": "staging",
   "projects": [
     {
       "service": "web",
@@ -11,6 +13,8 @@
       "framework": "vite",
       "buildCommand": "pnpm --filter @canvas/web... build",
       "outputDirectory": "dist/client",
+      "productionDomain": "canvas.ripgrim.com",
+      "stagingDomain": "staging.canvas.ripgrim.com",
       "environment": ["VITE_API_ORIGIN", "VITE_PREVIEW_ORIGIN", "VITE_ASSETS_ORIGIN", "VITE_LOGIN_ORIGIN", "VITE_SYNC_ORIGIN", "VITE_DATABUDDY_CLIENT_ID"]
     },
     {
@@ -20,6 +24,8 @@
       "framework": "vite",
       "buildCommand": "pnpm --filter @canvas/login... build",
       "outputDirectory": "dist",
+      "productionDomain": "login.canvas.ripgrim.com",
+      "stagingDomain": "login-staging.canvas.ripgrim.com",
       "environment": ["VITE_API_URL", "VITE_APP_URL", "VITE_DATABUDDY_CLIENT_ID"]
     },
     {
@@ -29,6 +35,8 @@
       "framework": "other",
       "buildCommand": "pnpm --filter @canvas/api... build",
       "outputDirectory": "public",
+      "productionDomain": "api.canvas.ripgrim.com",
+      "stagingDomain": "api-staging.canvas.ripgrim.com",
       "environment": [
         "DATABASE_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET",
         "LOGIN_URL", "APP_URL", "AUTH_TRUSTED_ORIGINS", "AUTH_COOKIE_DOMAIN", "API_SERVICE_TOKEN", "ASSETS_ORIGIN", "COLLABORATION_ADMISSION_SERVICE_TOKEN", "COLLABORATION_BUILD_ID", "THUMBNAIL_SERVICE_TOKEN",
@@ -45,6 +53,8 @@
       "framework": "vite",
       "buildCommand": "pnpm --dir ../.. run build:preview:vercel",
       "outputDirectory": "dist",
+      "productionDomain": "preview.canvas.ripgrim.com",
+      "stagingDomain": "preview-staging.canvas.ripgrim.com",
       "environment": []
     },
     {
@@ -54,6 +64,8 @@
       "framework": "vite",
       "buildCommand": "pnpm --dir ../.. run build:thumbnail-renderer:vercel",
       "outputDirectory": "dist",
+      "productionDomain": "thumbnails.canvas.ripgrim.com",
+      "stagingDomain": "thumbnails-staging.canvas.ripgrim.com",
       "environment": []
     }
   ],

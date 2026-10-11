@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "origins"],
+      "properties": {
+        "branch": { "type": "string", "minLength": 1 },
+        "origins": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["web", "login", "api", "preview", "thumbnailRenderer", "assets", "sync"],
+          "properties": {
+            "web": { "type": "string", "format": "uri" },
+            "login": { "type": "string", "format": "uri" },
+            "api": { "type": "string", "format": "uri" },
+            "preview": { "type": "string", "format": "uri" },
+            "thumbnailRenderer": { "type": "string", "format": "uri" },
+            "assets": { "type": "string", "format": "uri" },
+            "sync": { "type": "string", "format": "uri" }
+          }
+        }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["production", "staging"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "production": { "$ref": "#/$defs/environment" },
+    "staging": { "$ref": "#/$defs/environment" }
+  }
+}

@@ -17,6 +17,10 @@ export function PanelToolbar({ label, children }: { label: string; children: Rea
 
 export function PanelToolbarActions({ children }: { children: ReactNode }) { return <div className="panel-toolbar-actions">{children}</div> }
 
+export function MobileSheetHeader({ title }: { title: string }) { return <div className="mobile-sheet-header"><span className="mobile-sheet-handle" aria-hidden="true" /><span className="mobile-sheet-title">{title}</span></div> }
+
+export function MobilePanelDismiss({ label, onClick }: { label: string; onClick: () => void }) { return <button type="button" className="mobile-panel-dismiss" aria-label={label} onClick={onClick} /> }
+
 export function HeaderIconButton({ label, icon, glyph, disabled, pressed, compact = false, onClick }: { label: string; icon?: IconName; glyph?: ReactNode; disabled?: boolean; pressed?: boolean; compact?: boolean; onClick: () => void }) {
   return <button type="button" className="header-icon-button" data-compact={compact || undefined} aria-label={label} title={label} disabled={disabled} aria-pressed={pressed} onClick={onClick}>{glyph ?? (icon ? <Icon name={icon} /> : null)}</button>
 }

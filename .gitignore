@@ -43,6 +43,7 @@ bun.lock
 !.env.example
 !.env.local.example
 !.env.production.example
+!.env.staging.example
 apps/workers/.dev.vars
 apps/sync-worker/.dev.vars
 apps/sync-coordinator/.dev.vars
@@ -59,6 +60,3 @@ apps/sync-coordinator/.dev.vars
 *.zip
 Thumbs.db
 .DS_Store
-
-.vercel
-.env*

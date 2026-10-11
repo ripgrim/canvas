@@ -19,10 +19,10 @@
       "bucketName": "comp-canvas-file-assets-dev",
       "location": "wnam",
       "storageClass": "Standard",
-      "apiOrigin": "https://api.canvas.ripgrim.com",
+      "apiOrigin": "https://api-staging.canvas.ripgrim.com",
       "allowedOrigins": [
-        "https://canvas.ripgrim.com",
-        "https://login.canvas.ripgrim.com"
+        "https://staging.canvas.ripgrim.com",
+        "https://login-staging.canvas.ripgrim.com"
       ]
     },
     "production": {

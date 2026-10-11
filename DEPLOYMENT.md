@@ -1,6 +1,20 @@
 # Deployment
 
-Each independently deployed HTTP surface has its own Vercel project. Run `pnpm vercel:check` to validate the manifest and live project settings. Run `pnpm vercel:setup` to create and link the projects without deploying them. Git-triggered deployments remain disabled until release approval, so a repository push cannot publish these projects early.
+## Release branches
+
+`staging` is the persistent pre-production branch and `main` is the production branch. A push to `staging` updates staging. The `Promote staging` GitHub workflow creates one pull request from `staging` into `main`, or leaves the existing release pull request in place when one is already open. Nothing in the workflow pushes to `main` directly.
+
+The public staging entry point is `staging.canvas.ripgrim.com`. Supporting services use flat internal names such as `api-staging.canvas.ripgrim.com`; users do not need to navigate to them. The preview runtime remains on a separate origin because it is an iframe security boundary. `deploy/environments.json` is the non-secret source of truth for both origin sets.
+
+Staging must use its own database credentials, Better Auth secret, R2 bucket, collaboration secrets, and service tokens. Never populate a staging deployment with production database or storage credentials. Main remains the only production deployment branch.
+
+Copy `.env.staging.example` to the ignored `.env.staging` file and fill the empty credentials before configuring the remote environment. Keep `AUTH_COOKIE_DOMAIN` empty in staging so its host-only auth cookie cannot collide with production cookies under `canvas.ripgrim.com`. The editor origin owns browser auth and proxies only `/api/auth/*` to the API project. Register `https://staging.canvas.ripgrim.com/api/auth/callback/github` as the staging social-login OAuth callback. Use a separate staging GitHub App for repository installations because a GitHub App has one webhook URL and staging must not send repository events through production.
+
+Each independently deployed HTTP surface has its own Vercel project. Run `pnpm vercel:check` to validate the manifest and live project settings. Run `pnpm vercel:setup` to connect each staging branch domain and enable Git deployments without creating a deployment itself. Vercel treats `main` as production and `staging` as a persistent preview branch. Pushing either branch publishes its corresponding environment after the remote setup has been explicitly approved and applied.
+
+Run `pnpm vercel:env:staging:check` to validate `.env.staging` without printing values or changing Vercel. After approval, `pnpm vercel:env:staging:apply` uploads only the variables declared for each project as Preview variables scoped to the `staging` branch. It sends values over standard input so secrets are not placed in command arguments.
+
+Every Vercel surface rejects automatic deployments from branches other than `main` and `staging`. Ordinary feature branches are validated locally and through GitHub checks without creating five unrelated preview deployments.
 
 | Service | Project | Host | Runtime |
 | --- | --- | --- | --- |

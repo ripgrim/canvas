@@ -188,6 +188,18 @@ The rendered node, not only its outline, follows every resize pointer frame. Shi
 
 Negative control: a test that advances only HUD geometry while rendered bounds remain unchanged must fail.
 
+### UI-MOBILE-001: Mobile editor sheets
+
+At 390 by 844, the canvas remains the primary surface. Layers and Design open as mutually exclusive bottom sheets, stop at a useful partial height, preserve their real tree and inspector controls, and close from the canvas dismiss surface. Read-only viewers can open Layers but cannot open Design. Desktop rails and resize handles remain unchanged above the mobile breakpoint.
+
+### UI-MOBILE-002: Selected-node quick actions
+
+Select a node near every viewport edge. A toolbar with no more than four real actions stays attached to the selection, remains inside the viewport, and exposes Move, Scale, Rotate, and Design using the editor's existing icons. Each action changes the same production state as its desktop counterpart. No unavailable action is presented as working.
+
+### UI-MOBILE-003: Touch canvas controls
+
+At the mobile breakpoint, the primary tool dock contains four real tools, supports horizontal keyboard navigation, and stays above the device safe area. Resize hit targets meet touch use without changing authored node geometry. Visible selection outlines and corner handles are more prominent on mobile while desktop HUD measurements remain unchanged.
+
 ## Auth and authorization
 
 ### AT-FILE-ACCESS-001: File routes wait for project access
@@ -301,7 +313,13 @@ Run `pnpm verify:local` for the release-oriented local gate. It must include the
 
 ### DEPLOY-VERCEL-001: One Vercel project per hosted HTTP surface
 
-Run `pnpm test:vercel-config`, `pnpm test:vercel-builds`, then `pnpm vercel:check`. Verify the editor, login, API, and thumbnail renderer each have one unique project, root directory, build command, output or function contract, environment-name allowlist, and checked-in `vercel.json`. Derive the API's directly required environment names from its TypeScript runtime and fail if the deployment contract omits one. Execute every declared build from its configured project root, require the thumbnail renderer to generate and verify its registry before Vite starts, and require the API contract to carry the matching registry fingerprint. Exercise the API rewrite adapter with body and query preservation. Confirm setup creates and Git-links projects without deploying, and disables Git-triggered deployments so a later repository push cannot publish them before release approval. Keep R2 and revision sync on Cloudflare, and keep browser capture private until its stateful contract has a verified platform adapter.
+Run `pnpm test:vercel-config`, `pnpm test:vercel-builds`, then `pnpm vercel:check`. Verify the editor, login, API, and thumbnail renderer each have one unique project, root directory, build command, output or function contract, environment-name allowlist, and checked-in `vercel.json`. Derive the API's directly required environment names from its TypeScript runtime and fail if the deployment contract omits one. Execute every declared build from its configured project root, require the thumbnail renderer to generate and verify its registry before Vite starts, and require the API contract to carry the matching registry fingerprint. Exercise the API rewrite adapter with body and query preservation. Confirm setup creates and Git-links projects without deploying, keeps `main` as the production branch, enables Git deployments only after explicit setup approval, and assigns each stable staging domain to the persistent `staging` branch. Keep R2 and revision sync on Cloudflare, and keep browser capture private until its stateful contract has a verified platform adapter.
+
+### DEPLOY-STAGING-001: Persistent staging promotion
+
+Run `pnpm test:deployment-config` and `pnpm test:vercel-env`. Verify production and staging have disjoint origins for editor, login, API, preview, thumbnail rendering, assets, and sync. The preview iframe must remain cross-origin. Validate `.env.staging` without printing its values, then upload each Vercel variable only to the Preview environment scoped to the `staging` branch. Push a test commit to `staging`; confirm its staging surfaces update and exactly one open pull request targets `main`. Push another test commit and confirm the existing pull request updates instead of creating a duplicate. Merge that pull request and confirm only the `main` revision reaches production.
+
+Negative controls: point any staging service at its production origin, share a parent-domain auth cookie, omit a required staging secret, add a direct workflow push to `main`, or remove the existing-pull-request check. Each mutation must fail its staging configuration test.
 
 ### CLOUDFLARE-R2-001: Private environment-isolated object storage
 

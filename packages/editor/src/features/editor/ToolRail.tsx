@@ -10,6 +10,7 @@ export type EditorToolAvailability = Readonly<Record<EditorTool, CapabilityState
 export type EditorToolRailProps = Readonly<{
   active: EditorTool | null
   availability: EditorToolAvailability
+  compact?: boolean
   shortcuts?: Readonly<Partial<Record<EditorTool, string>>>
   onSelect: (tool: EditorTool) => void
 }>
@@ -20,8 +21,9 @@ const icons: Readonly<Record<EditorTool, IconName>> = { move: 'move', scale: 'sc
 const details: Readonly<Partial<Record<EditorTool, string>>> = { interact: copy.interactDetail }
 
 export const editorTools: readonly EditorTool[] = layout.flat()
+const compactLayout: readonly (readonly EditorTool[])[] = [['move', 'frame', 'text', 'shape']]
 
-export function EditorToolRail({ active, availability, shortcuts, onSelect }: EditorToolRailProps) {
+export function EditorToolRail({ active, availability, compact = false, shortcuts, onSelect }: EditorToolRailProps) {
   const item = (tool: EditorTool): ToolRailItem<EditorTool> => {
     const state = availability[tool]
     const shortcut = shortcuts?.[tool]
@@ -29,5 +31,6 @@ export function EditorToolRail({ active, availability, shortcuts, onSelect }: Ed
     const detail = details[tool]
     return state.available ? { ...base, available: true, ...(detail ? { detail } : {}) } : { ...base, available: false, reason: state.reason || copy.unavailable }
   }
-  return <ToolRail label={copy.label} groups={layout.map(group => group.map(item))} active={active} onSelect={onSelect} />
+  const activeLayout = compact ? compactLayout : layout
+  return <ToolRail label={copy.label} groups={activeLayout.map(group => group.map(item))} active={active} orientation={compact ? 'horizontal' : 'vertical'} onSelect={onSelect} />
 }

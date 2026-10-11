@@ -22,6 +22,12 @@
   },
   "env": {
     "preview": {
+      "routes": [
+        {
+          "pattern": "assets-staging.canvas.ripgrim.com",
+          "custom_domain": true
+        }
+      ],
       "r2_buckets": [
         {
           "binding": "FILE_ASSETS",
@@ -30,8 +36,8 @@
         }
       ],
       "vars": {
-        "API_ORIGIN": "https://api.canvas.ripgrim.com",
-        "ALLOWED_ORIGINS": "https://canvas.ripgrim.com,https://login.canvas.ripgrim.com"
+        "API_ORIGIN": "https://api-staging.canvas.ripgrim.com",
+        "ALLOWED_ORIGINS": "https://staging.canvas.ripgrim.com,https://login-staging.canvas.ripgrim.com"
       }
     },
     "production": {

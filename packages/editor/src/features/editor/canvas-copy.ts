@@ -16,6 +16,7 @@ export const canvasCopy = {
   resizeHandle: (name: string, handle: string) => `Resize ${name} from ${handle.replace('-', ' ')}`,
   renameLabel: (name: string) => `Rename ${name}`, editText: 'Edit text',
   renameType: (type: string) => `Rename ${type}`,
+  quickActions: 'Quick actions', moveNode: 'Move', scaleNode: 'Scale', rotateClockwise: 'Rotate 90 degrees clockwise', openDesign: 'Open Design',
   selection: (count: number) => `${count} selected`, percentage: (zoom: number) => `${Math.round(zoom * 100)}%`,
   dimensions: (width: number, height: number) => `${Math.round(width)} x ${Math.round(height)}`,
   collapse: (name: string) => `Collapse ${name}`, expand: (name: string) => `Expand ${name}`,

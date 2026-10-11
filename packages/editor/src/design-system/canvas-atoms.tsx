@@ -40,6 +40,10 @@ export function CanvasHudCanvas({ attach }: { attach: (element: HTMLCanvasElemen
 
 export function CanvasFloatingActions({ children, label }: { children: ReactNode; label: string }) { return <div className="canvas-floating-actions" role="toolbar" aria-label={label}>{children}</div> }
 
+export function MobileCanvasHeader({ primary, secondary }: { primary: ReactNode; secondary: ReactNode }) { return <div className="mobile-canvas-header"><span className="mobile-canvas-title">{primary}</span><span className="mobile-canvas-context">{secondary}</span></div> }
+
+export function MobileSelectionActions({ children, label, position }: { children: ReactNode; label: string; position: { x: number; y: number } }) { return <div className="mobile-selection-actions" role="toolbar" aria-label={label} style={{ left: position.x, top: position.y }}>{children}</div> }
+
 export type HandleName = 'top-left' | 'top' | 'top-right' | 'right' | 'bottom-right' | 'bottom' | 'bottom-left' | 'left'
 const handlePositions: Record<HandleName, { left: string; top: string; cursor: string }> = {
   'top-left': { left: '0%', top: '0%', cursor: 'nwse-resize' }, top: { left: '50%', top: '0%', cursor: 'ns-resize' }, 'top-right': { left: '100%', top: '0%', cursor: 'nesw-resize' }, right: { left: '100%', top: '50%', cursor: 'ew-resize' },
