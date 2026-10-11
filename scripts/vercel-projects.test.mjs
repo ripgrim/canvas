@@ -21,6 +21,7 @@ test('pins one isolated Vercel project per hosted HTTP surface', () => {
   assert.equal(manifest.scope, 'grims-projects-c1f684ea')
   assert.equal(manifest.repository, 'https://github.com/ripgrim/comp-canvas.git')
   assert.equal(manifest.gitDeployments, 'enabled')
+  assert.equal(manifest.deploymentProtection, 'disabled')
   assert.equal(manifest.productionBranch, 'main')
   assert.equal(manifest.stagingBranch, 'staging')
   assert.deepEqual(

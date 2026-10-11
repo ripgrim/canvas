@@ -11,7 +11,7 @@ validate(manifest)
 if (!apply) {
   run(['whoami'])
   const projects = manifest.projects.map(project => inspectProject(project))
-  process.stdout.write(`VERCEL_PROJECT_EVIDENCE ${JSON.stringify({ scope: manifest.scope, gitDeployments: manifest.gitDeployments, projects })}\n`)
+  process.stdout.write(`VERCEL_PROJECT_EVIDENCE ${JSON.stringify({ scope: manifest.scope, gitDeployments: manifest.gitDeployments, deploymentProtection: manifest.deploymentProtection, projects })}\n`)
   process.stdout.write('Verified existing Vercel projects without deploying them.\n')
   process.exit(0)
 }
@@ -30,6 +30,7 @@ for (const project of manifest.projects) {
   if (connected.status !== 0 && !`${connected.stdout}\n${connected.stderr}`.includes('already connected')) fail(`Could not connect ${project.name} to Git.`)
   run(['api', `/v9/projects/${project.name}`, '--scope', manifest.scope, '-X', 'PATCH', '-f', `rootDirectory=${project.rootDirectory}`, '--silent'])
   run(['api', `/v9/projects/${project.name}`, '--scope', manifest.scope, '-X', 'PATCH', '--input', '-', '--silent'], JSON.stringify({ gitProviderOptions: { createDeployments: manifest.gitDeployments } }))
+  run(['api', `/v9/projects/${project.name}`, '--scope', manifest.scope, '-X', 'PATCH', '--input', '-', '--silent'], JSON.stringify({ ssoProtection: null }))
   configureBranchDomain(project)
   inspectProject(project)
 }
@@ -38,7 +39,7 @@ process.stdout.write(`Configured ${manifest.projects.length} Vercel projects wit
 function validate(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail('Vercel project manifest is invalid.')
   if (typeof value.scope !== 'string' || !value.scope || typeof value.repository !== 'string' || !value.repository.startsWith('https://github.com/')) fail('Vercel project manifest identity is invalid.')
-  if (value.gitDeployments !== 'enabled' || value.productionBranch !== 'main' || value.stagingBranch !== 'staging') fail('Vercel branch deployment settings are invalid.')
+  if (value.gitDeployments !== 'enabled' || value.deploymentProtection !== 'disabled' || value.productionBranch !== 'main' || value.stagingBranch !== 'staging') fail('Vercel branch deployment settings are invalid.')
   if (!Array.isArray(value.projects) || !value.projects.length) fail('Vercel project manifest has no projects.')
   const names = new Set()
   const services = new Set()
@@ -72,6 +73,7 @@ function inspectProject(project) {
   if (current.gitProviderOptions?.createDeployments !== manifest.gitDeployments) {
     fail(`Vercel Git deployment setting drifted for ${project.name}.`)
   }
+  if (current.ssoProtection !== null) fail(`Vercel deployment protection drifted for ${project.name}.`)
   if (current.link?.productionBranch !== manifest.productionBranch) fail(`Vercel production branch drifted for ${project.name}.`)
   const stagingDomain = inspectDomain(project, project.stagingDomain)
   if (stagingDomain.gitBranch !== manifest.stagingBranch) fail(`Vercel staging branch domain drifted for ${project.name}.`)
@@ -80,6 +82,7 @@ function inspectProject(project) {
     name: project.name,
     rootDirectory: current.rootDirectory,
     gitDeployments: current.gitProviderOptions.createDeployments,
+    deploymentProtection: manifest.deploymentProtection,
     productionBranch: current.link.productionBranch,
     stagingDomain: stagingDomain.name,
     latestDeployments: Array.isArray(current.latestDeployments) ? current.latestDeployments.length : 0,

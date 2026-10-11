@@ -37,12 +37,15 @@ export function validateManifest(manifest) {
   requireExactKeys(manifest.environments, ["local", "preview", "production"], ["local", "preview", "production"], "Cloudflare environments")
   for (const environmentName of ["local", "preview", "production"]) {
     const environment = manifest.environments?.[environmentName]
-    requireExactKeys(environment, ["mode", "bucketName", "location", "storageClass", "apiOrigin", "allowedOrigins"], ["mode", "bucketName", "apiOrigin", "allowedOrigins"], `Cloudflare ${environmentName} environment`)
+    requireExactKeys(environment, ["mode", "workerState", "bucketName", "location", "storageClass", "apiOrigin", "allowedOrigins"], ["mode", "workerState", "bucketName", "apiOrigin", "allowedOrigins"], `Cloudflare ${environmentName} environment`)
     if (!environment || !["simulation", "remote"].includes(environment.mode)) {
       throw new Error(`Cloudflare manifest is missing environment ${environmentName}`)
     }
     if ((environmentName === "local" && environment.mode !== "simulation") || (environmentName !== "local" && environment.mode !== "remote")) {
       throw new Error(`Cloudflare ${environmentName} mode is invalid`)
+    }
+    if (!['disabled', 'deployed'].includes(environment.workerState) || (environmentName === 'local' && environment.workerState !== 'disabled') || (environmentName !== 'local' && environment.workerState !== 'deployed')) {
+      throw new Error(`Cloudflare ${environmentName} Worker state is invalid`)
     }
     if (typeof environment.bucketName !== "string" || !/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$/.test(environment.bucketName)) {
       throw new Error(`Cloudflare ${environmentName} bucket name is invalid`)
@@ -168,12 +171,16 @@ export function assertExactLifecycleRules(actualRules, expectedRules) {
   if (actualRules.length !== expectedRules.length) throw new Error("R2 has unexpected object-expiration lifecycle rules")
 }
 
-export function assertNoDeployedWorker(result) {
+export function assertWorkerDeployment(result, expectedState) {
+  if (!['disabled', 'deployed'].includes(expectedState)) throw new Error('Worker deployment expectation is invalid')
   if (result.status === 0) {
-    if (parseDeploymentCount(result.output) > 0) throw new Error("Cloudflare Worker is already deployed")
-    return false
+    const deployed = parseDeploymentCount(result.output) > 0
+    if (expectedState === 'deployed' && !deployed) throw new Error('Cloudflare Worker is not deployed')
+    if (expectedState === 'disabled' && deployed) throw new Error('Cloudflare Worker must not be deployed')
+    return deployed
   }
   if (!isMissingWorker(result.output)) throw new Error(`Worker deployment inspection failed without a confirmed not-found response\n${result.output}`)
+  if (expectedState === 'deployed') throw new Error('Cloudflare Worker is not deployed')
   return false
 }
 
@@ -273,7 +280,7 @@ async function main() {
   if (resource.storageClass && info.default_storage_class !== resource.storageClass) {
     throw new Error(`R2 bucket storage class is ${info.default_storage_class}, expected ${resource.storageClass}`)
   }
-  assertEmptyBucket(info)
+  if (resource.workerState === 'disabled') assertEmptyBucket(info)
 
   let devUrl = runWrangler(["r2", "bucket", "dev-url", "get", resource.bucketName]).output
   if (!devUrl.includes("r2.dev URL is disabled")) {
@@ -301,13 +308,8 @@ async function main() {
   lifecycleRules = parseLifecycleRules(lifecycleOutput)
   assertExactLifecycleRules(lifecycleRules, manifest.lifecycleRules)
 
-  const deploymentTargets = [null, "preview", "production"]
-  const deploymentChecks = deploymentTargets.map((target) => {
-    const args = ["deployments", "list", "--json"]
-    if (target) args.splice(2, 0, "--env", target)
-    return { target: target ?? "root", deployed: assertNoDeployedWorker(runWrangler(args, { allowFailure: true })) }
-  })
-  const deployedWorker = deploymentChecks.some((check) => check.deployed)
+  const deploymentArguments = ["deployments", "list", "--env", environment, "--json"]
+  const deployedWorker = assertWorkerDeployment(runWrangler(deploymentArguments, { allowFailure: true }), resource.workerState)
 
   console.log(`CLOUDFLARE_R2_EVIDENCE ${JSON.stringify({
     accountId,
@@ -316,11 +318,11 @@ async function main() {
     location: info.location,
     storageClass: info.default_storage_class,
     objectCount: info.object_count,
+    workerState: resource.workerState,
     r2DevUrl: false,
     customDomains: [],
     lifecycleRules: manifest.lifecycleRules,
     deployedWorker,
-    deploymentTargets: deploymentChecks,
   })}`)
 }
 

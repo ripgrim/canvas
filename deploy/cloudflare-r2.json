@@ -5,6 +5,7 @@
   "environments": {
     "local": {
       "mode": "simulation",
+      "workerState": "disabled",
       "bucketName": "comp-canvas-file-assets-dev",
       "apiOrigin": "http://127.0.0.1:4320",
       "allowedOrigins": [
@@ -16,6 +17,7 @@
     },
     "preview": {
       "mode": "remote",
+      "workerState": "deployed",
       "bucketName": "comp-canvas-file-assets-dev",
       "location": "wnam",
       "storageClass": "Standard",
@@ -27,6 +29,7 @@
     },
     "production": {
       "mode": "remote",
+      "workerState": "deployed",
       "bucketName": "comp-canvas-file-assets-production",
       "location": "wnam",
       "storageClass": "Standard",

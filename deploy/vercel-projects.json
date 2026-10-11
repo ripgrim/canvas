@@ -3,6 +3,7 @@
   "scope": "grims-projects-c1f684ea",
   "repository": "https://github.com/ripgrim/comp-canvas.git",
   "gitDeployments": "enabled",
+  "deploymentProtection": "disabled",
   "productionBranch": "main",
   "stagingBranch": "staging",
   "projects": [

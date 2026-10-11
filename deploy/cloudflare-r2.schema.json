@@ -56,9 +56,10 @@
     "environment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "bucketName", "apiOrigin", "allowedOrigins"],
+      "required": ["mode", "workerState", "bucketName", "apiOrigin", "allowedOrigins"],
       "properties": {
         "mode": { "enum": ["simulation", "remote"] },
+        "workerState": { "enum": ["disabled", "deployed"] },
         "bucketName": {
           "type": "string",
           "pattern": "^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"

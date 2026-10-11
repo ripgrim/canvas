@@ -2,12 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["scope", "repository", "gitDeployments", "productionBranch", "stagingBranch", "projects", "externalServices"],
+  "required": ["scope", "repository", "gitDeployments", "deploymentProtection", "productionBranch", "stagingBranch", "projects", "externalServices"],
   "properties": {
     "$schema": { "type": "string" },
     "scope": { "type": "string", "minLength": 1 },
     "repository": { "type": "string", "pattern": "^https://github\\.com/" },
     "gitDeployments": { "const": "enabled" },
+    "deploymentProtection": { "const": "disabled" },
     "productionBranch": { "const": "main" },
     "stagingBranch": { "const": "staging" },
     "projects": {

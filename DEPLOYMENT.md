@@ -10,7 +10,7 @@ Staging must use its own database credentials, Better Auth secret, R2 bucket, co
 
 Copy `.env.staging.example` to the ignored `.env.staging` file and fill the empty credentials before configuring the remote environment. Keep `AUTH_COOKIE_DOMAIN` empty in staging so its host-only auth cookie cannot collide with production cookies under `canvas.ripgrim.com`. The editor origin owns browser auth and proxies only `/api/auth/*` to the API project. Register `https://staging.canvas.ripgrim.com/api/auth/callback/github` as the staging social-login OAuth callback. Use a separate staging GitHub App for repository installations because a GitHub App has one webhook URL and staging must not send repository events through production.
 
-Each independently deployed HTTP surface has its own Vercel project. Run `pnpm vercel:check` to validate the manifest and live project settings. Run `pnpm vercel:setup` to connect each staging branch domain and enable Git deployments without creating a deployment itself. Vercel treats `main` as production and `staging` as a persistent preview branch. Pushing either branch publishes its corresponding environment after the remote setup has been explicitly approved and applied.
+Each independently deployed HTTP surface has its own Vercel project. Run `pnpm vercel:check` to validate the manifest and live project settings. Run `pnpm vercel:setup` to connect each staging branch domain, disable Vercel Authentication so phone and external-device testing reaches the product login, and enable Git deployments without creating a deployment itself. Vercel treats `main` as production and `staging` as a persistent preview branch. Pushing either branch publishes its corresponding environment after the remote setup has been explicitly approved and applied.
 
 Run `pnpm vercel:env:staging:check` to validate `.env.staging` without printing values or changing Vercel. After approval, `pnpm vercel:env:staging:apply` uploads only the variables declared for each project as Preview variables scoped to the `staging` branch. It sends values over standard input so secrets are not placed in command arguments.
 
@@ -43,15 +43,17 @@ The thumbnail renderer Vercel build generates and verifies its component registr
 ## Cloudflare assets
 
 `deploy/cloudflare-r2.json` is the source of truth for the private R2 buckets,
-binding, placement, storage class, and lifecycle rules. `pnpm cloudflare:check`
-verifies the remote preview resource without changing it. The check rejects a
-non-empty setup bucket, any deployed Worker environment, disabled or unexpected
-expiration rules, public access, custom domains, and preview or production
-bucket collisions. `pnpm
-cloudflare:setup` creates or reconciles that resource without deploying the
-Worker or uploading an object. Local development remains on Wrangler's R2
-simulation. Remote preview uses `comp-canvas-file-assets-dev`; production uses
-the separate `comp-canvas-file-assets-production` bucket.
+binding, placement, storage class, lifecycle rules, and expected Worker state.
+`pnpm cloudflare:check` verifies the remote preview resource without changing
+it. The check rejects a missing preview Worker, disabled or unexpected
+expiration rules, public bucket access, bucket-level custom domains, and
+preview or production bucket collisions. It allows objects after deployment
+because staging uploads are real user data. `pnpm cloudflare:setup` creates or
+reconciles the bucket without uploading an object. Deploy the staging Worker
+after its secrets exist with `pnpm cloudflare:deploy:staging`. Local development
+remains on Wrangler's R2 simulation. Remote preview uses
+`comp-canvas-file-assets-dev`; production uses the separate
+`comp-canvas-file-assets-production` bucket.
 
 The bucket has no public `r2.dev` URL and no direct custom domain. Browser
 traffic must pass through the Worker authorization boundary. The managed
