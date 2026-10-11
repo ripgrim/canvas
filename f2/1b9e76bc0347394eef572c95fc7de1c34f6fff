@@ -1,0 +1,12 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f21b9e76bc0347394eef572c95fc7de1c34f6fff",
+  "prompts": {},
+  "humans": {
+    "h_3279d55133f19f": {
+      "author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
