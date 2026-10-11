@@ -27,7 +27,7 @@ const hudSnapshot = (): StaticHudState => {
 }
 
 /** DOM keeps only transparent pointer targets and the active inline editor. Visible chrome is Canvas2D. */
-export function SelectionHud({ onOpenDesign }: { onOpenDesign?: (() => void) | undefined }) {
+export function SelectionHud() {
   const state = useSyncExternalStore(documentStore.subscribe, hudSnapshot, hudSnapshot)
   const geometry = useSyncExternalStore(sceneGeometry.subscribe, sceneGeometry.getSnapshot, sceneGeometry.getSnapshot)
   if (!state.file || !state.pageId) return null
@@ -56,6 +56,7 @@ export function SelectionHud({ onOpenDesign }: { onOpenDesign?: (() => void) | u
     if (node.type === 'component') documentStore.commands.layout.set(id, rotateTransformQuarter(node.layout))
     else documentStore.commands.setStyles(id, { rotation: ((node.styles.rotation ?? 0) + 90) % 360 })
   }
+  const remove = () => { if (selected[0]) documentStore.commands.delete([selected[0]]) }
   return <><CanvasHud>
     {roots.map(node => {
       const rect = liveRect(node.id) ?? node.rect
@@ -68,5 +69,5 @@ export function SelectionHud({ onOpenDesign }: { onOpenDesign?: (() => void) | u
     {renamingNode && (renamingNode.kind === 'text'
       ? <NodeLabelEditor id={renamingNode.id} rect={toScreen(renamingNode.rect)} value={(() => { const node = state.file!.nodes[renamingNode.id]; return node && node.type === 'text' ? node.text ?? '' : '' })()} label={copy.editText} multiline onCommit={value => { documentStore.commands.setText(renamingNode.id, value); documentStore.setRenaming(null) }} onCancel={() => documentStore.setRenaming(null)} />
       : <NodeLabelEditor id={renamingNode.id} rect={toScreen(renamingNode.rect)} value={renamingNode.name} label={copy.renameLabel(renamingNode.name)} multiline={false} onCommit={value => { documentStore.commands.rename(renamingNode.id, value); documentStore.setRenaming(null) }} onCancel={() => documentStore.setRenaming(null)} />)}
-  </CanvasHud>{quickSelection && <MobileSelectionActions label={copy.quickActions} position={mobileQuickActionsPosition(quickSelection.bounds, state.viewportSize)}><Button label={copy.moveNode} active={state.tool === 'move'} onClick={() => documentStore.setTool('move')}><Icon name="move" /></Button><Button label={copy.scaleNode} active={state.tool === 'scale'} onClick={() => documentStore.setTool('scale')}><Icon name="scale" /></Button><Button label={copy.rotateClockwise} onClick={rotate}><Icon name="refresh" /></Button>{onOpenDesign && <Button label={copy.openDesign} onClick={onOpenDesign}><Icon name="selection" /></Button>}</MobileSelectionActions>}</>
+  </CanvasHud>{quickSelection && <MobileSelectionActions label={copy.quickActions} position={mobileQuickActionsPosition(quickSelection.bounds, state.viewportSize)}><Button label={copy.moveNode} active={state.tool === 'move'} onClick={() => documentStore.setTool('move')}><Icon name="move" /></Button><Button label={copy.scaleNode} active={state.tool === 'scale'} onClick={() => documentStore.setTool('scale')}><Icon name="scale" /></Button><Button label={copy.rotateClockwise} onClick={rotate}><Icon name="refresh" /></Button><Button label={copy.deleteNode(scene.byId.get(selected[0]!)!.name)} onClick={remove}><Icon name="trash" /></Button></MobileSelectionActions>}</>
 }

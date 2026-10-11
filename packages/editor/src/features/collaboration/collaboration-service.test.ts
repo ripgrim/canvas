@@ -48,6 +48,7 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     service.endInteraction(interactionId!)
 
     const interactionUpdates = transport.updates.filter(update => Object.hasOwn(update, 'interaction'))
+    expect(interactionUpdates.every(update => update.pageId === 'page-1')).toBe(true)
     expect(interactionUpdates.map(update => update.interaction?.transforms[0] ?? null)).toEqual([
       null,
       { nodeId: 'node-1', dx: 1, dy: 2 },
@@ -72,7 +73,7 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     service.stop()
   })
 
-  it('yields a local interaction to any overlapping server-authoritative remote lock', () => {
+  it('yields a local interaction to any overlapping server-authoritative remote lock', async () => {
     const docs = documents()
     const local = participant('00000000-local', 'tab-local')
     const remote = participant('ffffffff-remote', 'tab-remote')
@@ -82,18 +83,20 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     service.start()
     const interactionId = service.beginInteraction('move', ['node-1'])
     expect(interactionId).toBeTypeOf('string')
+    const permission = service.waitForCommitInteraction(interactionId!)
 
     transport.publish(snapshot('live', 'tab-local', [local, {
       ...remote,
       awareness: { ...awareness(), interaction: { interactionId: 'authoritative-remote', pageId: 'page-1', kind: 'move' as const, nodeIds: ['node-1'], transforms: [] } },
     }]))
 
+    await expect(permission).resolves.toBe(false)
     expect(service.updateInteraction(interactionId!, [{ nodeId: 'node-1', dx: 4, dy: 5 }])).toBe(false)
-    expect(transport.updates.at(-1)).toEqual({ interaction: null })
+    expect(transport.updates.at(-1)).toEqual({ pageId: 'page-1', interaction: null })
     service.stop()
   })
 
-  it('requires the room echo before an interaction can commit', () => {
+  it('requires the room echo before an interaction can commit', async () => {
     const docs = documents()
     const local = participant('local', 'tab-local')
     const transport = collaboration(snapshot('live', 'tab-local', [local]))
@@ -104,6 +107,11 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     const interactionId = service.beginInteraction('move', ['node-1'])
     expect(interactionId).toBeTypeOf('string')
     expect(service.canCommitInteraction(interactionId!)).toBe(false)
+    const permission = service.waitForCommitInteraction(interactionId!)
+    let settled: boolean | undefined
+    void permission.then(allowed => { settled = allowed })
+    await Promise.resolve()
+    expect(settled).toBeUndefined()
     const requested = transport.updates.find(update => update.interaction)?.interaction
     expect(requested).toBeTruthy()
 
@@ -114,6 +122,7 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     }]))
 
     expect(service.canCommitInteraction(interactionId!)).toBe(true)
+    await expect(permission).resolves.toBe(true)
     service.endInteraction(interactionId!)
     expect(service.canCommitInteraction(interactionId!)).toBe(false)
     service.stop()
@@ -182,7 +191,7 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     expect(second.updates).toHaveLength(updatesBeforeStaleRelease)
     expect(second.updates.at(-1)?.interaction?.interactionId).toBe(secondId)
     service.endInteraction(secondId!)
-    expect(second.updates.at(-1)).toEqual({ interaction: null })
+    expect(second.updates.at(-1)).toEqual({ pageId: 'page-1', interaction: null })
     service.stop()
   })
 

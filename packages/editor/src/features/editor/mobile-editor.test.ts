@@ -14,13 +14,11 @@ describe('UI-MOBILE-001 editor sheets', () => {
     expect(mobilePanelVisibility('design', true)).toEqual({ left: false, right: false })
   })
 
-  it('renders the active sheet, canvas, and dismiss surface in one mobile column', () => {
+  it('keeps the mobile work area canvas-only while sheets are portalled', () => {
     const html = renderToStaticMarkup(h(EditorWorkArea, {
       following: false,
       readOnly: false,
       mobile: true,
-      mobilePanel: 'layers',
-      onDismissMobilePanel: () => undefined,
       visibility: { left: true, right: false },
       columns: 'minmax(0, 1fr)',
       library: h(Text, null, 'Layers sheet'),
@@ -30,10 +28,9 @@ describe('UI-MOBILE-001 editor sheets', () => {
       rightResizer: h(Text, null, 'Right resize'),
     }))
     expect(html).toContain('data-mobile="true"')
-    expect(html).toContain('data-mobile-panel="layers"')
-    expect(html).toContain('aria-label="Close Layers"')
-    expect(html).toContain('Layers sheet')
-    expect(html).toContain('Design sheet')
+    expect(html).toContain('Canvas')
+    expect(html).not.toContain('Layers sheet')
+    expect(html).not.toContain('Design sheet')
     expect(html).not.toContain('Left resize')
     expect(html).not.toContain('Right resize')
   })
@@ -41,7 +38,10 @@ describe('UI-MOBILE-001 editor sheets', () => {
 
 describe('UI-MOBILE-002 selected-node quick actions', () => {
   it('keeps the toolbar inside the viewport below the node when possible and above it near the bottom edge', () => {
-    expect(mobileQuickActionsPosition({ x: 20, y: 80, width: 120, height: 100 }, { width: 390, height: 844 })).toEqual({ x: 20, y: 188 })
+    const selection = { x: 20, y: 80, width: 120, height: 100 }
+    const below = mobileQuickActionsPosition(selection, { width: 390, height: 844 })
+    expect(below).toEqual({ x: 20, y: 216 })
+    expect(below.y).toBeGreaterThanOrEqual(selection.y + selection.height + 28)
     expect(mobileQuickActionsPosition({ x: 360, y: 790, width: 80, height: 40 }, { width: 390, height: 844 })).toEqual({ x: 202, y: 738 })
   })
 })

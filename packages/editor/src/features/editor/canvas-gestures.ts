@@ -22,6 +22,7 @@ export type CanvasInteractionController = Readonly<{
   beginInteraction(kind: 'move' | 'resize', nodeIds: readonly string[]): string | null
   updateInteraction(interactionId: string, transforms: readonly EditorCollaborationTransform[]): boolean
   canCommitInteraction(interactionId: string): boolean
+  waitForCommitInteraction?: (interactionId: string) => Promise<boolean>
   endInteraction(interactionId: string): void
 }>
 let localInteractionSequence = 0
@@ -61,6 +62,15 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
   const syncInteraction = () => {
     const state = store.getSnapshot()
     return interactionId !== null && interactions.updateInteraction(interactionId, collaborationTransforms(previewTransientMoves(state.file, state.pageId, state.transient)))
+  }
+  const finishInteraction = (activeInteractionId: string, commitAction: () => PersistenceCommit) => {
+    let commit = noPersistenceCommit
+    try { commit = commitAction() }
+    finally {
+      setTransient(null)
+      if (commit.committed && commit.persistence) void commit.persistence.then(() => interactions.endInteraction(activeInteractionId), () => interactions.endInteraction(activeInteractionId))
+      else interactions.endInteraction(activeInteractionId)
+    }
   }
   const imageRect = (paint: ImagePaint, asset: { width: number; height: number }, bounds: Rect): ImageGeometry => {
     if (paint.geometry) return paint.geometry
@@ -318,29 +328,29 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
       const activeInteractionId = interactionId
       interactionId = null
       const transient = store.getSnapshot().transient
-      let commit = noPersistenceCommit
-      try {
-        if (current.kind === 'press') {
-          if (current.deferred) { if (event.shiftKey) store.select(current.target.id, { additive: true }); else store.select(current.target.id) }
-        } else if (current.kind === 'marquee') {
-          if (!current.moved && !event.shiftKey) store.select(null)
-        } else if (current.kind === 'move') {
-          if (activeInteractionId && current.moved && interactions.canCommitInteraction(activeInteractionId)) commit = commitMove(current, event)
-        } else if (current.kind === 'draw') {
-          const bounds = canvasCreationBounds(current.elementKind, current.startWorld, worldAt(current, event), current.camera.zoom)
-          const parent = containingFrameAt(current.scene, current.startWorld)
-          const local = parent ? { x: bounds.x - parent.rect.x, y: bounds.y - parent.rect.y } : { x: bounds.x, y: bounds.y }
-          if (store.commands.insertCanvas(current.elementKind, { ...bounds, ...local, ...(parent ? { parentId: parent.id } : {}) })) store.setTool('move')
-        } else if (current.kind === 'resize') {
-          if (activeInteractionId && transient?.kind === 'resize' && transient.rects[current.id] && interactions.canCommitInteraction(activeInteractionId)) commit = store.commands.commitResize(current.id, transient.rects[current.id]!, transient.appearances[current.id], transient.contentLocked, current.startRect)
-        }
-      } finally {
-        setTransient(null)
-        if (activeInteractionId) {
-          if (commit.committed && commit.persistence) void commit.persistence.then(() => interactions.endInteraction(activeInteractionId), () => interactions.endInteraction(activeInteractionId))
-          else interactions.endInteraction(activeInteractionId)
-        }
+      if (current.kind === 'press') {
+        if (current.deferred) { if (event.shiftKey) store.select(current.target.id, { additive: true }); else store.select(current.target.id) }
+      } else if (current.kind === 'marquee') {
+        if (!current.moved && !event.shiftKey) store.select(null)
+      } else if (current.kind === 'draw') {
+        const bounds = canvasCreationBounds(current.elementKind, current.startWorld, worldAt(current, event), current.camera.zoom)
+        const parent = containingFrameAt(current.scene, current.startWorld)
+        const local = parent ? { x: bounds.x - parent.rect.x, y: bounds.y - parent.rect.y } : { x: bounds.x, y: bounds.y }
+        if (store.commands.insertCanvas(current.elementKind, { ...bounds, ...local, ...(parent ? { parentId: parent.id } : {}) })) store.setTool('move')
+      } else if ((current.kind === 'move' || current.kind === 'resize') && activeInteractionId && current.moved) {
+        const pointerUpEvent = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, button: event.button, shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey }
+        const commitAction = () => current.kind === 'move'
+          ? commitMove(current, pointerUpEvent)
+          : transient?.kind === 'resize' && transient.rects[current.id]
+            ? store.commands.commitResize(current.id, transient.rects[current.id]!, transient.appearances[current.id], transient.contentLocked, current.startRect)
+            : noPersistenceCommit
+        if (interactions.canCommitInteraction(activeInteractionId)) finishInteraction(activeInteractionId, commitAction)
+        else if (interactions.waitForCommitInteraction) void interactions.waitForCommitInteraction(activeInteractionId).then(allowed => finishInteraction(activeInteractionId, allowed ? commitAction : () => noPersistenceCommit))
+        else finishInteraction(activeInteractionId, () => noPersistenceCommit)
+        return
       }
+      setTransient(null)
+      if (activeInteractionId) interactions.endInteraction(activeInteractionId)
     },
     pointerCancel: (event: PointerLike) => { if (gesture && gesture.pointerId === event.pointerId) cancel() },
     /** Double-click drills one level deeper; a second double-click on a selected node starts renaming (frames) or text editing. */

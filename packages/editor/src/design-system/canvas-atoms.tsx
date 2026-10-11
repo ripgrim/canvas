@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from 'react'
 import { Icon } from './atoms'
 import type { IconName } from './atoms'
+import { AppearanceVisibilityButton } from './appearance-atoms'
 import './canvas.css'
 
 type Camera = { x: number; y: number; zoom: number }
@@ -40,7 +41,13 @@ export function CanvasHudCanvas({ attach }: { attach: (element: HTMLCanvasElemen
 
 export function CanvasFloatingActions({ children, label }: { children: ReactNode; label: string }) { return <div className="canvas-floating-actions" role="toolbar" aria-label={label}>{children}</div> }
 
-export function MobileCanvasHeader({ primary, secondary }: { primary: ReactNode; secondary: ReactNode }) { return <div className="mobile-canvas-header"><span className="mobile-canvas-title">{primary}</span><span className="mobile-canvas-context">{secondary}</span></div> }
+export function MobileCanvasHeader({ children }: { children: ReactNode }) { return <div className="mobile-canvas-header">{children}</div> }
+
+export function MobileCanvasToolbar({ children }: { children: ReactNode }) { return <div className="mobile-canvas-toolbar">{children}</div> }
+
+export function MobileCanvasPanelToggle({ label, active, icon, onClick }: { label: string; active: boolean; icon: IconName; onClick: () => void }) {
+  return <button type="button" className="mobile-canvas-panel-toggle" aria-label={label} title={label} aria-pressed={active} onClick={onClick}><Icon name={icon} /></button>
+}
 
 export function MobileSelectionActions({ children, label, position }: { children: ReactNode; label: string; position: { x: number; y: number } }) { return <div className="mobile-selection-actions" role="toolbar" aria-label={label} style={{ left: position.x, top: position.y }}>{children}</div> }
 
@@ -88,13 +95,14 @@ export function DocumentTree({ children, label }: { children: ReactNode; label: 
   return <div role="tree" aria-label={label} aria-multiselectable="true" className="document-tree" onKeyDown={navigate}>{children}</div>
 }
 
-export function DocumentLayerItem({ name, toggleLabel, id, depth, selected, childrenCount, expanded, renaming = false, renameLabel, icon = 'component', onSelect, onToggle, onDrop, onRename, onRenameCommit, onRenameCancel, onContextMenu, children }: { name: string; toggleLabel: string; id: string; depth: number; selected: boolean; childrenCount: number; expanded: boolean; renaming?: boolean; renameLabel?: string; icon?: IconName; onSelect: (modifiers: { additive: boolean; range: boolean }) => void; onToggle: () => void; onDrop?: (nodeId: string) => void; onRename?: () => void; onRenameCommit?: (name: string) => void; onRenameCancel?: () => void; onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void; children: ReactNode }) {
+export function DocumentLayerItem({ name, toggleLabel, id, depth, selected, childrenCount, expanded, visible, showLabel, hideLabel, visibilityDisabled = false, renaming = false, renameLabel, icon = 'component', onSelect, onToggle, onVisibilityChange, onDrop, onRename, onRenameCommit, onRenameCancel, onContextMenu, children }: { name: string; toggleLabel: string; id: string; depth: number; selected: boolean; childrenCount: number; expanded: boolean; visible: boolean; showLabel: string; hideLabel: string; visibilityDisabled?: boolean; renaming?: boolean; renameLabel?: string; icon?: IconName; onSelect: (modifiers: { additive: boolean; range: boolean }) => void; onToggle: () => void; onVisibilityChange: (visible: boolean) => void; onDrop?: (nodeId: string) => void; onRename?: () => void; onRenameCommit?: (name: string) => void; onRenameCancel?: () => void; onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void; children: ReactNode }) {
   const cancelled = useRef(false)
   return <div className="document-layer-branch">
     <div className="document-layer-item" role="treeitem" tabIndex={renaming ? -1 : 0} aria-label={name} aria-level={depth + 1} aria-selected={selected} aria-expanded={childrenCount ? expanded : undefined} data-selected={selected || undefined} data-active={selected ? 'true' : undefined} data-instance-id={id} data-layer-node-id={id} style={{ '--layer-depth': depth } as CSSProperties} draggable={Boolean(onDrop) && !renaming} onDragStart={onDrop ? event => { event.dataTransfer.setData('application/x-design-editor-node', id); event.dataTransfer.effectAllowed = 'move' } : undefined} onDragOver={onDrop ? event => { if (event.dataTransfer.types.includes('application/x-design-editor-node')) { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } } : undefined} onDrop={onDrop ? event => { event.preventDefault(); const nodeId = event.dataTransfer.getData('application/x-design-editor-node'); if (nodeId) onDrop(nodeId) } : undefined} onClick={event => onSelect({ additive: event.ctrlKey || event.metaKey, range: event.shiftKey })} onContextMenu={onContextMenu} onDoubleClick={event => { event.stopPropagation(); onRename?.() }} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect({ additive: event.ctrlKey || event.metaKey, range: event.shiftKey }) } if (event.key === 'F2' && onRename) { event.preventDefault(); onRename() } if (childrenCount && (event.key === 'ArrowRight' && !expanded || event.key === 'ArrowLeft' && expanded)) { event.preventDefault(); onToggle() } }}>
       {childrenCount ? <button type="button" className="layer-toggle" data-expanded={expanded || undefined} aria-label={toggleLabel} tabIndex={-1} onClick={event => { event.stopPropagation(); onToggle() }}><Icon name="chevron" /></button> : <span className="layer-toggle" aria-hidden="true" />}
       <span className="document-layer-icon" aria-hidden="true"><Icon name={icon} /></span>
       {renaming ? <input className="sidebar-inline-name" aria-label={renameLabel} defaultValue={name} autoFocus maxLength={128} onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); onRenameCommit?.(event.currentTarget.value) } if (event.key === 'Escape') { event.preventDefault(); cancelled.current = true; onRenameCancel?.() } }} onBlur={event => { if (cancelled.current) { cancelled.current = false; return }; onRenameCommit?.(event.currentTarget.value) }} /> : <span className="document-layer-name">{name}</span>}
+      <span className="document-layer-visibility" onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}><AppearanceVisibilityButton visible={visible} showLabel={showLabel} hideLabel={hideLabel} disabled={visibilityDisabled} onChange={onVisibilityChange} /></span>
     </div>
     {expanded && children}
   </div>

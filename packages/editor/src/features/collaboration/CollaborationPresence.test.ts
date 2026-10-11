@@ -195,9 +195,10 @@ describe('UI-COLLAB-READONLY-001 read-only presentation', () => {
     expect(html.match(/<svg/g)).toHaveLength(2)
   })
 
-  it('anchors the only read-only notice at the bottom of the editor', () => {
+  it('anchors the only read-only notice above the mobile controls', () => {
     const css = readFileSync(new URL('../../design-system/collaboration.css', import.meta.url), 'utf8')
-    expect(css).toMatch(/\.collaboration-read-only \{[^}]*position: fixed;[^}]*bottom: 24px;/)
+    expect(css).toMatch(/\.collaboration-read-only \{[^}]*position: fixed;[^}]*bottom: var\(--space-l\);/)
+    expect(css).toContain('.collaboration-read-only { bottom: calc(48px + 2 * var(--space-m));')
     const packageManifest = readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')
     expect(packageManifest).not.toContain('"./shared-file"')
     expect(existsSync(new URL('../sharing/SharedFileViewer.tsx', import.meta.url))).toBe(false)

@@ -200,22 +200,50 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
     expect(interactions.updateInteraction).not.toHaveBeenCalled()
   })
 
-  it('drops the transient gesture when room ownership is not confirmed before pointer up', () => {
+  it('keeps the exact resize preview until room ownership is confirmed after pointer up', async () => {
+    let grant: ((allowed: boolean) => void) | undefined
     const interactions: CanvasInteractionController = {
       beginInteraction: vi.fn(() => 'interaction-1'),
       updateInteraction: vi.fn(() => true),
       canCommitInteraction: vi.fn(() => false),
+      waitForCommitInteraction: vi.fn(() => new Promise<boolean>(resolve => { grant = resolve })),
       endInteraction: vi.fn(),
     }
     const { store, gestures } = setup(interactions)
-    gestures.stagePointerDown(pointer(550, 450))
-    gestures.pointerMove(pointer(560, 450))
-    expect(store.getSnapshot().transient).not.toBeNull()
+    gestures.handlePointerDown(pointer(740, 490), 'frame', 'right')
+    gestures.pointerMove(pointer(594, 490))
+    expect(store.getSnapshot().transient).toMatchObject({ kind: 'resize', rects: { frame: { x: 0, y: 0, width: 94, height: 180 } } })
 
-    gestures.pointerUp(pointer(560, 450))
+    gestures.pointerUp(pointer(594, 490))
+    expect(primitiveRect(store, 'frame')).toEqual({ left: 0, top: 0, width: 240, height: 180 })
+    expect(store.getSnapshot().transient).toMatchObject({ kind: 'resize', rects: { frame: { width: 94 } } })
+    expect(interactions.endInteraction).not.toHaveBeenCalled()
 
-    expect(primitivePosition(store, 'frame')).toEqual({ left: 0, top: 0 })
-    expect(store.getSnapshot().transient).toBeNull()
+    grant!(true)
+    await vi.waitFor(() => expect(store.getSnapshot().transient).toBeNull())
+
+    expect(primitiveRect(store, 'frame')).toEqual({ left: 0, top: 0, width: 94, height: 180 })
+    expect(interactions.endInteraction).toHaveBeenCalledOnce()
+  })
+
+  it('discards a held preview when the room denies ownership', async () => {
+    let deny: ((allowed: boolean) => void) | undefined
+    const interactions: CanvasInteractionController = {
+      beginInteraction: vi.fn(() => 'interaction-denied'),
+      updateInteraction: vi.fn(() => true),
+      canCommitInteraction: vi.fn(() => false),
+      waitForCommitInteraction: vi.fn(() => new Promise<boolean>(resolve => { deny = resolve })),
+      endInteraction: vi.fn(),
+    }
+    const { store, gestures } = setup(interactions)
+    gestures.handlePointerDown(pointer(740, 490), 'frame', 'right')
+    gestures.pointerMove(pointer(594, 490))
+    gestures.pointerUp(pointer(594, 490))
+
+    deny!(false)
+    await vi.waitFor(() => expect(store.getSnapshot().transient).toBeNull())
+
+    expect(primitiveRect(store, 'frame')).toEqual({ left: 0, top: 0, width: 240, height: 180 })
     expect(interactions.endInteraction).toHaveBeenCalledOnce()
   })
 })
@@ -224,6 +252,12 @@ const primitivePosition = (store: ReturnType<typeof createDocumentStore>, id: 'f
   const node = store.getSnapshot().file!.nodes[id]
   if (!node || node.type === 'root' || node.type === 'component') throw new Error(`${id} is not a primitive`)
   return { left: node.styles.left, top: node.styles.top }
+}
+
+const primitiveRect = (store: ReturnType<typeof createDocumentStore>, id: 'frame' | 'child') => {
+  const node = store.getSnapshot().file!.nodes[id]
+  if (!node || node.type === 'root' || node.type === 'component') throw new Error(`${id} is not a primitive`)
+  return { left: node.styles.left, top: node.styles.top, width: node.styles.width, height: node.styles.height }
 }
 
 describe('AT-CAN-005 selected container pointer precedence', () => {

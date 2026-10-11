@@ -67,6 +67,7 @@ export function createCollaborationService(
   let lastDocumentViewport = documents.getSnapshot().viewport
   let localInteraction: EditorCollaborationInteraction | null = null
   let localInteractionConfirmed = false
+  const commitWaiters = new Map<string, Set<(allowed: boolean) => void>>()
   const listeners = new Set<() => void>()
   const followingListeners = new Set<() => void>()
 
@@ -76,6 +77,12 @@ export function createCollaborationService(
     snapshot = next
     for (const listener of listeners) listener()
     if (followingChanged) for (const listener of followingListeners) listener()
+  }
+  const settleCommitWaiters = (interactionId: string, allowed: boolean) => {
+    const waiters = commitWaiters.get(interactionId)
+    if (!waiters) return
+    commitWaiters.delete(interactionId)
+    for (const resolve of waiters) resolve(allowed)
   }
   const remoteIn = (source: Pick<EditorCollaborationSnapshot, 'participants' | 'localClientId'>, presenceId: string | null) => presenceId
     ? source.participants.find(participant => participant.presenceId === presenceId && participant.clientId !== source.localClientId) ?? null
@@ -163,6 +170,10 @@ export function createCollaborationService(
     const followingPresenceId = followTarget(followed, documents) ? snapshot.followingPresenceId : null
     const cursorPositions = reconcileCursors(next, followingPresenceId)
     publish(Object.freeze({ ...next, followingPresenceId, cursorPositions, canRetry: Boolean(api.retry), canLeave: Boolean(api.leave) }))
+    if (localInteraction) {
+      if (localInteractionConfirmed) settleCommitWaiters(localInteraction.interactionId, true)
+      else if (remoteInteractions(localInteraction.nodeIds).length > 0) settleCommitWaiters(localInteraction.interactionId, false)
+    }
     const current = remoteIn(snapshot, followingPresenceId)
     if (current) applyFollow(current)
     sendAwareness()
@@ -187,14 +198,18 @@ export function createCollaborationService(
   }
   const publishInteraction = (interaction: EditorCollaborationInteraction | null) => {
     if (!api || snapshot.status !== 'live' || !snapshot.canMutate) return false
-    try { api.updateAwareness({ interaction }, { immediate: true }); return true }
+    const pageId = interaction?.pageId ?? documents.getSnapshot().pageId
+    if (!pageId) return false
+    try { api.updateAwareness({ pageId, interaction }, { immediate: true }); return true }
     catch (error) { reportError(error, 'awareness'); return false }
   }
   const releaseInteraction = (expectedInteractionId?: string) => {
     if (!localInteraction) return
     if (expectedInteractionId && localInteraction.interactionId !== expectedInteractionId) return
+    const releasedInteractionId = localInteraction.interactionId
     localInteraction = null
     localInteractionConfirmed = false
+    settleCommitWaiters(releasedInteractionId, false)
     publishInteraction(null)
   }
   const bindApi = () => {
@@ -295,6 +310,15 @@ export function createCollaborationService(
     },
     canCommitInteraction(interactionId: string) {
       return Boolean(localInteraction?.interactionId === interactionId && localInteractionConfirmed && remoteInteractions(localInteraction.nodeIds).length === 0)
+    },
+    waitForCommitInteraction(interactionId: string) {
+      if (localInteraction?.interactionId !== interactionId) return Promise.resolve(false)
+      if (localInteractionConfirmed && remoteInteractions(localInteraction.nodeIds).length === 0) return Promise.resolve(true)
+      return new Promise<boolean>(resolve => {
+        const waiters = commitWaiters.get(interactionId) ?? new Set<(allowed: boolean) => void>()
+        waiters.add(resolve)
+        commitWaiters.set(interactionId, waiters)
+      })
     },
     endInteraction: releaseInteraction,
     isNodeLocked(nodeId: string) { return remoteInteractions([nodeId]).length > 0 },

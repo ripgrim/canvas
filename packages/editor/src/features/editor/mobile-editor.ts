@@ -13,8 +13,9 @@ export const mobilePanelVisibility = (panel: EditorMobilePanel, readOnly: boolea
 
 export const mobileQuickActionsPosition = (selection: Rect, viewport: Size, toolbar = { width: 180, height: 44 }): { x: number; y: number } => {
   const inset = 8
+  const dimensionBadgeClearance = 28
   const x = Math.max(inset, Math.min(selection.x, viewport.width - toolbar.width - inset))
-  const below = selection.y + selection.height + inset
+  const below = selection.y + selection.height + dimensionBadgeClearance + inset
   const y = below + toolbar.height <= viewport.height - inset
     ? below
     : Math.max(inset, selection.y - toolbar.height - inset)
