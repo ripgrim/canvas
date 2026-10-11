@@ -1,0 +1,100 @@
+apps/sync-runtime/README.md
+  s_012c57818fbf95::t_7e9ad460f4e4e2 1-10
+.dockerignore
+  s_012c57818fbf95::t_55e1f05193694a 1-11
+DEPLOYMENT.md
+  s_012c57818fbf95::t_7e9ad460f4e4e2 11,71-75,84-92
+apps/sync-runtime/src/config.ts
+  s_012c57818fbf95::t_55e1f05193694a 1-37
+apps/sync-room-core/Dockerfile
+  s_012c57818fbf95::t_55e1f05193694a 1-16
+apps/sync-room-core/README.md
+  s_012c57818fbf95::t_5d17c6bad17716 5,64
+  s_012c57818fbf95::t_14e36504e3df37 31
+apps/sync-coordinator/README.md
+  s_012c57818fbf95::t_7e9ad460f4e4e2 11
+apps/sync-runtime/src/route.ts
+  s_012c57818fbf95::t_55e1f05193694a 1-11
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_7e9ad460f4e4e2 414-415
+scripts/vercel-staging-env.mjs
+  s_012c57818fbf95::t_ae39e590ad84e4 58
+apps/sync-room-core/src/host.ts
+  s_012c57818fbf95::t_14e36504e3df37 30,309
+apps/sync-runtime/src/platform.ts
+  s_012c57818fbf95::t_55e1f05193694a 1-13
+apps/sync-coordinator/tests/coordinator.test.ts
+  s_012c57818fbf95::t_decd3624b77989 220,224-227
+apps/sync-runtime/package.json
+  s_012c57818fbf95::t_55e1f05193694a 1-16
+apps/sync-runtime/wrangler.jsonc
+  s_012c57818fbf95::t_4f2f5e32b42771 11
+  s_012c57818fbf95::t_55e1f05193694a 1-10,12-29
+apps/sync-coordinator/src/index.ts
+  s_012c57818fbf95::t_55e1f05193694a 53-54
+scripts/deployment-environments.test.mjs
+  s_012c57818fbf95::t_7e9ad460f4e4e2 53,55
+  s_012c57818fbf95::t_ae39e590ad84e4 48,50
+apps/sync-runtime/src/index.ts
+  s_012c57818fbf95::t_14e36504e3df37 50
+  s_012c57818fbf95::t_55e1f05193694a 1-10,12-49,51-78
+  s_012c57818fbf95::t_decd3624b77989 11
+apps/sync-coordinator/src/config.ts
+  s_012c57818fbf95::t_55e1f05193694a 2,6
+apps/sync-runtime/tests/runtime.test.ts
+  s_012c57818fbf95::t_14e36504e3df37 45
+  s_012c57818fbf95::t_55e1f05193694a 1-22,24-44,46-58
+  s_012c57818fbf95::t_decd3624b77989 23
+deploy/vercel-projects.json
+  s_012c57818fbf95::t_55e1f05193694a 75
+scripts/vercel-projects.test.mjs
+  s_012c57818fbf95::t_55e1f05193694a 61
+apps/sync-runtime/tsconfig.json
+  s_012c57818fbf95::t_55e1f05193694a 1-9
+.env.staging.example
+  s_012c57818fbf95::t_ae39e590ad84e4 26
+apps/sync-coordinator/wrangler.jsonc
+  s_012c57818fbf95::t_55e1f05193694a 17-30
+apps/sync-room-core/src/dev-host.ts
+  s_012c57818fbf95::t_14e36504e3df37 40,65
+apps/sync-coordinator/src/platform.ts
+  s_012c57818fbf95::t_55e1f05193694a 3
+apps/web/vercel.json
+  s_012c57818fbf95::t_ae39e590ad84e4 10,12,15,17
+apps/sync-worker/README.md
+  s_012c57818fbf95::t_7e9ad460f4e4e2 7
+apps/sync-worker/tests/worker.test.ts
+  s_012c57818fbf95::t_4f2f5e32b42771 130
+  s_012c57818fbf95::t_decd3624b77989 134-137
+scripts/vercel-staging-env.test.mjs
+  s_012c57818fbf95::t_ae39e590ad84e4 29
+package.json
+  s_012c57818fbf95::t_55e1f05193694a 35
+apps/sync-worker/wrangler.jsonc
+  s_012c57818fbf95::t_55e1f05193694a 16-27
+apps/sync-runtime/vitest.config.ts
+  s_012c57818fbf95::t_55e1f05193694a 1-9
+pnpm-lock.yaml
+  s_012c57818fbf95::t_756534806ec3c3 259-270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c3ad1a26964e24bfe2bd00c8f43dc693dd35ac53",
+  "prompts": {},
+  "humans": {
+    "h_3279d55133f19f": {
+      "author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
