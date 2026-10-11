@@ -1,0 +1,43 @@
+.env.example
+  s_012c57818fbf95::t_e5f280faf39a81 25-27
+scripts/vercel-staging-env.test.mjs
+  s_012c57818fbf95::t_e5f280faf39a81 40-42,44-45
+  s_012c57818fbf95::t_6824cab6b69d0d 43
+scripts/vercel-staging-env.mjs
+  s_012c57818fbf95::t_e5f280faf39a81 42
+DEPLOYMENT.md
+  s_012c57818fbf95::t_e5f280faf39a81 11
+packages/auth/tests/server.test.ts
+  s_012c57818fbf95::t_6824cab6b69d0d 153-160
+  s_012c57818fbf95::t_e5f280faf39a81 61-76,161
+  s_012c57818fbf95::t_22c76bf6fb177b 162
+packages/auth/src/server.ts
+  s_012c57818fbf95::t_e5f280faf39a81 17,61-67,83,97,113,127
+.env.staging.example
+  s_012c57818fbf95::t_e5f280faf39a81 10
+scripts/deployment-environments.test.mjs
+  s_012c57818fbf95::t_e5f280faf39a81 41
+deploy/vercel-projects.json
+  s_012c57818fbf95::t_e5f280faf39a81 43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2b84e9d7dbe977d670efccff042ed700716c3e92",
+  "prompts": {},
+  "humans": {
+    "h_3279d55133f19f": {
+      "author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
