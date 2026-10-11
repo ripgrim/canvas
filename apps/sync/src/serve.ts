@@ -20,7 +20,8 @@ try {
   await pool.query('SELECT 1')
   await runtime.listen(port, hostname)
 } catch (error) {
-  await pool.end().catch(() => undefined)
+  try { await pool.end() }
+  catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Sync startup and database cleanup both failed.') }
   throw error
 }
 process.stdout.write(`Sync: ws://${hostname}:${port}/sync/:fileId?tabId=:clientId\n`)

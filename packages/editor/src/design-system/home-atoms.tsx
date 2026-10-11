@@ -51,6 +51,6 @@ export function HomePhaseList({ label, phases }: { label: string; phases: readon
   return <ol className="home-phase-list" aria-label={label}>{phases.map(phase => <li key={phase.name} className="home-phase" data-state={phase.state}><span className="home-phase-mark" aria-hidden="true">{phase.state === 'done' ? <Icon name="check" /> : <Spinner />}</span><span className="home-phase-name">{phase.name}</span>{phase.detail && <span className="home-phase-detail">{phase.detail}</span>}</li>)}</ol>
 }
 
-export function HomeErrorPanel({ title, body, actions }: { title: string; body: string; actions: ReactNode }) {
-  return <div className="home-error" role="alert"><span className="home-error-glyph" aria-hidden="true"><Icon name="alert" /></span><span className="home-error-title">{title}</span><span className="home-error-body">{body}</span><span className="home-error-actions">{actions}</span></div>
+export function HomeErrorPanel({ title, body, reference, actions }: { title: string; body: string; reference?: string; actions: ReactNode }) {
+  return <div className="home-error" role="alert"><span className="home-error-glyph" aria-hidden="true"><Icon name="alert" /></span><span className="home-error-title">{title}</span><span className="home-error-body">{body}</span>{reference && <span className="home-error-reference">{reference}</span>}<span className="home-error-actions">{actions}</span></div>
 }

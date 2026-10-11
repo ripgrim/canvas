@@ -160,11 +160,20 @@ export function resizeRect(start: Rect, handle: string, delta: Point, options: {
     const ratio = start.width / Math.max(1, start.height)
     if (Math.abs(delta.x) >= Math.abs(delta.y)) height = Math.max(minimum, width / ratio)
     else width = Math.max(minimum, height * ratio)
+  } else if (options.proportional && horizontal !== 0) {
+    height = Math.max(minimum, width / (start.width / Math.max(1, start.height)))
+  } else if (options.proportional && vertical !== 0) {
+    width = Math.max(minimum, height * (start.width / Math.max(1, start.height)))
   }
   let x = start.x
   let y = start.y
   if (options.symmetric) { x = start.x - (width - start.width) / 2; y = start.y - (height - start.height) / 2 }
-  else { if (horizontal < 0) x = start.x + start.width - width; if (vertical < 0) y = start.y + start.height - height }
+  else {
+    if (horizontal < 0) x = start.x + start.width - width
+    if (vertical < 0) y = start.y + start.height - height
+    if (options.proportional && horizontal !== 0 && vertical === 0) y = start.y - (height - start.height) / 2
+    if (options.proportional && vertical !== 0 && horizontal === 0) x = start.x - (width - start.width) / 2
+  }
   return { x, y, width, height }
 }
 

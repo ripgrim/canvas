@@ -76,7 +76,7 @@ const fileId = 'layout-inspector-file'
 const px = value => ({ kind: 'px', value })
 /** A Card (28 px padding and 1 px border from its stylesheet) in the 352 px host flow, holding two Labels. */
 const file = {
-  schemaVersion: 6, fileId, revision: 3,
+  schemaVersion: 7, fileId, revision: 3,
   pages: [{ id: 'page-1', name: 'Inspector', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },

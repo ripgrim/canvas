@@ -1,8 +1,7 @@
 import { createServer } from 'node:http'
+import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
-import { getHostedAuth } from '@canvas/auth/hosted'
-import { createPostgresControlPlane, createPostgresPool } from '@canvas/database/postgres'
-import { createApiApp } from './app.js'
+import { getApiRuntime } from './runtime.js'
 
 const required = (name: string) => {
   const value = process.env[name]?.trim()
@@ -10,13 +9,7 @@ const required = (name: string) => {
   return value
 }
 
-const pool = createPostgresPool(required('DATABASE_URL'))
-const app = createApiApp({
-  auth: getHostedAuth(),
-  store: createPostgresControlPlane(pool),
-  serviceToken: required('API_SERVICE_TOKEN'),
-  allowedOrigins: [required('LOGIN_URL'), process.env.APP_URL ?? ''].flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean).map(value => new URL(value).origin),
-})
+const { app, pool } = getApiRuntime()
 const port = Number(process.env.PORT ?? 4320)
 if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) throw new Error('PORT is invalid.')
 
@@ -33,10 +26,14 @@ const server = createServer(async (incoming, outgoing) => {
     }
     if (!response.body) { outgoing.end(); return }
     Readable.fromWeb(response.body as never).pipe(outgoing)
-  } catch {
+  } catch (error) {
+    const requestId = randomUUID()
+    const failure = error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : { name: 'UnknownError', message: String(error) }
+    process.stderr.write(`${JSON.stringify({ level: 'error', event: 'api_transport_failed', requestId, method: incoming.method ?? 'GET', path: incoming.url ?? '/', error: failure })}\n`)
     outgoing.statusCode = 500
     outgoing.setHeader('Content-Type', 'application/json; charset=utf-8')
-    outgoing.end(JSON.stringify({ error: { code: 'internal_error', message: 'Request could not be completed.' } }))
+    outgoing.setHeader('X-Canvas-Request-Id', requestId)
+    outgoing.end(JSON.stringify({ error: { code: 'internal_error', message: 'Request could not be completed.', requestId } }))
   }
 })
 

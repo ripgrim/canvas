@@ -6,7 +6,7 @@ import { chromium } from '@playwright/test'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const output = join(root, 'outputs', 'home-screen')
-const url = 'http://127.0.0.1:4317/'
+const url = process.env.CANVAS_HOME_URL ?? 'http://127.0.0.1:4317/'
 const evidence = { status: 'failed', checks: [], screenshots: [], error: null }
 let browser
 const record = (name, detail = '') => { evidence.checks.push({ name, status: 'passed', ...(detail ? { detail } : {}) }); console.log('✓', name, detail) }
@@ -33,7 +33,7 @@ try {
 
   const sidebar = await page.locator('.home-sidebar').boundingBox()
   const cards = page.locator('.home-file-card')
-  assert.ok(sidebar && Math.abs(sidebar.width - 204) < 1, 'sidebar keeps the Paper-width rail')
+  assert.ok(sidebar && Math.abs(sidebar.width - 240) < 1, 'sidebar keeps the measured Paper-width rail')
   assert.equal(await cards.count(), 4)
   assert.ok(await page.getByRole('button', { name: 'New file' }).isVisible())
   const toolbar = await page.locator('.home-toolbar-inner').boundingBox()
@@ -52,7 +52,7 @@ try {
   record('Grid and list controls switch the observable file layout')
 
   await page.getByRole('searchbox', { name: 'Search' }).fill('no such file')
-  assert.ok(await page.getByText('No files match “no such file”.').isVisible())
+  assert.ok(await page.getByText('No results', { exact: true }).isVisible())
   await page.getByRole('searchbox', { name: 'Search' }).fill('')
   record('Search filters recents and has an independent empty result')
 

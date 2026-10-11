@@ -6,14 +6,51 @@
   "dev": {
     "port": 4322
   },
+  "triggers": {
+    "crons": ["17 * * * *"]
+  },
   "r2_buckets": [
     {
       "binding": "FILE_ASSETS",
-      "bucket_name": "comp-canvas-file-assets-dev"
+      "bucket_name": "comp-canvas-file-assets-dev",
+      "preview_bucket_name": "comp-canvas-file-assets-dev"
     }
   ],
   "vars": {
     "API_ORIGIN": "http://127.0.0.1:4320",
     "ALLOWED_ORIGINS": "http://127.0.0.1:4317,http://localhost:4317,http://127.0.0.1:4319,http://localhost:4319"
+  },
+  "env": {
+    "preview": {
+      "r2_buckets": [
+        {
+          "binding": "FILE_ASSETS",
+          "bucket_name": "comp-canvas-file-assets-dev",
+          "remote": true
+        }
+      ],
+      "vars": {
+        "API_ORIGIN": "https://api.canvas.ripgrim.com",
+        "ALLOWED_ORIGINS": "https://canvas.ripgrim.com,https://login.canvas.ripgrim.com"
+      }
+    },
+    "production": {
+      "routes": [
+        {
+          "pattern": "assets.canvas.ripgrim.com",
+          "custom_domain": true
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "FILE_ASSETS",
+          "bucket_name": "comp-canvas-file-assets-production"
+        }
+      ],
+      "vars": {
+        "API_ORIGIN": "https://api.canvas.ripgrim.com",
+        "ALLOWED_ORIGINS": "https://canvas.ripgrim.com,https://login.canvas.ripgrim.com"
+      }
+    }
   }
 }

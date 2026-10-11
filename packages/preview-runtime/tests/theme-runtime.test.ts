@@ -5,6 +5,7 @@ import { chromium, type Browser, type Frame, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createPreviewRuntime, type PreviewBinding } from '../src/index.js'
 import type { PreviewDocument, PreviewNodeTheme } from '../src/protocol.js'
+import { fixtureRegistry } from './fixture-registry.js'
 
 // CC-NT-010 through CC-NT-014 and CC-NT-016 through the real boundary: Vite preview builds of the fixture repository
 // (with its verified theme adapter `src/preview-theme-adapter.tsx`) loaded cross-origin in headless Edge and driven
@@ -17,8 +18,8 @@ import type { PreviewDocument, PreviewNodeTheme } from '../src/protocol.js'
 // absence of the attribute (`attribute: null`).
 
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
-const registry = ['Card', 'Label', 'Input', 'Button'].map(exportName => ({ componentId: `atom-${exportName.toLowerCase()}`, exportName, entryPath: `src/atoms/${exportName}.tsx` }))
-const themeAdapters = [{ entryPath: 'src/preview-theme-adapter.tsx', exportName: 'previewThemeAdapter' }]
+const registry = fixtureRegistry
+const themeAdapters = [{ entryPath: 'src/preview-theme-adapter.tsx', exportName: 'previewThemeAdapter', evidence: { configPath: 'components.json' } }]
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false } as const
 
 const light: PreviewNodeTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false }

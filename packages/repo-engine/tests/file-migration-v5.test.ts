@@ -8,7 +8,7 @@ const atom = (name: string, componentId: string, props: Atom['props']): Atom => 
 const atoms: Atom[] = [atom('Card', 'sample-card', [{ name: 'children', type: 'ReactNode', optional: true }]), atom('Button', 'sample-button', [{ name: 'children', type: 'ReactNode', optional: true }])]
 const lit = (hex: string) => ({ kind: 'literal' as const, color: { kind: 'hex' as const, hex } })
 
-/** A v4 file with every node kind, layout, appearance, tokens, an asset and two pages. */
+/** A v4 file with every node kind, layout, appearance, tokens, and two pages. */
 const v4 = () => ({
   schemaVersion: 4, fileId: 'file-1', revision: 7,
   pages: [{ id: 'page-1', name: 'Home', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Other', rootNodeId: 'root-2' }],
@@ -17,21 +17,20 @@ const v4 = () => ({
     'root-2': { id: 'root-2', type: 'root' },
     card: { id: 'card', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } }, container: { display: 'block' } }, appearance: { opacity: 0.5 } },
     btn: { id: 'btn', type: 'component', componentId: 'sample-button', exportName: 'Button', props: { children: 'Go' } },
-    box: { id: 'box', type: 'rectangle', name: 'Box', styles: { left: 1, top: 2, width: 30, height: 40 }, appearance: { fills: [{ id: 'box:fill:1', type: 'image', assetId: 'pixel', fit: 'cover' }, { id: 'box:fill:2', type: 'solid', color: { kind: 'token', tokenId: 'brand' } }] } },
+    box: { id: 'box', type: 'rectangle', name: 'Box', styles: { left: 1, top: 2, width: 30, height: 40 }, appearance: { fills: [{ id: 'box:fill:1', type: 'solid', color: { kind: 'token', tokenId: 'brand' } }] } },
     caption: { id: 'caption', type: 'text', name: 'Caption', styles: { left: 0, top: 0, width: 80, height: 20 }, text: 'Hi' },
   },
   relationships: {
     card: { parentId: 'root-1', orderKey: 'V' }, btn: { parentId: 'card', orderKey: 'V', slot: 'children' }, box: { parentId: 'root-1', orderKey: 'W' }, caption: { parentId: 'root-2', orderKey: 'V' },
   },
   theme: { tokens: { brand: { id: 'brand', type: 'color', name: 'Brand', orderKey: 'V', value: lit('#3366cc') }, alias: { id: 'alias', type: 'color', name: 'Alias', orderKey: 'W', value: { kind: 'alias', tokenId: 'brand' } } } },
-  assets: { pixel: { id: 'pixel', name: 'Pixel', mime: 'image/png', width: 1, height: 1, bytes: 3, data: 'AAAA' } },
 })
 
 describe('CC-NT-001: v4 theme-mode migration through current schema', () => {
   it('sets every non-root node to inherit and leaves everything else byte-equal', () => {
     const input = v4()
     const upgraded = upgradeFileDocument(input) as FileDocument
-    expect(upgraded.schemaVersion).toBe(6)
+    expect(upgraded.schemaVersion).toBe(7)
     for (const id of ['card', 'btn', 'box', 'caption']) expect((upgraded.nodes[id] as { themeMode?: string }).themeMode).toBe('inherit')
     expect(upgraded.nodes['root-1']).toBe(input.nodes['root-1'])
     expect(upgraded.nodes['root-2']).toBe(input.nodes['root-2'])
@@ -41,27 +40,27 @@ describe('CC-NT-001: v4 theme-mode migration through current schema', () => {
     expect(upgraded.pages).toBe(input.pages)
     expect(upgraded.relationships).toBe(input.relationships)
     expect(upgraded.theme).toBe(input.theme)
-    expect(upgraded.assets).toBe(input.assets)
+    expect(upgraded).not.toHaveProperty('assets')
     expect(input).toEqual(v4())
     expect(validateFileDocument(upgraded, atoms)).toEqual(upgraded)
     expect(upgradeFileDocument(upgraded)).toBe(upgraded)
   })
-  it('chains from version 2 and 3 to version 6 and recognizes every stored version', () => {
+  it('chains from version 2 and 3 to version 7 and recognizes every stored version', () => {
     const v3 = { ...v4(), schemaVersion: 3, nodes: { ...v4().nodes, card: { id: 'card', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {}, layout: { mode: 'flow', x: 0, y: 0 } } } }
     const upgraded = upgradeFileDocument(v3) as FileDocument
-    expect(upgraded.schemaVersion).toBe(6)
+    expect(upgraded.schemaVersion).toBe(7)
     expect(upgraded.nodes.card).toEqual({ id: 'card', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } } }, themeMode: 'inherit' })
-    for (const version of [2, 3, 4, 5, 6]) expect(isFileDocumentShape({ ...v4(), schemaVersion: version })).toBe(true)
-    expect(isFileDocumentShape({ ...v4(), schemaVersion: 7 })).toBe(false)
-    expect(() => validateFileDocument(upgradeFileDocument({ ...v4(), schemaVersion: 7 }), atoms)).toThrow('Unsupported design file version')
+    for (const version of [2, 3, 4, 5, 6, 7]) expect(isFileDocumentShape({ ...v4(), schemaVersion: version })).toBe(true)
+    expect(isFileDocumentShape({ ...v4(), schemaVersion: 8 })).toBe(false)
+    expect(() => validateFileDocument(upgradeFileDocument({ ...v4(), schemaVersion: 8 }), atoms)).toThrow('Unsupported design file version')
     expect(() => validateFileDocument(v4(), atoms)).toThrow('Unsupported design file version')
   })
 
-  it('upgrades a version 5 file to version 6 without inventing page backgrounds', () => {
+  it('upgrades a version 5 file through version 7 without inventing page backgrounds', () => {
     const version5 = { ...(upgradeFileDocument(v4()) as FileDocument), schemaVersion: 5 }
     const upgraded = upgradeFileDocument(version5) as FileDocument
     expect(upgraded).not.toBe(version5)
-    expect(upgraded.schemaVersion).toBe(6)
+    expect(upgraded.schemaVersion).toBe(7)
     expect(upgraded.pages).toBe(version5.pages)
     expect(upgraded.pages.every(page => !Object.hasOwn(page, 'background'))).toBe(true)
     expect({ ...upgraded, schemaVersion: null }).toEqual({ ...version5, schemaVersion: null })

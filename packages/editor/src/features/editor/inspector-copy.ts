@@ -1,10 +1,7 @@
-import type { BlendMode, BorderSide, GradientInterpolation, GradientShape, ImageFit, StrokeStyle } from '@canvas/repo-engine/appearance'
+import type { BlendMode, BorderSide, GradientInterpolation, GradientShape, StrokeStyle } from '@canvas/repo-engine/appearance'
 import type { ContentDistribution, DisplayMode, FlexDirection, FlexWrap, ItemAlignment, SizingMode } from '@canvas/repo-engine/layout'
 import type { LayoutStatus, PreviewThemeStatus } from '@canvas/preview-runtime/protocol'
 import type { NodeThemeMode } from '@canvas/repo-engine/node-theme'
-
-const countWords = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine']
-const countWord = (count: number) => countWords[count] ?? String(count)
 
 export const inspectorCopy = {
   page: 'Page',
@@ -97,12 +94,9 @@ export const inspectorCopy = {
 
   // Image
   chooseImage: 'Choose image',
-  replaceImage: 'Replace image',
+  editImage: 'Edit',
   imageFile: (index: number) => `Fill ${index} image file`,
   missingImage: 'Missing image',
-  fit: (index: number) => `Fill ${index} image fit`,
-  fits: { cover: 'Cover', contain: 'Contain', stretch: 'Stretch', tile: 'Tile' } satisfies Record<ImageFit, string>,
-  intrinsicSize: 'Intrinsic size',
 
   // Strokes
   strokeStyles: { solid: 'Solid', dashed: 'Dashed', dotted: 'Dotted' } satisfies Record<StrokeStyle, string>,
@@ -229,8 +223,12 @@ export const inspectorCopy = {
   inheritedMode: (mode: string) => `Inherited: ${mode}`,
   effectiveMixed: 'Effective themes: Mixed',
   mixedThemeModes: 'Mixed theme modes',
-  themeAmbiguous: (mode: string, count: number) => `${mode} is unavailable: ${countWord(count)} ${mode.toLowerCase()} design themes need a primary mapping`,
-  themeMissing: (mode: string) => `${mode} is unavailable: no ${mode.toLowerCase()} design theme`,
+  themeAmbiguous: (mode: string, count: number) => `${count} ${mode.toLowerCase()} themes. Choose a primary theme.`,
+  themeMissing: (mode: string) => `No ${mode.toLowerCase()} theme`,
+  themeVariantsMissing: 'No light or dark themes',
+  themeVariantsAmbiguous: 'Choose primary light and dark themes',
+  themeVariantMissing: { light: 'No light theme', dark: 'No dark theme' },
+  themeVariantAmbiguous: { light: 'Choose a primary light theme', dark: 'Choose a primary dark theme' },
   themeLimited: {
     'unsupported-ambiguous-root': "Theme support is limited: this component's root is ambiguous",
     'unsupported-no-root': 'Theme support is limited: this component has no measurable root',

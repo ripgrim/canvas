@@ -1,6 +1,7 @@
 import { authSessionView, parseNativeElectronAuthCallback } from '@canvas/auth'
 import type { AuthSessionView, NativeAuthTarget } from '@canvas/auth'
 import type { ElectronAuthClient } from '@canvas/auth/electron'
+import { randomUUID } from 'node:crypto'
 
 type PendingAuth = Readonly<{ ownerWindowId: number; expiresAt: number }>
 
@@ -13,12 +14,14 @@ export type DesktopAuthServiceOptions = Readonly<{
 function failureState(error: unknown): AuthSessionView {
   const message = error instanceof Error ? error.message : 'Authentication could not finish.'
   const normalized = message.toLowerCase()
-  if (normalized.includes('denied') || normalized.includes('access_denied')) return authSessionView('denied', null, 'GitHub sign-in was denied.')
-  if (normalized.includes('fetch') || normalized.includes('network') || normalized.includes('offline')) return authSessionView('offline', null, 'The auth service could not be reached.')
-  if (normalized.includes('revoked') || normalized.includes('unauthorized')) return authSessionView('revoked', null, 'This session is no longer valid.')
-  if (normalized.includes('attempt was not found')) return authSessionView('callback-expired', null, 'This sign-in attempt is no longer active. Start again from the desktop app.')
-  if (normalized.includes('callback is invalid')) return authSessionView('error', null, 'The sign-in response was invalid. Start again from the desktop app.')
-  return authSessionView('error', null, 'Authentication could not finish. Try again.')
+  const candidate = error && typeof error === 'object' ? (error as { requestId?: unknown }).requestId : undefined
+  const reference = typeof candidate === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate) ? candidate : randomUUID()
+  if (normalized.includes('denied') || normalized.includes('access_denied')) return authSessionView('denied', null, 'GitHub sign-in was denied.', reference)
+  if (normalized.includes('fetch') || normalized.includes('network') || normalized.includes('offline')) return authSessionView('offline', null, 'The auth service could not be reached.', reference)
+  if (normalized.includes('revoked') || normalized.includes('unauthorized')) return authSessionView('revoked', null, 'This session is no longer valid.', reference)
+  if (normalized.includes('attempt was not found')) return authSessionView('callback-expired', null, 'This sign-in attempt is no longer active. Start again from the desktop app.', reference)
+  if (normalized.includes('callback is invalid')) return authSessionView('error', null, 'The sign-in response was invalid. Start again from the desktop app.', reference)
+  return authSessionView('error', null, 'Authentication could not finish. Try again.', reference)
 }
 
 export function canAccessAuthenticatedProject(session: AuthSessionView | undefined, development: boolean): boolean {
@@ -111,10 +114,10 @@ export class DesktopAuthService {
     }
   }
 
-  rejectCallback(): AuthSessionView {
+  rejectCallback(reference: string = randomUUID()): AuthSessionView {
     this.pending = null
     if (this.state.status === 'signed-in') return this.state
-    return this.publish(authSessionView('error', null, 'The sign-in response was invalid. Start again from the desktop app.'))
+    return this.publish(authSessionView('error', null, 'The sign-in response was invalid. Start again from the desktop app.', reference))
   }
 
   dispose(): void {

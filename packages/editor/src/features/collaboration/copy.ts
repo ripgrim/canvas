@@ -1,0 +1,17 @@
+export const collaborationCopy = Object.freeze({
+  people: 'People in this file',
+  moreIdentities: (count: number) => `${count} more`,
+  following: (name: string) => `following ${name}`,
+  stopFollowing: 'stop following',
+  readOnlyTitle: 'You can only view this file',
+  readOnlyBody: 'To edit, ask the owner to add you as an editor',
+  dismissReadOnly: 'Dismiss',
+  opening: 'Opening file…',
+  connecting: 'Connecting…',
+  reconnecting: 'Reconnecting…',
+  accessRemoved: 'Access removed',
+  updateRequired: 'Update required',
+  fileBusy: 'File is busy',
+  tryAgain: 'Try again',
+  leaveFile: 'Leave file',
+})

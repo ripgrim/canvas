@@ -99,7 +99,8 @@ function validateInput(input: CommitFileEditInput): void {
 }
 
 async function rollback(client: PoolClient): Promise<void> {
-  try { await client.query('ROLLBACK') } catch { /* Preserve the original transaction error. */ }
+  try { await client.query('ROLLBACK') }
+  catch (error) { console.error(JSON.stringify({ level: 'error', event: 'sync_rollback_failed', message: error instanceof Error ? error.message : String(error) })) }
 }
 
 export class PostgresSyncRepository implements SyncRepository {

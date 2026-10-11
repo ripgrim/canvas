@@ -29,8 +29,8 @@ describe('desktop authorization callback', () => {
 })
 
 describe('main-process authenticated API boundary', () => {
-  it('allows only same-origin API paths', () => {
-    expect(resolveAuthenticatedApiPath('https://api.canvas.test', '/api/files?limit=10')).toBe('/api/files?limit=10')
+  it('AT-AUTH-001 resolves same-origin API paths outside the Better Auth base path', () => {
+    expect(resolveAuthenticatedApiPath('https://api.canvas.test', '/api/files?limit=10')).toBe('https://api.canvas.test/api/files?limit=10')
     for (const target of [
       'https://attacker.test/api/files',
       '//attacker.test/api/files',

@@ -67,13 +67,13 @@ export const blendModeGroups: readonly (readonly BlendMode[])[] = [
 
 // Fills -------------------------------------------------------------------------------------------------------------
 
-export type FillField = 'type' | 'visible' | 'blendMode' | 'color' | 'opacity' | 'shape' | 'angle' | 'center' | 'length' | 'interpolation' | 'stops' | 'assetId' | 'fit'
+export type FillField = 'type' | 'visible' | 'blendMode' | 'color' | 'opacity' | 'shape' | 'angle' | 'center' | 'length' | 'interpolation' | 'stops' | 'assetId' | 'fit' | 'geometry'
 
 /** The user-visible fields of a paint; identities and type caches never count as a difference. */
 export function paintFields(paint: Paint): Partial<Record<FillField, unknown>> {
   const shared = { type: paint.type, visible: paint.visible !== false, blendMode: paint.blendMode ?? 'normal' }
   if (paint.type === 'solid') return { ...shared, color: paint.color, opacity: paint.opacity ?? 1 }
-  if (paint.type === 'image') return { ...shared, assetId: paint.assetId, fit: paint.fit }
+  if (paint.type === 'image') return { ...shared, assetId: paint.assetId, fit: paint.fit, geometry: paint.geometry }
   return { ...shared, shape: paint.shape, angle: paint.angle, center: paint.center, length: paint.length, interpolation: paint.interpolation, stops: paint.stops.map(stop => ({ position: stop.position, midpoint: stop.midpoint ?? 0.5, color: stop.color })) }
 }
 

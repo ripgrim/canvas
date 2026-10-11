@@ -32,6 +32,8 @@ Run the same cloud-shaped local stack without Electron:
 pnpm dev:cloud
 ```
 
+Both commands build the scanner and preview runtime, scan `fixtures/component-repo`, and write a fresh integrity-bound component registry to `.design-editor/runtime/verified-component-registry.json`. The preview on port 4318 and thumbnail renderer on port 4323 receive the same absolute manifest path. They fail startup if the manifest is absent, malformed, or stale. Use `pnpm dev:preview` for the same preparation path when running only the preview, or `pnpm registry:prepare` to inspect the generated evidence without starting a service.
+
 Build an unsigned Windows installer against the local services:
 
 ```sh
@@ -54,6 +56,8 @@ Local origins mirror the hosted service boundaries:
 - API: `http://127.0.0.1:4320`
 - sync: `ws://127.0.0.1:4321`
 - file assets: `http://127.0.0.1:4322`
+- thumbnail renderer: `http://127.0.0.1:4323/thumbnail-renderer`
+- thumbnail jobs: `http://127.0.0.1:4324/healthz`
 
 ### Auth environment
 

@@ -23,13 +23,18 @@ describe('Electron policy', () => {
     expect(secureWebPreferences).toMatchObject({ contextIsolation: true, sandbox: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webSecurity: true, allowRunningInsecureContent: false, webviewTag: false })
     const policy = contentSecurityPolicy(false)
     expect(policy).toContain("default-src 'none'")
-    expect(policy).toContain("script-src 'self';")
+    expect(policy).toContain("script-src 'self' https://cdn.databuddy.cc;")
+    expect(policy).toContain("connect-src 'self' https://basket.databuddy.cc;")
     expect(policy).toContain("object-src 'none'")
     expect(policy).not.toContain('unsafe-eval')
     expect(policy).not.toContain('*')
     expect(policy).toContain("frame-src 'none'")
     expect(contentSecurityPolicy(false, 'http://127.0.0.1:48217')).toContain('frame-src http://127.0.0.1:48217;')
+    expect(contentSecurityPolicy(false, ['http://127.0.0.1:48217', 'http://127.0.0.1:48218'])).toContain('frame-src http://127.0.0.1:48217 http://127.0.0.1:48218;')
+    expect(contentSecurityPolicy(false, ['http://127.0.0.1:48217', 'http://127.0.0.1:48217'])).toContain('frame-src http://127.0.0.1:48217;')
+    expect(contentSecurityPolicy(false, 'https://preview.canvas.test')).toContain('frame-src https://preview.canvas.test;')
     expect(() => contentSecurityPolicy(false, 'http://127.0.0.1:48217; script-src *')).toThrow('Invalid preview origin.')
+    expect(() => contentSecurityPolicy(false, 'http://preview.canvas.test')).toThrow('Invalid preview origin.')
   })
 
   it('permits narrowly typed source operations', () => {
@@ -74,7 +79,7 @@ describe('Electron policy', () => {
   it('allows only canonical SHA-256 script hashes in the production policy', () => {
     const emptyScriptHash = '47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='
     const policy = contentSecurityPolicy(false, null, [emptyScriptHash])
-    expect(policy).toContain("script-src 'self' 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=';")
+    expect(policy).toContain("script-src 'self' https://cdn.databuddy.cc 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=';")
     expect(policy).not.toContain("script-src 'self' 'unsafe-inline'")
     for (const invalid of ['sha256-' + emptyScriptHash, "'unsafe-inline'", emptyScriptHash + '; script-src *', 'a'.repeat(43) + '=', 'AAAA', 'a'.repeat(44)]) {
       expect(() => contentSecurityPolicy(false, null, [invalid])).toThrow('Invalid inline script hash.')
@@ -83,7 +88,8 @@ describe('Electron policy', () => {
 
   it('keeps hosted scripts, styles, and frames closed without an inline policy', () => {
     const policy = hostedContentSecurityPolicy()
-    expect(policy).toContain("script-src 'self';")
+    expect(policy).toContain("script-src 'self' https://cdn.databuddy.cc;")
+    expect(policy).toContain("connect-src 'self' https://basket.databuddy.cc;")
     expect(policy).toContain("style-src 'self';")
     expect(policy).toContain("frame-src 'none';")
     expect(policy).not.toContain('unsafe-inline')

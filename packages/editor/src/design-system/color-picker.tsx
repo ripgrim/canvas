@@ -1,10 +1,12 @@
 import { useId, useRef, useState } from 'react'
-import type { KeyboardEvent, PointerEvent } from 'react'
+import type { KeyboardEvent, PointerEvent, ReactNode } from 'react'
 import { Popover } from '@base-ui/react/popover'
 import { colorCopy as copy } from '../features/editor/color-copy'
 import { formatHex, formatRgb, hslToRgb, hsvToRgb, lchToRgb, parseColor, rgbToHsl, rgbToHsv, rgbToLch } from '../features/editor/color'
 import type { Color, Hsv } from '../features/editor/color'
 import { InspectorScrubHandle } from './inspector-atoms'
+import { colorRailPosition, colorRailValue } from './color-picker-rail'
+import type { ColorRailDirection } from './color-picker-rail'
 import './color-picker.css'
 
 export type ColorPickerProps = {
@@ -76,30 +78,56 @@ type RailProps = {
   value: number
   maximum: number
   background: string
+  direction: ColorRailDirection
   disabled: boolean
   onPreview: (value: number) => void
   onCommit: () => void
   onCancel: () => void
 }
 
-function ColorRail({ label, value, maximum, background, disabled, onPreview, onCommit, onCancel }: RailProps) {
+function ColorRail({ label, value, maximum, background, direction, disabled, onPreview, onCommit, onCancel }: RailProps) {
   const cancelled = useRef(false)
+  const input = useRef<HTMLInputElement>(null)
   const commit = () => { if (!cancelled.current) onCommit() }
-  return <input
+  const previewPointer = (event: PointerEvent<HTMLDivElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    onPreview(colorRailValue(event.clientY, bounds.top, bounds.height, maximum, direction))
+  }
+  return <div
     className="color-picker-rail"
-    type="range"
-    min={0}
-    max={maximum}
-    step={1}
-    value={Math.round(value)}
-    disabled={disabled}
-    aria-label={label}
+    data-direction={direction}
+    data-disabled={disabled || undefined}
     style={{ background }}
-    onChange={event => { if (!cancelled.current) onPreview(Number(event.currentTarget.value)) }}
-    onPointerDown={() => { cancelled.current = false }}
-    onPointerUp={commit}
+    onPointerDown={event => {
+      if (disabled || event.button !== 0) return
+      cancelled.current = false
+      input.current?.focus()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      previewPointer(event)
+    }}
+    onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) previewPointer(event) }}
+    onPointerUp={event => {
+      if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
+      previewPointer(event)
+      event.currentTarget.releasePointerCapture(event.pointerId)
+      commit()
+    }}
     onPointerCancel={() => { cancelled.current = true; onCancel() }}
-    onKeyDown={event => {
+  >
+    <input
+      ref={input}
+      className="color-picker-rail-input"
+      type="range"
+      min={0}
+      max={maximum}
+      step={1}
+      value={Math.round(value)}
+      disabled={disabled}
+      aria-label={label}
+      aria-orientation="vertical"
+      onFocus={() => { cancelled.current = false }}
+      onChange={event => { if (!cancelled.current) onPreview(Number(event.currentTarget.value)) }}
+      onKeyDown={event => {
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
@@ -107,11 +135,14 @@ function ColorRail({ label, value, maximum, background, disabled, onPreview, onC
         onCancel()
       }
     }}
-    onKeyUp={event => { if (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End' || event.key.startsWith('Page')) commit() }}
-  />
+      onKeyUp={event => { if (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End' || event.key.startsWith('Page')) commit() }}
+    />
+    <span className="color-picker-rail-thumb" style={{ top: `${colorRailPosition(value, maximum, direction)}%` }} />
+    <span className="color-picker-rail-focus" />
+  </div>
 }
 
-function ColorDraft({ label, value, onChange, allowAlpha }: { label: string; value: string; onChange: (value: string) => void; allowAlpha: boolean }) {
+function ColorDraft({ label, value, onChange, allowAlpha, close }: { label: string; value: string; onChange: (value: string) => void; allowAlpha: boolean; close: ReactNode }) {
   const errorId = useId()
   const [stored, setStored] = useState(() => makeDraft(value))
   const [copied, setCopied] = useState<string | null>(null)
@@ -236,7 +267,16 @@ function ColorDraft({ label, value, onChange, allowAlpha }: { label: string; val
     <CopyButton label={name.toUpperCase()} value={keys.map(key => fields[key]).join(' ')} onCopied={() => noteCopied(name)} />
   </div>
 
-  return <div className="color-picker-content" onKeyDown={event => { if (event.key === 'Escape') cancel() }}>
+  return <>
+    <div className="color-picker-header">
+      <div className="color-picker-space-tabs"><span>{copy.srgb}</span><button type="button" disabled title={copy.displayP3Unavailable}>{copy.displayP3}</button></div>
+      <div className="color-picker-header-actions">
+        <button type="button" className="color-picker-eyedropper" aria-label={copy.eyedropper} title={eyedropperAvailable ? copy.eyedropper : copy.eyedropperUnavailable} disabled={!eyedropperAvailable || !color} onClick={openEyeDropper}><Icon name="eyedropper" /></button>
+        {close}
+      </div>
+    </div>
+    <Popover.Title className="color-picker-title">{label}</Popover.Title>
+    <div className="color-picker-content" onKeyDown={event => { if (event.key === 'Escape') cancel() }}>
     <div className="color-picker-workspace">
       <div
         className="color-picker-plane"
@@ -254,8 +294,8 @@ function ColorDraft({ label, value, onChange, allowAlpha }: { label: string; val
         onPointerCancel={() => { pointerCancelled.current = true; cancel() }}
         onKeyDown={onPlaneKeyDown}
       ><span className="color-picker-plane-white" /><span className="color-picker-plane-black" /><span className="color-picker-plane-thumb" style={{ left: `${hsv?.s ?? 0}%`, top: `${100 - (hsv?.v ?? 0)}%` }} /></div>
-      <ColorRail label={copy.hue} value={hue} maximum={360} background={hueBackground} disabled={!color} onPreview={next => updateHsv('h', next)} onCommit={commitPending} onCancel={cancel} />
-      {allowAlpha && <ColorRail label={copy.alpha} value={alpha} maximum={100} background={alphaBackground} disabled={!color} onPreview={next => updateHsv('a', next)} onCommit={commitPending} onCancel={cancel} />}
+      <ColorRail label={copy.hue} value={hue} maximum={360} background={hueBackground} direction="forward" disabled={!color} onPreview={next => updateHsv('h', next)} onCommit={commitPending} onCancel={cancel} />
+      {allowAlpha && <ColorRail label={copy.alpha} value={alpha} maximum={100} background={alphaBackground} direction="reverse" disabled={!color} onPreview={next => updateHsv('a', next)} onCommit={commitPending} onCancel={cancel} />}
     </div>
     <div className="color-picker-details">
       <div className="color-picker-preview" aria-label={`${copy.previous} and ${copy.next} colors`}>
@@ -271,8 +311,8 @@ function ColorDraft({ label, value, onChange, allowAlpha }: { label: string; val
       </div>
       <div className="color-picker-status" aria-live="polite">{error ? <span id={errorId} className="color-picker-error" role="alert">{error}</span> : !color ? copy.unsupportedValue : copied ? `${copy.copied} ${copied.toUpperCase()}` : null}</div>
     </div>
-    <button type="button" className="color-picker-eyedropper" aria-label={copy.eyedropper} title={eyedropperAvailable ? copy.eyedropper : copy.eyedropperUnavailable} disabled={!eyedropperAvailable || !color} onClick={openEyeDropper}><Icon name="eyedropper" /></button>
-  </div>
+    </div>
+  </>
 }
 
 export function ColorPicker({ label, value, onChange, disabled = false, mode = 'light', allowAlpha = true, variant = 'field', open: controlledOpen, onOpenChange }: ColorPickerProps) {
@@ -280,5 +320,5 @@ export function ColorPicker({ label, value, onChange, disabled = false, mode = '
   const open = controlledOpen ?? ownOpen
   const setOpen = (next: boolean) => { setOwnOpen(next); onOpenChange?.(next) }
   const color = parseColor(value)
-  return <Popover.Root open={open} onOpenChange={setOpen}><Popover.Trigger className={variant === 'swatch' ? 'color-picker-trigger color-picker-trigger-swatch' : 'color-picker-trigger'} disabled={disabled} aria-label={copy.open(label)} title={variant === 'swatch' ? copy.open(label) : undefined}><span className="color-picker-swatch" aria-hidden="true"><span className="color-picker-swatch-fill" style={{ backgroundColor: color ? formatRgb(color) : 'transparent' }} /></span>{variant === 'field' && <span>{value}</span>}</Popover.Trigger><Popover.Portal className={`theme-${mode}`}><Popover.Positioner side="left" align="start" sideOffset={8} className="color-picker-positioner"><Popover.Popup className="color-picker-popup"><div className="color-picker-header"><div className="color-picker-space-tabs"><span>{copy.srgb}</span><button type="button" disabled title={copy.displayP3Unavailable}>{copy.displayP3}</button></div><Popover.Close className="color-picker-close" aria-label={copy.close}><Icon name="close" /></Popover.Close></div><Popover.Title className="color-picker-title">{label}</Popover.Title><ColorDraft label={label} value={value} onChange={onChange} allowAlpha={allowAlpha} /></Popover.Popup></Popover.Positioner></Popover.Portal></Popover.Root>
+  return <Popover.Root open={open} onOpenChange={setOpen}><Popover.Trigger className={variant === 'swatch' ? 'color-picker-trigger color-picker-trigger-swatch' : 'color-picker-trigger'} disabled={disabled} aria-label={copy.open(label)} title={variant === 'swatch' ? copy.open(label) : undefined}><span className="color-picker-swatch" aria-hidden="true"><span className="color-picker-swatch-fill" style={{ backgroundColor: color ? formatRgb(color) : 'transparent' }} /></span>{variant === 'field' && <span>{value}</span>}</Popover.Trigger><Popover.Portal className={`theme-${mode}`}><Popover.Positioner side="left" align="start" sideOffset={8} className="color-picker-positioner"><Popover.Popup className="color-picker-popup"><ColorDraft label={label} value={value} onChange={onChange} allowAlpha={allowAlpha} close={<Popover.Close className="color-picker-close" aria-label={copy.close}><Icon name="close" /></Popover.Close>} /></Popover.Popup></Popover.Positioner></Popover.Portal></Popover.Root>
 }

@@ -10,7 +10,10 @@ outputs/
 .next/
 .turbo/
 .wrangler/
+.vercel/
 release/
+.tmp/
+apps/desktop/.tmp/
 
 # Local agent and research material
 .agents/
@@ -41,6 +44,8 @@ bun.lock
 !.env.local.example
 !.env.production.example
 apps/workers/.dev.vars
+apps/sync-worker/.dev.vars
+apps/sync-coordinator/.dev.vars
 *.pem
 *.key
 *.p12
@@ -54,3 +59,6 @@ apps/workers/.dev.vars
 *.zip
 Thumbs.db
 .DS_Store
+
+.vercel
+.env*

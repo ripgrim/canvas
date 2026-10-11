@@ -1,16 +1,21 @@
 import { electronClient } from '@better-auth/electron/client'
-import { storage } from '@better-auth/electron/storage'
 import { createAuthClient } from 'better-auth/client'
 import type { BetterAuthClientPlugin } from 'better-auth/client'
+import Conf from 'conf'
 import electron from 'electron'
 import { createHash, randomBytes } from 'node:crypto'
-import type { AuthSessionView } from './index'
+import { authUserView } from './index.js'
+import type { AuthSessionView } from './index.js'
 import { decodeDesktopAuthorization } from './electron-callback.js'
 import { resolveAuthenticatedApiPath } from './api-target.js'
+import { createElectronSessionStorage, migrateLegacyEncryptedAuthStorage } from './electron-storage.js'
+import type { AuthStorageBackend } from './electron-storage.js'
 
 export { decodeDesktopAuthorization } from './electron-callback.js'
+export { createElectronSessionStorage, migrateLegacyEncryptedAuthStorage } from './electron-storage.js'
+export type { AuthStorage, AuthStorageBackend, AuthStorageProtection, ElectronSessionStorageOptions } from './electron-storage.js'
 
-const { shell } = electron
+const { app, safeStorage, shell } = electron
 
 export type ElectronAuthClientOptions = Readonly<{
   baseURL: string
@@ -54,23 +59,35 @@ function authorizationAttempt(): PendingAuthorization & Readonly<{ codeChallenge
   }
 }
 
-function userView(value: unknown): AuthSessionView['user'] {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const user = value as Record<string, unknown>
-  if (typeof user.id !== 'string' || typeof user.name !== 'string' || typeof user.email !== 'string') return null
-  const avatarUrl = typeof user.image === 'string' && /^https:\/\//.test(user.image) ? user.image : null
-  return Object.freeze({ id: user.id, name: user.name, email: user.email, avatarUrl })
+function protectedPersistentStorage(storagePrefix: string) {
+  const config = new Conf<Record<string, string>>({
+    cwd: app.getPath('userData'),
+    projectName: app.getName(),
+    projectVersion: app.getVersion(),
+  })
+  const backend: AuthStorageBackend = {
+    get: name => config.get(name),
+    set: (name, value) => { config.set(name, value) },
+  }
+  const storageOptions = { backend, protection: safeStorage, platform: process.platform }
+  const protectedStorage = createElectronSessionStorage(storageOptions)
+  migrateLegacyEncryptedAuthStorage(storageOptions, protectedStorage, [
+    `${storagePrefix}.cookie`,
+    `${storagePrefix}.local_cache`,
+  ])
+  return protectedStorage
 }
 
 /** Main-process-only Better Auth client. The returned facade cannot expose cookies, tokens, or the underlying client. */
 export function createElectronAuthClient(options: ElectronAuthClientOptions): ElectronAuthClient {
+  const storagePrefix = options.storagePrefix ?? 'design-editor-auth'
   const plugin = electronClient({
     signInURL: options.signInURL,
     protocol: { scheme: options.scheme },
     callbackPath: options.callbackPath,
     clientID: options.clientID ?? 'design-editor-desktop',
-    storage: storage(),
-    storagePrefix: options.storagePrefix ?? 'design-editor-auth',
+    storage: protectedPersistentStorage(storagePrefix),
+    storagePrefix,
     channelPrefix: 'design-editor-internal-auth',
     userImageProxy: { enabled: false },
   })
@@ -110,14 +127,14 @@ export function createElectronAuthClient(options: ElectronAuthClientOptions): El
         },
       })
       if (result.error) throw new Error(result.error.message ?? result.error.statusText)
-      const user = userView(result.data?.user)
+      const user = authUserView(result.data?.user)
       if (!user) throw new Error('The auth server returned an invalid user.')
       return user
     },
     getUser: async () => {
       const result = await client.getSession()
       if (result.error) throw new Error(result.error.message ?? result.error.statusText)
-      return userView(result.data?.user)
+      return authUserView(result.data?.user)
     },
     signOut: async () => {
       const result = await client.signOut()

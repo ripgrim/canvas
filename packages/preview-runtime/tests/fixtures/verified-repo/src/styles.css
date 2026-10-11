@@ -1,0 +1,10 @@
+@font-face {
+  font-family: "Registry fixture";
+  src: url("/registry-assets/fixture.woff2") format("woff2");
+}
+
+.verified-alert {
+  color: rgb(12 34 56);
+  font-family: "Registry fixture", sans-serif;
+  background-image: url("/registry-assets/mark.svg");
+}

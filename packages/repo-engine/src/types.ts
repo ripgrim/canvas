@@ -16,6 +16,8 @@ export type Atom = ComponentBinding & {
   name: string
   kind: 'atom' | 'component'
   props: { name: string; type: string; optional: boolean }[]
+  /** Verified named React child positions. Missing means the legacy schema, not an unrestricted component. */
+  slots?: string[]
 }
 export type Composition = {
   id: string
@@ -56,5 +58,20 @@ export type SaveResult = {
 }
 export type EngineOptions = {
   afterReplacement?: (index: number) => void | Promise<void>
-  validatePreview?: (input: { root: string; files: Record<string, string>; binding: { componentId: string; entryPath: string; exportName: string } }) => Promise<void>
+  validatePreview?: (input: {
+    root: string
+    files: Record<string, string>
+    binding: {
+      componentId: string
+      entryPath: string
+      exportName: string
+      registry: {
+        componentId: string
+        entryPath: string
+        exportName: string
+        props: Record<string, never>
+        slots: string[]
+      }[]
+    }
+  }) => Promise<void>
 }

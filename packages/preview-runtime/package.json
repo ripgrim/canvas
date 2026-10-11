@@ -8,7 +8,9 @@
     "./protocol": "./dist/protocol.js",
     "./browser-contracts": "./dist/browser-contracts.js",
     "./browser": "./dist/browser-runtime.mjs",
-    "./source-binding-plugin": "./dist/source-binding-plugin.mjs"
+    "./source-binding-plugin": "./dist/source-binding-plugin.mjs",
+    "./verified-registry": "./dist/verified-registry.mjs",
+    "./verified-registry-plugin": "./dist/verified-registry-plugin.mjs"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

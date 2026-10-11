@@ -18,7 +18,7 @@ export function FileScreen({ result, onHome, onPageChange, onOpenDefaultPage }: 
   if (result.status === 'missing-page') return <HomeRoot mode={mode} label={copy.fileLabel}><HomeMain>{header}<HomeContent><HomeErrorPanel title={copy.missingPageTitle(result.fileName)} body={copy.missingPageBody} actions={<><Button variant="primary" onClick={onOpenDefaultPage}>{copy.openDefaultPage}</Button>{back}</>} /></HomeContent></HomeMain></HomeRoot>
   if (result.status === 'missing-file') return <HomeRoot mode={mode} label={copy.fileLabel}><HomeMain>{header}<HomeContent><HomeErrorPanel title={copy.missingFileTitle} body={copy.missingFileBody(result.fileId)} actions={back} /></HomeContent></HomeMain></HomeRoot>
   if (result.status === 'unavailable') return <HomeRoot mode={mode} label={copy.fileLabel}><HomeMain>{header}<HomeContent><HomeErrorPanel title={copy.unavailableTitle} body={result.reason} actions={back} /></HomeContent></HomeMain></HomeRoot>
-  return <HomeRoot mode={mode} label={copy.fileLabel}><HomeMain>{header}<HomeContent><HomeErrorPanel title={copy.errorTitle} body={result.message} actions={back} /></HomeContent></HomeMain></HomeRoot>
+  return <HomeRoot mode={mode} label={copy.fileLabel}><HomeMain>{header}<HomeContent><HomeErrorPanel title={copy.errorTitle} body={result.message} {...(result.reference ? { reference: copy.errorReference(result.reference) } : {})} actions={back} /></HomeContent></HomeMain></HomeRoot>
 }
 
 export function FileLoading() {

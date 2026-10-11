@@ -14,4 +14,5 @@ export const authCopy = {
   github: 'Continue with GitHub',
   unavailable: 'Account sign-in is not configured for this build.',
   status: (status: AuthStatus) => status === 'callback-expired' ? 'The sign-in link expired.' : status === 'denied' ? 'GitHub sign-in was denied.' : status === 'offline' ? 'The auth service is offline.' : status === 'revoked' ? 'Your session was revoked.' : 'Sign-in could not finish.',
+  errorReference: (reference: string) => `Error ID ${reference}`,
 } as const

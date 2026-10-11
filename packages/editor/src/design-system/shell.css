@@ -15,7 +15,8 @@
 @media (prefers-reduced-motion: reduce) { .panel-resizer::after { transition: none; } }
 .work-area { position: relative; }
 .left-rail > .panel-header-bar, .right-rail > .panel-header-bar { position: sticky; top: 0; z-index: 3; background: var(--neutral-1); }
-.panel-toolbar { position: sticky; top: 0; z-index: 3; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; gap: 2px; padding: var(--space-l) var(--space-m) var(--space-xs); background: var(--neutral-1); }
+.panel-toolbar { position: sticky; top: 0; z-index: 3; flex-shrink: 0; display: flex; align-items: center; gap: 2px; padding: var(--space-l) var(--space-m) var(--space-xs); background: var(--neutral-1); }
+.panel-toolbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; margin-left: auto; }
 .panel-toolbar .button { min-height: 22px; margin-left: var(--space-xs); padding: 0 var(--space-s); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-medium); }
 .header-icon-button[data-compact] { padding: 0; color: var(--neutral-6); }
 .header-icon-button[data-compact] .icon { width: 15px; height: 15px; }

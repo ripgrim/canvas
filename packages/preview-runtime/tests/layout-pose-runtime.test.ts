@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { chromium, type Browser, type Frame, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createPreviewRuntime } from '../src/index.js'
+import { fixtureRegistry } from './fixture-registry.js'
 import { apply } from '../../repo-engine/src/layout-matrix.js'
 import { worldMatrixOf } from '../../editor/src/features/editor/layout-pose'
 import type { MeasuredNode } from '../../editor/src/features/editor/scene-geometry'
@@ -16,7 +17,7 @@ const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, c
 // (-480/2 + 24, -640/2 + 24) = (-216, -296).
 
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
-const registry = ['Card', 'Label', 'Input', 'Button'].map(exportName => ({ componentId: `atom-${exportName.toLowerCase()}`, exportName, entryPath: `src/atoms/${exportName}.tsx` }))
+const registry = fixtureRegistry
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false }
 const previewDocument = {
   version: 1, revision: 1, rootIds: ['card-1'], frame: frameSize,

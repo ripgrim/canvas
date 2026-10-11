@@ -15,6 +15,10 @@
     "./contracts": {
       "types": "./dist/contracts.d.ts",
       "import": "./dist/contracts.js"
+    },
+    "./preview-registry": {
+      "types": "./dist/preview-registry.d.ts",
+      "import": "./dist/preview-registry.js"
     }
   },
   "scripts": {

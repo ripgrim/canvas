@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { build } from 'vite'
 import { sourceBindingPlugin } from './source-binding-plugin.mjs'
+import { verifiedModuleBoundaryPlugin, verifiedRegistryPlugin } from './verified-registry-plugin.mjs'
 
 try {
   const settings = JSON.parse(await readFile(process.argv[2], 'utf8'))
@@ -11,7 +12,11 @@ try {
     base: `/build/${settings.generation}/`,
     logLevel: 'silent',
     publicDir: false,
-    plugins: [sourceBindingPlugin(settings.sourceBindings ?? [], settings.bindingRuntime)],
+    plugins: [
+      sourceBindingPlugin(settings.sourceBindings ?? [], settings.bindingRuntime),
+      verifiedRegistryPlugin(settings.verifiedRegistry),
+      verifiedModuleBoundaryPlugin(settings.verifiedRegistry, [settings.workRoot, settings.runtimeRoot]),
+    ],
     resolve: { alias: Object.entries(settings.alias).map(([name, replacement]) => ({ find: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), replacement })) },
     esbuild: { jsx: 'automatic' },
     build: { outDir: settings.outputRoot, emptyOutDir: true, sourcemap: false, minify: false, rollupOptions: { input: settings.htmlPath } },

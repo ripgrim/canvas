@@ -6,6 +6,7 @@ const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, c
 
 const parent = {} as Window
 const command = { channel: 'design-editor-preview', version: 3, generation: 4, type: 'set-props', props: { variant: 'quiet' } }
+const onePixelAvif = 'AAAAHGZ0eXBhdmlmAAAAAG1pZjFhdmlmbWlhZgAAANZtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAAA5waXRtAAAAAAABAAAAImlsb2MAAAAAREAAAQABAAAAAAD6AAEAAAAAAAAAHwAAACNpaW5mAAAAAAABAAAAFWluZmUCAAAAAAEAAGF2MDEAAAAAVmlwcnAAAAA4aXBjbwAAAAxhdjFDgUBsAAAAABRpc3BlAAAAAAAAAAEAAAABAAAAEHBpeGkAAAAAAwwMDAAAABZpcG1hAAAAAAAAAAEAAQOBAgMAAAAnbWRhdBIACghYAAY0BDQbhDIRGAAOOOOEAACwE1TtMKTrDPw='
 const fixtureDocument = (): PreviewDocument => ({
   version: 1, revision: 2, rootIds: ['card-1'],
   nodes: {
@@ -16,6 +17,12 @@ const fixtureDocument = (): PreviewDocument => ({
   },
   frame: { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: true },
 })
+const fixtureRegistry = [
+  { componentId: 'atom-card', exportName: 'Card', props: {}, slots: ['children', 'heading', 'footer'] },
+  { componentId: 'atom-label', exportName: 'Label', props: { children: { kind: 'string' }, htmlFor: { kind: 'string' } }, slots: [] },
+  { componentId: 'atom-input', exportName: 'Input', props: { id: { kind: 'string' }, type: { kind: 'string' }, disabled: { kind: 'boolean' } }, slots: [] },
+  { componentId: 'atom-button', exportName: 'Button', props: { children: { kind: 'string' }, variant: { kind: 'enum', values: ['primary', 'quiet'] }, type: { kind: 'enum', values: ['button', 'submit', 'reset'] } }, slots: [] },
+] as const
 
 describe('AT-SEC-003 narrow preview protocol', () => {
   it('accepts one correctly addressed props command', () => {
@@ -48,7 +55,7 @@ describe('AT-SEC-003 narrow preview protocol', () => {
 })
 
 describe('AT-PRV-005 document atom protocol', () => {
-  const deliver = (data: unknown, document: PreviewDocument | null = null) => acceptPreviewCommand({ origin: 'http://127.0.0.1:4319', source: parent, data }, 'http://127.0.0.1:4319', parent, 4, document)
+  const deliver = (data: unknown, document: PreviewDocument | null = null) => acceptPreviewCommand({ origin: 'http://127.0.0.1:4319', source: parent, data }, 'http://127.0.0.1:4319', parent, 4, document, fixtureRegistry)
   const envelope = { channel: 'design-editor-preview', version: 3, generation: 4 }
   it('accepts typed atom documents and both concrete themes', () => {
     const doc = fixtureDocument()
@@ -64,6 +71,14 @@ describe('AT-PRV-005 document atom protocol', () => {
     for (const mode of ['select', 'pan', 'interact']) expect(deliver({ ...envelope, type: 'set-interaction-mode', mode })).toEqual({ ...envelope, type: 'set-interaction-mode', mode })
     expect(deliver({ ...envelope, type: 'set-interaction-mode', mode: 'execute' })).toBeNull()
     expect(deliver({ ...envelope, type: 'set-interaction-mode', mode: 'interact', path: '../file' })).toBeNull()
+  })
+  it('accepts scalar document content only for declared slots', () => {
+    const doc = fixtureDocument()
+    doc.nodes['card-1']!.props.footer = 'Document footer'
+    expect(deliver({ ...envelope, type: 'set-document', document: doc })).not.toBeNull()
+
+    doc.nodes['card-1']!.props.content = 'Undeclared content'
+    expect(deliver({ ...envelope, type: 'set-document', document: doc })).toBeNull()
   })
   it('accepts only bounded render-safe page background colors', () => {
     const doc = fixtureDocument()
@@ -98,6 +113,7 @@ describe('AT-PRV-005 document atom protocol', () => {
     ['invalid Input slot', (doc: PreviewDocument) => { doc.nodes['input-1']!.children.children = ['label-1'] }],
     ['invalid Card slot', (doc: PreviewDocument) => { doc.nodes['card-1']!.children.content = [] }],
     ['colliding text slot', (doc: PreviewDocument) => { doc.nodes['card-1']!.props.children = 'Replace components' }],
+    ['undeclared scalar slot prop', (doc: PreviewDocument) => { doc.nodes['card-1']!.props.content = 'Not declared' }],
     ['invalid Button variant', (doc: PreviewDocument) => { doc.nodes['button-1']!.props.variant = 'invented' }],
     ['invalid prop type', (doc: PreviewDocument) => { doc.nodes['input-1']!.props.disabled = 'false' }],
     ['unknown prop', (doc: PreviewDocument) => { doc.nodes['input-1']!.props.madeUp = 'invalid' }],
@@ -337,5 +353,9 @@ describe('AT-APP-003 and AT-SEC-003 appearance protocol', () => {
     const elements = Array.from({ length: 500 }, (_, index) => ({ ...element({ fills: Array.from({ length: 16 }, () => ({ type: 'gradient', shape: 'linear', angle: 0, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'oklab', stops: [{ color: 'oklch(0.5 0.1 120 / 0.5)', position: 0 }, { color: 'oklch(0.5 0.1 120 / 0.5)', position: 1 }] })) }), id: `box-${index}` }))
     expect(isPreviewDocument({ ...fixtureDocument(), canvas: { elements: elements.slice(0, 100) } })).toBe(true)
     expect(isPreviewDocument({ ...fixtureDocument(), canvas: { elements } })).toBe(false)
+  })
+
+  it('FILE-ASSET-001 accepts real AVIF bytes at the isolated preview schema boundary', () => {
+    expect(isPreviewDocument(documentWith(full(), { 'photo-1': { mime: 'image/avif', data: onePixelAvif } }))).toBe(true)
   })
 })

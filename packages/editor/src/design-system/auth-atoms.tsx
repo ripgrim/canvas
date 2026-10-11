@@ -16,6 +16,7 @@ export function AuthCard({ children }: { children: ReactNode }) { return <sectio
 export function AuthTitle({ children }: { children: ReactNode }) { return <h1 className="auth-title">{children}</h1> }
 
 export function AuthBody({ children }: { children: ReactNode }) { return <p className="auth-body">{children}</p> }
+export function AuthErrorReference({ children }: { children: ReactNode }) { return <p className="auth-error-reference">{children}</p> }
 
 export function AuthActions({ children }: { children: ReactNode }) { return <div className="auth-actions">{children}</div> }
 

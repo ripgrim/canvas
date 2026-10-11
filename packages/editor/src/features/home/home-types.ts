@@ -10,7 +10,7 @@ export type HomeStatus =
   | Readonly<{ kind: 'ready' }>
   | Readonly<{ kind: 'creating'; phases: readonly HomePhase[] }>
   | Readonly<{ kind: 'opening'; fileId: string; fileName: string; phases: readonly HomePhase[] }>
-  | Readonly<{ kind: 'error'; operation: 'list' | 'create' | 'open'; message: string; fileName?: string }>
+  | Readonly<{ kind: 'error'; operation: 'list' | 'create' | 'open'; message: string; reference: string; fileName?: string }>
 
 export type HomeViewProps = Readonly<{
   mode: 'light' | 'dark'

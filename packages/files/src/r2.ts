@@ -3,6 +3,7 @@ import { r2 } from "files-sdk/r2"
 
 import type {
   AssetDownload,
+  AssetListRequest,
   AssetObjectInfo,
   AssetStore,
   AssetWriteOptions,
@@ -38,6 +39,18 @@ interface R2PutBinding {
       customMetadata: Record<string, string>
     },
   ): Promise<R2PutObject | null>
+  head(key: string): Promise<R2PutObject | null>
+  list(options: {
+    prefix: string
+    cursor?: string
+    limit: number
+    include: readonly ["httpMetadata", "customMetadata"]
+  }): Promise<{
+    objects: R2PutObject[]
+    truncated: boolean
+    cursor?: string
+  }>
+  delete(key: string): Promise<void>
 }
 
 function asPutBinding(binding: object): R2PutBinding {
@@ -50,6 +63,16 @@ function asPutBinding(binding: object): R2PutBinding {
 function assertCopyBinding(binding: R2PutBinding): void {
   if (!("get" in binding) || typeof binding.get !== "function") {
     throw new Error("FILE_ASSETS must support R2 reads")
+  }
+}
+
+function assertMaintenanceBinding(binding: R2PutBinding): void {
+  if (
+    !("head" in binding) || typeof binding.head !== "function" ||
+    !("list" in binding) || typeof binding.list !== "function" ||
+    !("delete" in binding) || typeof binding.delete !== "function"
+  ) {
+    throw new Error("FILE_ASSETS must support R2 maintenance operations")
   }
 }
 
@@ -94,9 +117,14 @@ export function createR2BindingAssetStore(
       body: Uint8Array,
       writeOptions: AssetWriteOptions,
     ): Promise<AssetObjectInfo> {
-      if (writeOptions.immutable) {
+      const condition = writeOptions.condition ??
+        (writeOptions.immutable ? { type: "create" as const } : undefined)
+      if (condition) {
+        const onlyIf = condition.type === "create"
+          ? new Headers({ "If-None-Match": "*" })
+          : new Headers({ "If-Match": condition.etag })
         const stored = await binding.put(key, body, {
-          onlyIf: new Headers({ "If-None-Match": "*" }),
+          onlyIf,
           httpMetadata: {
             contentType: writeOptions.contentType,
             cacheControl: writeOptions.cacheControl,
@@ -104,7 +132,7 @@ export function createR2BindingAssetStore(
           customMetadata: { ...writeOptions.metadata },
         })
         if (!stored) {
-          throw new FileAssetError("conflict", "Asset already exists", 409)
+          throw new FileAssetError("conflict", "Asset changed before upload", 409)
         }
         return {
           key: stored.key,
@@ -152,8 +180,12 @@ export function createR2BindingAssetStore(
       if (!source) {
         throw new FileAssetError("not_found", "Source asset not found", 404)
       }
+      const condition = writeOptions.condition ?? { type: "create" as const }
+      const onlyIf = condition.type === "create"
+        ? new Headers({ "If-None-Match": "*" })
+        : new Headers({ "If-Match": condition.etag })
       const stored = await binding.put(to, new Uint8Array(await source.arrayBuffer()), {
-        onlyIf: new Headers({ "If-None-Match": "*" }),
+        onlyIf,
         httpMetadata: {
           contentType: writeOptions.contentType,
           cacheControl: writeOptions.cacheControl,
@@ -163,6 +195,33 @@ export function createR2BindingAssetStore(
       if (!stored) {
         throw new FileAssetError("conflict", "Target asset already exists", 409)
       }
+    },
+    async list(input: AssetListRequest) {
+      assertMaintenanceBinding(binding)
+      const page = await binding.list({
+        prefix: input.prefix,
+        ...(input.cursor ? { cursor: input.cursor } : {}),
+        limit: input.limit,
+        include: ["httpMetadata", "customMetadata"],
+      })
+      return {
+        objects: page.objects.map(object => ({
+          key: object.key,
+          size: object.size,
+          contentType: object.httpMetadata?.contentType ?? "application/octet-stream",
+          etag: object.etag,
+          lastModified: object.uploaded,
+          ...(object.customMetadata ? { metadata: object.customMetadata } : {}),
+        })),
+        ...(page.truncated && page.cursor ? { cursor: page.cursor } : {}),
+      }
+    },
+    async delete(key: string): Promise<boolean> {
+      assertMaintenanceBinding(binding)
+      const current = await binding.head(key)
+      if (!current) return false
+      await binding.delete(key)
+      return true
     },
   }
 }

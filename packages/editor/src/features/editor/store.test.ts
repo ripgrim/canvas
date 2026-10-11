@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { createDocumentStore } from './document-store'
-import { createEditorStore } from './store'
+import { configureEditorStore, createEditorStore, waitForEditorStoreConfiguration, withEditorStoreConfiguration } from './store'
 import type { HistoryStorage } from './document-history'
 import type { DesignEditorApi, PreparedChange, ProjectSnapshot } from './types'
+import type { EditorPersistenceIntent } from '../../capabilities'
 
 const labelAtom = { name: 'Label', kind: 'atom' as const, componentId: 'label-component', path: 'src/Label.tsx', exportName: 'Label', fingerprint: 'f', sourceHash: 'h', status: 'bound' as const, candidates: [], props: [{ name: 'children', type: 'ReactNode', optional: true }] }
 const file = (): FileDocument => ({
-  schemaVersion: 6, fileId: 'file-a', revision: 3,
+  schemaVersion: 7, fileId: 'file-a', revision: 3,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -31,7 +32,7 @@ const projectFor = (fileId: string): ProjectSnapshot => {
 }
 const change: PreparedChange = { id: 'review-1', approvalDigest: 'digest-for-reviewed-input', scope: 'Shared component', summary: 'Update Label padding', files: [{ path: 'src/Label.tsx', before: 'padding: 0', after: 'padding: 8', diff: '-padding: 0\n+padding: 8' }], validation: [{ name: 'Parse', status: 'passed', detail: 'Parsed' }] }
 const viewKey = 'design-editor.view-state.v1'
-const historyKey = 'design-editor:document-history:v2:file-a'
+const historyKey = 'design-editor:document-history:v3:file-a'
 
 function memory(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial))
@@ -47,23 +48,181 @@ function setup(options: { storage?: ReturnType<typeof memory>; documents?: boole
   const undo = vi.fn<DesignEditorApi['prepareUndo']>().mockResolvedValue(change)
   const redo = vi.fn<DesignEditorApi['prepareRedo']>().mockResolvedValue(change)
   const openFile = vi.fn<NonNullable<DesignEditorApi['openFile']>>().mockImplementation(async () => project())
+  const openSharedFile = vi.fn<NonNullable<DesignEditorApi['openSharedFile']>>().mockImplementation(async () => project())
   const listFiles = vi.fn<NonNullable<DesignEditorApi['listFiles']>>().mockResolvedValue([{ id: 'file-a', name: 'Login', location: 'local' }])
   const saveFile = vi.fn<DesignEditorApi['saveFile']>().mockImplementation(async (next, expected) => ({ ...project(), file: { ...structuredClone(next), revision: expected + 1 } }))
+  const getFileShare = vi.fn<NonNullable<DesignEditorApi['getFileShare']>>().mockResolvedValue({ fileId: 'file-a', access: 'private', updatedAt: '2026-10-10T00:00:00.000Z' })
+  const setFileShare = vi.fn<NonNullable<DesignEditorApi['setFileShare']>>().mockImplementation(async (fileId, access) => ({ fileId, access, updatedAt: '2026-10-10T00:00:01.000Z' }))
   const available = { available: true, reason: 'Fixture' }
   const unavailable = { available: false, reason: 'Unavailable' }
   const api: DesignEditorApi = {
     capabilities: { runtime: 'desktop', openLabel: 'Open fixture', files: { list: available, create: unavailable, open: available }, sourceWrites: { available: true, reason: 'Explicit test grant' }, localRepository: available, hostedExecution: unavailable, git: unavailable, mcp: unavailable, hostedProjects: unavailable },
-    listFiles, openFile, openProject: async () => project(), refresh, saveFile,
+    listFiles, openFile, openSharedFile, openProject: async () => project(), refresh, saveFile, getFileShare, setFileShare, shareUrl: fileId => `https://canvas.test/file/${fileId}`,
     prepareLabelPadding: prepare, prepareToken, preparePromotion: async () => ({ ...change, summary: 'Create LoginForm' }), prepareUndo: undo, prepareRedo: redo, savePrepared: save,
   }
   const storage = options.storage ?? memory()
   const documents = options.documents === false ? undefined : createDocumentStore(() => 'new-id')
   const store = createEditorStore(() => api, documents, () => storage.api)
-  return { api, save, refresh, prepare, prepareToken, undo, redo, openFile, listFiles, saveFile, storage, documents: documents!, store }
+  return { api, save, refresh, prepare, prepareToken, undo, redo, openFile, openSharedFile, listFiles, saveFile, getFileShare, setFileShare, storage, documents: documents!, store }
 }
 const storedView = (fileId: string, view: object) => ({ [viewKey]: JSON.stringify({ schemaVersion: 1, files: { [fileId]: view } }) })
 
 describe('AT-FILE opening files into the document controller', () => {
+  it('UI-COLLAB-READONLY-001 opens a public snapshot in the full editor with mutations denied', async () => {
+    const { store, documents, openSharedFile, listFiles } = setup()
+    expect(await store.openSharedLocation('file-a', 'page-1')).toEqual({ status: 'ok', fileId: 'file-a', pageId: 'page-1', fileName: 'Login' })
+    expect(openSharedFile).toHaveBeenCalledWith('file-a')
+    expect(listFiles).not.toHaveBeenCalled()
+    expect(documents.getSnapshot().readOnly).toBe(true)
+    expect(documents.commands.rename('label-instance', 'Changed')).toBe(false)
+    expect(documents.getSnapshot().file?.nodes['label-instance']).not.toHaveProperty('name', 'Changed')
+  })
+
+  it('UI-COLLAB-READONLY-001 requires owned access before upgrading a public view', async () => {
+    const { store, documents, openFile, listFiles } = setup()
+    await store.openSharedLocation('file-a', 'page-1')
+
+    expect(await store.openLocation('file-a', 'page-1')).toEqual({ status: 'ok', fileId: 'file-a', pageId: 'page-1', fileName: 'Login' })
+    expect(listFiles).toHaveBeenCalledTimes(1)
+    expect(openFile).toHaveBeenCalledWith('file-a')
+    expect(documents.getSnapshot().readOnly).toBe(false)
+    expect(documents.commands.rename('label-instance', 'Changed')).toBe(true)
+  })
+
+  it('AT-AUTH-003 clears the rendered file when the authenticated session ends', async () => {
+    const { store, documents } = setup()
+    await store.openFile('file-a')
+    expect(store.getSnapshot().snapshot?.fileId).toBe('file-a')
+    expect(documents.getSnapshot().file?.fileId).toBe('file-a')
+
+    store.clearFile()
+
+    expect(store.getSnapshot().snapshot).toBeNull()
+    expect(documents.getSnapshot().file).toBeNull()
+    expect(documents.getSnapshot().selection).toEqual([])
+  })
+
+  it('AT-SHARE-003 loads access without changing it and saves only the selected update', async () => {
+    const { store, getFileShare, setFileShare } = setup()
+    await store.openFile('file-a')
+    await store.openShare()
+    expect(getFileShare).toHaveBeenCalledWith('file-a')
+    expect(setFileShare).not.toHaveBeenCalled()
+    expect(store.getSnapshot()).toMatchObject({ shareOpen: true, shareAccess: 'private', shareDraft: 'private', shareBusy: false })
+
+    store.setShareDraft('view')
+    await store.saveShare()
+    expect(setFileShare).toHaveBeenCalledWith('file-a', 'view')
+    expect(store.getSnapshot()).toMatchObject({ shareAccess: 'view', shareDraft: 'view', shareError: null })
+    expect(store.shareUrl()).toBe('https://canvas.test/file/file-a')
+  })
+
+  it('AT-SHARE-003 reconciles access when an update response is lost', async () => {
+    const { store, getFileShare, setFileShare } = setup()
+    await store.openFile('file-a')
+    await store.openShare()
+    store.setShareDraft('view')
+    setFileShare.mockRejectedValueOnce(new Error('Could not update link access.'))
+    getFileShare.mockResolvedValueOnce({ fileId: 'file-a', access: 'view', updatedAt: new Date().toISOString() })
+    await expect(store.saveShare()).resolves.toBe(true)
+    expect(store.getSnapshot()).toMatchObject({ shareAccess: 'view', shareDraft: 'view', shareBusy: false, shareError: null })
+  })
+
+  it('AT-SHARE-003 leaves access unconfirmed when update reconciliation also fails', async () => {
+    const { store, getFileShare, setFileShare } = setup()
+    await store.openFile('file-a')
+    await store.openShare()
+    store.setShareDraft('view')
+    setFileShare.mockRejectedValueOnce(new Error('Could not update link access.'))
+    getFileShare.mockRejectedValueOnce(new Error('Offline.'))
+    await expect(store.saveShare()).resolves.toBe(false)
+    expect(store.getSnapshot()).toMatchObject({ shareAccess: null, shareDraft: 'view', shareBusy: false, shareError: 'Access could not be confirmed. Offline.' })
+  })
+
+  it('CLOUD-SYNC-READONLY-001 denies share commands and invalidates an in-flight owner read after downgrade', async () => {
+    const owner = setup()
+    let resolveShare: ((value: { fileId: string; access: 'private'; updatedAt: string }) => void) | undefined
+    owner.getFileShare.mockImplementationOnce(() => new Promise(resolve => { resolveShare = resolve }))
+    await owner.store.openFile('file-a')
+    owner.store.setShareAuthority(true)
+    const pending = owner.store.openShare()
+    expect(owner.store.getSnapshot()).toMatchObject({ shareOpen: true, shareBusy: true })
+
+    owner.store.setShareAuthority(false)
+    resolveShare?.({ fileId: 'file-a', access: 'private', updatedAt: '2026-10-10T00:00:00.000Z' })
+    await pending
+    expect(owner.store.getSnapshot()).toMatchObject({ shareOpen: false, shareBusy: false, shareAccess: null, shareDraft: 'private', shareError: null })
+
+    await owner.store.openShare()
+    owner.store.setShareDraft('view')
+    await expect(owner.store.saveShare()).resolves.toBe(false)
+    expect(owner.getFileShare).toHaveBeenCalledTimes(1)
+    expect(owner.setFileShare).not.toHaveBeenCalled()
+  })
+
+  it('CLOUD-SYNC-READONLY-001 does not reconcile a rejected share update after authority downgrade', async () => {
+    const owner = setup()
+    let rejectUpdate: ((reason: Error) => void) | undefined
+    await owner.store.openFile('file-a')
+    owner.store.setShareAuthority(true)
+    await owner.store.openShare()
+    owner.store.setShareDraft('view')
+    owner.setFileShare.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectUpdate = reject }))
+
+    const pending = owner.store.saveShare()
+    expect(owner.store.getSnapshot().shareBusy).toBe(true)
+    owner.store.setShareAuthority(false)
+    rejectUpdate?.(new Error('Forbidden after downgrade.'))
+
+    await expect(pending).resolves.toBe(false)
+    expect(owner.getFileShare).toHaveBeenCalledTimes(1)
+    expect(owner.store.getSnapshot()).toMatchObject({ shareOpen: false, shareBusy: false, shareAccess: null, shareDraft: 'private', shareError: null })
+  })
+
+  it('waits for authenticated project access before a file route opens', async () => {
+    configureEditorStore(undefined)
+    let ready = false
+    const pending = waitForEditorStoreConfiguration().then(() => { ready = true })
+    await Promise.resolve()
+    expect(ready).toBe(false)
+
+    configureEditorStore(setup().api)
+    await pending
+    expect(ready).toBe(true)
+    configureEditorStore(undefined)
+  })
+
+  it('AT-FILE-ACCESS-001 waits again when project access disconnects during route startup', async () => {
+    configureEditorStore(setup().api)
+    const disconnected = createEditorStore(() => undefined)
+    const expected = { status: 'ok' as const, fileId: 'file-a', pageId: 'page-1', fileName: 'Login' }
+    let attempts = 0
+
+    const result = await withEditorStoreConfiguration(async () => {
+      attempts++
+      if (attempts === 1) return disconnected.openLocation('file-a', 'page-1')
+      return expected
+    })
+
+    expect(result).toEqual(expected)
+    expect(attempts).toBe(2)
+    configureEditorStore(undefined)
+  })
+
+  it('AT-FILE-ACCESS-001 does not retry an unrelated file failure', async () => {
+    configureEditorStore(setup().api)
+    const failure = new Error('File response was invalid')
+    let attempts = 0
+
+    await expect(withEditorStoreConfiguration(async () => {
+      attempts++
+      throw failure
+    })).rejects.toBe(failure)
+
+    expect(attempts).toBe(1)
+    configureEditorStore(undefined)
+  })
+
   it('loads the snapshot file on the stored view page with its camera and preview theme', async () => {
     const storage = memory(storedView('file-a', { fileId: 'file-a', activePageId: 'page-2', previewThemeId: 'dark', pageViews: { 'page-2': { camera: { x: 12, y: -8, zoom: 2 } } } }))
     const { store, documents, openFile } = setup({ storage })
@@ -76,6 +235,27 @@ describe('AT-FILE opening files into the document controller', () => {
     expect(store.getSnapshot().snapshot?.fileId).toBe('file-a')
     expect(store.getSnapshot().error).toBeNull()
     expect(store.getSnapshot().busy).toBeNull()
+  })
+
+  it('FILE-ASSET-LIFECYCLE-001 hydrates open and remote snapshot sidecars before document notifications', async () => {
+    const opened = project()
+    const asset = { id: 'photo', name: 'photo.png', mime: 'image/png' as const, extension: 'png' as const, width: 1, height: 1, bytes: 3, sha256: 'a'.repeat(64) }
+    opened.file = { ...opened.file, assets: { photo: asset } }
+    opened.assetPreviews = [{ assetId: 'photo', sha256: asset.sha256, mime: asset.mime, data: 'AAAA' }]
+    const { store, documents, openFile } = setup()
+    openFile.mockResolvedValueOnce(opened)
+    const observed: unknown[] = []
+    documents.subscribe(() => observed.push(documents.assetPreview('photo')))
+
+    await store.openFile('file-a')
+    expect(observed.at(-1)).toEqual({ mime: 'image/png', data: 'AAAA' })
+
+    const remote = structuredClone(opened)
+    remote.file.revision = 4
+    remote.assetPreviews = [{ assetId: 'photo', sha256: asset.sha256, mime: asset.mime, data: 'AQID' }]
+    expect(store.receiveExternalSnapshot(remote)).toBe(true)
+    expect(observed.at(-1)).toEqual({ mime: 'image/png', data: 'AQID' })
+    expect(documents.assetPreview('photo')).toEqual({ mime: 'image/png', data: 'AQID' })
   })
 
   it('opens the first page and requests a fit when no view was stored', async () => {
@@ -238,34 +418,36 @@ describe('AT-CAN whole-file persistence', () => {
     expect(documents.getSnapshot().file?.pages[0]?.name).toBe('Page 1')
   })
 
-  it('CLOUD-SYNC-CONFLICT-001 preserves unsaved local edits when a remote snapshot arrives', async () => {
+  it('CLOUD-SYNC-CONFLICT-001 rebases unsaved local edits when a remote snapshot arrives', async () => {
     const { store, documents } = setup()
     await store.openFile('file-a')
     documents.commands.setProps('label-instance', { children: 'Local edit' })
     const remote = project()
     remote.file.pages[0]!.name = 'Remote page'
     remote.file.revision = 4
-    expect(store.receiveExternalSnapshot(remote)).toBe(false)
+    expect(store.receiveExternalSnapshot(remote)).toBe(true)
     expect(documents.getSnapshot().file?.nodes['label-instance']).toMatchObject({ props: { children: 'Local edit' } })
-    expect(documents.getSnapshot().file?.pages[0]?.name).toBe('Page 1')
-    expect(store.getSnapshot().snapshot?.conflict?.message).toBe('This file changed in another session. Refresh before saving.')
+    expect(documents.getSnapshot().file?.pages[0]?.name).toBe('Remote page')
+    expect(store.getSnapshot().snapshot?.conflict).toBeNull()
   })
 
-  it('saves the file at the expected revision and caches undo history under the version 2 key', async () => {
+  it('saves the file at the expected revision and caches semantic undo history under the version 3 key', async () => {
     const { store, documents, saveFile, storage } = setup()
     await store.openFile('file-a')
     documents.select('label-instance')
     expect(documents.commands.setProps('label-instance', { children: 'Username' })).toBe(true)
     const edited = documents.getSnapshot().file!
-    const saved = await store.persistFile(edited, 3)
+    const intent: EditorPersistenceIntent = { kind: 'commands', commands: [{ type: 'node.setProps', nodeId: 'label-instance', props: { children: 'Username' } }] }
+    const saved = await store.persistFile(edited, 3, intent)
     expect(saveFile).toHaveBeenCalledTimes(1)
     expect(saveFile.mock.calls[0]![0]).toBe(edited)
     expect(saveFile.mock.calls[0]![1]).toBe(3)
+    expect(saveFile.mock.calls[0]![2]).toBe(intent)
     expect(saved.revision).toBe(4)
     expect(store.getSnapshot().snapshot?.file.revision).toBe(4)
     const payload = JSON.parse(storage.values.get(historyKey)!)
     expect(Object.keys(payload)).toEqual(['version', 'fileId', 'currentFile', 'history'])
-    expect(payload.version).toBe(2)
+    expect(payload.version).toBe(3)
     expect(payload.fileId).toBe('file-a')
     expect(payload.currentFile.revision).toBe(4)
     expect(payload.currentFile.nodes['label-instance'].props.children).toBe('Username')

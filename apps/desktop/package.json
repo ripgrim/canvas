@@ -5,13 +5,15 @@
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "pnpm --filter @canvas/web build && pnpm --filter @canvas/preview-runtime build && pnpm --filter @canvas/repo-engine build && pnpm --filter @canvas/scanner build && pnpm --filter @canvas/repository build && pnpm --filter @canvas/auth build && pnpm build && electron .",
+    "dev": "pnpm --filter @canvas/web build && pnpm --filter @canvas/preview-runtime build && pnpm --filter @canvas/repo-engine build && pnpm --filter @canvas/scanner build && pnpm --filter @canvas/repository build && pnpm --filter @canvas/auth build && pnpm build && electron . --development",
     "dev:renderer": "pnpm --filter @canvas/web dev",
     "build": "node ../../scripts/sync-web-assets.mjs && vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts",
     "package": "electron-builder --win nsis --publish never",
     "start": "electron .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run tests"
+    "test": "vitest run tests && node tests/auth-electron-boundary.mjs",
+    "test:electron-boundary": "node tests/auth-electron-boundary.mjs",
+    "test:launch-smoke": "node tests/launch-smoke.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",

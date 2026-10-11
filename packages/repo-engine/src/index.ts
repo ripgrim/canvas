@@ -210,9 +210,13 @@ export class RepoEngine {
     if (diagnostics.length) throw new Error(`Source validation failed:\n${project.formatDiagnosticsWithColorAndContext(diagnostics)}`)
     const targetComposition = reversal?.composition ?? this.metadata.composition
     const bound = reversal?.binding?.componentId === targetComposition.componentId ? reversal.binding : this.metadata.atoms.find(atom => atom.componentId === targetComposition.componentId)
-    const binding = promotionName
+    const selectedBinding = promotionName
       ? { componentId: this.metadata.composition.id, entryPath: `src/components/${promotionName}.tsx`, exportName: promotionName }
       : { componentId: bound?.componentId ?? this.metadata.composition.id, entryPath: bound?.path ?? 'src/PreviewLogin.tsx', exportName: bound?.exportName ?? 'PreviewLogin' }
+    const binding = {
+      ...selectedBinding,
+      registry: [{ ...selectedBinding, props: {}, slots: [] }],
+    }
     if (this.options.validatePreview) await this.options.validatePreview({ root: this.root, files: staged, binding })
     const change: PreparedChange = {
       id, approvalDigest: '', scope, summary, files,

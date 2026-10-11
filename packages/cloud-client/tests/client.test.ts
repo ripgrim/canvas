@@ -9,6 +9,19 @@ const file = {
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
 describe('cloud api client', () => {
+  it('accepts the opaque account ids issued by the auth service', async () => {
+    const user = { id: 'better-auth-user_01', name: 'Ada', email: 'ada@example.test', image: null }
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ user })) as typeof fetch, validateDocument: value => value })
+
+    await expect(client.session()).resolves.toEqual(user)
+  })
+
+  it('rejects unsafe account ids returned by the auth service', async () => {
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ user: { id: 'user\nforeign', name: 'Ada', email: 'ada@example.test', image: null } })) as typeof fetch, validateDocument: value => value })
+
+    await expect(client.session()).rejects.toThrow('Invalid user id')
+  })
+
   it('uses fixed credentialed routes for file metadata and revisioned documents', async () => {
     const requests: Array<{ url: string; init: RequestInit | undefined }> = []
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -48,6 +61,24 @@ describe('cloud api client', () => {
     await expect(wrongFile.openDocument(file.id)).rejects.toThrow('another file')
   })
 
+  it('ERROR-VISIBILITY-001 carries one request id through the request and public API failure', async () => {
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const requestId = new Headers(init?.headers).get('X-Canvas-Request-Id')
+      expect(requestId).toMatch(/^[0-9a-f-]{36}$/)
+      return new Response(JSON.stringify({ error: { code: 'internal_error', message: 'Request could not be completed.', requestId } }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'X-Canvas-Request-Id': requestId! },
+      })
+    })
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+    await expect(client.listFiles()).rejects.toMatchObject({ status: 500, code: 'internal_error', requestId: expect.stringMatching(/^[0-9a-f-]{36}$/) } satisfies Partial<CloudApiError>)
+  })
+
+  it('ERROR-VISIBILITY-001 assigns a request id when the network fails before a response', async () => {
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => { throw new TypeError('fetch failed') }) as typeof fetch, validateDocument: value => value })
+    await expect(client.listFiles()).rejects.toMatchObject({ status: 0, code: 'network_error', message: 'The service could not be reached.', requestId: expect.stringMatching(/^[0-9a-f-]{36}$/) } satisfies Partial<CloudApiError>)
+  })
+
   it('AT-THUMB-001 sets and clears only the stable thumbnail key for the expected revision', async () => {
     const key = `thumbnails/${file.id}/thumbnail.avif`
     const requests: Array<{ url: string; body: unknown }> = []
@@ -76,5 +107,27 @@ describe('cloud api client', () => {
     await expect(wrongRevision.setThumbnail(file.id, 3, key)).rejects.toThrow('another revision')
     const wrongFile = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ thumbnail: { fileId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', revision: 3, thumbnailKey: key } })) as typeof fetch, validateDocument: value => value })
     await expect(wrongFile.setThumbnail(file.id, 3, key)).rejects.toThrow('another file')
+  })
+
+  it('AT-SHARE-003 uses exact credentialed share routes and validates the read snapshot', async () => {
+    const calls: Array<{ url: string; method: string; body: unknown }> = []
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      const input = init?.body ? JSON.parse(String(init.body)) : null
+      calls.push({ url: String(url), method, body: input })
+      if (String(url).endsWith('/share')) return response({ share: { fileId: file.id, access: input?.access ?? 'private', updatedAt: file.updatedAt } })
+      return response({ file: { id: file.id, name: file.name, headRevision: 0, updatedAt: file.updatedAt }, fileId: file.id, revision: 0, document: { schemaVersion: 7 } })
+    })
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value as { schemaVersion: number } })
+
+    expect(await client.getFileShare(file.id)).toMatchObject({ access: 'private' })
+    expect(await client.setFileShare(file.id, 'view')).toMatchObject({ access: 'view' })
+    expect(await client.openSharedFile(file.id)).toMatchObject({ file: { id: file.id, name: file.name }, fileId: file.id, revision: 0, document: { schemaVersion: 7 } })
+    expect(calls).toEqual([
+      { url: `https://api.canvas.test/api/files/${file.id}/share`, method: 'GET', body: null },
+      { url: `https://api.canvas.test/api/files/${file.id}/share`, method: 'PUT', body: { access: 'view' } },
+      { url: `https://api.canvas.test/api/shared/files/${file.id}`, method: 'GET', body: null },
+    ])
+    expect(fetcher.mock.calls.every(([, init]) => init?.credentials === 'include')).toBe(true)
   })
 })

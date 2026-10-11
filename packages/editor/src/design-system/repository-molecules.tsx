@@ -33,6 +33,7 @@ const diagnosticDetails: Record<ShadcnDiagnostic['code'], string> = {
   'invalid-config': 'A shadcn configuration could not be read.',
   'missing-css': 'A configured token stylesheet was not found.',
   'missing-ui-root': 'A configured component directory was not found.',
+  'unsupported-preview-component': 'A component has props that cannot be previewed safely.',
 }
 
 export function RepositoryDiagnostics({ label, diagnostics }: { label: string; diagnostics: readonly ShadcnDiagnostic[] }) {

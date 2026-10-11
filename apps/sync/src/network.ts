@@ -68,6 +68,7 @@ export function createSyncNetworkServer(options: SyncNetworkServerOptions): Sync
     webSocket.on('message', (data: RawData, binary: boolean) => {
       if (binary) { webSocket.close(1003, 'Text messages only'); return }
       const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : Array.isArray(data) ? Buffer.concat(data) : data
+      if (bytes.toString() === 'ping') { webSocket.send('pong'); return }
       void peer.receive(bytes).catch(() => webSocket.close(1011, 'Sync failed'))
     })
     webSocket.on('close', () => peer.disconnect())

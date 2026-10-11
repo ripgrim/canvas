@@ -17,6 +17,7 @@
     "@canvas/preview-runtime": "workspace:*",
     "@canvas/sync-client": "workspace:*",
     "@canvas/sync-protocol": "workspace:*",
+    "@canvas/tracking": "workspace:*",
     "@tanstack/react-start": "1.168.60",
     "@tanstack/react-router": "1.170.41",
     "react": "^19.2.0",

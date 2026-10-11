@@ -18,6 +18,7 @@ import { validatePreviewFiles } from '../../preview-runtime/src/index'
 
 const fixtureRoot = fileURLToPath(new URL('../../../tests/fixtures/component-repo-seed/', import.meta.url))
 const fixtureDependencies = fileURLToPath(new URL('../../../fixtures/component-repo/node_modules/', import.meta.url))
+const fixtureLockfile = fileURLToPath(new URL('../../../fixtures/component-repo/pnpm-lock.yaml', import.meta.url))
 const prefix = 'design-editor-save-boundary-'
 const temporary: string[] = []
 const originalLabel = "import type { ComponentProps } from 'react'\n\nexport function Label(props: ComponentProps<'label'>) {\n  return <label {...props} style={{ padding: '4px 0', ...props.style }} />\n}\n"
@@ -31,6 +32,7 @@ async function fixture() {
   temporary.push(root)
   await cp(path.join(fixtureRoot, 'src'), path.join(root, 'src'), { recursive: true })
   await cp(path.join(fixtureRoot, 'package.json'), path.join(root, 'package.json'))
+  await cp(fixtureLockfile, path.join(root, 'pnpm-lock.yaml'))
   await symlink(fixtureDependencies, path.join(root, 'node_modules'), 'junction')
   await writeFile(path.join(root, 'src/atoms/Label.tsx'), originalLabel)
   return root
@@ -73,7 +75,7 @@ describe('LAY-SAVE-001 design edits never write source before explicit Save', ()
   it('applies insert and v4 setLayout commands and saves the design file without changing any source byte', async () => {
     const root = await fixture()
     const before = await sourceHashes(root)
-    expect(Object.keys(before).sort()).toEqual(['package.json', 'src/PreviewLogin.tsx', 'src/atoms/Button.tsx', 'src/atoms/Card.tsx', 'src/atoms/Input.tsx', 'src/atoms/Label.tsx', 'src/atoms/index.ts', 'src/components/index.ts', 'src/globals.css'])
+    expect(Object.keys(before).sort()).toEqual(['package.json', 'pnpm-lock.yaml', 'src/PreviewLogin.tsx', 'src/atoms/Button.tsx', 'src/atoms/Card.tsx', 'src/atoms/Input.tsx', 'src/atoms/Label.tsx', 'src/atoms/index.ts', 'src/components/index.ts', 'src/globals.css'])
     expect(before['src/atoms/Label.tsx']).toBe(sha256(originalLabel))
 
     const engine = await createRepoEngine(root)

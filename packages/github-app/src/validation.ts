@@ -44,7 +44,8 @@ export function validateInstallation(value: GitHubInstallationIdentity): GitHubI
   const id = githubId(value.id)
   const accountId = githubId(value.account.id)
   if (!loginPattern.test(value.account.login) || !['Organization', 'User'].includes(value.account.type)) throw new GitHubAppError('INVALID_IDENTITY', 'Invalid GitHub installation.')
-  return { id, account: { id: accountId, login: value.account.login, type: value.account.type } }
+  const contentsPermission = permission(value.contentsPermission)
+  return { id, account: { id: accountId, login: value.account.login, type: value.account.type }, contentsPermission }
 }
 
 export function validateRepository(value: GitHubRepositoryIdentity): GitHubRepositoryIdentity {
@@ -53,7 +54,12 @@ export function validateRepository(value: GitHubRepositoryIdentity): GitHubRepos
   const ownerId = githubId(value.ownerId)
   if (!loginPattern.test(value.ownerLogin) || !repositoryNamePattern.test(value.name)) throw new GitHubAppError('INVALID_IDENTITY', 'Invalid GitHub repository.')
   if (value.fullName.toLocaleLowerCase('en-US') !== `${value.ownerLogin}/${value.name}`.toLocaleLowerCase('en-US')) throw new GitHubAppError('INVALID_IDENTITY', 'Invalid GitHub repository.')
-  return { id, installationId, ownerId, ownerLogin: value.ownerLogin, name: value.name, fullName: value.fullName, isPrivate: value.isPrivate }
+  return { id, installationId, ownerId, ownerLogin: value.ownerLogin, name: value.name, fullName: value.fullName, isPrivate: value.isPrivate, contentsPermission: permission(value.contentsPermission) }
+}
+
+function permission(value: unknown): 'none' | 'read' | 'write' {
+  if (value !== 'none' && value !== 'read' && value !== 'write') throw new GitHubAppError('INVALID_IDENTITY', 'Invalid GitHub permission.')
+  return value
 }
 
 export function assertLiveRepositoryIntersection(input: Readonly<{

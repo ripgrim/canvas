@@ -223,7 +223,7 @@ describe('CC-TB-005: unlink computes each node\'s literal in its own effective t
   }
   const fill = (id: string): Paint => ({ id, type: 'solid', color: bound('scrim') })
   const fixture = (): FileDocument => ({
-    schemaVersion: 6, fileId: 'file-1', revision: 2,
+    schemaVersion: 7, fileId: 'file-1', revision: 2,
     pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
     nodes: {
       'root-1': { id: 'root-1', type: 'root' },

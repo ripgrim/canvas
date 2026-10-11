@@ -1,0 +1,26 @@
+lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      react:
+        specifier: ^19.2.0
+        version: 19.3.0
+      react-dom:
+        specifier: ^19.2.0
+        version: 19.3.0(react@19.3.0)
+
+packages:
+  react@19.3.0: {}
+  react-dom@19.3.0:
+    peerDependencies:
+      react: ^19.3.0
+  scheduler@0.28.0: {}
+
+snapshots:
+  react@19.3.0: {}
+  react-dom@19.3.0(react@19.3.0):
+    dependencies:
+      react: 19.3.0
+      scheduler: 0.28.0
+  scheduler@0.28.0: {}

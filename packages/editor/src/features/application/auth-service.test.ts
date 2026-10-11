@@ -7,16 +7,19 @@ afterEach(() => authSessionService.dispose())
 
 describe('renderer auth session service', () => {
   it('only permits an unauthenticated workspace when no desktop auth API exists', () => {
+    expect(authSessionService.getServerSnapshot().status).toBe('loading')
     authSessionService.configure(undefined)
     expect(authSessionService.getSnapshot().status).toBe('unavailable')
     expect(authSessionService.allowsUnauthenticatedWorkspace()).toBe(true)
     authSessionService.configure({
+      allowSignedOutWorkspace: true,
       getSession: vi.fn(async () => authSessionView('unavailable')),
       signInWithGitHub: vi.fn(async () => authSessionView('unavailable')),
       signOut: vi.fn(async () => authSessionView('unavailable')),
       subscribe: () => () => undefined,
     })
     expect(authSessionService.allowsUnauthenticatedWorkspace()).toBe(false)
+    expect(authSessionService.allowsSignedOutWorkspace()).toBe(true)
   })
 
   it('exposes only the session view and follows main-process notifications', async () => {

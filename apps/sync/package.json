@@ -7,6 +7,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "import": "./dist/contracts.js"
+    },
+    "./internal-api-authorizer": {
+      "types": "./dist/internal-api-authorizer.d.ts",
+      "import": "./dist/internal-api-authorizer.js"
+    },
+    "./postgres-repository": {
+      "types": "./dist/postgres-repository.d.ts",
+      "import": "./dist/postgres-repository.js"
     }
   },
   "scripts": {
@@ -24,6 +36,7 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@canvas/sync-client": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/pg": "8.23.1",
     "@types/ws": "^8.18.1",

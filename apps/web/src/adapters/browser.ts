@@ -7,6 +7,7 @@ import { designThemesFromTokens, extractCssTokens } from '@canvas/repo-engine/de
 import sampleStylesheet from '../../../../tests/fixtures/component-repo-seed/src/globals.css?raw'
 import { createBrowserFileService, migratedBrowserFileId } from '../features/files/service'
 import type { BrowserFileLocks, BrowserFileStorage, BrowserOpenedFile, LegacyView } from '../features/files/service'
+import { hostedComponentCatalog } from '@canvas/repo-engine/hosted-catalog'
 
 export type BrowserDraftStorage = BrowserFileStorage
 export type BrowserDraftLocks = BrowserFileLocks
@@ -14,48 +15,10 @@ export type BrowserDraftLocks = BrowserFileLocks
 export const browserDraftKey = 'design-editor.browser-draft.v1'
 const sourceReason = 'Source editing needs a connected repository. This draft stays in this browser.'
 
-const atom = (name: 'Button' | 'Card' | 'Input' | 'Label', props: Atom['props']): Atom => ({
-  componentId: `sample-${name.toLowerCase()}`,
-  name,
-  kind: 'atom',
-  exportName: name,
-  path: `Bundled sample / ${name}`,
-  fingerprint: 'bundled-sample-v1',
-  sourceHash: '',
-  status: 'bound',
-  candidates: [],
-  props,
-})
-
-const sampleAtoms: Atom[] = [
-  atom('Button', [
-    { name: 'children', type: 'ReactNode', optional: true },
-    { name: 'variant', type: '"primary" | "quiet" | undefined', optional: true },
-    { name: 'type', type: '"button" | "submit" | "reset" | undefined', optional: true },
-    { name: 'disabled', type: 'boolean | undefined', optional: true },
-  ]),
-  atom('Card', [
-    { name: 'children', type: 'ReactNode', optional: true },
-    { name: 'heading', type: 'ReactNode', optional: true },
-    { name: 'footer', type: 'ReactNode', optional: true },
-    { name: 'id', type: 'string | undefined', optional: true },
-  ]),
-  atom('Input', [
-    { name: 'id', type: 'string | undefined', optional: true },
-    { name: 'name', type: 'string | undefined', optional: true },
-    { name: 'type', type: 'HTMLInputTypeAttribute | undefined', optional: true },
-    { name: 'placeholder', type: 'string | undefined', optional: true },
-    { name: 'disabled', type: 'boolean | undefined', optional: true },
-    { name: 'required', type: 'boolean | undefined', optional: true },
-    { name: 'maxLength', type: 'number | undefined', optional: true },
-  ]),
-  atom('Label', [
-    { name: 'children', type: 'ReactNode', optional: true },
-    { name: 'htmlFor', type: 'string | undefined', optional: true },
-    { name: 'id', type: 'string | undefined', optional: true },
-  ]),
-]
-export const browserSampleAtoms: Atom[] = structuredClone(sampleAtoms)
+const hollowAtoms: Atom[] = hostedComponentCatalog()
+/** Explicitly hollow browser-only catalog. These identities are never presented as a connected repository scan. */
+export const browserHollowAtoms: Atom[] = structuredClone(hollowAtoms)
+export const browserSampleAtoms = browserHollowAtoms
 /** The bundled sample's own stylesheet declares its themes: the root palette and its `data-theme` modes. */
 const sampleTokens = extractCssTokens(sampleStylesheet, 'src/globals.css')
 export const browserSampleThemes = designThemesFromTokens(sampleTokens)
@@ -114,26 +77,26 @@ export function createBrowserAdapter(storage: BrowserDraftStorage, previewOrigin
   const editor = editorOrigin === undefined ? null : origin(editorOrigin, 'Editor origin')
   if (preview && !editor) throw new Error('Editor origin is required for the browser preview')
   if (preview && preview === editor) throw new Error('Preview must use a separate origin')
-  const fileService = createBrowserFileService({ storage, ...(locks ? { locks } : {}), atoms: sampleAtoms, legacyDraftKey: browserDraftKey })
+  const fileService = createBrowserFileService({ storage, ...(locks ? { locks } : {}), atoms: hollowAtoms, legacyDraftKey: browserDraftKey })
   const capabilities: EditorCapabilities = locks ? browserCapabilities : {
     ...browserCapabilities,
     files: { ...browserCapabilities.files, create: { available: false, reason: 'This browser cannot safely create concurrent local files.' } },
   }
   let activeFileId: string | null = null
-  const sampleInstanceIds = new Set(Object.keys(createDocument(sampleAtoms, composition).nodes))
+  const sampleInstanceIds = new Set(Object.keys(createDocument(hollowAtoms, composition).nodes))
   const snapshot = ({ name, file, legacyView }: BrowserOpenedFile): BrowserProjectSnapshot => {
     // Only the migrated sample draft is bound to the bundled login source; every other file renders its own nodes.
     const compositionPreview = !Object.values(file.nodes).some(node => node.type === 'component' && sampleInstanceIds.has(node.id))
     return {
       projectId: file.fileId,
       fileId: file.fileId,
-      atoms: structuredClone(sampleAtoms),
+      atoms: structuredClone(hollowAtoms),
       sourceHashes: {},
       composition: { ...structuredClone(composition), name, ...(compositionPreview ? { children: [] } : {}) },
       file,
       sourceHistory: [],
       conflict: null,
-      phases: [{ name: 'Bundled sample loaded', completed: 1 }],
+      phases: [{ name: 'Hollow browser catalog loaded', completed: 1 }],
       tokens: structuredClone(sampleTokens),
       designThemes: structuredClone(browserSampleThemes),
       preview: preview && editor ? {

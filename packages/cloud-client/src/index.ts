@@ -27,15 +27,30 @@ export type CloudThumbnailMetadata = Readonly<{
   thumbnailKey: string | null
 }>
 
+export type CloudFileShare = Readonly<{
+  fileId: string
+  access: 'private' | 'view'
+  updatedAt: string
+}>
+
+export type CloudSharedFile<TDocument> = Readonly<{
+  file: Readonly<{ id: string; name: string; headRevision: number; updatedAt: string }>
+  fileId: string
+  revision: number
+  document: TDocument
+}>
+
 export class CloudApiError extends Error {
   readonly status: number
   readonly code: string | null
+  readonly requestId: string
 
-  constructor(message: string, status: number, code: string | null = null) {
-    super(message)
+  constructor(message: string, status: number, code: string | null = null, requestId: string = crypto.randomUUID(), options?: ErrorOptions) {
+    super(message, options)
     this.name = 'CloudApiError'
     this.status = status
     this.code = code
+    this.requestId = requestId
   }
 }
 
@@ -66,6 +81,12 @@ function string(value: unknown, label: string, maximum = 512): string {
 function identifier(value: unknown, label: string): string {
   const result = string(value, label, 80)
   if (!idPattern.test(result)) throw new Error(`Invalid ${label}.`)
+  return result
+}
+
+function accountIdentifier(value: unknown): string {
+  const result = string(value, 'user id', 200)
+  if (/\s|[\u0000-\u001f\u007f]/u.test(result)) throw new Error('Invalid user id.')
   return result
 }
 
@@ -118,20 +139,31 @@ function parseThumbnail(value: unknown, fileId: string, expectedRevision: number
   return { fileId: responseFileId, revision, thumbnailKey }
 }
 
-async function responseJson(response: Response): Promise<unknown> {
-  const contentType = response.headers.get('content-type') ?? ''
-  if (!contentType.toLowerCase().includes('application/json')) throw new CloudApiError('The server returned an invalid response.', response.status)
-  try { return await response.json() as unknown } catch { throw new CloudApiError('The server returned invalid JSON.', response.status) }
+function parseShare(value: unknown, expectedFileId: string): CloudFileShare {
+  const result = object(value, 'share')
+  exact(result, ['fileId', 'access', 'updatedAt'])
+  const fileId = identifier(result.fileId, 'file id')
+  if (fileId !== expectedFileId) throw new Error('The server returned sharing for another file.')
+  if (result.access !== 'private' && result.access !== 'view') throw new Error('Invalid share access.')
+  return { fileId, access: result.access, updatedAt: instant(result.updatedAt, 'updated time') }
 }
 
-async function checked(response: Response): Promise<unknown> {
-  const value = await responseJson(response)
+async function responseJson(response: Response, requestId: string): Promise<unknown> {
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.toLowerCase().includes('application/json')) throw new CloudApiError('The server returned an invalid response.', response.status, 'invalid_response', requestId)
+  try { return await response.json() as unknown } catch (error) { throw new CloudApiError('The server returned invalid JSON.', response.status, 'invalid_response', requestId, { cause: error }) }
+}
+
+async function checked(response: Response, fallbackRequestId: string): Promise<unknown> {
+  const headerRequestId = response.headers.get('X-Canvas-Request-Id')
+  const requestId = headerRequestId && idPattern.test(headerRequestId) ? headerRequestId : fallbackRequestId
+  const value = await responseJson(response, requestId)
   if (response.ok) return value
   const body = object(value, 'error response')
   const error = object(body.error, 'error response')
   const message = typeof error.message === 'string' && error.message.length <= 300 ? error.message : 'The request could not be completed.'
   const code = typeof error.code === 'string' && error.code.length <= 80 ? error.code : null
-  throw new CloudApiError(message, response.status, code)
+  throw new CloudApiError(message, response.status, code, requestId)
 }
 
 function jsonRequest(method: 'POST' | 'PUT', body: unknown): RequestInit {
@@ -141,18 +173,28 @@ function jsonRequest(method: 'POST' | 'PUT', body: unknown): RequestInit {
 export function createCloudApiClient<TDocument>(options: CloudApiClientOptions<TDocument>) {
   const origin = parseOrigin(options.apiOrigin)
   const request = options.fetch ?? fetch
-  const call = (path: string, init?: RequestInit) => request(`${origin}${path}`, { credentials: 'include', ...init })
+  const call = async (path: string, init?: RequestInit) => {
+    const requestId = crypto.randomUUID()
+    const headers = new Headers(init?.headers)
+    headers.set('X-Canvas-Request-Id', requestId)
+    try {
+      return await checked(await request(`${origin}${path}`, { credentials: 'include', ...init, headers }), requestId)
+    } catch (error) {
+      if (error instanceof CloudApiError) throw error
+      throw new CloudApiError('The service could not be reached.', 0, 'network_error', requestId, { cause: error })
+    }
+  }
 
   return Object.freeze({
     async session(): Promise<CloudUser> {
-      const body = object(await checked(await call('/api/session')), 'session response')
+      const body = object(await call('/api/session'), 'session response')
       exact(body, ['user'])
       const user = object(body.user, 'user')
       exact(user, ['id', 'name', 'email', 'image'])
-      return { id: identifier(user.id, 'user id'), name: string(user.name, 'user name', 120), email: string(user.email, 'user email', 320), image: nullableString(user.image, 'user image', 2_048) }
+      return { id: accountIdentifier(user.id), name: string(user.name, 'user name', 120), email: string(user.email, 'user email', 320), image: nullableString(user.image, 'user image', 2_048) }
     },
     async listFiles(): Promise<readonly CloudFileSummary[]> {
-      const body = object(await checked(await call('/api/files')), 'files response')
+      const body = object(await call('/api/files'), 'files response')
       exact(body, ['files'])
       if (!Array.isArray(body.files) || body.files.length > 10_000) throw new Error('Invalid files response.')
       return body.files.map(parseSummary)
@@ -160,19 +202,19 @@ export function createCloudApiClient<TDocument>(options: CloudApiClientOptions<T
     async createFile(input: Readonly<{ name?: string; projectId?: string | null }> = {}): Promise<CloudFileSummary> {
       if (input.name !== undefined && (input.name.trim().length === 0 || input.name.length > 120)) throw new Error('Invalid file name.')
       if (input.projectId !== undefined && input.projectId !== null) identifier(input.projectId, 'project id')
-      const body = object(await checked(await call('/api/files', jsonRequest('POST', input))), 'file response')
+      const body = object(await call('/api/files', jsonRequest('POST', input)), 'file response')
       exact(body, ['file'])
       return parseSummary(body.file)
     },
     async openFile(fileId: string): Promise<CloudFileSummary> {
       const id = identifier(fileId, 'file id')
-      const body = object(await checked(await call(`/api/files/${encodeURIComponent(id)}`)), 'file response')
+      const body = object(await call(`/api/files/${encodeURIComponent(id)}`), 'file response')
       exact(body, ['file'])
       return parseSummary(body.file)
     },
     async openDocument(fileId: string): Promise<CloudDocument<TDocument>> {
       const id = identifier(fileId, 'file id')
-      const body = object(await checked(await call(`/api/files/${encodeURIComponent(id)}/document`)), 'document response')
+      const body = object(await call(`/api/files/${encodeURIComponent(id)}/document`), 'document response')
       exact(body, ['fileId', 'revision', 'document'])
       const responseFileId = identifier(body.fileId, 'file id')
       if (responseFileId !== id) throw new Error('The server returned a document for another file.')
@@ -181,7 +223,7 @@ export function createCloudApiClient<TDocument>(options: CloudApiClientOptions<T
     async saveDocument(fileId: string, document: TDocument, expectedRevision: number): Promise<CloudDocument<TDocument>> {
       const id = identifier(fileId, 'file id')
       integer(expectedRevision, 'expected revision')
-      const body = object(await checked(await call(`/api/files/${encodeURIComponent(id)}/document`, jsonRequest('PUT', { expectedRevision, document }))), 'document response')
+      const body = object(await call(`/api/files/${encodeURIComponent(id)}/document`, jsonRequest('PUT', { expectedRevision, document })), 'document response')
       exact(body, ['fileId', 'revision', 'document'])
       const responseFileId = identifier(body.fileId, 'file id')
       if (responseFileId !== id) throw new Error('The server returned a document for another file.')
@@ -198,10 +240,42 @@ export function createCloudApiClient<TDocument>(options: CloudApiClientOptions<T
       integer(expectedRevision, 'expected revision')
       return updateThumbnail(id, expectedRevision, null)
     },
+    async getFileShare(fileId: string): Promise<CloudFileShare> {
+      const id = identifier(fileId, 'file id')
+      const body = object(await call(`/api/files/${encodeURIComponent(id)}/share`), 'share response')
+      exact(body, ['share'])
+      return parseShare(body.share, id)
+    },
+    async setFileShare(fileId: string, access: 'private' | 'view'): Promise<CloudFileShare> {
+      const id = identifier(fileId, 'file id')
+      if (access !== 'private' && access !== 'view') throw new Error('Invalid share access.')
+      const body = object(await call(`/api/files/${encodeURIComponent(id)}/share`, jsonRequest('PUT', { access })), 'share response')
+      exact(body, ['share'])
+      return parseShare(body.share, id)
+    },
+    async openSharedFile(fileId: string): Promise<CloudSharedFile<TDocument>> {
+      const id = identifier(fileId, 'file id')
+      const body = object(await call(`/api/shared/files/${encodeURIComponent(id)}`), 'shared file response')
+      exact(body, ['file', 'fileId', 'revision', 'document'])
+      const file = object(body.file, 'shared file')
+      exact(file, ['id', 'name', 'headRevision', 'updatedAt'])
+      const responseFileId = identifier(body.fileId, 'file id')
+      const metadataId = identifier(file.id, 'file id')
+      if (responseFileId !== id || metadataId !== id) throw new Error('The server returned another shared file.')
+      const revision = integer(body.revision, 'document revision')
+      const headRevision = integer(file.headRevision, 'file revision')
+      if (revision !== headRevision) throw new Error('The server returned mismatched shared revisions.')
+      return {
+        file: { id: metadataId, name: string(file.name, 'file name', 120), headRevision, updatedAt: instant(file.updatedAt, 'updated time') },
+        fileId: responseFileId,
+        revision,
+        document: options.validateDocument(body.document),
+      }
+    },
   })
 
   async function updateThumbnail(fileId: string, expectedRevision: number, thumbnailKey: string | null): Promise<CloudThumbnailMetadata> {
-    const body = object(await checked(await call(`/api/files/${encodeURIComponent(fileId)}/thumbnail`, jsonRequest('PUT', { expectedRevision, thumbnailKey }))), 'thumbnail response')
+    const body = object(await call(`/api/files/${encodeURIComponent(fileId)}/thumbnail`, jsonRequest('PUT', { expectedRevision, thumbnailKey })), 'thumbnail response')
     exact(body, ['thumbnail'])
     return parseThumbnail(body.thumbnail, fileId, expectedRevision)
   }

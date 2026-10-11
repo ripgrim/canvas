@@ -12,8 +12,50 @@ import { homeStore } from './features/home/store'
 import { designSourcePalette, themeProjectionContext } from './features/editor/design-theme'
 import { repositoryConnectionService } from './features/editor/repository-service'
 import { authSessionService } from './features/application/auth-service'
+import { editorToast } from './design-system/toast-atoms'
+import { collaborationService } from './features/collaboration/collaboration-service'
+import { failureDetails } from './features/application/failure'
+import { canvasCopy } from './features/editor/canvas-copy'
 import './design-system/theme.css'
 import './design-system/styles.css'
+
+export function bindShareAuthority(api: Pick<EditorProjectApi, 'collaboration'>, target: Pick<typeof editorStore, 'setShareAuthority'> = editorStore): () => void {
+  const collaboration = api.collaboration
+  const publish = () => target.setShareAuthority(collaboration?.getSnapshot().canManageShare ?? true)
+  publish()
+  const unsubscribe = collaboration?.subscribe(publish)
+  let active = true
+  return () => {
+    if (!active) return
+    active = false
+    unsubscribe?.()
+  }
+}
+
+export function bindProjectFailures(api: Pick<EditorProjectApi, 'subscribeFailures'>, target: Pick<typeof editorToast, 'error'> = editorToast): () => void {
+  const unsubscribe = api.subscribeFailures?.(failure => {
+    const details = failureDetails(failure.error, canvasCopy.imageLoadFailed)
+    target.error(canvasCopy.imageLoadFailed, details.message)
+  })
+  let active = true
+  return () => {
+    if (!active) return
+    active = false
+    unsubscribe?.()
+  }
+}
+
+export function bindAuthFileClear(
+  source: Pick<typeof authSessionService, 'getSnapshot' | 'subscribe'> = authSessionService,
+  target: Pick<typeof editorStore, 'clearFile'> = editorStore,
+): () => void {
+  let priorStatus = source.getSnapshot().status
+  return source.subscribe(() => {
+    const status = source.getSnapshot().status
+    if (priorStatus === 'signed-in' && status === 'signed-out') target.clearFile()
+    priorStatus = status
+  })
+}
 
 export function startEditorServices(api: EditorProjectApi): () => void {
   authSessionService.configure(api.auth)
@@ -23,12 +65,17 @@ export function startEditorServices(api: EditorProjectApi): () => void {
     configureEditorStore(api)
     homeStore.configure(api)
     repositoryConnectionService.configure(api)
+    collaborationService.configure(api.collaboration)
+    const stopShareAuthority = bindShareAuthority(api)
+    const stopProjectFailures = bindProjectFailures(api)
     repositoryConnectionService.load()
     documentStore.configure({
       persist: editorStore.persistFile,
+      ...(api.assets ? { uploadImage: api.assets.uploadImage } : {}),
       onChange: () => editorStore.documentChanged(),
       onSelection: ids => editorStore.set({ selected: ids[0] ?? null }),
       onPageChange: pageId => editorStore.pageChanged(pageId),
+      onError: notice => editorToast.error(notice.title, notice.message),
       // Source tokens resolve against the design stylesheet palette of the file's preview theme, never editor chrome.
       sources: () => { const state = editorStore.getSnapshot(); return designSourcePalette(state.snapshot, state.previewThemeId) },
       themeContext: () => { const state = editorStore.getSnapshot(); return themeProjectionContext(state.snapshot, state.previewThemeId) },
@@ -38,6 +85,7 @@ export function startEditorServices(api: EditorProjectApi): () => void {
     canvasInput.start()
     canvasViewportService.start()
     canvasHudPainter.start()
+    collaborationService.start()
     const keyboard = createEditorKeyboardService(window)
     keyboard.start()
     homeStore.start()
@@ -47,19 +95,24 @@ export function startEditorServices(api: EditorProjectApi): () => void {
       canvasInput.stop()
       canvasViewportService.stop()
       canvasHudPainter.stop()
+      stopShareAuthority?.()
+      stopProjectFailures()
+      collaborationService.stop()
       keyboard.stop()
       previewConnection.stop()
       documentStore.dispose()
       homeStore.dispose()
       repositoryConnectionService.dispose()
       editorStore.dispose()
+      editorToast.close()
       configureEditorStore(undefined)
       stopWorkspace = undefined
     }
   }
+  const stopAuthFileClear = bindAuthFileClear()
   const reconcileWorkspace = () => {
     const status = authSessionService.getSnapshot().status
-    if (status === 'signed-in' || (status === 'unavailable' && authSessionService.allowsUnauthenticatedWorkspace())) startWorkspace()
+    if (status === 'signed-in' || (status === 'signed-out' && authSessionService.allowsSignedOutWorkspace()) || (status === 'unavailable' && authSessionService.allowsUnauthenticatedWorkspace())) startWorkspace()
     else stopWorkspace?.()
   }
   const unsubscribeAuth = authSessionService.subscribe(reconcileWorkspace)
@@ -70,6 +123,7 @@ export function startEditorServices(api: EditorProjectApi): () => void {
     if (disposed) return
     disposed = true
     unsubscribeAuth()
+    stopAuthFileClear()
     stopWorkspace?.()
     authSessionService.dispose()
   }

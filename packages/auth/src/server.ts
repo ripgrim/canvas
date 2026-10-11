@@ -101,6 +101,7 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
   const baseURL = new URL(canonicalBaseURL)
   const cookieDomain = sharedCookieDomain(options.cookieDomain, canonicalBaseURL)
   const trustedOrigins = trustedWebOrigins(options.trustedOrigins ?? [], canonicalBaseURL, cookieDomain)
+  const crossSiteCookie = baseURL.protocol === 'https:' && !cookieDomain && trustedOrigins.some(origin => new URL(origin).hostname !== baseURL.hostname)
   if (options.secret.length < 32) throw new Error('Better Auth secret must contain at least 32 characters.')
   if (!options.githubClientId.trim() || !options.githubClientSecret.trim()) throw new Error('GitHub OAuth credentials are required.')
   if (!/^[a-z][a-z0-9+.-]{2,63}$/.test(options.desktopScheme)) throw new Error('Invalid desktop auth scheme.')
@@ -111,7 +112,7 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
     trustedOrigins: [`${options.desktopScheme}:/`, ...trustedOrigins],
     advanced: {
       useSecureCookies: baseURL.protocol === 'https:',
-      defaultCookieAttributes: { httpOnly: true, secure: baseURL.protocol === 'https:', sameSite: 'lax', path: '/' },
+      defaultCookieAttributes: { httpOnly: true, secure: baseURL.protocol === 'https:', sameSite: crossSiteCookie ? 'none' : 'lax', path: '/' },
       ...(cookieDomain ? { crossSubDomainCookies: { enabled: true, domain: cookieDomain } } : {}),
     },
     socialProviders: {

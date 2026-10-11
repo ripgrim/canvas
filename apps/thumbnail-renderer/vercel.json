@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --dir ../.. run build:thumbnail-renderer:vercel",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/thumbnail-renderer", "destination": "/index.html" }
+  ]
+}
+

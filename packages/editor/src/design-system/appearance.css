@@ -67,10 +67,16 @@
 .appearance-segment:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .appearance-file { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); opacity: 0; pointer-events: none; }
-.appearance-image { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; height: 24px; }
-.appearance-image-thumb { display: inline-flex; flex-shrink: 0; width: 24px; height: 24px; overflow: hidden; border-radius: var(--radius-xs); box-shadow: var(--border-shadow-s); background-image: repeating-conic-gradient(var(--neutral-4) 0 25%, var(--neutral-3) 0 50%); background-size: var(--space-xs) var(--space-xs); }
+.appearance-image { display: flex; align-items: center; gap: var(--space-s); min-width: 0; min-height: 32px; }
+.appearance-image-thumb { position: relative; display: inline-flex; flex: 0 0 42px; width: 42px; height: 32px; overflow: hidden; padding: 0; border: 0; border-radius: 2px; box-shadow: var(--border-shadow-s); background-image: repeating-conic-gradient(var(--neutral-4) 0 25%, var(--neutral-3) 0 50%); background-size: var(--space-xs) var(--space-xs); cursor: pointer; }
 .appearance-image-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.appearance-image-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--neutral-9); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-regular); }
+.appearance-image-edit { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.4); color: #fff; font-family: var(--font-ui); font-size: 10px; line-height: 1; font-weight: var(--weight-ui-medium); opacity: 0; }
+.appearance-image-thumb:hover .appearance-image-edit, .appearance-image-thumb:focus-visible .appearance-image-edit { opacity: 1; }
+.appearance-image-thumb:focus-visible { outline: var(--focus-ring-outline); outline-offset: var(--border-s); }
+.appearance-image-thumb:disabled { cursor: not-allowed; opacity: 0.5; }
+.appearance-image-meta { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; justify-content: center; color: var(--neutral-9); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-regular); }
+.appearance-image-name, .appearance-image-dimensions { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.appearance-image-dimensions { color: var(--neutral-6); }
 
 /* Gradient bar: stops sit on a checkered track; handles are inset so the ends stay reachable. */
 .gradient-bar { padding: var(--space-xxs) var(--space-s); }

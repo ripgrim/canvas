@@ -12,7 +12,7 @@ function fixture(): ProjectSnapshot {
     atoms: [{ componentId: 'label-component', name: 'Label', exportName: 'Label', path: 'src/Label.tsx', kind: 'atom', status: 'bound', fingerprint: 'f', sourceHash: 'h', candidates: [], props: [{ name: 'children', type: 'ReactNode', optional: true }] }],
     composition: { id: 'login', name: 'Login', componentId: null, children: [{ id: 'label', componentId: 'label-component', exportName: 'Label', props: { children: 'Email' } }] },
     file: {
-      schemaVersion: 6, fileId: 'history-file', revision: 0,
+      schemaVersion: 7, fileId: 'history-file', revision: 0,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
@@ -26,7 +26,7 @@ function fixture(): ProjectSnapshot {
     preview: { status: 'stopped', currentGeneration: 0, activeGeneration: null, origin: null, url: null, stale: false, diagnostics: [] },
   }
 }
-const cacheKey = 'design-editor:document-history:v2:history-file'
+const cacheKey = 'design-editor:document-history:v3:history-file'
 
 function memory() {
   const values = new Map<string, string>()
@@ -82,7 +82,7 @@ describe('AT-CAN persistent history through real editor and document stores', ()
     await settled(first.documents)
     expect(disk.snapshot().file.revision).toBe(2)
     const cached = JSON.parse(cache.values.get(cacheKey)!)
-    expect(cached.version).toBe(2)
+    expect(cached.version).toBe(3)
     expect(cached.currentFile.revision).toBe(2)
     expect(cached.history.past).toHaveLength(2)
     first.close()

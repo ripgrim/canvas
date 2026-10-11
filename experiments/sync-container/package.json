@@ -1,0 +1,11 @@
+{
+  "name": "@design-editor/sync-container-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/check-syntax.mjs",
+    "test": "node --test",
+    "memory": "node scripts/memory-harness.mjs --mib 50 --max-rss-delta-mib 64 --max-absolute-rss-mib 256",
+    "verify": "npm run check && npm test && npm run memory"
+  }
+}

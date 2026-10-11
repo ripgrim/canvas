@@ -11,6 +11,7 @@
   "dependencies": {
     "@canvas/auth": "workspace:*",
     "@canvas/editor": "workspace:*",
+    "@canvas/tracking": "workspace:*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

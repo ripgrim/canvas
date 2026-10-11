@@ -233,11 +233,18 @@ export function AppearanceFilePicker({ label, accept, disabled = false, pickerRe
   }} />
 }
 
-/** Image thumbnail and name for an image fill. */
-export function AppearanceImagePreview({ src, name }: { src: string | null; name: string }) {
+/** Paper-style image fill row: the thumbnail is the edit affordance and metadata stays beside it. */
+export function AppearanceImagePreview({ src, name, dimensions, editLabel, disabled = false, onEdit }: { src: string | null; name: string; dimensions: string | null; editLabel: string; disabled?: boolean; onEdit: () => void }) {
+  const description = dimensions ? `${name} ${dimensions}` : name
   return <span className="appearance-image">
-    <span className="appearance-image-thumb" aria-hidden="true">{src && <img src={src} alt="" />}</span>
-    <span className="appearance-image-name" title={name}>{name}</span>
+    <button type="button" className="appearance-image-thumb" aria-label={`${editLabel} ${description}`} title={`${editLabel} ${description}`} disabled={disabled} onClick={onEdit}>
+      {src && <img src={src} alt="" />}
+      <span className="appearance-image-edit" aria-hidden="true">{editLabel}</span>
+    </button>
+    <span className="appearance-image-meta" title={description}>
+      <span className="appearance-image-name">{name}</span>
+      {dimensions && <span className="appearance-image-dimensions">{dimensions}</span>}
+    </span>
   </span>
 }
 

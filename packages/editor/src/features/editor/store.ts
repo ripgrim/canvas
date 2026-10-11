@@ -13,7 +13,10 @@ import { createStore } from 'zustand/vanilla'
 import { readAppearance, writeAppearance } from '../application/appearance'
 import type { EditorAppearance } from '../application/appearance'
 import { unavailableCapabilities, UnavailableCapabilityError } from '../../capabilities'
-import type { EditorCapabilities } from '../../capabilities'
+import type { EditorCapabilities, EditorPersistenceIntent } from '../../capabilities'
+import type { EditorFileShare } from '../../capabilities'
+import { failureDetails } from '../application/failure'
+import { trackCanvasEvent } from '@canvas/tracking'
 
 export type EditorState = {
   capabilities: EditorCapabilities;
@@ -21,38 +24,68 @@ export type EditorState = {
   mode: 'light' | 'dark'; tab: string; scope: PreparedChange['scope']; selected: string | null; zoom: number;
   snapshot: ProjectSnapshot | null; prepared: PreparedChange | null; approved: boolean; busy: string | null;
   error: string | null; notice: string | null; reviewOpen: boolean; shortcutOpen: boolean; shareOpen: boolean;
+  shareAccess: 'private' | 'view' | null; shareDraft: 'private' | 'view'; shareBusy: boolean; shareError: string | null;
   padding: string; token: string; componentName: string; previewReady: boolean;
   runtimeInstanceIds: readonly string[] | null;
   compositionPreview: boolean; preparedKind: 'edit' | 'promotion' | 'reverse' | null;
   /** Design preview theme of the open file: a per-file viewing preference restored from view state. */
   previewThemeId: string | null;
 }
-type DocumentController = Pick<typeof documentStore, 'getSnapshot' | 'load' | 'getHistory' | 'restoreHistory' | 'setViewport' | 'requestFit' | 'selectMany' | 'setPage' | 'subscribe'>
+type DocumentController = Pick<typeof documentStore, 'getSnapshot' | 'load' | 'clear' | 'getHistory' | 'restoreHistory' | 'setViewport' | 'requestFit' | 'selectMany' | 'setPage' | 'setReadOnly' | 'subscribe'>
 /** Result of opening a file URL. Missing and invalid locations never create or substitute a file. */
 export type FileLocationResult =
   | { status: 'ok'; fileId: string; pageId: string | null; fileName: string }
   | { status: 'missing-file'; fileId: string }
   | { status: 'missing-page'; fileId: string; pageId: string; fileName: string }
   | { status: 'unavailable'; reason: string }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; reference?: string }
   | { status: 'stale' }
 /** Adapters that migrated an older record may hand over the page and preview theme it was saved with, once. */
 type LegacyViewHandOff = { legacyView?: { activePageId: string; previewTheme?: string } }
 const cameraWriteDelayMs = 250
 
+class ProjectAccessUnavailableError extends Error {
+  constructor() { super(editorCopy.projectAccessUnavailable) }
+}
+
+export type ShareUpdateResult =
+  | Readonly<{ status: 'confirmed'; share: EditorFileShare; requested: boolean; updateError: unknown | null }>
+  | Readonly<{ status: 'unconfirmed'; updateError: unknown; reconciliationError: unknown }>
+  | Readonly<{ status: 'cancelled' }>
+
+export async function reconcileShareUpdate(input: Readonly<{ requestedAccess: EditorFileShare['access']; setAccess(): Promise<EditorFileShare>; readAccess(): Promise<EditorFileShare>; canContinue?(): boolean }>): Promise<ShareUpdateResult> {
+  if (input.canContinue && !input.canContinue()) return Object.freeze({ status: 'cancelled' })
+  try {
+    const share = await input.setAccess()
+    if (input.canContinue && !input.canContinue()) return Object.freeze({ status: 'cancelled' })
+    return Object.freeze({ status: 'confirmed', share, requested: share.access === input.requestedAccess, updateError: null })
+  } catch (updateError) {
+    if (input.canContinue && !input.canContinue()) return Object.freeze({ status: 'cancelled' })
+    try {
+      const share = await input.readAccess()
+      if (input.canContinue && !input.canContinue()) return Object.freeze({ status: 'cancelled' })
+      return Object.freeze({ status: 'confirmed', share, requested: share.access === input.requestedAccess, updateError })
+    } catch (reconciliationError) {
+      return Object.freeze({ status: 'unconfirmed', updateError, reconciliationError })
+    }
+  }
+}
+
 export function createEditorStore(api: () => DesignEditorApi | undefined, documents?: DocumentController, storage?: () => HistoryStorage) {
-  const backing = createStore<EditorState>(() => ({ capabilities: api()?.capabilities ?? unavailableCapabilities, mode: readAppearance(), tab: 'Layers', scope: 'Shared component', selected: null, zoom: 100, snapshot: null, prepared: null, approved: false, busy: null, error: null, notice: null, reviewOpen: false, shortcutOpen: false, shareOpen: false, padding: '8px', token: '#009ff0', componentName: 'LoginForm', previewReady: false, compositionPreview: false, runtimeInstanceIds: null, preparedKind: null, previewThemeId: null }))
+  const backing = createStore<EditorState>(() => ({ capabilities: api()?.capabilities ?? unavailableCapabilities, mode: readAppearance(), tab: 'Layers', scope: 'Shared component', selected: null, zoom: 100, snapshot: null, prepared: null, approved: false, busy: null, error: null, notice: null, reviewOpen: false, shortcutOpen: false, shareOpen: false, shareAccess: null, shareDraft: 'private', shareBusy: false, shareError: null, padding: '8px', token: '#009ff0', componentName: 'LoginForm', previewReady: false, compositionPreview: false, runtimeInstanceIds: null, preparedKind: null, previewThemeId: null }))
   const subscriptions = new Set<() => void>()
   const update = (patch: Partial<EditorState>) => backing.setState(patch)
   let generation = 0
   let locationGeneration = 0
+  let shareGeneration = 0
+  let shareAllowed = api()?.collaboration?.getSnapshot().canManageShare ?? true
   let historyProjectId: string | null = null
   let view: FileViewState | null = null
   let cameraTimer: ReturnType<typeof setTimeout> | null = null
   let stopCameraWatch: (() => void) | undefined
   const pendingExternalSnapshots = new Map<string, ProjectSnapshot>()
   const fileIdentity = (snapshot: ProjectSnapshot) => snapshot.fileId ?? snapshot.file.fileId ?? snapshot.projectId
-  const connection = () => { const project = api(); if (!project) throw new Error(editorCopy.projectAccessUnavailable); return project }
+  const connection = () => { const project = api(); if (!project) throw new ProjectAccessUnavailableError(); return project }
   const sourceConnection = () => { const bridge = connection(); if (!bridge.capabilities?.sourceWrites.available) throw new UnavailableCapabilityError(bridge.capabilities?.sourceWrites.reason ?? editorCopy.sourceUnavailable); return bridge }
   const queueExternalSnapshot = (snapshot: ProjectSnapshot) => {
     const identity = fileIdentity(snapshot)
@@ -103,7 +136,7 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
       view = themes.some(theme => theme.id === next.previewThemeId) ? next : { ...next, previewThemeId: defaultTheme }
     }
     const pageId = [requestedPageId, view?.activePageId].find(candidate => candidate && snapshot.file.pages.some(page => page.id === candidate)) ?? snapshot.file.pages[0]!.id
-    documents.load(snapshot.file, snapshot.atoms, { replace: projectChanged, pageId })
+    documents.load(snapshot.file, snapshot.atoms, { replace: projectChanged, pageId, ...(snapshot.assetPreviews === undefined ? {} : { assetPreviews: snapshot.assetPreviews }) })
     const baseline = createDocument(snapshot.atoms, snapshot.composition, { allowUnavailableBindings: true })
     const firstPage = legacyPageDocument(snapshot.file, snapshot.file.pages[0]!.id)
     const modified = JSON.stringify({ ...firstPage, revision: 0 }) !== JSON.stringify({ ...baseline, revision: 0 })
@@ -179,9 +212,9 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
     edit: (patch: Partial<EditorState>) => { if (!backing.getState().busy) update({ ...patch, prepared: null, approved: false }) },
     documentChanged: () => update({ prepared: null, approved: false, compositionPreview: backing.getState().runtimeInstanceIds === null }),
     /** Persists the whole file; the acknowledged file is the new base revision. History is cached only after success. */
-    persistFile: async (file: FileDocument, expectedRevision: number) => {
+    persistFile: async (file: FileDocument, expectedRevision: number, intent?: EditorPersistenceIntent) => {
       const history = documents?.getHistory()
-      const snapshot = await connection().saveFile(file, expectedRevision)
+      const snapshot = await connection().saveFile(file, expectedRevision, intent)
       update({ snapshot, prepared: null, approved: false })
       if (storage && history) {
         try { saveDocumentHistory(storage(), fileIdentity(snapshot), snapshot.file, history) }
@@ -197,17 +230,6 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
       }
       if (!state.snapshot || fileIdentity(state.snapshot) !== fileIdentity(snapshot)) return false
       if (snapshot.file.revision <= state.snapshot.file.revision) return false
-      const localFile = documents?.getSnapshot().file
-      const localChanged = Boolean(localFile && JSON.stringify(localFile) !== JSON.stringify(state.snapshot.file))
-      if (state.busy || localChanged) {
-        update({
-          snapshot: { ...state.snapshot, conflict: { kind: 'external-change', message: editorCopy.liveConflict, paths: [] } },
-          prepared: null,
-          approved: false,
-          notice: editorCopy.conflictHint,
-        })
-        return false
-      }
       const received = receiveFile(snapshot)
       update({
         snapshot,
@@ -223,6 +245,72 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
       return true
     },
     open: () => load(false), openFile: (fileId: string) => load(false, fileId), refresh: () => load(true),
+    clearFile: () => {
+      generation++
+      locationGeneration++
+      shareGeneration++
+      pendingExternalSnapshots.clear()
+      documents?.clear()
+      update({ snapshot: null, prepared: null, approved: false, busy: null, error: null, notice: null, reviewOpen: false, shareOpen: false, shareAccess: null, shareDraft: 'private', shareBusy: false, shareError: null, selected: null, previewReady: false, runtimeInstanceIds: null, compositionPreview: false, preparedKind: null, previewThemeId: null })
+    },
+    openShare: async () => {
+      if (!shareAllowed) return
+      const current = ++shareGeneration
+      const state = backing.getState()
+      const project = connection()
+      const fileId = state.snapshot ? fileIdentity(state.snapshot) : null
+      update({ shareOpen: true, shareBusy: true, shareError: null, shareAccess: null, shareDraft: 'private' })
+      if (!fileId || !project.getFileShare || !project.setFileShare || !project.shareUrl) {
+        if (current === shareGeneration) update({ shareBusy: false, shareError: editorCopy.shareUnavailable })
+        return
+      }
+      try {
+        const share = await project.getFileShare(fileId)
+        if (current === shareGeneration) update({ shareBusy: false, shareAccess: share.access, shareDraft: share.access })
+      } catch (error) {
+        if (current === shareGeneration) update({ shareBusy: false, shareError: failureDetails(error, editorCopy.error).message })
+      }
+    },
+    setShareDraft: (shareDraft: 'private' | 'view') => { if (shareAllowed) update({ shareDraft, shareError: null }) },
+    saveShare: async () => {
+      if (!shareAllowed) return false
+      const current = ++shareGeneration
+      const state = backing.getState()
+      const project = connection()
+      const fileId = state.snapshot ? fileIdentity(state.snapshot) : null
+      if (!fileId || !project.setFileShare) { update({ shareError: editorCopy.shareUnavailable }); return false }
+      update({ shareBusy: true, shareError: null })
+      const result = await reconcileShareUpdate({
+        requestedAccess: state.shareDraft,
+        setAccess: () => project.setFileShare!(fileId, state.shareDraft),
+        readAccess: async () => {
+          if (!project.getFileShare) throw new Error(editorCopy.shareUnavailable)
+          return project.getFileShare(fileId)
+        },
+        canContinue: () => current === shareGeneration && shareAllowed,
+      })
+      if (current !== shareGeneration) return false
+      if (result.status === 'cancelled') return false
+      if (result.status === 'unconfirmed') {
+        update({ shareBusy: false, shareAccess: null, shareError: `${editorCopy.shareUnconfirmed} ${failureDetails(result.reconciliationError, editorCopy.error).message}` })
+        return false
+      }
+      update({ shareBusy: false, shareAccess: result.share.access, shareDraft: result.share.access, shareError: result.requested ? null : failureDetails(result.updateError, editorCopy.error).message })
+      return result.requested
+    },
+    setShareAuthority: (allowed: boolean) => {
+      if (shareAllowed === allowed) return
+      shareAllowed = allowed
+      if (!allowed) {
+        shareGeneration++
+        update({ shareOpen: false, shareBusy: false, shareAccess: null, shareDraft: 'private', shareError: null })
+      }
+    },
+    shareUrl: () => {
+      const state = backing.getState()
+      const fileId = state.snapshot ? fileIdentity(state.snapshot) : null
+      return fileId ? connection().shareUrl?.(fileId) ?? null : null
+    },
     /**
      * Opens a file (and optionally one of its pages) for a route. Newer calls supersede older ones, so a slow load can never
      * land another file's data in the editor. Reopening the current location only switches the page or selection.
@@ -231,7 +319,7 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
       const token = ++locationGeneration
       const current = backing.getState()
       const openFile = documents?.getSnapshot().file
-      if (current.snapshot && fileIdentity(current.snapshot) === fileId && openFile && !current.busy) {
+      if (current.snapshot && fileIdentity(current.snapshot) === fileId && openFile && !current.busy && !documents?.getSnapshot().readOnly) {
         if (pageId !== null && !openFile.pages.some(page => page.id === pageId)) return { status: 'missing-page', fileId, pageId, fileName: current.snapshot.composition.name }
         if (pageId !== null) documents!.setPage(pageId)
         selectLocationNode(nodeId)
@@ -251,15 +339,48 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
         if (pageId !== null && !snapshot.file.pages.some(page => page.id === pageId)) { update({ busy: null }); return { status: 'missing-page', fileId, pageId, fileName: snapshot.composition.name } }
         if (connection() !== active) return { status: 'stale' }
         const received = receiveFile(snapshot, pageId)
+        documents?.setReadOnly(false)
         const state = backing.getState()
         update({ snapshot, compositionPreview: received.modified && (!snapshot.composition.componentId || state.compositionPreview), token: snapshot.tokens[0]?.value ?? state.token, prepared: null, approved: false, previewReady: !received.projectChanged && state.snapshot?.preview.activeGeneration === snapshot.preview.activeGeneration && state.previewReady, runtimeInstanceIds: received.projectChanged ? null : state.runtimeInstanceIds, selected: received.projectChanged ? snapshot.composition.children[0]?.id ?? null : state.selected ?? snapshot.composition.children[0]?.id ?? null, notice: snapshot.conflict ? editorCopy.conflictHint : editorCopy.ready, busy: null })
         selectLocationNode(nodeId)
         return { status: 'ok', fileId, pageId: documents?.getSnapshot().pageId ?? null, fileName: snapshot.composition.name }
       } catch (error) {
         if (token !== locationGeneration) return { status: 'stale' }
-        const message = error instanceof Error ? error.message : editorCopy.error
-        update({ busy: null, error: message })
-        return { status: 'error', message }
+        if (error instanceof ProjectAccessUnavailableError) throw error
+        const failure = failureDetails(error, editorCopy.error)
+        if (failure.code === 'unauthorized' || failure.code === 'not_found') { update({ busy: null }); return { status: 'missing-file', fileId } }
+        trackCanvasEvent('operation_failed', { operation: 'open', error_code: failure.code, error_reference: failure.reference })
+        update({ busy: null, error: failure.message })
+        return { status: 'error', message: failure.message, reference: failure.reference }
+      }
+    },
+    /** Opens a public-link view directly, without requiring the file to appear in the signed-in account listing. */
+    openSharedLocation: async (fileId: string, pageId: string | null, nodeId: string | null = null): Promise<FileLocationResult> => {
+      const token = ++locationGeneration
+      const active = connection()
+      if (!active.openSharedFile) return { status: 'missing-file', fileId }
+      generation++
+      documents?.setReadOnly(true)
+      update({ busy: editorCopy.opening, error: null, notice: null, approved: false, prepared: null })
+      try {
+        const loaded = await active.openSharedFile(fileId)
+        if (token !== locationGeneration) return { status: 'stale' }
+        if (!loaded) { update({ busy: null }); return { status: 'missing-file', fileId } }
+        const snapshot = newestSnapshot(loaded)
+        if (pageId !== null && !snapshot.file.pages.some(page => page.id === pageId)) { update({ busy: null }); return { status: 'missing-page', fileId, pageId, fileName: snapshot.composition.name } }
+        if (connection() !== active) return { status: 'stale' }
+        const received = receiveFile(snapshot, pageId)
+        documents?.setReadOnly(true)
+        const state = backing.getState()
+        update({ snapshot, compositionPreview: received.modified && (!snapshot.composition.componentId || state.compositionPreview), token: snapshot.tokens[0]?.value ?? state.token, prepared: null, approved: false, previewReady: !received.projectChanged && state.snapshot?.preview.activeGeneration === snapshot.preview.activeGeneration && state.previewReady, runtimeInstanceIds: received.projectChanged ? null : state.runtimeInstanceIds, selected: received.projectChanged ? snapshot.composition.children[0]?.id ?? null : state.selected ?? snapshot.composition.children[0]?.id ?? null, notice: snapshot.conflict ? editorCopy.conflictHint : editorCopy.ready, busy: null })
+        selectLocationNode(nodeId)
+        return { status: 'ok', fileId, pageId: documents?.getSnapshot().pageId ?? null, fileName: snapshot.composition.name }
+      } catch (error) {
+        if (token !== locationGeneration) return { status: 'stale' }
+        const failure = failureDetails(error, editorCopy.error)
+        trackCanvasEvent('operation_failed', { operation: 'open_shared', error_code: failure.code, error_reference: failure.reference })
+        update({ busy: null, error: failure.message })
+        return { status: 'error', message: failure.message, reference: failure.reference }
       }
     },
     prepare: () => run(editorCopy.preparing, async () => {
@@ -288,10 +409,32 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
       receiveFile(result.snapshot)
       return { snapshot: result.snapshot, prepared: null, approved: false, reviewOpen: false, previewReady: false, runtimeInstanceIds: null, notice: result.message }
     }),
-    dispose: () => { generation++; locationGeneration++; pendingExternalSnapshots.clear(); if (cameraTimer) { clearTimeout(cameraTimer); cameraTimer = null }; rememberCamera(true); stopCameraWatch?.(); stopCameraWatch = undefined; for (const stop of subscriptions) stop() },
+    dispose: () => { generation++; locationGeneration++; shareGeneration++; pendingExternalSnapshots.clear(); if (cameraTimer) { clearTimeout(cameraTimer); cameraTimer = null }; rememberCamera(true); stopCameraWatch?.(); stopCameraWatch = undefined; for (const stop of subscriptions) stop() },
   }
 }
 
 let configuredApi: DesignEditorApi | undefined
-export const configureEditorStore = (api: DesignEditorApi | undefined) => { configuredApi = api; editorStore.set({ capabilities: api?.capabilities ?? unavailableCapabilities }) }
+function configurationGate() {
+  let resolve: () => void = () => undefined
+  const promise = new Promise<void>(next => { resolve = next })
+  return { promise, resolve }
+}
+let configured = configurationGate()
+export const configureEditorStore = (api: DesignEditorApi | undefined) => {
+  const hadApi = configuredApi !== undefined
+  configuredApi = api
+  if (api) configured.resolve()
+  else if (hadApi) configured = configurationGate()
+  editorStore.set({ capabilities: api?.capabilities ?? unavailableCapabilities })
+}
+export const waitForEditorStoreConfiguration = (): Promise<void> => configuredApi ? Promise.resolve() : configured.promise
+export const withEditorStoreConfiguration = async <Result>(operation: () => Promise<Result>): Promise<Result> => {
+  for (;;) {
+    await waitForEditorStoreConfiguration()
+    try { return await operation() }
+    catch (error) {
+      if (!(error instanceof ProjectAccessUnavailableError)) throw error
+    }
+  }
+}
 export const editorStore = createEditorStore(() => configuredApi, documentStore, () => window.localStorage)

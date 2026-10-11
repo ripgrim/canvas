@@ -4,6 +4,8 @@ import type { EditorFile, EditorProjectApi } from '../../capabilities'
 import { unavailableCapabilities } from '../../capabilities'
 import { editorStore } from '../editor/store'
 import type { HomeStatus } from './home-types'
+import { failureDetails } from '../application/failure'
+import { trackCanvasEvent } from '@canvas/tracking'
 
 type HomeState = Readonly<{
   mode: 'light' | 'dark'
@@ -16,9 +18,12 @@ const backing = createStore<HomeState>(() => ({ mode: readAppearance(), files: [
 let projectApi: EditorProjectApi | undefined
 let generation = 0
 let retry: (() => void) | null = null
+let createOperation: { generation: number; promise: Promise<string | null> } | null = null
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'The action could not be completed.'
+function operationFailure(operation: 'list' | 'create' | 'open', error: unknown) {
+  const failure = failureDetails(error, 'The action could not be completed.')
+  trackCanvasEvent('operation_failed', { operation, error_code: failure.code, error_reference: failure.reference })
+  return { kind: 'error', operation, message: failure.message, reference: failure.reference } as const
 }
 
 async function listFiles() {
@@ -34,26 +39,35 @@ async function listFiles() {
     const files = await api.listFiles()
     if (current === generation) backing.setState({ files, status: { kind: 'ready' } })
   } catch (error) {
-    if (current === generation) backing.setState({ status: { kind: 'error', operation: 'list', message: errorMessage(error) } })
+    if (current === generation) backing.setState({ status: operationFailure('list', error) })
   }
 }
 
 /** Creates a file exactly once and returns its persistent id; the caller navigates to it. */
-async function createFile(): Promise<string | null> {
+function createFile(): Promise<string | null> {
+  if (createOperation?.generation === generation) return createOperation.promise
   const api = projectApi
   const current = ++generation
   backing.setState({ status: { kind: 'creating', phases: [{ name: 'Creating local file', state: 'active' }] } })
   retry = () => { void createFile() }
-  try {
-    if (!api?.createFile) throw new Error(api?.capabilities?.files.create.reason ?? 'File creation is unavailable.')
-    const file = await api.createFile()
-    if (current !== generation) return null
-    backing.setState({ files: [file, ...backing.getState().files], status: { kind: 'ready' } })
-    return file.id
-  } catch (error) {
-    if (current === generation) backing.setState({ status: { kind: 'error', operation: 'create', message: errorMessage(error) } })
-    return null
-  }
+  const operation: { generation: number; promise: Promise<string | null> } = { generation: current, promise: Promise.resolve(null) }
+  const promise = (async () => {
+    try {
+      if (!api?.createFile) throw new Error(api?.capabilities?.files.create.reason ?? 'File creation is unavailable.')
+      const file = await api.createFile()
+      if (current !== generation) return null
+      backing.setState({ files: [file, ...backing.getState().files], status: { kind: 'ready' } })
+      return file.id
+    } catch (error) {
+      if (current === generation) backing.setState({ status: operationFailure('create', error) })
+      return null
+    } finally {
+      if (createOperation === operation) createOperation = null
+    }
+  })()
+  operation.promise = promise
+  createOperation = operation
+  return promise
 }
 
 export const homeStore = {
@@ -62,6 +76,7 @@ export const homeStore = {
   configure(api: EditorProjectApi | undefined) {
     projectApi = api
     generation += 1
+    createOperation = null
     const canList = Boolean(api?.listFiles && api.capabilities?.files.list.available)
     backing.setState({ files: [], status: canList ? { kind: 'starting', phases: [initialPhase] } : { kind: 'ready' } })
   },
@@ -79,5 +94,5 @@ export const homeStore = {
     editorStore.setAppearance(mode)
   },
   capabilities() { return projectApi?.capabilities?.files ?? unavailableCapabilities.files },
-  dispose() { generation += 1; retry = null; projectApi = undefined },
+  dispose() { generation += 1; createOperation = null; retry = null; projectApi = undefined },
 }

@@ -2,6 +2,7 @@ import { createHostedAuthClient } from '@canvas/auth/web'
 import type { HostedAuthClient } from '@canvas/auth/web'
 import type { DesktopSignInRequest } from '@canvas/auth'
 import { desktopAuthCallbackPath, desktopAuthClientId, desktopAuthProtocolScheme, parseDesktopSignInParameters } from '@canvas/auth'
+import { trackCanvasEvent } from '@canvas/tracking'
 
 let client: HostedAuthClient | undefined
 
@@ -19,9 +20,10 @@ type HostedAuthSnapshot = Readonly<{
   openingDesktop: boolean
   request: DesktopSignInRequest | null
   providerError: string | null
+  providerErrorReference: string | null
 }>
 
-let snapshot: HostedAuthSnapshot = Object.freeze({ openingDesktop: false, request: null, providerError: null })
+let snapshot: HostedAuthSnapshot = Object.freeze({ openingDesktop: false, request: null, providerError: null, providerErrorReference: null })
 const listeners = new Set<() => void>()
 let stopRedirect: (() => void) | undefined
 let startSequence = 0
@@ -43,18 +45,23 @@ export const hostedAuthService = {
     const sequence = ++startSequence
     stopRedirect?.()
     stopRedirect = undefined
-    publish(Object.freeze({ openingDesktop: false, request: null, providerError: null }))
+    publish(Object.freeze({ openingDesktop: false, request: null, providerError: null, providerErrorReference: null }))
     if (typeof window === 'undefined' || window.location.pathname !== '/sign-in' || !['http:', 'https:'].includes(window.location.protocol)) return
     const client = hostedClient()
     const parameters = new URLSearchParams(window.location.search)
     const request = parseDesktopSignInParameters(parameters, desktopAuthClientId)
     const error = providerError(parameters)
-    if (client.hasDesktopAuthorization()) publish(Object.freeze({ openingDesktop: true, request, providerError: error }))
-    else publish(Object.freeze({ openingDesktop: false, request, providerError: error }))
+    if (client.hasDesktopAuthorization()) publish(Object.freeze({ openingDesktop: true, request, providerError: error, providerErrorReference: null }))
+    else publish(Object.freeze({ openingDesktop: false, request, providerError: error, providerErrorReference: null }))
     stopRedirect = client.startDesktopRedirect()
     if (request && !client.hasDesktopAuthorization()) void client.transferSignedInUser(request).then(transferred => {
-      if (sequence === startSequence && transferred) publish(Object.freeze({ openingDesktop: true, request, providerError: error }))
-    }).catch(() => undefined)
+      if (sequence === startSequence && transferred) publish(Object.freeze({ openingDesktop: true, request, providerError: error, providerErrorReference: null }))
+    }).catch(reason => {
+      if (sequence !== startSequence) return
+      const providerErrorReference = crypto.randomUUID()
+      trackCanvasEvent('operation_failed', { operation: 'desktop_auth_transfer', error_code: reason instanceof Error ? 'auth_transfer_failed' : 'unexpected_error', error_reference: providerErrorReference })
+      publish(Object.freeze({ openingDesktop: false, request, providerError: 'Sign-in could not finish. Try again.', providerErrorReference }))
+    })
   },
   stop(): void {
     startSequence += 1

@@ -1,5 +1,8 @@
 import { createStore } from 'zustand/vanilla'
 import type { EditorProjectApi, EditorRepositoryConnection } from '../../capabilities'
+import { documentStore } from './document-store'
+import { editorStore } from './store'
+import { connectedRegistryAtoms, documentRegistryAtoms } from './component-registry'
 
 type RepositoryConnectionState = Readonly<{
   status: 'idle' | 'busy' | 'ready' | 'error'
@@ -25,7 +28,14 @@ async function run(kind: Exclude<RepositoryConnectionState['operation'], null>, 
   try {
     const connection = await operation()
     if (current !== generation) return
-    if (connection) backing.setState({ status: 'ready', operation: null, connection, error: null })
+    if (connection) {
+      const active = connectedRegistryAtoms(connection)
+      const document = documentStore.getSnapshot()
+      documentStore.setAtoms(documentRegistryAtoms(document.file, active, document.atoms))
+      if (editorStore.getSnapshot().snapshot) await editorStore.refresh()
+      if (current !== generation) return
+      backing.setState({ status: 'ready', operation: null, connection, error: null })
+    }
     else backing.setState({ status: backing.getState().connection ? 'ready' : 'idle', operation: null, error: null })
   } catch (error) {
     if (current === generation) backing.setState({ status: 'error', operation: null, error: message(error) })

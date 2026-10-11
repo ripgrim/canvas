@@ -33,6 +33,7 @@ export function SelectionHud() {
   const oriented = (id: string, rect: Rect): HudOrientedRect => nodeHudGeometry(scene.byId.get(id)!, rect, geometry.nodes[id], state.viewport, state.viewportSize)
   const liveRect = (id: string): Rect | null => scene.byId.get(id)?.rect ?? null
   const selected = state.selection.filter(id => scene.byId.has(id))
+  const selectedIds = new Set(selected)
   const selectedRects = selected.map(id => liveRect(id)!).filter(Boolean)
   const capture = (event: PointerEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId) }
   const release = (event: PointerEvent<HTMLButtonElement>) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }
@@ -50,7 +51,7 @@ export function SelectionHud() {
       if (renamingNode?.id === node.id) return null
       const face = topHudFace(oriented(node.id, rect).quad)
       const label = { x: face.start.x + face.normal.x * canvasHudChrome.labelGap, y: face.start.y + face.normal.y * canvasHudChrome.labelGap, width: Math.max(48, face.length), angle: face.angle }
-      return <NodeLabel key={node.id} id={node.id} pose={label} name={node.name} selected={selected.includes(node.id)} onPointerDown={event => { if (canvasGestures.labelPointerDown(event, node.id)) capture(event) }} {...handlers} onDoubleClick={() => documentStore.setRenaming(node.id)} />
+      return <NodeLabel key={node.id} id={node.id} pose={label} name={node.name} selected={selectedIds.has(node.id)} onPointerDown={event => { if (canvasGestures.labelPointerDown(event, node.id)) capture(event) }} {...handlers} onDoubleClick={() => documentStore.setRenaming(node.id)} />
     })}
     {showHandles && selectedRects[0] && (() => { const selection = oriented(selected[0]!, selectedRects[0]); return <ResizeHandles id={selected[0]!} rect={selection.base} rotation={scene.byId.get(selected[0]!)!.rotation} handles={resizeHandles} labelFor={handle => copy.resizeHandle(scene.byId.get(selected[0]!)!.name, handle)} onHandlePointerDown={(event, handle) => { if (canvasGestures.handlePointerDown(event, selected[0]!, handle as HandleName)) capture(event) }} {...handlers} /> })()}
     {renamingNode && (renamingNode.kind === 'text'

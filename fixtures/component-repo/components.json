@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "tsx": true,
+  "aliases": {
+    "ui": "@/atoms"
+  },
+  "tailwind": {
+    "css": "src/globals.css",
+    "cssVariables": true
+  },
+  "designEditor": {
+    "preview": {
+      "themeAdapters": [
+        {
+          "entryPath": "src/preview-theme-adapter.tsx",
+          "exportName": "previewThemeAdapter"
+        }
+      ]
+    }
+  }
+}

@@ -84,5 +84,8 @@ describe('snapping, flow insertion, and resizing', () => {
     expect(resizeRect(start, 'right', { x: 20, y: 0 }, { symmetric: true, proportional: false })).toEqual({ x: -20, y: 0, width: 140, height: 50 })
     expect(resizeRect(start, 'top-left', { x: -10, y: -10 }, { symmetric: false, proportional: false })).toEqual({ x: -10, y: -10, width: 110, height: 60 })
     expect(resizeRect(start, 'bottom-right', { x: 100, y: 0 }, { symmetric: false, proportional: true })).toEqual({ x: 0, y: 0, width: 200, height: 100 })
+    expect(resizeRect(start, 'right', { x: 20, y: 0 }, { symmetric: false, proportional: true })).toEqual({ x: 0, y: -5, width: 120, height: 60 })
+    expect(resizeRect(start, 'bottom', { x: 0, y: 25 }, { symmetric: false, proportional: true })).toEqual({ x: -25, y: 0, width: 150, height: 75 })
+    expect(resizeRect(start, 'right', { x: 20, y: 0 }, { symmetric: true, proportional: true })).toEqual({ x: -20, y: -10, width: 140, height: 70 })
   })
 })

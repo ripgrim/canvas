@@ -1,9 +1,18 @@
-import { UploadIntentSigner, FileAssetService } from "@canvas/files"
+import {
+  FileAssetService,
+  ThumbnailGarbageCollector,
+  UploadIntentSigner,
+} from "@canvas/files"
 import { createR2BindingAssetStore } from "@canvas/files/r2"
 import {
   createFileAssetsHandler,
   createHostedFileAccessAuthority,
+  createHostedThumbnailCommitResolver,
+  createHostedThumbnailServiceAuthority,
 } from "@canvas/files/worker"
+
+import { trustedMediaDecoder } from "./media-decoder.js"
+import { runScheduledThumbnailGarbageCollection } from "./scheduled-maintenance.js"
 
 interface Env {
   FILE_ASSETS: object
@@ -14,9 +23,11 @@ interface Env {
 }
 
 function createHandler(env: Env) {
+  const store = createR2BindingAssetStore({ binding: env.FILE_ASSETS })
   const service = new FileAssetService({
-    store: createR2BindingAssetStore({ binding: env.FILE_ASSETS }),
+    store,
     signer: new UploadIntentSigner({ secret: env.UPLOAD_INTENT_SECRET }),
+    mediaDecoder: trustedMediaDecoder,
   })
   const accessAuthority = createHostedFileAccessAuthority({
     apiOrigin: env.API_ORIGIN,
@@ -28,11 +39,46 @@ function createHandler(env: Env) {
       .map((origin) => origin.trim())
       .filter(Boolean),
   )
-  return createFileAssetsHandler({ service, accessAuthority, allowedOrigins })
+  const thumbnailServiceAuthority = createHostedThumbnailServiceAuthority({
+    apiOrigin: env.API_ORIGIN,
+    serviceToken: env.API_SERVICE_TOKEN,
+  })
+  return createFileAssetsHandler({
+    service,
+    accessAuthority,
+    thumbnailServiceAuthority,
+    serviceToken: env.API_SERVICE_TOKEN,
+    allowedOrigins,
+  })
+}
+
+const MAX_GARBAGE_COLLECTION_PAGES = 12
+
+async function collectThumbnailGarbage(env: Env): Promise<void> {
+  const store = createR2BindingAssetStore({ binding: env.FILE_ASSETS })
+  const collector = new ThumbnailGarbageCollector({
+    store,
+    committed: createHostedThumbnailCommitResolver({
+      apiOrigin: env.API_ORIGIN,
+      serviceToken: env.API_SERVICE_TOKEN,
+    }),
+  })
+  await runScheduledThumbnailGarbageCollection({
+    store,
+    collector,
+    maxPages: MAX_GARBAGE_COLLECTION_PAGES,
+  })
 }
 
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     return createHandler(env)(request)
+  },
+  scheduled(
+    _controller: unknown,
+    env: Env,
+    context: Readonly<{ waitUntil(promise: Promise<unknown>): void }>,
+  ): void {
+    context.waitUntil(collectThumbnailGarbage(env))
   },
 }

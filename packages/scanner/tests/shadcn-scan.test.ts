@@ -1,13 +1,17 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { scanShadcnRepository } from '../src/shadcn.js'
+import { scanShadcnPreviewRegistry } from '../src/preview-registry.js'
+import { verifyComponentRegistry } from '../../preview-runtime/src/verified-registry.mjs'
 
 const temporary: string[] = []
 
 async function fixture() {
-  const root = await mkdtemp(path.join(tmpdir(), 'design-editor-shadcn-'))
+  const base = path.join(process.cwd(), '.tmp')
+  await mkdir(base, { recursive: true })
+  const root = await mkdtemp(path.join(base, 'design-editor-shadcn-'))
   temporary.push(root)
   await mkdir(path.join(root, 'src/components/ui'), { recursive: true })
   await mkdir(path.join(root, 'registry/default/ui'), { recursive: true })
@@ -18,6 +22,8 @@ async function fixture() {
     tailwind: { css: 'src/globals.css', cssVariables: true },
     registries: { '@acme': 'https://example.invalid/{name}.json' },
   }), 'utf8')
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'scanner-fixture', private: true, dependencies: { react: '19.3.0', 'react-dom': '19.3.0' } }), 'utf8')
+  await writeFile(path.join(root, 'package-lock.json'), JSON.stringify({ name: 'scanner-fixture', lockfileVersion: 3, packages: { '': { dependencies: { react: '19.3.0', 'react-dom': '19.3.0' } }, 'node_modules/react': { version: '19.3.0' }, 'node_modules/react-dom': { version: '19.3.0' } } }), 'utf8')
   await writeFile(path.join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['./src/*'] } } }), 'utf8')
   await writeFile(path.join(root, 'src/components/ui/button.tsx'), `import type { ReactNode } from 'react'\nexport type ButtonProps = { children?: ReactNode; disabled?: boolean; variant?: 'default' | 'quiet' }\nexport const Button = ({ children }: ButtonProps) => <button>{children}</button>\nexport const buttonVariants = () => 'button'\n`, 'utf8')
   await writeFile(path.join(root, 'src/components/ui/dialog.tsx'), `import { forwardRef, type ReactNode } from 'react'\ntype DialogProps = { trigger?: ReactNode; children?: ReactNode }\nexport const Dialog = forwardRef<HTMLDivElement, DialogProps>(({ children }, ref) => <div ref={ref}>{children}</div>)\n`, 'utf8')
@@ -41,6 +47,9 @@ describe('shadcn repository scan', () => {
       registryRoots: ['registry'],
       tokenFiles: ['src/globals.css'],
       registries: ['@acme'],
+      moduleConfig: { path: 'tsconfig.json', baseUrl: '.', paths: { '@/*': ['./src/*'] } },
+      previewProvider: null,
+      themeAdapters: [],
     })])
     expect(scan.components.map(({ path, exportName, declarationKind, slots }) => ({ path, exportName, declarationKind, slots }))).toEqual([
       { path: 'registry/default/ui/badge.tsx', exportName: 'Badge', declarationKind: 'function', slots: ['children'] },
@@ -58,7 +67,7 @@ describe('shadcn repository scan', () => {
       path: 'src/components/ui/button.tsx',
       message: 'buttonVariants is exported from the UI root but is not a supported React component declaration.',
     }])
-    expect(Object.keys(scan.sourceHashes)).toEqual(['registry/default/ui/badge.tsx', 'src/components/ui/button.tsx', 'src/components/ui/dialog.tsx', 'src/globals.css'])
+    expect(Object.keys(scan.sourceHashes)).toEqual(['registry/default/ui/badge.tsx', 'src/components/ui/button.tsx', 'src/components/ui/dialog.tsx', 'src/globals.css', 'tsconfig.json'])
   })
 
   it('does not execute repository scripts while scanning', async () => {
@@ -70,6 +79,31 @@ describe('shadcn repository scan', () => {
 
     await expect(statOrNull(path.join(root, 'executed'))).resolves.toBeNull()
   }, 30_000)
+
+  it('[AT-SCAN-001] indexes module and export use-server directives as unsupported', async () => {
+    const root = await fixture()
+    await writeFile(path.join(root, 'src/components/ui/server-module.tsx'), `'use server'\nexport function ServerModule() { return <div>Server</div> }\n`, 'utf8')
+    await writeFile(path.join(root, 'src/components/ui/server-action.tsx'), `export async function ServerAction() {\n  'use server'\n  return <div>Action</div>\n}\n`, 'utf8')
+
+    const scan = await scanShadcnRepository(root)
+    const generated = await scanShadcnPreviewRegistry(root)
+
+    expect(scan.components.some(component => component.exportName === 'ServerModule')).toBe(false)
+    expect(scan.components.some(component => component.exportName === 'ServerAction')).toBe(false)
+    expect(generated.request.components.some(component => ['ServerModule', 'ServerAction'].includes(component.exportName))).toBe(false)
+    expect(scan.diagnostics).toEqual(expect.arrayContaining([
+      {
+        code: 'unsupported-export',
+        path: 'src/components/ui/server-module.tsx',
+        message: 'ServerModule is server-only and cannot be indexed as a preview component.',
+      },
+      {
+        code: 'unsupported-export',
+        path: 'src/components/ui/server-action.tsx',
+        message: 'ServerAction is server-only and cannot be indexed as a preview component.',
+      },
+    ]))
+  })
 
   it('infers a shadcn-style UI workspace and token stylesheet in a monorepo without components.json', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'design-editor-inferred-shadcn-'))
@@ -105,6 +139,9 @@ export { Button, buttonVariants }
       registryRoots: [],
       tokenFiles: ['apps/web/src/styles.css'],
       registries: [],
+      moduleConfig: { path: 'apps/web/tsconfig.json', baseUrl: 'apps/web', paths: { '#/*': ['./src/*'] } },
+      previewProvider: null,
+      themeAdapters: [],
     }])
     expect(scan.components.map(component => `${component.path}:${component.exportName}`)).toEqual(['apps/web/src/components/ui/button.tsx:Button'])
     expect(scan.tokens.map(({ name, theme }) => ({ name, theme }))).toEqual([
@@ -118,10 +155,98 @@ export { Button, buttonVariants }
       path: 'apps/web/src/components/ui/button.tsx',
       message: 'buttonVariants is exported from the UI root but is not a supported React component declaration.',
     }])
-    expect(Object.keys(scan.sourceHashes)).toEqual(['apps/web/src/components/ui/button.tsx', 'apps/web/src/styles.css'])
+    expect(Object.keys(scan.sourceHashes)).toEqual(['apps/web/src/components/ui/button.tsx', 'apps/web/src/styles.css', 'apps/web/tsconfig.json'])
+  })
+
+  it('[AT-SCAN-001][AT-COMP-001] creates an integrity-bound registry without writing repository source bytes', async () => {
+    const root = await fixture()
+    const before = await repositoryBytes(root)
+
+    const generated = await scanShadcnPreviewRegistry(root)
+    const verified = await verifyComponentRegistry(root, generated.request)
+
+    expect(verified.fingerprint).toMatch(/^sha256-/)
+    expect(generated.request.components.map(component => component.exportName)).toEqual(['Badge', 'Button', 'Dialog'])
+    expect(generated.request.components.find(component => component.exportName === 'Badge')).toEqual(expect.objectContaining({ props: {}, slots: ['children'] }))
+    expect(generated.request.components.find(component => component.exportName === 'Dialog')).toEqual(expect.objectContaining({ props: {}, slots: ['children', 'trigger'] }))
+    expect(generated.request.styles).toEqual([expect.objectContaining({ path: 'src/globals.css', integrity: expect.stringMatching(/^sha256-/) })])
+    expect(generated.request.aliases).toEqual([{
+      configPath: 'tsconfig.json',
+      integrity: expect.stringMatching(/^sha256-/),
+      baseUrl: '.',
+      paths: [{ pattern: '@/*', target: './src/*' }],
+    }])
+    expect(await repositoryBytes(root)).toEqual(before)
+  })
+
+  it('[AT-P0-001] invalidates the prior registry fingerprint when component source changes', async () => {
+    const root = await fixture()
+    const original = await scanShadcnPreviewRegistry(root)
+    const prior = await verifyComponentRegistry(root, original.request)
+
+    await writeFile(path.join(root, 'src/components/ui/button.tsx'), `export const Button = () => <button>Changed</button>\n`, 'utf8')
+
+    await expect(verifyComponentRegistry(root, original.request)).rejects.toThrow('changed after the registry was generated')
+    const refreshed = await scanShadcnPreviewRegistry(root)
+    const current = await verifyComponentRegistry(root, refreshed.request)
+    expect(current.fingerprint).not.toBe(prior.fingerprint)
+  })
+
+  it('[AT-COMP-001] reports unsupported component props instead of approximating them', async () => {
+    const root = await fixture()
+    await writeFile(path.join(root, 'src/components/ui/action.tsx'), `type ActionProps = { onAction(): void }\nexport function Action(_props: ActionProps) { return <button>Action</button> }\n`, 'utf8')
+
+    const generated = await scanShadcnPreviewRegistry(root)
+
+    expect(generated.request.components.some(component => component.exportName === 'Action')).toBe(false)
+    expect(generated.scan.diagnostics).toContainEqual({
+      code: 'unsupported-preview-component',
+      path: 'src/components/ui/action.tsx',
+      message: 'Action has props that cannot be represented by the verified preview contract.',
+    })
+  })
+
+  it('[AT-PRV-001] carries provider and theme adapters only from explicit scanner configuration', async () => {
+    const root = await fixture()
+    await writeFile(path.join(root, 'components.json'), JSON.stringify({
+      aliases: { ui: '@/components/ui' },
+      tailwind: { css: 'src/globals.css' },
+      designEditor: { preview: {
+        provider: { entryPath: 'src/PreviewProvider.tsx', exportName: 'PreviewProvider', props: {} },
+        themeAdapters: [{ entryPath: 'src/theme-adapter.ts', exportName: 'themeAdapter' }],
+      } },
+    }), 'utf8')
+    await writeFile(path.join(root, 'src/PreviewProvider.tsx'), `export function PreviewProvider() { return null }\n`, 'utf8')
+    await writeFile(path.join(root, 'src/theme-adapter.ts'), `export const themeAdapter = {}\n`, 'utf8')
+
+    const generated = await scanShadcnPreviewRegistry(root)
+    expect(generated.request.provider).toEqual(expect.objectContaining({
+      entryPath: 'src/PreviewProvider.tsx',
+      exportName: 'PreviewProvider',
+      evidence: expect.objectContaining({ configPath: 'components.json' }),
+    }))
+    expect(generated.request.themeAdapters).toEqual([expect.objectContaining({
+      entryPath: 'src/theme-adapter.ts',
+      exportName: 'themeAdapter',
+      evidence: expect.objectContaining({ configPath: 'components.json' }),
+    })])
+    await expect(verifyComponentRegistry(root, generated.request)).resolves.toMatchObject({
+      provider: expect.objectContaining({ exportName: 'PreviewProvider' }),
+      themeAdapters: [expect.objectContaining({ exportName: 'themeAdapter' })],
+    })
   })
 })
 
 async function statOrNull(filename: string) {
   try { return await import('node:fs/promises').then(({ stat }) => stat(filename)) } catch { return null }
+}
+
+async function repositoryBytes(root: string, directory = ''): Promise<Record<string, string>> {
+  const output: Record<string, string> = {}
+  for (const entry of await readdir(path.join(root, directory), { withFileTypes: true })) {
+    const relative = path.posix.join(directory.replaceAll('\\', '/'), entry.name)
+    if (entry.isDirectory()) Object.assign(output, await repositoryBytes(root, relative))
+    else output[relative] = (await readFile(path.join(root, relative))).toString('base64')
+  }
+  return output
 }

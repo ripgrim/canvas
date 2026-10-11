@@ -12,6 +12,7 @@
 .auth-spinner-track { stroke: var(--neutral-4); }
 .auth-spinner-arc { stroke: var(--color-1); }
 .auth-error { margin: 0; color: var(--error); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); }
+.auth-error-reference { margin: 0; color: var(--cte-text-muted); font-family: var(--font-data); font-size: var(--size-xxs); line-height: var(--line-xxs); letter-spacing: var(--letter-spacing-xxs); }
 @keyframes auth-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .auth-spinner { animation: none; } }
 @media (max-width: 520px) { .auth-root { padding: var(--space-m); } .auth-card { padding: var(--space-l); } }

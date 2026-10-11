@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { validateFileDocument } from '../src/file-document.js'
-import type { Appearance, ColorValue, ComponentNode, FileDocument, ImageAsset, Paint, PrimitiveNode } from '../src/file-document.js'
+import type { Appearance, ColorValue, ComponentNode, FileDocument, ImageAssetReference, Paint, PrimitiveNode } from '../src/file-document.js'
 import { projectPreviewPage } from '../src/file-preview.js'
 import type { Atom } from '../src/types.js'
 
@@ -14,7 +14,7 @@ const solid = (id: string, color: ColorValue): Paint => ({ id, type: 'solid', co
 const buttonNode = (id: string, props: ComponentNode['props'] = {}): ComponentNode => ({ id, type: 'component', componentId: 'sample-button', exportName: 'Button', props })
 const primitive = (id: string, type: PrimitiveNode['type'], styles: PrimitiveNode['styles'], appearance?: Appearance): PrimitiveNode => ({ id, type, name: `${id} name`, styles, ...(appearance ? { appearance } : {}) })
 const center = { x: 0.5, y: 0.5 }
-const pixel = (id: string, data = 'AAAA'): ImageAsset => ({ id, name: id, mime: 'image/png', width: 1, height: 1, bytes: 3, data })
+const pixel = (id: string, sha256 = 'a'.repeat(64)): ImageAssetReference => ({ id, name: `${id}.png`, mime: 'image/png', extension: 'png', bytes: 3, width: 1, height: 1, sha256 })
 
 /**
  * Page 1 root order: card (U), outer frame (V), solo button (W), caption text (X). card holds btn-1 (V) and btn-2 (W) in
@@ -22,7 +22,7 @@ const pixel = (id: string, data = 'AAAA'): ImageAsset => ({ id, name: id, mime: 
  * a half-opacity instance appearance with a red border on every side; caption has no appearance.
  */
 const fixture = (): FileDocument => validateFileDocument({
-  schemaVersion: 6,
+  schemaVersion: 7,
   fileId: 'file-1',
   revision: 9,
   pages: [{ id: 'page-1', name: 'Landing', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Empty', rootNodeId: 'root-2' }],
@@ -129,14 +129,32 @@ describe('preview projection', () => {
 
   it('ships only the image assets a page references', () => {
     const file = fixture()
-    file.assets = { photo: pixel('photo', 'AQID'), spare: pixel('spare'), other: pixel('other', 'BAUG') }
+    file.assets = { photo: pixel('photo', '1'.repeat(64)), spare: pixel('spare'), other: pixel('other', '2'.repeat(64)) }
     ;(file.nodes.inner as PrimitiveNode).appearance = { fills: [solid('inner:fill:1', lit('#abcdef')), { id: 'inner:fill:2', type: 'image', assetId: 'photo', fit: 'cover' }] }
     file.nodes.away = primitive('away', 'rectangle', { left: 0, top: 0, width: 10, height: 10 }, { fills: [{ id: 'away:fill:1', type: 'image', assetId: 'other', fit: 'tile' }] })
     file.relationships.away = { parentId: 'root-2', orderKey: 'V' }
     const { document } = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!
-    expect(document.assets).toStrictEqual({ photo: { mime: 'image/png', data: 'AQID' } })
+    expect(document.assets).toStrictEqual({ photo: { name: 'photo.png', mime: 'image/png', extension: 'png', bytes: 3, width: 1, height: 1, sha256: '1'.repeat(64) } })
     expect(document.canvas.elements[1]!.appearance).toStrictEqual({ fills: [{ type: 'solid', color: '#abcdef' }, { type: 'image', assetId: 'photo', fit: 'cover' }] })
-    expect(projectPreviewPage(validateFileDocument(file, atoms), 'page-2')!.document.assets).toStrictEqual({ other: { mime: 'image/png', data: 'BAUG' } })
+    expect(projectPreviewPage(validateFileDocument(file, atoms), 'page-2')!.document.assets).toStrictEqual({ other: { name: 'other.png', mime: 'image/png', extension: 'png', bytes: 3, width: 1, height: 1, sha256: '2'.repeat(64) } })
+  })
+
+  it('projects only public image metadata even when a typed caller supplies private fields', () => {
+    const file = fixture()
+    file.assets = {
+      photo: {
+        ...pixel('photo', '1'.repeat(64)),
+        data: 'private-inline-bytes',
+        url: 'https://private.example/photo.png',
+        objectKey: 'private/photo.png',
+        etag: 'private-etag',
+      } as ImageAssetReference,
+    }
+    ;(file.nodes.inner as PrimitiveNode).appearance = { fills: [{ id: 'inner:fill:1', type: 'image', assetId: 'photo', fit: 'cover' }] }
+
+    expect(projectPreviewPage(file, 'page-1')!.document.assets).toStrictEqual({
+      photo: { name: 'photo.png', mime: 'image/png', extension: 'png', bytes: 3, width: 1, height: 1, sha256: '1'.repeat(64) },
+    })
   })
 
   it('projects an empty page and returns null for an unknown page', () => {

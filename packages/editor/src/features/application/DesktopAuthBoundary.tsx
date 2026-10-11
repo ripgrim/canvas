@@ -1,19 +1,19 @@
 import { useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
-import { AuthActions, AuthBody, AuthBrand, AuthCard, AuthCenter, AuthPrimaryAction, AuthRoot, AuthStatus, AuthTitle } from '../../design-system/auth-atoms'
+import { AuthActions, AuthBody, AuthBrand, AuthCard, AuthCenter, AuthErrorReference, AuthPrimaryAction, AuthRoot, AuthStatus, AuthTitle } from '../../design-system/auth-atoms'
 import { authCopy } from './auth-copy'
 import { authSessionService } from './auth-service'
 
-function SignInPrompt({ message, retry }: { message?: string | null; retry?: boolean }) {
-  return <AuthRoot label={authCopy.desktopTitle}><AuthCenter><AuthBrand label="Canvas" /><AuthTitle>{authCopy.desktopTitle}</AuthTitle><AuthCard><AuthBody>{message ?? authCopy.desktopBody}</AuthBody><AuthActions><AuthPrimaryAction onClick={authSessionService.signIn}>{retry ? authCopy.signInAgain : authCopy.signIn}</AuthPrimaryAction></AuthActions></AuthCard></AuthCenter></AuthRoot>
+function SignInPrompt({ message, reference, retry }: { message?: string | null; reference?: string | undefined; retry?: boolean }) {
+  return <AuthRoot label={authCopy.desktopTitle}><AuthCenter><AuthBrand label="Canvas" /><AuthTitle>{authCopy.desktopTitle}</AuthTitle><AuthCard><AuthBody>{message ?? authCopy.desktopBody}</AuthBody>{reference && <AuthErrorReference>{authCopy.errorReference(reference)}</AuthErrorReference>}<AuthActions><AuthPrimaryAction onClick={authSessionService.signIn}>{retry ? authCopy.signInAgain : authCopy.signIn}</AuthPrimaryAction></AuthActions></AuthCard></AuthCenter></AuthRoot>
 }
 
-export function DesktopAuthBoundary({ children }: { children: ReactNode }) {
-  const auth = useSyncExternalStore(authSessionService.subscribe, authSessionService.getSnapshot, authSessionService.getSnapshot)
-  if (auth.status === 'signed-in' || (auth.status === 'unavailable' && authSessionService.allowsUnauthenticatedWorkspace())) return children
+export function DesktopAuthBoundary({ children, allowSignedOut = false }: { children: ReactNode; allowSignedOut?: boolean }) {
+  const auth = useSyncExternalStore(authSessionService.subscribe, authSessionService.getSnapshot, authSessionService.getServerSnapshot)
+  if (auth.status === 'signed-in' || (auth.status === 'signed-out' && allowSignedOut && authSessionService.allowsSignedOutWorkspace()) || (auth.status === 'unavailable' && authSessionService.allowsUnauthenticatedWorkspace())) return children
   if (auth.status === 'loading') return <AuthRoot label={authCopy.loading}><AuthCenter><AuthBrand label="Canvas" /><AuthStatus title={authCopy.loading} /></AuthCenter></AuthRoot>
   if (auth.status === 'signing-in') return <AuthRoot label={authCopy.signingIn}><AuthCenter><AuthBrand label="Canvas" /><AuthStatus title={authCopy.signingIn} body={authCopy.browserBody} /></AuthCenter></AuthRoot>
   if (auth.status === 'authenticating') return <AuthRoot label={authCopy.finishing}><AuthCenter><AuthBrand label="Canvas" /><AuthStatus title={authCopy.finishing} /></AuthCenter></AuthRoot>
   if (auth.status === 'signed-out') return <SignInPrompt />
-  return <SignInPrompt retry message={auth.message ?? authCopy.status(auth.status)} />
+  return <SignInPrompt retry message={auth.message ?? authCopy.status(auth.status)} reference={auth.reference} />
 }

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   appearanceColors, assetReferences, canonicalAppearance, canonicalBorders, convertPaint, defaultFillColor, mapAppearanceColors, nextBorders,
-  projectAppearance, validateAppearance, validateImageAsset,
+  projectAppearance, validateAppearance, validateImageAssetReference,
 } from '../src/appearance.js'
-import type { Appearance, AppearanceKind, Borders, ColorValue, GradientPaint, ImageAsset, Outline, Paint, Stroke } from '../src/appearance.js'
+import type { Appearance, AppearanceKind, Borders, ColorValue, GradientPaint, ImageAssetReference, Outline, Paint, Stroke } from '../src/appearance.js'
 import type { Color } from '../src/color.js'
 
 const hex = (value: string): Color => ({ kind: 'hex', hex: value })
@@ -11,7 +11,7 @@ const lit = (value: string): ColorValue => ({ kind: 'literal', color: hex(value)
 const tok = (tokenId: string): ColorValue => ({ kind: 'token', tokenId })
 const stroke = (value: string, width = 1, style: Stroke['style'] = 'solid'): Stroke => ({ color: lit(value), width, style })
 const gradientBody = (): Omit<GradientPaint, 'id' | 'type'> => ({ shape: 'radial', angle: 45, center: { x: 0.25, y: 0.75 }, length: 1.5, interpolation: 'oklch', stops: [{ id: 'a', position: 0, color: lit('#000000') }, { id: 'b', position: 1, midpoint: 0.3, color: tok('brand') }] })
-const pixel = (): ImageAsset => ({ id: 'img', name: 'Pixel', mime: 'image/png', width: 1, height: 1, bytes: 3, data: 'AAAA' })
+const pixel = (): ImageAssetReference => ({ id: 'img', name: 'Pixel', mime: 'image/png', extension: 'png', bytes: 3, width: 1, height: 1, sha256: 'a'.repeat(64) })
 
 /** One fill of each type, each carrying a cache of the other two types, plus every blending field, an outline, and `all` borders. */
 const full = (): Appearance => ({
@@ -118,23 +118,28 @@ describe('appearance validation', () => {
     for (const kind of ['frame', 'rectangle', 'shape', 'shader', 'component'] as AppearanceKind[]) expect(validateAppearance(value, kind)).toEqual(value)
   })
 
-  it('accepts a well formed image asset', () => {
-    expect(validateImageAsset(pixel())).toEqual(pixel())
-    expect(validateImageAsset({ ...pixel(), mime: 'image/webp', width: 16_384, height: 16_384, data: 'AAA=' })).toMatchObject({ width: 16_384 })
+  it('accepts exact immutable image asset metadata', () => {
+    expect(validateImageAssetReference(pixel())).toEqual(pixel())
+    expect(validateImageAssetReference({ ...pixel(), mime: 'image/webp', extension: 'webp', width: 4096, height: 4096 })).toMatchObject({ width: 4096, height: 4096 })
   })
 
   it.each([
     ['an svg mime type', { mime: 'image/svg+xml' }, 'Unsupported image type'],
-    ['non base64 data', { data: 'not base64!' }, 'Invalid image data'],
-    ['data whose length is not a multiple of 4', { data: 'AAAAA' }, 'Invalid image data'],
+    ['a MIME-extension mismatch', { mime: 'image/webp' }, 'Image type does not match its extension'],
+    ['an uppercase digest', { sha256: 'A'.repeat(64) }, 'Invalid image digest'],
+    ['a short digest', { sha256: 'a'.repeat(63) }, 'Invalid image digest'],
     ['a zero width', { width: 0 }, 'Invalid image dimensions'],
     ['a fractional height', { height: 1.5 }, 'Invalid image dimensions'],
     ['a width past 16384', { width: 16_385 }, 'Invalid image dimensions'],
+    ['too many decoded pixels', { width: 4097, height: 4096 }, 'Invalid image dimensions'],
     ['a zero byte size', { bytes: 0 }, 'Invalid image size'],
-    ['a blank name', { name: ' ' }, 'Invalid image asset'],
-    ['an extra key', { url: 'https://example.com/a.png' }, 'Unsupported image asset field'],
-  ] as [string, Record<string, unknown>, string][])('rejects an image asset with %s', (_label, patch, message) => {
-    expect(thrown(() => validateImageAsset({ ...pixel(), ...patch }))).toBe(message)
+    ['a blank name', { name: ' ' }, 'Invalid image asset reference'],
+    ['inline data', { data: 'AAAA' }, 'Unsupported image asset reference field'],
+    ['a URL', { url: 'https://example.com/a.png' }, 'Unsupported image asset reference field'],
+    ['an object key', { objectKey: 'file/img.png' }, 'Unsupported image asset reference field'],
+    ['an ETag', { etag: 'opaque' }, 'Unsupported image asset reference field'],
+  ] as [string, Record<string, unknown>, string][])('rejects an image asset reference with %s', (_label, patch, message) => {
+    expect(thrown(() => validateImageAssetReference({ ...pixel(), ...patch }))).toBe(message)
   })
 })
 

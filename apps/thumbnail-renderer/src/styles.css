@@ -1,0 +1,18 @@
+:root,
+body,
+#thumbnail-stage {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+:root,
+body {
+  background: transparent;
+}
+
+#thumbnail-stage {
+  position: relative;
+  contain: strict;
+}

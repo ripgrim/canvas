@@ -14,9 +14,13 @@ function errorTitle(status: Extract<HomeStatus, { kind: 'error' }>) {
   return status.fileName ? copy.openFailed(status.fileName) : copy.openFailedUnnamed
 }
 
-function matches(file: HomeFile, query: string) {
+export function matchesHomeFile(file: HomeFile, query: string) {
   const needle = query.trim().toLocaleLowerCase()
   return !needle || file.name.toLocaleLowerCase().includes(needle) || file.location.toLocaleLowerCase().includes(needle)
+}
+
+export function filterHomeFiles(files: readonly HomeFile[], query: string) {
+  return files.filter(file => matchesHomeFile(file, query))
 }
 
 export function HomeView({ mode, workspaceName, accountName, files, status, create, open, onCreate, onOpen, onRetry, onBack, onToggleMode }: HomeViewProps) {
@@ -31,8 +35,9 @@ export function HomeView({ mode, workspaceName, accountName, files, status, crea
   const search = <HomeSearch id={searchId} label={copy.search} value={query} onChange={setQuery} />
   const theme = onToggleMode ? <Button label={mode === 'light' ? copy.themeDark : copy.themeLight} onClick={onToggleMode}><Icon name={mode === 'light' ? 'moon' : 'sun'} />{workspaceName}</Button> : undefined
   const sidebar = <HomeSidebar accountName={accountName} search={search} current={copy.files} footer={theme} />
-  const visible = files.filter(file => matches(file, query))
-  const newFile = <Button variant="outline" disabled={!create.available} title={create.available ? copy.newFile : create.reason} onClick={onCreate}><Icon name="plus" />{copy.newFile}</Button>
+  const visible = filterHomeFiles(files, query)
+  const busy = status.kind === 'creating' || status.kind === 'opening'
+  const newFile = <Button variant="outline" disabled={!create.available || busy} title={create.available ? copy.newFile : create.reason} onClick={onCreate}><Icon name="plus" />{copy.newFile}</Button>
   const toolbar = <HomeToolbar title={copy.files} actions={<>{newFile}<HomeViewSwitch value={view} gridLabel={copy.gridView} listLabel={copy.listView} onChange={setView} /></>} />
 
   if (status.kind === 'starting' || status.kind === 'creating' || status.kind === 'opening') {
@@ -44,11 +49,11 @@ export function HomeView({ mode, workspaceName, accountName, files, status, crea
   const retryActions = <><Button variant="primary" onClick={onRetry}>{copy.retry}</Button>{onBack && status.kind === 'error' && status.operation !== 'list' && <Button variant="outline" onClick={onBack}>{copy.back}</Button>}</>
 
   return <HomeRoot mode={mode} label={copy.label} onKeyDown={onKeyDown}>{sidebar}<HomeMain>{toolbar}<HomeContent>
-    {status.kind === 'error' && !listFailed && <HomeErrorPanel title={errorTitle(status)} body={status.message} actions={retryActions} />}
+    {status.kind === 'error' && !listFailed && <HomeErrorPanel title={errorTitle(status)} body={status.message} reference={copy.errorReference(status.reference)} actions={retryActions} />}
     <HomeSection title={copy.files}>
-      {listFailed ? <HomeErrorPanel title={errorTitle(status)} body={status.message} actions={retryActions} />
+      {listFailed ? <HomeErrorPanel title={errorTitle(status)} body={status.message} reference={copy.errorReference(status.reference)} actions={retryActions} />
         : files.length === 0 ? <HomeEmpty title={copy.emptyTitle} />
-        : visible.length === 0 ? <HomeNote>{copy.noMatches(query.trim())}</HomeNote>
+        : visible.length === 0 ? <HomeNote>{copy.noMatches}</HomeNote>
         : <HomeFileGrid label={copy.files} mode={view}>{visible.map(file => <HomeFileCard key={file.id} name={file.name} meta={file.updatedAt ? copy.updated(file.updatedAt) : undefined} thumbnailUrl={file.thumbnailUrl} openLabel={copy.open(file.name)} disabled={!open.available} onOpen={() => onOpen(file.id)} />)}</HomeFileGrid>}
     </HomeSection>
   </HomeContent></HomeMain></HomeRoot>

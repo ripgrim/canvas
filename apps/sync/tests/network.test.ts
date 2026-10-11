@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { syncProtocolVersion } from '@canvas/sync-protocol'
+import { createRevisionSyncClient } from '@canvas/sync-client'
 import { createInternalApiAuthorizer, createSyncNetworkServer, InMemorySyncRepository } from '../src/index.js'
 import type { SyncNetworkServer } from '../src/index.js'
 
@@ -76,6 +77,35 @@ function rejectedStatus(url: string, authorization = 'Bearer allowed', origin = 
 }
 
 describe('sync network runtime', () => {
+  it('CLOUD-SYNC-LIFECYCLE-002 answers transport heartbeats without entering the JSON protocol', async () => {
+    const runtime = await syncRuntime()
+    const client = createRevisionSyncClient({
+      syncOrigin: runtime.url,
+      createWebSocket: url => new WebSocket(url, { origin: allowedOrigin, headers: { Authorization: 'Bearer allowed' } }) as never,
+      validateDocument: value => value as { schemaVersion: number; title: string },
+      heartbeatIntervalMs: 10,
+      heartbeatTimeoutMs: 5,
+      reconnectDelaysMs: [1],
+      random: () => 0.5,
+      lifecycleTarget: null,
+      createId: () => crypto.randomUUID(),
+    })
+    client.start({ fileId, clientId: 'heartbeat-tab', revision: 0, document: { schemaVersion: 1, title: 'Untitled' } })
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Sync client did not become ready.')), 1_000)
+      const unsubscribe = client.subscribe(() => {
+        if (client.getSnapshot().status !== 'ready') return
+        clearTimeout(timeout)
+        unsubscribe()
+        resolve()
+      })
+    })
+    await new Promise(resolve => setTimeout(resolve, 35))
+    expect(client.getSnapshot().status).toBe('ready')
+    expect(runtime.calls.map(call => (call.body as any).access)).toEqual(['read', 'read'])
+    client.dispose()
+  })
+
   it('SYNC-NET-001 subscribes and acknowledges a canonical edit over a real WebSocket', async () => {
     const runtime = await syncRuntime()
     const socket = await connect(`${runtime.url}/sync/${fileId}?tabId=tab-1`)

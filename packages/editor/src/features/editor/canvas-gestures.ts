@@ -1,7 +1,8 @@
 import type { PrimitiveKind } from '@canvas/repo-engine/file-document'
+import type { Appearance, ImageGeometry, ImagePaint } from '@canvas/repo-engine/appearance'
 import { childrenOf as fileChildrenOf, pageRoot } from '@canvas/repo-engine/file-document'
 import { documentStore } from './document-store'
-import type { CanvasTransient, MoveCommit } from './document-store'
+import type { CanvasTransient, MoveCommit, PersistenceCommit } from './document-store'
 import { sceneGeometry } from './scene-geometry'
 import { ancestors, buildScene, childrenOf, clickTarget, containingFrameAt, descendants, drillTarget, marqueeTargets, symmetricDifference } from './canvas-scene'
 import type { Scene, SceneNode } from './canvas-scene'
@@ -9,10 +10,22 @@ import { canvasCreationBounds } from './canvas-drawing'
 import { dragThresholdCss, flowInsertIndex, handleDragThresholdCss, normalizeRect, resizeRect, roundRect, screenToWorld, snapRect, snapThresholdCss } from './canvas-math'
 import type { Camera, Point, Rect, Size } from './canvas-math'
 import { flexInsertIndex } from './flex-reorder'
+import { collaborationService } from '../collaboration/collaboration-service'
+import { collaborationTransforms, previewTransientMoves } from './preview-transient'
+import type { EditorCollaborationTransform } from '../../capabilities'
 
 export type ResizeHandle = 'top-left' | 'top' | 'top-right' | 'right' | 'bottom-right' | 'bottom' | 'bottom-left' | 'left'
 export const resizeHandles: readonly ResizeHandle[] = ['top-left', 'top', 'top-right', 'right', 'bottom-right', 'bottom', 'bottom-left', 'left']
 export const creationTools: readonly PrimitiveKind[] = ['frame', 'rectangle', 'shape', 'shader', 'text']
+
+export type CanvasInteractionController = Readonly<{
+  beginInteraction(kind: 'move' | 'resize', nodeIds: readonly string[]): string | null
+  updateInteraction(interactionId: string, transforms: readonly EditorCollaborationTransform[]): boolean
+  canCommitInteraction(interactionId: string): boolean
+  endInteraction(interactionId: string): void
+}>
+let localInteractionSequence = 0
+const localInteractions: CanvasInteractionController = Object.freeze({ beginInteraction: () => `local-${++localInteractionSequence}`, updateInteraction: () => true, canCommitInteraction: () => true, endInteraction: () => undefined })
 
 type PointerLike = { pointerId: number; clientX: number; clientY: number; button: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean }
 type Base = { pointerId: number; startClient: Point; startWorld: Point; camera: Camera; size: Size; scene: Scene; selection: string[]; moved: boolean }
@@ -28,9 +41,11 @@ type Gesture =
  * One gesture state machine for selection, marquee, freeform drag, flow reorder, nesting, drawing, resizing, and panning.
  * Every frame derives from the immutable pointer-down snapshot; cancel restores it exactly.
  */
-export function createCanvasGestures(store = documentStore, geometry = sceneGeometry) {
+export function createCanvasGestures(store = documentStore, geometry = sceneGeometry, interactions: CanvasInteractionController = store === documentStore ? collaborationService : localInteractions) {
+  const noPersistenceCommit: PersistenceCommit = Object.freeze({ committed: false, persistence: null })
   let element: HTMLElement | null = null
   let gesture: Gesture | null = null
+  let interactionId: string | null = null
   const viewportPoint = (event: Pick<PointerLike, 'clientX' | 'clientY'>): Point => { const rect = element?.getBoundingClientRect(); return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) } }
   const currentScene = () => { const state = store.getSnapshot(); return buildScene(state.file, state.pageId, geometry.getSnapshot().nodes) }
   const snapshot = (event: PointerLike): Base => {
@@ -43,6 +58,36 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
   const deep = (event: Pick<PointerLike, 'ctrlKey' | 'metaKey'>) => event.ctrlKey || event.metaKey
   const movable = (scene: Scene, id: string) => { const node = scene.byId.get(id); return Boolean(node && !node.flow) }
   const setTransient = (transient: CanvasTransient | null) => store.setTransient(transient)
+  const syncInteraction = () => {
+    const state = store.getSnapshot()
+    return interactionId !== null && interactions.updateInteraction(interactionId, collaborationTransforms(previewTransientMoves(state.file, state.pageId, state.transient)))
+  }
+  const imageRect = (paint: ImagePaint, asset: { width: number; height: number }, bounds: Rect): ImageGeometry => {
+    if (paint.geometry) return paint.geometry
+    if (paint.fit === 'stretch') return { x: 0, y: 0, width: bounds.width, height: bounds.height }
+    if (paint.fit === 'tile') return { x: 0, y: 0, width: asset.width, height: asset.height }
+    const scale = paint.fit === 'contain' ? Math.min(bounds.width / asset.width, bounds.height / asset.height) : Math.max(bounds.width / asset.width, bounds.height / asset.height)
+    const width = asset.width * scale
+    const height = asset.height * scale
+    return { x: (bounds.width - width) / 2, y: (bounds.height - height) / 2, width, height }
+  }
+  const resizedAppearance = (id: string, start: Rect, next: Rect, contentLocked: boolean): Appearance | undefined => {
+    const file = store.getSnapshot().file
+    const node = file?.nodes[id]
+    if (!file || !node || node.type === 'root' || !node.appearance?.fills?.some(fill => fill.type === 'image')) return node && node.type !== 'root' ? node.appearance : undefined
+    const scaleX = next.width / start.width
+    const scaleY = next.height / start.height
+    return { ...node.appearance, fills: node.appearance.fills.map(fill => {
+      if (fill.type !== 'image') return fill
+      const asset = file.assets?.[fill.assetId]
+      if (!asset) return fill
+      if (!contentLocked && !fill.geometry) return fill
+      const geometry = imageRect(fill, asset, start)
+      return { ...fill, geometry: contentLocked
+        ? { ...geometry, x: geometry.x + start.x - next.x, y: geometry.y + start.y - next.y }
+        : { x: geometry.x * scaleX, y: geometry.y * scaleY, width: geometry.width * scaleX, height: geometry.height * scaleY } }
+    }) }
+  }
   const finish = () => { gesture = null; setTransient(null) }
   const beginMove = (base: Base, ids: string[], flow: { id: string; parentId: string } | null): Gesture => {
     const startRects: Record<string, Rect> = {}
@@ -115,19 +160,18 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
     const transient = store.getSnapshot().transient
     if (current.flow) {
       const flex = flexDrop(current, worldAt(current, event))
-      if (flex) { store.commands.reorderFlow(current.flow.id, flex.index); return }
+      if (flex) return store.commands.reorderFlow(current.flow.id, flex.index)
       const siblings = childrenOf(current.scene, current.flow.parentId)
       const { index } = flowInsertIndex(worldAt(current, event), siblings, current.flow.id)
       // flowInsertIndex counts positions among the other siblings; reorderFlow expects a position that includes the dragged node.
       const position = siblings.findIndex(sibling => sibling.id === current.flow!.id)
-      store.commands.reorderFlow(current.flow.id, position >= 0 && index >= position ? index + 1 : index)
-      return
+      return store.commands.reorderFlow(current.flow.id, position >= 0 && index >= position ? index + 1 : index)
     }
-    if (transient?.kind !== 'move') return
+    if (transient?.kind !== 'move') return noPersistenceCommit
     const state = store.getSnapshot()
     const file = state.file
     const root = file && state.pageId ? pageRoot(file, state.pageId) : null
-    if (!file || !root) return
+    if (!file || !root) return noPersistenceCommit
     const moves = current.ids.flatMap((id): MoveCommit[] => {
       const rect = transient.rects[id]
       if (!rect) return []
@@ -137,12 +181,15 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
       const parentId = transient.targetFrameId !== null && transient.targetFrameId !== id ? transient.targetFrameId : current.ids.includes(node.parentId ?? '') ? node.parentId ?? null : transient.targetFrameId
       return [{ id, x: rect.x, y: rect.y, parentId: parentId ?? null }]
     })
-    store.commands.commitMove(moves)
+    return store.commands.commitMove(moves)
   }
   const cancel = () => {
     if (!gesture) return
     const current = gesture
     gesture = null
+    const activeInteractionId = interactionId
+    interactionId = null
+    if (activeInteractionId) interactions.endInteraction(activeInteractionId)
     setTransient(null)
     if (current.kind === 'pan') store.setViewport(current.startCamera)
     else if (current.kind === 'marquee' || current.kind === 'press' || current.kind === 'move') store.selectMany(current.selection)
@@ -158,6 +205,12 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
       if (event.button === 1 || state.tool === 'hand' || state.spaceHeld) { gesture = { ...snapshot(event), kind: 'pan', startCamera: state.viewport }; setTransient({ kind: 'pan' }); return true }
       if (event.button !== 0) return false
       const base = snapshot(event)
+      if (state.readOnly) {
+        const target = clickTarget(base.scene, base.startWorld, state.selection, deep(event))
+        if (target) store.select(target.id, { additive: event.shiftKey })
+        else store.selectMany([])
+        return true
+      }
       if (creationTools.includes(state.tool as PrimitiveKind)) {
         gesture = { ...base, kind: 'draw', elementKind: state.tool as PrimitiveKind }
         return true
@@ -195,6 +248,10 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
       const base = snapshot(event)
       const node = base.scene.byId.get(id)
       if (!node) return false
+      const lockedIds = [id, ...descendants(base.scene, id).map(descendant => descendant.id)]
+      const acquired = interactions.beginInteraction('resize', lockedIds)
+      if (!acquired) return false
+      interactionId = acquired
       gesture = { ...base, kind: 'resize', id, handle, startRect: node.rect }
       return true
     },
@@ -215,12 +272,18 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
         const flow = current.dragTarget.flow && current.dragTarget.parentId ? { id: current.dragTarget.id, parentId: current.dragTarget.parentId } : null
         const ids = flow ? [current.dragTarget.id] : (state.selection.includes(current.dragTarget.id) ? state.selection : [current.dragTarget.id]).filter(id => movable(current.scene, id))
         if (!ids.length) return
+        const lockedIds = [...new Set(ids.flatMap(id => [id, ...descendants(current.scene, id).map(descendant => descendant.id)]))]
+        const acquired = interactions.beginInteraction('move', lockedIds)
+        if (!acquired) { gesture = null; return }
+        interactionId = acquired
         gesture = beginMove(current, ids, flow)
+        gesture.moved = true
         store.setHover(null)
         movePreview(gesture as Extract<Gesture, { kind: 'move' }>, event)
+        if (!syncInteraction()) cancel()
         return
       }
-      if (current.kind === 'move') { current.moved = true; movePreview(current, event); return }
+      if (current.kind === 'move') { current.moved = true; movePreview(current, event); if (!syncInteraction()) cancel(); return }
       if (current.kind === 'marquee') {
         if (!current.moved && distance(current, event) < dragThresholdCss) return
         current.moved = true
@@ -243,29 +306,41 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
         const world = worldAt(current, event)
         const delta = { x: world.x - current.startWorld.x, y: world.y - current.startWorld.y }
         const rect = roundRect(resizeRect(current.startRect, current.handle, delta, { symmetric: event.altKey, proportional: event.shiftKey }))
-        setTransient({ kind: 'resize', rects: { [current.id]: rect } })
+        const contentLocked = deep(event)
+        setTransient({ kind: 'resize', rects: { [current.id]: rect }, starts: { [current.id]: current.startRect }, appearances: { [current.id]: resizedAppearance(current.id, current.startRect, rect, contentLocked) }, contentLocked })
+        if (!syncInteraction()) cancel()
       }
     },
     pointerUp: (event: PointerLike) => {
       const current = gesture
       if (!current || current.pointerId !== event.pointerId) return
       gesture = null
+      const activeInteractionId = interactionId
+      interactionId = null
       const transient = store.getSnapshot().transient
-      if (current.kind === 'press') {
-        if (current.deferred) { if (event.shiftKey) store.select(current.target.id, { additive: true }); else store.select(current.target.id) }
-      } else if (current.kind === 'marquee') {
-        if (!current.moved && !event.shiftKey) store.select(null)
-      } else if (current.kind === 'move') {
-        if (current.moved) commitMove(current, event)
-      } else if (current.kind === 'draw') {
-        const bounds = canvasCreationBounds(current.elementKind, current.startWorld, worldAt(current, event), current.camera.zoom)
-        const parent = containingFrameAt(current.scene, current.startWorld)
-        const local = parent ? { x: bounds.x - parent.rect.x, y: bounds.y - parent.rect.y } : { x: bounds.x, y: bounds.y }
-        if (store.commands.insertCanvas(current.elementKind, { ...bounds, ...local, ...(parent ? { parentId: parent.id } : {}) })) store.setTool('move')
-      } else if (current.kind === 'resize') {
-        if (transient?.kind === 'resize' && transient.rects[current.id]) store.commands.commitResize(current.id, transient.rects[current.id]!)
+      let commit = noPersistenceCommit
+      try {
+        if (current.kind === 'press') {
+          if (current.deferred) { if (event.shiftKey) store.select(current.target.id, { additive: true }); else store.select(current.target.id) }
+        } else if (current.kind === 'marquee') {
+          if (!current.moved && !event.shiftKey) store.select(null)
+        } else if (current.kind === 'move') {
+          if (activeInteractionId && current.moved && interactions.canCommitInteraction(activeInteractionId)) commit = commitMove(current, event)
+        } else if (current.kind === 'draw') {
+          const bounds = canvasCreationBounds(current.elementKind, current.startWorld, worldAt(current, event), current.camera.zoom)
+          const parent = containingFrameAt(current.scene, current.startWorld)
+          const local = parent ? { x: bounds.x - parent.rect.x, y: bounds.y - parent.rect.y } : { x: bounds.x, y: bounds.y }
+          if (store.commands.insertCanvas(current.elementKind, { ...bounds, ...local, ...(parent ? { parentId: parent.id } : {}) })) store.setTool('move')
+        } else if (current.kind === 'resize') {
+          if (activeInteractionId && transient?.kind === 'resize' && transient.rects[current.id] && interactions.canCommitInteraction(activeInteractionId)) commit = store.commands.commitResize(current.id, transient.rects[current.id]!, transient.appearances[current.id], transient.contentLocked, current.startRect)
+        }
+      } finally {
+        setTransient(null)
+        if (activeInteractionId) {
+          if (commit.committed && commit.persistence) void commit.persistence.then(() => interactions.endInteraction(activeInteractionId), () => interactions.endInteraction(activeInteractionId))
+          else interactions.endInteraction(activeInteractionId)
+        }
       }
-      setTransient(null)
     },
     pointerCancel: (event: PointerLike) => { if (gesture && gesture.pointerId === event.pointerId) cancel() },
     /** Double-click drills one level deeper; a second double-click on a selected node starts renaming (frames) or text editing. */
@@ -276,7 +351,7 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
       const world = screenToWorld(viewportPoint(event), state.viewport, state.viewportSize)
       const target = drillTarget(scene, world, state.selection)
       if (!target) return
-      if (state.selection.length === 1 && state.selection[0] === target.id) { if (target.kind === 'text' || target.parentId === null) store.setRenaming(target.id); return }
+      if (state.selection.length === 1 && state.selection[0] === target.id) { if (!state.readOnly && (target.kind === 'text' || target.parentId === null)) store.setRenaming(target.id); return }
       store.select(target.id)
     },
   }

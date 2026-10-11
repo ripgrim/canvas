@@ -9,5 +9,6 @@ export function readAppearance(source: AppearanceStorage | null = storage()): Ed
 }
 
 export function writeAppearance(mode: EditorAppearance, source: AppearanceStorage | null = storage()): void {
-  try { source?.setItem(appearanceKey, mode) } catch { /* A read-only store keeps the preference for this session only. */ }
+  try { source?.setItem(appearanceKey, mode) }
+  catch (error) { console.warn('The appearance preference could not be stored for the next session.', error) }
 }

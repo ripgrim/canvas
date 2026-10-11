@@ -8,7 +8,7 @@ import type { LayoutGeometry } from './layout-measure'
 const px = (value: number) => ({ kind: 'px' as const, value })
 const label = (id: string, layout?: ComponentNode['layout']): ComponentNode => ({ id, type: 'component', componentId: 'sample-label', exportName: 'Label', props: {}, ...(layout ? { layout } : {}) })
 const fixture = (): FileDocument => ({
-  schemaVersion: 6, fileId: 'measure', revision: 0,
+  schemaVersion: 7, fileId: 'measure', revision: 0,
   pages: [{ id: 'page-1', name: 'Page', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },

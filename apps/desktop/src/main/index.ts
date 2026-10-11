@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, session } from 'electron'
 import { dirname, resolve } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { authChannel, authSessionChangedChannel, repositoryChannel, repositoryConnectionChannel } from '../preload/contracts'
 import type { AuthResponse, RepositoryConnectionResponse, RepositoryResponse } from '../preload/contracts'
@@ -18,6 +19,8 @@ import { canAccessAuthenticatedProject, DesktopAuthService } from './auth-servic
 import { authCallbackFromArguments, desktopAuthCallbackPath, desktopAuthClientOptions, desktopAuthScheme } from './auth-config'
 import { DesktopCloudFiles } from './cloud-files'
 import { desktopPackageEnvironment } from './package-environment'
+import { ConnectedPreviewService } from './connected-preview'
+import { shadcnPreviewPropRule } from '@canvas/scanner/preview-registry'
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'design-editor', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }])
 
@@ -40,10 +43,18 @@ let authService: DesktopAuthService | undefined
 let cloudFiles: DesktopCloudFiles | undefined
 let editorWindow: BrowserWindow | undefined
 let preview: ReturnType<typeof createPreviewRuntime> | undefined
+let connectedPreview: ConnectedPreviewService | undefined
 let shutdown: Promise<void> | undefined
 let shutdownComplete = false
 const retiredPreviews = new Map<number, string>()
 const pendingAuthCallbacks: string[] = []
+
+function ipcFailure(scope: string, error: unknown, message: string): Readonly<{ ok: false; error: string; reference: string }> {
+  const reference = randomUUID()
+  const failure = error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : { name: 'UnknownError', message: String(error) }
+  console.error(JSON.stringify({ level: 'error', event: 'desktop_command_failed', scope, reference, error: failure }))
+  return { ok: false, error: message, reference }
+}
 
 function routeAuthCallback(url: string): void {
   const service = authService
@@ -52,7 +63,10 @@ function routeAuthCallback(url: string): void {
     pendingAuthCallbacks.splice(0, pendingAuthCallbacks.length, url)
     return
   }
-  void service.handleCallback(url, window.id).catch(() => { service.rejectCallback() })
+  void service.handleCallback(url, window.id).catch(error => {
+    const failure = ipcFailure('auth_callback', error, 'The sign-in response was invalid.')
+    service.rejectCallback(failure.reference)
+  })
 }
 
 function registerAuthProtocol(): void {
@@ -98,7 +112,9 @@ function disposeServices(): Promise<void> {
   cloudFiles = undefined
   const activePreview = preview
   preview = undefined
-  shutdown = activePreview?.dispose() ?? Promise.resolve()
+  const activeConnectedPreview = connectedPreview
+  connectedPreview = undefined
+  shutdown = Promise.all([activePreview?.dispose(), activeConnectedPreview?.dispose()].filter((value): value is Promise<void> => Boolean(value))).then(() => undefined)
   return shutdown
 }
 
@@ -106,22 +122,74 @@ function previewBinding(snapshot: ProjectSnapshot): PreviewBinding {
   // The bound composition document never carries drawn primitives; source bindings only read its component nodes.
   const { canvas: _canvas, ...sourceDocument } = createDocument(snapshot.atoms, snapshot.composition)
   const promoted = snapshot.atoms.find((atom) => atom.componentId === snapshot.composition.componentId && atom.status === 'bound')
-  return {
+  const selectedBinding = {
     componentId: promoted?.componentId ?? snapshot.composition.id,
     entryPath: promoted?.path ?? 'src/PreviewLogin.tsx',
     exportName: promoted?.exportName ?? 'PreviewLogin',
+  }
+  const usedNamesByComponent = new Map<string, Set<string>>()
+  const usedValuesByComponent = new Map<string, Map<string, Set<string | number | boolean>>>()
+  for (const node of Object.values(sourceDocument.nodes)) {
+    const names = usedNamesByComponent.get(node.componentId) ?? new Set<string>()
+    const values = usedValuesByComponent.get(node.componentId) ?? new Map<string, Set<string | number | boolean>>()
+    for (const [name, value] of Object.entries(node.props)) {
+      names.add(name)
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        const propValues = values.get(name) ?? new Set<string | number | boolean>()
+        propValues.add(value)
+        values.set(name, propValues)
+      }
+    }
+    for (const name of Object.keys(node.children)) names.add(name)
+    usedNamesByComponent.set(node.componentId, names)
+    usedValuesByComponent.set(node.componentId, values)
+  }
+  const componentSchema = (atom: ProjectSnapshot['atoms'][number]) => {
+    const usedNames = usedNamesByComponent.get(atom.componentId) ?? new Set<string>()
+    const slots = [...new Set(atom.slots ?? atom.props
+      .filter(prop => usedNames.has(prop.name) && (prop.name === 'children' || /React(?:Node|Element)/.test(prop.type)))
+      .map(prop => prop.name))]
+    const slotNames = new Set(slots)
+    const props = Object.fromEntries(atom.props.flatMap(prop => {
+      if (!usedNames.has(prop.name) || slotNames.has(prop.name)) return []
+      const values = [...(usedValuesByComponent.get(atom.componentId)?.get(prop.name) ?? [])]
+      const rule = shadcnPreviewPropRule(prop.type) ?? (values.length ? { kind: 'enum' as const, values } : null)
+      if (!rule) throw new Error(`The preview cannot represent ${atom.exportName}.${prop.name}.`)
+      return [[prop.name, rule]]
+    }))
+    return { props, slots }
+  }
+  const registry = [
+    { ...selectedBinding, ...(promoted ? componentSchema(promoted) : { props: {}, slots: [] }) },
+    ...snapshot.atoms
+      .filter(atom => atom.kind === 'atom' && atom.status === 'bound' && atom.componentId !== selectedBinding.componentId)
+      .map(atom => ({ componentId: atom.componentId, entryPath: atom.path, exportName: atom.exportName, ...componentSchema(atom) })),
+  ]
+  return {
+    ...selectedBinding,
     styles: ['src/globals.css'],
     props: {},
     sourceDocument,
-    registry: snapshot.atoms.filter(atom => atom.kind === 'atom' && atom.status === 'bound').map(atom => ({ componentId: atom.componentId, entryPath: atom.path, exportName: atom.exportName })),
+    registry,
   }
 }
 
 async function createEditor(): Promise<void> {
   const target = resolveEditorTarget(environment.DESIGN_EDITOR_WEB_URL, development)
   const editorUrl = target.url
+  const cloudPreviewOrigin = environment.DESIGN_EDITOR_PREVIEW_URL?.trim() || (development || localPackage ? 'http://127.0.0.1:4318' : undefined)
+  let connectedPreviewOrigin: string | null = null
   if (target.localCapabilities) {
-    repositoryConnections = new RepositoryConnections(app.getPath('userData'), resolve(directory, 'scan-worker.js'))
+    connectedPreview = new ConnectedPreviewService(target.origin)
+    connectedPreviewOrigin = await connectedPreview.start()
+    repositoryConnections = new RepositoryConnections(
+      app.getPath('userData'),
+      resolve(directory, 'scan-worker.js'),
+      'git',
+      async registry => {
+        await connectedPreview!.activate(registry)
+      },
+    )
     await repositoryConnections.start()
     if (process.env.DESIGN_EDITOR_SMOKE === '1') {
       const fixtureRoot = await resolveFixtureGrant({
@@ -137,7 +205,8 @@ async function createEditor(): Promise<void> {
       await preview.start(previewBinding(initialSnapshot))
     }
   }
-  const csp = target.localCapabilities ? contentSecurityPolicy(target.development, preview?.snapshot().origin ?? null, target.development ? [] : await bundledScriptHashes(resolve(directory, '../renderer'))) : hostedContentSecurityPolicy()
+  const previewOrigins = [preview?.snapshot().origin, connectedPreviewOrigin, cloudPreviewOrigin].filter((origin): origin is string => Boolean(origin))
+  const csp = target.localCapabilities ? contentSecurityPolicy(target.development, previewOrigins, target.development ? [] : await bundledScriptHashes(resolve(directory, '../renderer'))) : hostedContentSecurityPolicy()
   const editorSession = session.fromPartition(target.localCapabilities ? 'persist:design-editor-shell' : 'design-editor-hosted')
   if (target.localCapabilities) editorSession.protocol.handle('design-editor', (request) => bundledAssetResponse(request, resolve(directory, '../renderer'), csp))
   editorSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
@@ -175,8 +244,9 @@ async function createEditor(): Promise<void> {
     authClient,
     authOptions.baseURL,
     target.origin,
-    environment.DESIGN_EDITOR_PREVIEW_URL?.trim() || (development || localPackage ? 'http://127.0.0.1:4318' : undefined),
+    cloudPreviewOrigin,
     environment.DESIGN_EDITOR_ASSETS_URL?.trim() || (development || localPackage ? 'http://127.0.0.1:4322' : undefined),
+    connectedPreview,
   )
   authService.subscribe(value => { if (!window.isDestroyed()) window.webContents.send(authSessionChangedChannel, value) })
   await authService.start()
@@ -184,7 +254,8 @@ async function createEditor(): Promise<void> {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())
   window.webContents.on('will-frame-navigate', (event) => {
-    if (event.isMainFrame || event.url !== preview?.snapshot().url) event.preventDefault()
+    const allowed = new Set([preview?.snapshot().url, connectedPreview?.snapshot().url, cloudFiles?.activePreviewUrl()].filter((value): value is string => Boolean(value)))
+    if (event.isMainFrame || !allowed.has(event.url)) event.preventDefault()
   })
   window.webContents.on('will-redirect', (event) => event.preventDefault())
   window.webContents.on('will-attach-webview', (event) => event.preventDefault())
@@ -193,7 +264,10 @@ async function createEditor(): Promise<void> {
     for (const [generation, url] of retiredPreviews) {
       if (activeUrls.has(url)) continue
       retiredPreviews.delete(generation)
-      void preview?.releaseGeneration(generation).catch(() => { retiredPreviews.set(generation, url) })
+      void preview?.releaseGeneration(generation).catch(error => {
+        retiredPreviews.set(generation, url)
+        ipcFailure('preview_release', error, 'The preview could not release its retired build.')
+      })
     }
   })
   ipcMain.removeHandler(repositoryChannel)
@@ -232,8 +306,8 @@ async function createEditor(): Promise<void> {
         return { ok: true, value: { ...result, snapshot: { ...result.snapshot, preview: preview?.snapshot() } } }
       }
       return { ok: true, value }
-    } catch {
-      return { ok: false, error: 'The command could not finish. Refresh the project and try again.' }
+    } catch (error) {
+      return ipcFailure('repository', error, 'The command could not finish. Refresh the project and try again.')
     }
   })
   if (target.localCapabilities) ipcMain.handle(repositoryConnectionChannel, async (event, payload: unknown): Promise<RepositoryConnectionResponse> => {
@@ -254,8 +328,8 @@ async function createEditor(): Promise<void> {
       if (request.method === 'cloneGitHub') return { ok: true, value: await service.cloneGitHub(request.args[0]) }
       if (request.method === 'scanCurrent') return { ok: true, value: await service.scanCurrent() }
       return { ok: true, value: await service.getCurrent() }
-    } catch {
-      return { ok: false, error: 'The repository could not be connected. Check the folder or GitHub name and try again.' }
+    } catch (error) {
+      return ipcFailure('repository_connection', error, 'The repository could not be connected. Check the folder or GitHub name and try again.')
     }
   })
   if (target.localCapabilities) ipcMain.handle(authChannel, async (event, payload: unknown): Promise<AuthResponse> => {
@@ -270,8 +344,8 @@ async function createEditor(): Promise<void> {
       if (request.method === 'signInWithGitHub') return { ok: true, value: await service.requestSignIn(window.id) }
       if (request.method === 'signOut') return { ok: true, value: await service.signOut() }
       return { ok: true, value: service.getSession() }
-    } catch {
-      return { ok: false, error: 'The account command could not finish.' }
+    } catch (error) {
+      return ipcFailure('auth', error, 'The account command could not finish.')
     }
   })
   const showEditor = () => {

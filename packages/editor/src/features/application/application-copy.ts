@@ -11,4 +11,5 @@ export const applicationCopy = {
   unavailableTitle: 'File URLs are not available here',
   errorTitle: 'The file could not be opened',
   invalidFileId: 'The file id in this address is not valid.',
+  errorReference: (reference: string) => `Error ID ${reference}`,
 } as const

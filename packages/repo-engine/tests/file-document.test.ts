@@ -3,7 +3,7 @@ import {
   ancestorsOf, applyFileCommand, childrenOf, createBlankFile, descendantsOf, frameAt, legacyPageDocument, nodeAppearance, pageNodes,
   pageOfNode, projectAppearance, resolveColorValue, resolveToken, tokenReferences, validateFileDocument, worldPosition, worldRect,
 } from '../src/file-document.js'
-import type { Appearance, ColorToken, ColorValue, ComponentNode, FileCommand, FileDocument, FileNode, FileTheme, ImageAsset, Paint, PrimitiveNode, PrimitiveStyles, Stroke } from '../src/file-document.js'
+import type { Appearance, ColorToken, ColorValue, ComponentNode, FileCommand, FileDocument, FileNode, FileTheme, ImageAssetReference, Paint, PrimitiveNode, PrimitiveStyles, Stroke } from '../src/file-document.js'
 import type { Color } from '../src/color.js'
 import type { NodeLayout } from '../src/layout.js'
 import type { Atom } from '../src/types.js'
@@ -22,7 +22,7 @@ const stroke = (color: ColorValue, width = 1): Stroke => ({ color, width, style:
 const frame = (id: string, left: number, top: number, width = 100, height = 100): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { left, top, width, height } })
 const rect = (id: string, left: number, top: number, fills: Paint[] = []): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { left, top, width: 10, height: 10 }, ...(fills.length ? { appearance: { fills } } : {}) })
 const text = (id: string, value: string): PrimitiveNode => ({ id, type: 'text', name: id, styles: { left: 0, top: 0, width: 80, height: 20 }, text: value })
-const pixel = (id = 'img'): ImageAsset => ({ id, name: 'Pixel', mime: 'image/png', width: 1, height: 1, bytes: 3, data: 'AAAA' })
+const pixel = (id = 'img'): ImageAssetReference => ({ id, name: 'Pixel', mime: 'image/png', extension: 'png', bytes: 3, width: 1, height: 1, sha256: 'a'.repeat(64) })
 const appearanceOf = (file: FileDocument, nodeId: string) => nodeAppearance(file.nodes[nodeId])
 /** The exact error message, so a broader message with the same prefix cannot satisfy the assertion. */
 const thrown = (action: () => unknown): string | null => { try { action() } catch (error) { return (error as Error).message } return null }
@@ -36,7 +36,7 @@ const aliasToken = (id: string, orderKey: string, target: string): ColorToken =>
  * (5,7) world (125,87 10x10). label sits on the root after outer.
  */
 const fixture = (): FileDocument => ({
-  schemaVersion: 6,
+  schemaVersion: 7,
   fileId: 'file-1',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -64,7 +64,7 @@ describe('file validation', () => {
   it('accepts a blank file and returns a detached copy', () => {
     const blank = createBlankFile('file-1', 'page-1', 'root-1')
     const validated = validateFileDocument(blank, [])
-    expect(validated).toEqual({ schemaVersion: 6, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes: { 'root-1': { id: 'root-1', type: 'root' } }, relationships: {}, theme: { tokens: {} } })
+    expect(validated).toEqual({ schemaVersion: 7, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes: { 'root-1': { id: 'root-1', type: 'root' } }, relationships: {}, theme: { tokens: {} } })
     expect(validated).not.toBe(blank)
   })
 
@@ -357,12 +357,15 @@ describe('node commands', () => {
     const file = fixture()
     const moved = run(file, { type: 'node.setStyles', nodeId: 'box', styles: { left: 9, rotation: 15 } })
     expect((moved.nodes.box as PrimitiveNode).styles).toEqual({ left: 9, top: 7, width: 10, height: 10, rotation: 15 })
-    const unrotated = run(moved, { type: 'node.setStyles', nodeId: 'box', styles: { rotation: undefined } as unknown as Partial<PrimitiveStyles> })
+    const unrotated = run(moved, { type: 'node.setStyles', nodeId: 'box', styles: { rotation: null } })
     expect((unrotated.nodes.box as PrimitiveNode).styles).toEqual({ left: 9, top: 7, width: 10, height: 10 })
     const visible = run(file, { type: 'node.setStyles', nodeId: 'outer', styles: { overflow: 'visible' } })
     expect((visible.nodes.outer as PrimitiveNode).styles.overflow).toBe('visible')
     const flipped = run(file, { type: 'node.setStyles', nodeId: 'box', styles: { flipX: true, flipY: true } })
     expect((flipped.nodes.box as PrimitiveNode).styles).toEqual({ left: 5, top: 7, width: 10, height: 10, flipX: true, flipY: true })
+    const unflipped = run(flipped, { type: 'node.setStyles', nodeId: 'box', styles: { flipX: null, flipY: null } })
+    expect((unflipped.nodes.box as PrimitiveNode).styles).toEqual({ left: 5, top: 7, width: 10, height: 10 })
+    expect(() => run(file, { type: 'node.setStyles', nodeId: 'box', styles: { width: null } } as unknown as FileCommand)).toThrow('Invalid node geometry')
     expect(() => run(file, { type: 'node.setStyles', nodeId: 'box', styles: { flipX: 'yes' as unknown as boolean } })).toThrow('Invalid node geometry')
     expect(() => run(file, { type: 'node.setStyles', nodeId: 'box', styles: { width: -1 } })).toThrow('Invalid node geometry')
     expect(() => run(file, { type: 'node.setStyles', nodeId: 'box', styles: { overflow: 'clip' } })).toThrow('Invalid node geometry')
@@ -564,20 +567,20 @@ describe('appearance commands', () => {
     rejects(fixture(), { type: 'node.border.remove', nodeId: 'box', side: 'top' }, 'This node has no borders')
   })
 
-  it('adds assets, refuses duplicates and malformed images, and removes only unreferenced assets', () => {
-    const stocked = run(fixture(), { type: 'asset.add', asset: pixel() })
+  it('attaches assets, refuses duplicates and malformed images, and detaches only unreferenced assets', () => {
+    const stocked = run(fixture(), { type: 'asset.attach', asset: pixel() })
     expect(stocked.assets).toEqual({ img: pixel() })
-    rejects(stocked, { type: 'asset.add', asset: pixel() }, 'Asset identity already exists')
-    rejects(fixture(), { type: 'asset.add', asset: { ...pixel(), mime: 'image/svg+xml' as never } }, 'Unsupported image type')
+    rejects(stocked, { type: 'asset.attach', asset: pixel() }, 'Asset identity already exists')
+    rejects(fixture(), { type: 'asset.attach', asset: { ...pixel(), mime: 'image/svg+xml' as never } }, 'Unsupported image type')
     const shown = run(stocked, { type: 'node.fill.add', nodeId: 'box', paint: { id: 'photo', type: 'image', assetId: 'img', fit: 'cover' } })
     expect(validateFileDocument(shown, atoms)).toEqual(shown)
-    rejects(shown, { type: 'asset.remove', assetId: 'img' }, 'That image is still used by a fill')
+    rejects(shown, { type: 'asset.detach', assetId: 'img' }, 'That image is still used by a fill')
     const cached = run(stocked, { type: 'node.fill.replace', nodeId: 'box', fills: [{ ...solid('s', '#000000'), cache: { image: { assetId: 'img', fit: 'cover' } } }] })
-    rejects(cached, { type: 'asset.remove', assetId: 'img' }, 'That image is still used by a fill')
-    const two = run(shown, { type: 'asset.add', asset: pixel('spare') })
-    expect(run(two, { type: 'asset.remove', assetId: 'spare' }).assets).toEqual({ img: pixel() })
-    expect('assets' in run(stocked, { type: 'asset.remove', assetId: 'img' })).toBe(false)
-    rejects(fixture(), { type: 'asset.remove', assetId: 'img' }, 'Select an existing image')
+    rejects(cached, { type: 'asset.detach', assetId: 'img' }, 'That image is still used by a fill')
+    const two = run(shown, { type: 'asset.attach', asset: pixel('spare') })
+    expect(run(two, { type: 'asset.detach', assetId: 'spare' }).assets).toEqual({ img: pixel() })
+    expect('assets' in run(stocked, { type: 'asset.detach', assetId: 'img' })).toBe(false)
+    rejects(fixture(), { type: 'asset.detach', assetId: 'img' }, 'Select an existing image')
   })
 
   it('duplicates a node with its full appearance', () => {
@@ -614,6 +617,16 @@ describe('component nodes', () => {
     expect(childrenOf(file, 'card', 'children')).toEqual(['btn'])
     expect(childrenOf(file, 'card', 'heading')).toEqual([])
     expect(legacyPageDocument(file, 'page-1').nodes.card!.children).toEqual({ children: ['btn'] })
+  })
+
+  it('[AT-COMP-001] uses an explicit verified slot schema and rejects every undeclared slot', () => {
+    const panel: Atom = { ...card, componentId: 'registry-panel', exportName: 'Panel', name: 'Panel', slots: ['body'], props: [{ name: 'body', type: 'ReactNode', optional: true }] }
+    const registryAtoms = [panel, button]
+    let file = createBlankFile('file-1', 'page-1', 'root-1')
+    file = applyFileCommand(file, { type: 'node.insert', node: { id: 'panel', type: 'component', componentId: panel.componentId, exportName: panel.exportName, props: {} }, placement: { parentId: 'root-1' } }, registryAtoms)
+    file = applyFileCommand(file, { type: 'node.insert', node: buttonNode('declared'), placement: { parentId: 'panel', slot: 'body' } }, registryAtoms)
+    expect(childrenOf(file, 'panel', 'body')).toEqual(['declared'])
+    expect(() => applyFileCommand(file, { type: 'node.insert', node: buttonNode('unknown'), placement: { parentId: 'panel', slot: 'children' } }, registryAtoms)).toThrow('That node cannot be placed there')
   })
 
   it('accepts a button directly under the root', () => {

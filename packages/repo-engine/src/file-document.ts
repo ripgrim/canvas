@@ -13,11 +13,11 @@ import type { NodeThemeMode } from './node-theme.js'
 import { isColor } from './color.js'
 import type { Color } from './color.js'
 import { compareOrder, isOrderKey, orderKeyBetween, orderKeySequence } from './order-keys.js'
-import { appearanceColors, assetReferences, borderSides, canonicalAppearance, defaultFillColor, isColorValue, mapAppearanceColors, validateAppearance, validateBorders, validateImageAsset, validateOutline, validatePaint, validateStroke } from './appearance.js'
-import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAsset, Outline, Paint, Stroke } from './appearance.js'
+import { appearanceColors, assetReferences, blendModes, borderSides, canonicalAppearance, defaultFillColor, isColorValue, mapAppearanceColors, validateAppearance, validateBorders, validateImageAssetReference, validateOutline, validatePaint, validateStroke } from './appearance.js'
+import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAssetReference, Outline, Paint, Stroke } from './appearance.js'
 export * from './appearance.js'
 
-export const fileSchemaVersion = 6 as const
+export const fileSchemaVersion = 7 as const
 export type PrimitiveKind = 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'
 export const primitiveKinds: readonly PrimitiveKind[] = ['frame', 'rectangle', 'shape', 'shader', 'text']
 export type PrimitiveStyles = { left: number; top: number; width: number; height: number; rotation?: number; flipX?: boolean; flipY?: boolean; overflow?: 'clip' | 'visible' }
@@ -47,8 +47,8 @@ export type FileDocument = {
   nodes: Record<string, FileNode>
   relationships: Record<string, NodeRelationship>
   theme: FileTheme
-  /** Local image assets referenced by image fills. Stored with the file; never fetched from a URL. */
-  assets?: Record<string, ImageAsset>
+  /** Immutable private asset metadata. Object keys, URLs, and bytes never enter the document. */
+  assets?: Record<string, ImageAssetReference>
 }
 /** Resolved design stylesheet values by custom property name, supplied by the active design theme. */
 export type SourcePalette = Record<string, Color>
@@ -113,7 +113,7 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
   if (!record(input.theme.tokens) || Object.keys(input.theme.tokens).length > limits.tokens) throw invalid('Design file exceeds the supported token limit')
   if (own(input, 'assets')) {
     if (!record(input.assets) || Object.keys(input.assets).length > limits.assets) throw invalid('Design file exceeds the supported asset limit')
-    for (const [assetId, asset] of Object.entries(input.assets)) { const checked = validateImageAsset(asset); if (checked.id !== assetId) throw invalid('Invalid image asset identity') }
+    for (const [assetId, asset] of Object.entries(input.assets)) { const checked = validateImageAssetReference(asset); if (checked.id !== assetId) throw invalid('Invalid image asset identity') }
   }
   const file = input as unknown as FileDocument
 
@@ -367,6 +367,16 @@ export function legacyPageDocument(file: FileDocument, pageId: string): EditorDo
 // Commands -----------------------------------------------------------------------------------------------------------
 
 export type NodePlacement = { parentId: string; slot?: string; orderKey?: string; index?: number }
+export type PrimitiveStylePatch = {
+  left?: number
+  top?: number
+  width?: number
+  height?: number
+  rotation?: number | null
+  flipX?: boolean | null
+  flipY?: boolean | null
+  overflow?: PrimitiveStyles['overflow'] | null
+}
 export type FileCommand =
   | { type: 'page.create'; page: FilePage; index?: number }
   | { type: 'page.rename'; pageId: string; name: string }
@@ -376,9 +386,9 @@ export type FileCommand =
   /** Copies every node of a page under a new root; `ids` maps each copied node id to its new identity. */
   | { type: 'page.duplicate'; pageId: string; page: FilePage; ids: Record<string, string> }
   | { type: 'node.insert'; node: FileNode; placement: NodePlacement }
-  | { type: 'node.rename'; nodeId: string; name: string }
-  /** Partial geometry update; an explicit `undefined` removes an optional style such as `rotation`. */
-  | { type: 'node.setStyles'; nodeId: string; styles: { [K in keyof PrimitiveStyles]?: PrimitiveStyles[K] | undefined } }
+  | { type: 'node.rename'; nodeId: string; name: string | null }
+  /** Partial geometry update; `null` removes an optional stored style such as `rotation`. */
+  | { type: 'node.setStyles'; nodeId: string; styles: PrimitiveStylePatch }
   | { type: 'node.setText'; nodeId: string; text: string }
   /** Replaces the whole appearance record (null clears it). Used by gesture commits; narrower commands below are preferred. */
   | { type: 'node.setAppearance'; nodeId: string; appearance: Appearance | null }
@@ -393,13 +403,13 @@ export type FileCommand =
   | { type: 'node.borders.set'; nodeId: string; borders: Borders | null }
   | { type: 'node.border.update'; nodeId: string; side: BorderSide | 'all'; stroke: Stroke }
   | { type: 'node.border.remove'; nodeId: string; side: BorderSide | 'all' }
-  | { type: 'asset.add'; asset: ImageAsset }
+  | { type: 'asset.attach'; asset: ImageAssetReference }
   /** Removes an asset nobody references; referenced assets are refused. */
-  | { type: 'asset.remove'; assetId: string }
+  | { type: 'asset.detach'; assetId: string }
   | { type: 'node.setProps'; nodeId: string; props: Record<string, DocumentValue>; remove?: string[] }
-  | { type: 'node.setLayout'; nodeId: string; layout: NodeLayout }
+  | { type: 'node.setLayout'; nodeId: string; layout: NodeLayout | null }
   /** Stored theme choice for one node; descendants that inherit follow it. Touches nothing else on the node. */
-  | { type: 'node.setThemeMode'; nodeId: string; themeMode: NodeThemeMode }
+  | { type: 'node.setThemeMode'; nodeId: string; themeMode: NodeThemeMode | null }
   | { type: 'node.reparent'; nodeId: string; placement: NodePlacement; preserveWorldPosition?: boolean }
   | { type: 'node.reorder'; nodeId: string; index: number }
   | { type: 'node.delete'; nodeIds: string[] }
@@ -414,6 +424,213 @@ export type FileCommand =
   /** Replaces every reference with the resolved color across the whole file, then removes the tokens. */
   | { type: 'token.delete'; tokenIds: string[]; sources?: SourcePalette }
   | { type: 'batch'; commands: FileCommand[] }
+
+export type FileCommandValidationLimits = Readonly<{
+  maxBatchCommands?: number
+  maxDepth?: number
+  maxBytes?: number
+}>
+
+const commandDefaults = { maxBatchCommands: 1000, maxDepth: 64, maxBytes: 4_000_000 } as const
+
+function commandFields(value: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []): boolean {
+  const allowed = new Set([...required, ...optional])
+  return required.every(key => own(value, key)) && Object.keys(value).every(key => allowed.has(key))
+}
+
+function commandJson(value: unknown, depth: number, maxDepth: number): boolean {
+  if (depth > maxDepth) return false
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (Array.isArray(value)) return value.every(item => commandJson(item, depth + 1, maxDepth))
+  if (!record(value)) return false
+  return Object.entries(value).every(([key, item]) => !forbiddenKeys.has(key) && commandJson(item, depth + 1, maxDepth))
+}
+
+const commandIndex = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0
+const commandIds = (value: unknown) => Array.isArray(value) && value.length > 0 && value.length <= limits.nodes && value.every(validId) && new Set(value).size === value.length
+const commandFinite = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= limits.coordinate
+const commandPropName = (value: unknown) => typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_-]*$/.test(value) && !forbiddenKeys.has(value) && !/^on[A-Z]/.test(value) && !['style', 'dangerouslySetInnerHTML', 'ref', 'key'].includes(value)
+const commandPropValue = (value: unknown): value is DocumentValue => ['string', 'number', 'boolean'].includes(typeof value) && (typeof value !== 'number' || Number.isFinite(value)) && (typeof value !== 'string' || value.length <= 10_000)
+
+function commandStringMap(value: unknown, allowEmpty = false): value is Record<string, string> {
+  return record(value) && (allowEmpty || Object.keys(value).length > 0) && Object.keys(value).length <= limits.nodes && Object.entries(value).every(([key, item]) => validId(key) && validId(item)) && new Set(Object.values(value)).size === Object.keys(value).length
+}
+
+function commandPlacement(value: unknown): value is NodePlacement {
+  return record(value) && commandFields(value, ['parentId'], ['slot', 'orderKey', 'index']) && validId(value.parentId)
+    && (!own(value, 'slot') || validId(value.slot)) && (!own(value, 'orderKey') || isOrderKey(value.orderKey))
+    && (!own(value, 'index') || commandIndex(value.index))
+}
+
+function commandProps(value: unknown): value is Record<string, DocumentValue> {
+  return record(value) && Object.keys(value).length <= 100 && Object.entries(value).every(([key, item]) => commandPropName(key) && commandPropValue(item))
+}
+
+function commandPage(value: unknown): value is FilePage {
+  if (!record(value) || !commandFields(value, ['id', 'name', 'rootNodeId'], ['background']) || !validId(value.id) || !validName(value.name) || !validId(value.rootNodeId)) return false
+  return !own(value, 'background') || isColorValue(value.background)
+}
+
+function commandTokenValue(value: unknown): value is TokenValue {
+  if (!record(value)) return false
+  if (value.kind === 'literal') return commandFields(value, ['kind', 'color']) && isColor(value.color)
+  if (value.kind === 'alias') return commandFields(value, ['kind', 'tokenId']) && validId(value.tokenId)
+  return value.kind === 'source' && commandFields(value, ['kind', 'property', 'fallback']) && sourceProperty(value.property) && isColor(value.fallback)
+}
+
+function commandToken(value: unknown): value is ColorToken {
+  return record(value) && commandFields(value, ['id', 'type', 'name', 'orderKey', 'value'], ['description'])
+    && validId(value.id) && value.type === 'color' && typeof value.name === 'string' && value.name.trim().length > 0 && value.name.length <= 64
+    && isOrderKey(value.orderKey) && commandTokenValue(value.value)
+    && (!own(value, 'description') || typeof value.description === 'string' && value.description.length <= 500)
+}
+
+function commandNode(value: unknown): value is FileNode {
+  if (!record(value) || !validId(value.id) || value.type === 'root') return false
+  if (value.type === 'component') {
+    if (!commandFields(value, ['id', 'type', 'componentId', 'exportName', 'props'], ['name', 'layout', 'appearance', 'themeMode']) || !validId(value.componentId) || typeof value.exportName !== 'string' || !commandProps(value.props)) return false
+    if (own(value, 'name') && !validName(value.name)) return false
+    if (own(value, 'layout') && !validateLayout(value.layout)) return false
+    if (own(value, 'appearance')) validateAppearance(value.appearance, 'component')
+    return !own(value, 'themeMode') || isNodeThemeMode(value.themeMode)
+  }
+  if (!(primitiveKinds as readonly unknown[]).includes(value.type)) return false
+  if (!commandFields(value, ['id', 'type', 'name', 'styles'], ['appearance', 'text', 'themeMode']) || !validName(value.name) || !validateStyles(value.styles, value.type as PrimitiveKind)) return false
+  if (own(value, 'appearance')) validateAppearance(value.appearance, value.type as PrimitiveKind)
+  if (value.type === 'text' ? typeof value.text !== 'string' || value.text.length > 10_000 : own(value, 'text')) return false
+  return !own(value, 'themeMode') || isNodeThemeMode(value.themeMode)
+}
+
+function commandAppearance(value: unknown): value is Appearance {
+  if (!record(value)) return false
+  for (const kind of ['frame', 'rectangle', 'shape', 'shader', 'text', 'component'] as const) {
+    try { validateAppearance(value, kind); return true } catch { continue }
+  }
+  return false
+}
+
+function commandSourcePalette(value: unknown): value is SourcePalette {
+  return record(value) && Object.entries(value).every(([key, color]) => sourceProperty(key) && isColor(color))
+}
+
+function validateCommandShape(value: unknown, limitsValue: Required<FileCommandValidationLimits>, depth: number, budget: { remaining: number }): value is FileCommand {
+  if (!record(value) || typeof value.type !== 'string' || depth > limitsValue.maxDepth) return false
+  if (value.type !== 'batch' && --budget.remaining < 0) return false
+  switch (value.type) {
+    case 'page.create': return commandFields(value, ['type', 'page'], ['index']) && commandPage(value.page) && (!own(value, 'index') || commandIndex(value.index))
+    case 'page.rename': return commandFields(value, ['type', 'pageId', 'name']) && validId(value.pageId) && validName(value.name)
+    case 'page.setBackground': return commandFields(value, ['type', 'pageId', 'background']) && validId(value.pageId) && (value.background === null || isColorValue(value.background))
+    case 'page.reorder': return commandFields(value, ['type', 'pageId', 'index']) && validId(value.pageId) && commandIndex(value.index)
+    case 'page.delete': return commandFields(value, ['type', 'pageId']) && validId(value.pageId)
+    case 'page.duplicate': return commandFields(value, ['type', 'pageId', 'page', 'ids']) && validId(value.pageId) && commandPage(value.page) && commandStringMap(value.ids, true)
+    case 'node.insert': return commandFields(value, ['type', 'node', 'placement']) && commandNode(value.node) && commandPlacement(value.placement)
+    case 'node.rename': return commandFields(value, ['type', 'nodeId', 'name']) && validId(value.nodeId) && (value.name === null || validName(value.name))
+    case 'node.setStyles': {
+      if (!commandFields(value, ['type', 'nodeId', 'styles']) || !validId(value.nodeId) || !record(value.styles) || Object.keys(value.styles).length === 0) return false
+      const styles = value.styles
+      if (Object.keys(styles).some(key => !['left', 'top', 'width', 'height', 'rotation', 'flipX', 'flipY', 'overflow'].includes(key))) return false
+      if (['left', 'top', 'width', 'height'].some(key => styles[key] === null)) return false
+      const geometry: Record<string, unknown> = { left: 0, top: 0, width: 1, height: 1 }
+      for (const [key, item] of Object.entries(styles)) if (item !== null) geometry[key] = item
+      return validateStyles(geometry, own(styles, 'overflow') ? 'frame' : 'rectangle')
+    }
+    case 'node.setText': return commandFields(value, ['type', 'nodeId', 'text']) && validId(value.nodeId) && typeof value.text === 'string' && value.text.length <= 10_000
+    case 'node.setAppearance': return commandFields(value, ['type', 'nodeId', 'appearance']) && validId(value.nodeId) && (value.appearance === null || commandAppearance(value.appearance))
+    case 'node.setBlending': return commandFields(value, ['type', 'nodeId'], ['visible', 'opacity', 'blendMode']) && validId(value.nodeId)
+      && ['visible', 'opacity', 'blendMode'].some(key => own(value, key))
+      && (!own(value, 'visible') || typeof value.visible === 'boolean')
+      && (!own(value, 'opacity') || typeof value.opacity === 'number' && Number.isFinite(value.opacity) && value.opacity >= 0 && value.opacity <= 1)
+      && (!own(value, 'blendMode') || (blendModes as readonly unknown[]).includes(value.blendMode))
+    case 'node.fill.add': return commandFields(value, ['type', 'nodeId'], ['paint']) && validId(value.nodeId) && (!own(value, 'paint') || Boolean(validatePaint(value.paint)))
+    case 'node.fill.update': return commandFields(value, ['type', 'nodeId', 'fillId', 'paint']) && validId(value.nodeId) && validId(value.fillId) && validatePaint(value.paint).id === value.fillId
+    case 'node.fill.move': return commandFields(value, ['type', 'nodeId', 'fillId', 'index']) && validId(value.nodeId) && validId(value.fillId) && commandIndex(value.index)
+    case 'node.fill.remove': return commandFields(value, ['type', 'nodeId', 'fillId']) && validId(value.nodeId) && validId(value.fillId)
+    case 'node.fill.replace': return commandFields(value, ['type', 'nodeId', 'fills']) && validId(value.nodeId) && Array.isArray(value.fills) && value.fills.length <= 16 && value.fills.every(fill => Boolean(validatePaint(fill)))
+    case 'node.outline.set': return commandFields(value, ['type', 'nodeId', 'outline']) && validId(value.nodeId) && (value.outline === null || Boolean(validateOutline(value.outline)))
+    case 'node.borders.set': return commandFields(value, ['type', 'nodeId', 'borders']) && validId(value.nodeId) && (value.borders === null || Boolean(validateBorders(value.borders)))
+    case 'node.border.update': return commandFields(value, ['type', 'nodeId', 'side', 'stroke']) && validId(value.nodeId) && (value.side === 'all' || (borderSides as readonly unknown[]).includes(value.side)) && Boolean(validateStroke(value.stroke, 'border'))
+    case 'node.border.remove': return commandFields(value, ['type', 'nodeId', 'side']) && validId(value.nodeId) && (value.side === 'all' || (borderSides as readonly unknown[]).includes(value.side))
+    case 'asset.attach': return commandFields(value, ['type', 'asset']) && Boolean(validateImageAssetReference(value.asset))
+    case 'asset.detach': return commandFields(value, ['type', 'assetId']) && validId(value.assetId)
+    case 'node.setProps': return commandFields(value, ['type', 'nodeId', 'props'], ['remove']) && validId(value.nodeId) && commandProps(value.props)
+      && (!own(value, 'remove') || Array.isArray(value.remove) && value.remove.length <= 100 && value.remove.every(commandPropName) && new Set(value.remove).size === value.remove.length)
+    case 'node.setLayout': return commandFields(value, ['type', 'nodeId', 'layout']) && validId(value.nodeId) && (value.layout === null || validateLayout(value.layout))
+    case 'node.setThemeMode': return commandFields(value, ['type', 'nodeId', 'themeMode']) && validId(value.nodeId) && (value.themeMode === null || isNodeThemeMode(value.themeMode))
+    case 'node.reparent': return commandFields(value, ['type', 'nodeId', 'placement'], ['preserveWorldPosition']) && validId(value.nodeId) && commandPlacement(value.placement) && (!own(value, 'preserveWorldPosition') || typeof value.preserveWorldPosition === 'boolean')
+    case 'node.reorder': return commandFields(value, ['type', 'nodeId', 'index']) && validId(value.nodeId) && commandIndex(value.index)
+    case 'node.delete': return commandFields(value, ['type', 'nodeIds']) && commandIds(value.nodeIds)
+    case 'node.duplicate': return commandFields(value, ['type', 'nodeId', 'ids'], ['offset']) && validId(value.nodeId) && commandStringMap(value.ids)
+      && (!own(value, 'offset') || record(value.offset) && commandFields(value.offset, ['x', 'y']) && commandFinite(value.offset.x) && commandFinite(value.offset.y))
+    case 'token.create': return commandFields(value, ['type', 'token']) && commandToken(value.token)
+    case 'token.rename': return commandFields(value, ['type', 'tokenId', 'name']) && validId(value.tokenId) && typeof value.name === 'string' && value.name.trim().length > 0 && value.name.length <= 64
+    case 'token.setValue': return commandFields(value, ['type', 'tokenId', 'value']) && validId(value.tokenId) && commandTokenValue(value.value)
+    case 'token.setDescription': return commandFields(value, ['type', 'tokenId', 'description']) && validId(value.tokenId) && typeof value.description === 'string' && value.description.length <= 500
+    case 'token.reorder': return commandFields(value, ['type', 'tokenId', 'index']) && validId(value.tokenId) && commandIndex(value.index)
+    case 'token.duplicate': return commandFields(value, ['type', 'tokenId', 'newId', 'name']) && validId(value.tokenId) && validId(value.newId) && typeof value.name === 'string' && value.name.trim().length > 0 && value.name.length <= 64
+    case 'token.delete': return commandFields(value, ['type', 'tokenIds'], ['sources']) && commandIds(value.tokenIds) && (!own(value, 'sources') || commandSourcePalette(value.sources))
+    case 'batch': return commandFields(value, ['type', 'commands']) && Array.isArray(value.commands) && value.commands.length > 0 && value.commands.every(command => validateCommandShape(command, limitsValue, depth + 1, budget))
+    default: return false
+  }
+}
+
+/** The single closed runtime schema for commands accepted by local editing and collaboration. */
+export function validateFileCommand(value: unknown, validationLimits: FileCommandValidationLimits = {}): FileCommand {
+  const resolved = { ...commandDefaults, ...validationLimits }
+  if (!Number.isSafeInteger(resolved.maxBatchCommands) || resolved.maxBatchCommands < 1 || !Number.isSafeInteger(resolved.maxDepth) || resolved.maxDepth < 1 || !Number.isSafeInteger(resolved.maxBytes) || resolved.maxBytes < 1) throw invalid('Invalid file command limits')
+  if (!commandJson(value, 0, resolved.maxDepth)) throw invalid('Invalid file command')
+  const encoded = JSON.stringify(value)
+  if (new TextEncoder().encode(encoded).byteLength > resolved.maxBytes || !validateCommandShape(value, resolved, 0, { remaining: resolved.maxBatchCommands })) throw invalid('Invalid file command')
+  return structuredClone(value) as FileCommand
+}
+
+type HostedComponentShape = Readonly<{ componentId: string; exportName: string; props: Readonly<Record<string, DocumentValue>>; slots: readonly string[] }>
+
+function hostedComponentShapes(file: FileDocument): HostedComponentShape[] {
+  const slots = new Map<string, Set<string>>()
+  for (const relationship of Object.values(file.relationships)) {
+    if (relationship.slot === undefined) continue
+    const current = slots.get(relationship.parentId) ?? new Set<string>()
+    current.add(relationship.slot)
+    slots.set(relationship.parentId, current)
+  }
+  return Object.values(file.nodes).flatMap(node => node.type === 'component'
+    ? [{ componentId: node.componentId, exportName: node.exportName, props: node.props, slots: [...(slots.get(node.id) ?? [])] }]
+    : [])
+}
+
+/** Synthetic unavailable bindings used only to validate hosted document structure, never source compatibility. */
+export function hostedFileAtoms(file: FileDocument): Atom[] {
+  const groups = new Map<string, HostedComponentShape[]>()
+  for (const shape of hostedComponentShapes(file)) {
+    const current = groups.get(shape.componentId) ?? []
+    current.push(shape)
+    groups.set(shape.componentId, current)
+  }
+  return [...groups].map(([componentId, shapes]) => {
+    const exports = new Set(shapes.map(shape => shape.exportName))
+    if (exports.size !== 1) throw invalid('Component identity is inconsistent')
+    const propTypes = new Map<string, Set<string>>()
+    for (const shape of shapes) for (const [name, prop] of Object.entries(shape.props)) {
+      const types = propTypes.get(name) ?? new Set<string>()
+      types.add(typeof prop)
+      propTypes.set(name, types)
+    }
+    for (const shape of shapes) for (const slot of shape.slots) {
+      const types = propTypes.get(slot) ?? new Set<string>()
+      types.add('ReactNode')
+      propTypes.set(slot, types)
+    }
+    return {
+      componentId,
+      exportName: shapes[0]!.exportName,
+      name: shapes[0]!.exportName,
+      kind: 'atom' as const,
+      path: '', fingerprint: '', sourceHash: '', status: 'missing' as const, candidates: [],
+      props: [...propTypes].map(([name, types]) => ({ name, type: [...types].sort().join(' | '), optional: true })),
+    }
+  })
+}
 
 const bump = (file: FileDocument) => { file.revision += 1 }
 
@@ -559,15 +776,16 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
     }
     case 'node.rename': {
       const node = file.nodes[command.nodeId]
-      if (!node || node.type === 'root' || !validName(command.name)) throw invalid('Invalid node name')
-      node.name = command.name
+      if (!node || node.type === 'root' || (command.name !== null && !validName(command.name)) || (command.name === null && node.type !== 'component')) throw invalid('Invalid node name')
+      if (command.name === null) delete node.name
+      else node.name = command.name
       return file
     }
     case 'node.setStyles': {
       const node = primitive(file, command.nodeId)
       if (!record(command.styles)) throw invalid('Invalid node geometry')
       const next: Record<string, unknown> = { ...node.styles }
-      for (const [key, value] of Object.entries(command.styles)) { if (value === undefined) delete next[key]; else next[key] = value }
+      for (const [key, value] of Object.entries(command.styles)) { if (value === null) delete next[key]; else next[key] = value }
       if (!validateStyles(next, node.type)) throw invalid('Invalid node geometry')
       node.styles = next
       return file
@@ -678,14 +896,14 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       writeAppearance(node, Object.keys(sides).length ? { ...rest, borders: sides } : rest)
       return file
     }
-    case 'asset.add': {
-      const asset = validateImageAsset(structuredClone(command.asset))
+    case 'asset.attach': {
+      const asset = validateImageAssetReference(structuredClone(command.asset))
       if (file.assets && own(file.assets, asset.id)) throw invalid('Asset identity already exists')
       if (Object.keys(file.assets ?? {}).length >= limits.assets) throw invalid(`A file supports up to ${limits.assets} images`)
       file.assets = { ...(file.assets ?? {}), [asset.id]: asset }
       return file
     }
-    case 'asset.remove': {
+    case 'asset.detach': {
       if (!file.assets || !own(file.assets, command.assetId)) throw invalid('Select an existing image')
       for (const node of Object.values(file.nodes)) { const appearance = nodeAppearance(node); if (appearance && assetReferences(appearance).includes(command.assetId)) throw invalid('That image is still used by a fill') }
       const { [command.assetId]: _removed, ...rest } = file.assets
@@ -701,15 +919,18 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
     }
     case 'node.setLayout': {
       const node = component(file, command.nodeId)
-      if (!validateLayout(command.layout)) throw invalid('Invalid component layout')
-      node.layout = structuredClone(command.layout)
+      if (command.layout === null) delete node.layout
+      else { if (!validateLayout(command.layout)) throw invalid('Invalid component layout'); node.layout = structuredClone(command.layout) }
       return file
     }
     case 'node.setThemeMode': {
       const node = file.nodes[command.nodeId]
       if (!node || node.type === 'root') throw invalid('Select an existing node')
-      if (!isNodeThemeMode(command.themeMode)) throw invalid('Invalid node theme mode')
-      node.themeMode = command.themeMode
+      if (command.themeMode === null) delete node.themeMode
+      else {
+        if (!isNodeThemeMode(command.themeMode)) throw invalid('Invalid node theme mode')
+        node.themeMode = command.themeMode
+      }
       return file
     }
     case 'node.reparent': {
@@ -827,12 +1048,191 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
   }
 }
 
+function validateApplyStructure(command: FileCommand, depth: number, budget: { remaining: number }): void {
+  if (depth > commandDefaults.maxDepth) throw invalid('Invalid command batch')
+  if (command.type !== 'batch') {
+    if (--budget.remaining < 0) throw invalid('Invalid command batch')
+    return
+  }
+  if (!Array.isArray(command.commands) || !command.commands.length || command.commands.length > commandDefaults.maxBatchCommands) throw invalid('Invalid command batch')
+  for (const inner of command.commands) validateApplyStructure(inner, depth + 1, budget)
+}
+
 /** Applies one semantic command (or an atomic batch) to a validated file, bumping the revision once. */
 export function applyFileCommand(input: FileDocument, command: FileCommand, atoms: Atom[], options: FileValidationOptions = {}): FileDocument {
+  validateApplyStructure(command, 0, { remaining: commandDefaults.maxBatchCommands })
   const working = validateFileDocument(input, atoms, options)
   const next = apply(working, command, atoms)
   bump(next)
   return validateFileDocument(next, atoms, options)
+}
+
+export type FileCommandHistory = Readonly<{ file: FileDocument; undo: FileCommand; redo: FileCommand }>
+
+const historyBatch = (commands: FileCommand[]): FileCommand => commands.length === 1 ? commands[0]! : { type: 'batch', commands }
+const historyJson = (value: unknown) => JSON.stringify(value)
+const historyPlacement = (file: FileDocument, nodeId: string): NodePlacement => {
+  const relationship = file.relationships[nodeId]
+  if (!relationship) throw invalid('History references a detached node')
+  return { parentId: relationship.parentId, orderKey: relationship.orderKey, ...(relationship.slot !== undefined ? { slot: relationship.slot } : {}) }
+}
+const historyDepth = (file: FileDocument, nodeId: string) => {
+  let depth = 0
+  let current = file.relationships[nodeId]?.parentId
+  while (current && file.relationships[current]) { depth += 1; current = file.relationships[current]?.parentId }
+  return depth
+}
+const restoreDeletedNodes = (before: FileDocument, after: FileDocument): FileCommand[] => Object.keys(before.nodes)
+  .filter(nodeId => before.nodes[nodeId]?.type !== 'root' && !own(after.nodes, nodeId))
+  .sort((left, right) => historyDepth(before, left) - historyDepth(before, right))
+  .flatMap(nodeId => {
+    const node = before.nodes[nodeId]!
+    const commands: FileCommand[] = [{ type: 'node.insert', node: structuredClone(node), placement: historyPlacement(before, nodeId) }]
+    if (node.type !== 'root' && node.themeMode === undefined) commands.push({ type: 'node.setThemeMode', nodeId, themeMode: null })
+    return commands
+  })
+
+function canonicalHistoryRedo(before: FileDocument, after: FileDocument, command: Exclude<FileCommand, { type: 'batch' }>): FileCommand {
+  if (command.type !== 'node.fill.add' || command.paint) return structuredClone(command)
+  const beforeIds = new Set((nodeAppearance(before.nodes[command.nodeId])?.fills ?? []).map(paint => paint.id))
+  const paint = (nodeAppearance(after.nodes[command.nodeId])?.fills ?? []).find(candidate => !beforeIds.has(candidate.id))
+  if (!paint) throw invalid('History could not identify the added fill')
+  return { ...command, paint: structuredClone(paint) }
+}
+
+function inverseHistoryLeaf(before: FileDocument, after: FileDocument, command: Exclude<FileCommand, { type: 'batch' }>): FileCommand {
+  switch (command.type) {
+    case 'page.create': return { type: 'page.delete', pageId: command.page.id }
+    case 'page.rename': return { type: 'page.rename', pageId: command.pageId, name: before.pages.find(page => page.id === command.pageId)!.name }
+    case 'page.setBackground': return { type: 'page.setBackground', pageId: command.pageId, background: structuredClone(before.pages.find(page => page.id === command.pageId)?.background ?? null) }
+    case 'page.reorder': return { type: 'page.reorder', pageId: command.pageId, index: before.pages.findIndex(page => page.id === command.pageId) }
+    case 'page.delete': {
+      const page = before.pages.find(candidate => candidate.id === command.pageId)
+      if (!page) throw invalid('History references a missing page')
+      return historyBatch([{ type: 'page.create', page: structuredClone(page), index: before.pages.indexOf(page) }, ...restoreDeletedNodes(before, after)])
+    }
+    case 'page.duplicate': return { type: 'page.delete', pageId: command.page.id }
+    case 'node.insert': return { type: 'node.delete', nodeIds: [command.node.id] }
+    case 'node.rename': {
+      const node = before.nodes[command.nodeId]
+      if (!node || node.type === 'root') throw invalid('History references a missing node')
+      return { type: 'node.rename', nodeId: command.nodeId, name: node.type === 'component' ? node.name ?? null : node.name }
+    }
+    case 'node.setStyles': {
+      const node = before.nodes[command.nodeId]
+      if (!node || node.type === 'root' || node.type === 'component') throw invalid('History references a missing primitive')
+      const styles = Object.fromEntries(Object.keys(command.styles).map(key => [key, own(node.styles, key) ? node.styles[key as keyof PrimitiveStyles] : null])) as PrimitiveStylePatch
+      return { type: 'node.setStyles', nodeId: command.nodeId, styles }
+    }
+    case 'node.setText': {
+      const node = before.nodes[command.nodeId]
+      if (!node || node.type !== 'text') throw invalid('History references a missing text node')
+      return { type: 'node.setText', nodeId: command.nodeId, text: node.text ?? '' }
+    }
+    case 'node.setAppearance':
+    case 'node.setBlending':
+    case 'node.fill.add':
+    case 'node.fill.update':
+    case 'node.fill.move':
+    case 'node.fill.remove':
+    case 'node.fill.replace':
+    case 'node.outline.set':
+    case 'node.borders.set':
+    case 'node.border.update':
+    case 'node.border.remove': {
+      const node = before.nodes[command.nodeId]
+      if (!node || node.type === 'root') throw invalid('History references a missing styled node')
+      return { type: 'node.setAppearance', nodeId: command.nodeId, appearance: structuredClone(node.appearance ?? null) }
+    }
+    case 'asset.attach': return { type: 'asset.detach', assetId: command.asset.id }
+    case 'asset.detach': {
+      const asset = before.assets?.[command.assetId]
+      if (!asset) throw invalid('History references a missing asset')
+      return { type: 'asset.attach', asset: structuredClone(asset) }
+    }
+    case 'node.setProps': {
+      const node = before.nodes[command.nodeId]
+      if (!node || node.type !== 'component') throw invalid('History references a missing component')
+      const names = new Set([...Object.keys(command.props), ...(command.remove ?? [])])
+      const props: Record<string, DocumentValue> = {}
+      const remove: string[] = []
+      for (const name of names) { if (own(node.props, name)) props[name] = node.props[name]!; else remove.push(name) }
+      return { type: 'node.setProps', nodeId: command.nodeId, props, ...(remove.length ? { remove } : {}) }
+    }
+    case 'node.setLayout': {
+      const node = before.nodes[command.nodeId]
+      if (!node || node.type !== 'component') throw invalid('History references a missing component')
+      return { type: 'node.setLayout', nodeId: command.nodeId, layout: structuredClone(node.layout ?? null) }
+    }
+    case 'node.setThemeMode': {
+      const node = before.nodes[command.nodeId]
+      if (!node || node.type === 'root') throw invalid('History references a missing node')
+      return { type: 'node.setThemeMode', nodeId: command.nodeId, themeMode: node.themeMode ?? null }
+    }
+    case 'node.reparent': return { type: 'node.reparent', nodeId: command.nodeId, placement: historyPlacement(before, command.nodeId), ...(command.preserveWorldPosition ? { preserveWorldPosition: true } : {}) }
+    case 'node.reorder': {
+      const relationship = before.relationships[command.nodeId]
+      if (!relationship) throw invalid('History references a missing node')
+      return { type: 'node.reorder', nodeId: command.nodeId, index: childrenOf(before, relationship.parentId, relationship.slot).indexOf(command.nodeId) }
+    }
+    case 'node.delete': return historyBatch(restoreDeletedNodes(before, after))
+    case 'node.duplicate': return { type: 'node.delete', nodeIds: [command.ids[command.nodeId]!] }
+    case 'token.create': return { type: 'token.delete', tokenIds: [command.token.id] }
+    case 'token.rename': return { type: 'token.rename', tokenId: command.tokenId, name: before.theme.tokens[command.tokenId]!.name }
+    case 'token.setValue': return { type: 'token.setValue', tokenId: command.tokenId, value: structuredClone(before.theme.tokens[command.tokenId]!.value) }
+    case 'token.setDescription': return { type: 'token.setDescription', tokenId: command.tokenId, description: before.theme.tokens[command.tokenId]!.description ?? '' }
+    case 'token.reorder': return { type: 'token.reorder', tokenId: command.tokenId, index: orderedTokens(before.theme).findIndex(token => token.id === command.tokenId) }
+    case 'token.duplicate': return { type: 'token.delete', tokenIds: [command.newId] }
+    case 'token.delete': {
+      const commands: FileCommand[] = command.tokenIds.map(tokenId => ({ type: 'token.create', token: structuredClone(before.theme.tokens[tokenId]!) }))
+      for (const [tokenId, token] of Object.entries(before.theme.tokens)) if (after.theme.tokens[tokenId] && historyJson(token.value) !== historyJson(after.theme.tokens[tokenId]!.value)) commands.push({ type: 'token.setValue', tokenId, value: structuredClone(token.value) })
+      for (const page of before.pages) if (historyJson(page.background) !== historyJson(after.pages.find(candidate => candidate.id === page.id)?.background)) commands.push({ type: 'page.setBackground', pageId: page.id, background: structuredClone(page.background ?? null) })
+      for (const [nodeId, node] of Object.entries(before.nodes)) {
+        if (node.type === 'root') continue
+        const next = after.nodes[nodeId]
+        if (next && next.type !== 'root' && historyJson(node.appearance) !== historyJson(next.appearance)) commands.push({ type: 'node.setAppearance', nodeId, appearance: structuredClone(node.appearance ?? null) })
+      }
+      return historyBatch(commands)
+    }
+  }
+}
+
+/** Builds exact semantic undo and redo commands while applying one user command atomically. */
+export function applyFileCommandWithHistory(input: FileDocument, command: FileCommand, atoms: Atom[], options: FileValidationOptions = {}): FileCommandHistory {
+  const leaves: Exclude<FileCommand, { type: 'batch' }>[] = []
+  const flatten = (candidate: FileCommand) => { if (candidate.type === 'batch') candidate.commands.forEach(flatten); else leaves.push(candidate) }
+  flatten(validateFileCommand(command))
+  const baseRevision = input.revision
+  let working = validateFileDocument(input, atoms, options)
+  const undo: FileCommand[] = []
+  const redo: FileCommand[] = []
+  for (const leaf of leaves) {
+    working = { ...working, revision: baseRevision }
+    const next = applyFileCommand(working, leaf, atoms, options)
+    const canonical = canonicalHistoryRedo(working, next, leaf)
+    undo.unshift(inverseHistoryLeaf(working, next, canonical as Exclude<FileCommand, { type: 'batch' }>))
+    redo.push(canonical)
+    working = next
+  }
+  const file = applyFileCommand(input, command, atoms, options)
+  if (historyJson(working) !== historyJson(file)) throw invalid('History projection did not match the command')
+  return Object.freeze({ file, undo: historyBatch(undo), redo: historyBatch(redo) })
+}
+
+/** Applies a validated command to a hosted file whose repository component bindings are intentionally unavailable. */
+export function applyHostedFileCommand(input: FileDocument, command: FileCommand, trustedAtoms: readonly Atom[] = []): FileDocument {
+  const validated = validateFileCommand(command)
+  const established = hostedFileAtoms(input)
+  const trustedIds = new Set<string>()
+  for (const atom of trustedAtoms) {
+    if (atom.kind !== 'atom' || atom.status !== 'bound' || trustedIds.has(atom.componentId)) throw invalid('Invalid trusted component catalog')
+    trustedIds.add(atom.componentId)
+    const prior = established.find(candidate => candidate.componentId === atom.componentId)
+    if (prior && prior.exportName !== atom.exportName) throw invalid('Component binding needs review')
+  }
+  const atoms = [...established.filter(atom => !trustedIds.has(atom.componentId)), ...trustedAtoms.map(atom => structuredClone(atom))]
+  const source = validateFileDocument(input, atoms, { allowUnavailableBindings: true })
+  return applyFileCommand(source, validated, atoms, { allowUnavailableBindings: true })
 }
 
 /** Order keys for `count` new siblings appended after the current last child. */

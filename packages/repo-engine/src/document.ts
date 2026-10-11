@@ -80,6 +80,7 @@ export function fields(value: Record<string, unknown>, allowed: string[], label:
 
 export function getNodeSlots(atom: Atom): string[] {
   if (atom.kind !== 'atom') return []
+  if (atom.slots !== undefined) return atom.slots.filter(name => atom.props.some(prop => prop.name === name))
   return atom.exportName === 'Card' ? ['children', 'heading', 'footer'].filter(name => atom.props.some(prop => prop.name === name)) : []
 }
 

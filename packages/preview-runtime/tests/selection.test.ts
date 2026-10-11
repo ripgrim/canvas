@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { expect, it } from 'vitest'
 import { createPreviewRuntime } from '../src/index.js'
+import { fixtureRegistry } from './fixture-registry.js'
 
 async function removeFixtureDirectory(path: string, prefix: string) {
   const tempRoot = await realpath(tmpdir())
@@ -22,6 +23,7 @@ it('AT-PRV-006, AT-APP-003, and AT-APP-005 real Electron DOM selection, appearan
   const dynamicFixture = await mkdtemp(join(tmpdir(), 'design-editor-selection-fixture-'))
   await cp(join(repositoryRoot, 'src'), join(dynamicFixture, 'src'), { recursive: true })
   await cp(join(repositoryRoot, 'package.json'), join(dynamicFixture, 'package.json'))
+  await cp(join(repositoryRoot, 'pnpm-lock.yaml'), join(dynamicFixture, 'pnpm-lock.yaml'))
   await symlink(join(repositoryRoot, 'node_modules'), join(dynamicFixture, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
   await writeFile(join(dynamicFixture, 'src/atoms/Input.tsx'), `import { useState, type ComponentProps } from 'react'
 export function Input(props: ComponentProps<'input'>) {
@@ -48,7 +50,7 @@ export function Button({ variant = 'primary', ...props }: ButtonProps) {
   try {
     await cp(resolve(import.meta.dirname, 'selection-electron.mjs'), join(nativeApp, 'main.mjs'))
     await writeFile(join(nativeApp, 'package.json'), JSON.stringify({ name: 'design-editor-selection-test', version: '1.0.0', type: 'module', main: './main.mjs' }))
-    const result = await preview.start({ componentId: 'fixture-login', entryPath: 'src/PreviewLogin.tsx', exportName: 'PreviewLogin', styles: ['src/globals.css'], registry: ['Card', 'Input', 'Label', 'Button'].map(exportName => ({ componentId: `atom-${exportName.toLowerCase()}`, exportName, entryPath: `src/atoms/${exportName}.tsx` })) })
+    const result = await preview.start({ componentId: 'fixture-login', entryPath: 'src/PreviewLogin.tsx', exportName: 'PreviewLogin', styles: ['src/globals.css'], registry: fixtureRegistry })
     expect(result.status).toBe('ready')
     previewUrl = result.url!
     const requireFromDesktop = createRequire(resolve(import.meta.dirname, '../../../apps/desktop/package.json'))

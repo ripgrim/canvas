@@ -17,6 +17,7 @@ import { validatePreviewFiles } from '../../preview-runtime/src/index'
 // repository, the shared dependency junction, and a real Vite build through validatePreviewFiles.
 const fixtureRoot = fileURLToPath(new URL('../../../tests/fixtures/component-repo-seed/', import.meta.url))
 const fixtureDependencies = fileURLToPath(new URL('../../../fixtures/component-repo/node_modules/', import.meta.url))
+const fixtureLockfile = fileURLToPath(new URL('../../../fixtures/component-repo/pnpm-lock.yaml', import.meta.url))
 const prefix = 'design-editor-promotion-layout-'
 const temporary: string[] = []
 const originalLabel = "import type { ComponentProps } from 'react'\n\nexport function Label(props: ComponentProps<'label'>) {\n  return <label {...props} style={{ padding: '4px 0', ...props.style }} />\n}\n"
@@ -31,6 +32,7 @@ async function fixture(card?: string) {
   temporary.push(root)
   await cp(path.join(fixtureRoot, 'src'), path.join(root, 'src'), { recursive: true })
   await cp(path.join(fixtureRoot, 'package.json'), path.join(root, 'package.json'))
+  await cp(fixtureLockfile, path.join(root, 'pnpm-lock.yaml'))
   await symlink(fixtureDependencies, path.join(root, 'node_modules'), 'junction')
   await writeFile(path.join(root, 'src/atoms/Label.tsx'), originalLabel)
   if (card) await writeFile(path.join(root, 'src/atoms/Card.tsx'), card)

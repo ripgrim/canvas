@@ -1,0 +1,17 @@
+{
+  "designEditor": {
+    "preview": {
+      "provider": {
+        "entryPath": "src/PreviewProvider.tsx",
+        "exportName": "PreviewProvider",
+        "props": {}
+      },
+      "themeAdapters": [
+        {
+          "entryPath": "src/theme-adapter.ts",
+          "exportName": "themeAdapter"
+        }
+      ]
+    }
+  }
+}

@@ -6,7 +6,7 @@ import { replaceSelectionColor, selectionColorGroups } from './selection-colors'
 
 const literal = (hex: string): ColorValue => ({ kind: 'literal', color: hexColor(hex) })
 const file = (): FileDocument => ({
-  schemaVersion: 6,
+  schemaVersion: 7,
   fileId: 'file',
   revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],

@@ -42,7 +42,8 @@ async function applyOne(client: PoolClient, migration: Migration): Promise<void>
     await client.query('INSERT INTO app_schema_migration (name, checksum) VALUES ($1, $2)', [migration.name, migration.checksum])
     await client.query('COMMIT')
   } catch (error) {
-    try { await client.query('ROLLBACK') } catch { /* Preserve the migration failure. */ }
+    try { await client.query('ROLLBACK') }
+    catch (rollbackError) { console.error(JSON.stringify({ level: 'error', event: 'migration_rollback_failed', message: rollbackError instanceof Error ? rollbackError.message : String(rollbackError) })) }
     throw error
   }
 }

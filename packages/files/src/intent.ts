@@ -1,11 +1,25 @@
-import type { UploadIntentRequest } from "./contracts.js"
+import type {
+  ThumbnailUploadIntentRequest,
+  UploadIntentRequest,
+} from "./contracts.js"
 import { FileAssetError } from "./contracts.js"
+import { thumbnailObjectKey } from "./keys.js"
 
 export interface UploadIntentClaims extends UploadIntentRequest {
   version: 1
+  kind: "asset"
   subject: string
   nonce: string
   expiresAt: number
+}
+
+export interface ThumbnailUploadIntentClaims extends ThumbnailUploadIntentRequest {
+  version: 1
+  kind: "thumbnail"
+  subject: string
+  nonce: string
+  expiresAt: number
+  objectKey: string
 }
 
 export interface UploadIntentSignerOptions {
@@ -74,23 +88,88 @@ export class UploadIntentSigner {
     const claims: UploadIntentClaims = {
       ...request,
       version: 1,
+      kind: "asset",
       subject,
       nonce: this.#nonce(),
       expiresAt: this.#now() + this.#lifetimeSeconds * 1_000,
     }
+    return {
+      token: await this.#sign(claims),
+      claims,
+    }
+  }
+
+  async issueThumbnail(
+    subject: string,
+    request: ThumbnailUploadIntentRequest,
+  ): Promise<{ token: string; claims: ThumbnailUploadIntentClaims }> {
+    const nonce = this.#nonce()
+    const claims: ThumbnailUploadIntentClaims = {
+      ...request,
+      version: 1,
+      kind: "thumbnail",
+      subject,
+      nonce,
+      expiresAt: this.#now() + this.#lifetimeSeconds * 1_000,
+      objectKey: thumbnailObjectKey(
+        request.fileId,
+        request.expectedRevision,
+        nonce,
+      ),
+    }
+    return { token: await this.#sign(claims), claims }
+  }
+
+  async verify(token: string): Promise<UploadIntentClaims> {
+    const claims = await this.#verify(token)
+    if (
+      claims.kind !== "asset" ||
+      Object.keys(claims).sort().join(",") !==
+        "assetId,contentType,expiresAt,extension,fileId,kind,nonce,size,subject,version"
+    ) {
+      throw new FileAssetError("unauthorized", "Upload intent is invalid", 401)
+    }
+    return claims as unknown as UploadIntentClaims
+  }
+
+  async verifyThumbnail(token: string): Promise<ThumbnailUploadIntentClaims> {
+    const claims = await this.#verify(token)
+    if (
+      claims.kind !== "thumbnail" ||
+      Object.keys(claims).sort().join(",") !==
+        "contentType,expectedRevision,expiresAt,fileId,kind,nonce,objectKey,size,subject,version" ||
+      typeof claims.objectKey !== "string" ||
+      typeof claims.fileId !== "string" ||
+      typeof claims.expectedRevision !== "number" ||
+      typeof claims.nonce !== "string"
+    ) {
+      throw new FileAssetError("unauthorized", "Upload intent is invalid", 401)
+    }
+    try {
+      if (claims.objectKey !== thumbnailObjectKey(
+        claims.fileId,
+        claims.expectedRevision,
+        claims.nonce,
+      )) {
+        throw new Error("mismatch")
+      }
+    } catch {
+      throw new FileAssetError("unauthorized", "Upload intent is invalid", 401)
+    }
+    return claims as unknown as ThumbnailUploadIntentClaims
+  }
+
+  async #sign(claims: UploadIntentClaims | ThumbnailUploadIntentClaims): Promise<string> {
     const payload = encoder.encode(JSON.stringify(claims))
     const signature = await crypto.subtle.sign(
       "HMAC",
       await importKey(this.#secret),
       payload,
     )
-    return {
-      token: `${base64UrlEncode(payload)}.${base64UrlEncode(new Uint8Array(signature))}`,
-      claims,
-    }
+    return `${base64UrlEncode(payload)}.${base64UrlEncode(new Uint8Array(signature))}`
   }
 
-  async verify(token: string): Promise<UploadIntentClaims> {
+  async #verify(token: string): Promise<Record<string, unknown>> {
     const [payloadPart, signaturePart, extra] = token.split(".")
     if (!payloadPart || !signaturePart || extra) {
       throw new FileAssetError("unauthorized", "Upload intent is invalid", 401)
@@ -106,14 +185,15 @@ export class UploadIntentSigner {
     if (!valid) {
       throw new FileAssetError("unauthorized", "Upload intent is invalid", 401)
     }
-    let claims: UploadIntentClaims
+    let claims: Record<string, unknown>
     try {
-      claims = JSON.parse(decoder.decode(payload)) as UploadIntentClaims
+      claims = JSON.parse(decoder.decode(payload)) as Record<string, unknown>
     } catch {
       throw new FileAssetError("unauthorized", "Upload intent is invalid", 401)
     }
     if (
       claims.version !== 1 ||
+      (claims.kind !== "asset" && claims.kind !== "thumbnail") ||
       typeof claims.subject !== "string" ||
       typeof claims.expiresAt !== "number" ||
       typeof claims.nonce !== "string" ||

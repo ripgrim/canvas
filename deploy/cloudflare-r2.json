@@ -1,0 +1,56 @@
+{
+  "$schema": "./cloudflare-r2.schema.json",
+  "accountId": "8ff4938c32b292a31ca4e84cc383181b",
+  "binding": "FILE_ASSETS",
+  "environments": {
+    "local": {
+      "mode": "simulation",
+      "bucketName": "comp-canvas-file-assets-dev",
+      "apiOrigin": "http://127.0.0.1:4320",
+      "allowedOrigins": [
+        "http://127.0.0.1:4317",
+        "http://localhost:4317",
+        "http://127.0.0.1:4319",
+        "http://localhost:4319"
+      ]
+    },
+    "preview": {
+      "mode": "remote",
+      "bucketName": "comp-canvas-file-assets-dev",
+      "location": "wnam",
+      "storageClass": "Standard",
+      "apiOrigin": "https://api.canvas.ripgrim.com",
+      "allowedOrigins": [
+        "https://canvas.ripgrim.com",
+        "https://login.canvas.ripgrim.com"
+      ]
+    },
+    "production": {
+      "mode": "remote",
+      "bucketName": "comp-canvas-file-assets-production",
+      "location": "wnam",
+      "storageClass": "Standard",
+      "apiOrigin": "https://api.canvas.ripgrim.com",
+      "allowedOrigins": [
+        "https://canvas.ripgrim.com",
+        "https://login.canvas.ripgrim.com"
+      ]
+    }
+  },
+  "privacy": {
+    "r2DevUrl": false,
+    "customDomains": []
+  },
+  "lifecycleRules": [
+    {
+      "name": "canvas-thumbnail-claims",
+      "prefix": "thumbnail-claims/",
+      "expireDays": 8
+    },
+    {
+      "name": "canvas-thumbnail-quota",
+      "prefix": "thumbnail-quota/",
+      "expireDays": 1
+    }
+  ]
+}

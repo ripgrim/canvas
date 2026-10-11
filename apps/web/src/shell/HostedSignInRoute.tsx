@@ -11,5 +11,5 @@ export type HostedSignInSearch = Readonly<{
 
 export function HostedSignInRoute() {
   const state = useSyncExternalStore(hostedAuthService.subscribe, hostedAuthService.getSnapshot, hostedAuthService.getSnapshot)
-  return <HostedSignInScreen request={state.request} opening={state.openingDesktop} providerError={state.providerError} onGitHub={hostedAuthService.signInWithGitHub} />
+  return <HostedSignInScreen request={state.request} opening={state.openingDesktop} providerError={state.providerError} providerErrorReference={state.providerErrorReference} onGitHub={hostedAuthService.signInWithGitHub} />
 }

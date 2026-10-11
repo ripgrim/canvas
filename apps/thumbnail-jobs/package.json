@@ -1,0 +1,27 @@
+{
+  "name": "@canvas/thumbnail-jobs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch src/serve.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@canvas/thumbnail-capture": "workspace:*",
+    "@playwright/test": "1.63.0",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@canvas/repo-engine": "workspace:*",
+    "@types/node": "^24.0.0",
+    "tsx": "4.21.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

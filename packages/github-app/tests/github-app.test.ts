@@ -5,6 +5,7 @@ import {
   GitHubGrantService,
   GitHubWebhookService,
   InstallationStateService,
+  RepositoryJobService,
   type GitHubActor,
   type GitHubGrantStore,
   type GitHubInstallationIdentity,
@@ -15,13 +16,15 @@ import {
   type InstallationStateStore,
   type ProjectAuthorizationPort,
   type RepositoryGrant,
+  type RepositoryJob,
+  type RepositoryJobStore,
   type WebhookDeliveryStore,
 } from '../src/index.js'
 
 const now = 1_800_000_000_000
 const stateValue = 'state_value_that_is_long_enough_1234567890'
 const actor: GitHubActor = { accountId: 'account-1', providerUserId: '1001' }
-const installation: GitHubInstallationIdentity = { id: '2001', account: { id: '3001', login: 'canvas-team', type: 'Organization' } }
+const installation: GitHubInstallationIdentity = { id: '2001', account: { id: '3001', login: 'canvas-team', type: 'Organization' }, contentsPermission: 'write' }
 const repository: GitHubRepositoryIdentity = {
   id: '4001',
   installationId: installation.id,
@@ -30,6 +33,7 @@ const repository: GitHubRepositoryIdentity = {
   name: 'design-system',
   fullName: 'canvas-team/design-system',
   isPrivate: true,
+  contentsPermission: 'write',
 }
 const allowProjectAccess: ProjectAuthorizationPort = {
   async authorizeProjectOperation() {
@@ -44,9 +48,10 @@ class MemoryStateStore implements InstallationStateStore {
     this.records.set(record.digest, record)
   }
 
-  async consumeByDigest(digest: string) {
-    const record = this.records.get(digest) ?? null
-    this.records.delete(digest)
+  async consume(input: { digest: string; accountId: string; purpose: 'authorize-user' | 'install-app'; now: number }) {
+    const record = this.records.get(input.digest)
+    if (!record || record.accountId !== input.accountId || record.purpose !== input.purpose || record.expiresAt <= input.now) return null
+    this.records.delete(input.digest)
     return record
   }
 }
@@ -56,6 +61,7 @@ class MemoryGrantStore implements GitHubGrantStore {
   repositoryGrant: RepositoryGrant | null = null
   activeInstallationReads = 0
   repositoryGrantReads = 0
+  authorizedAccess = true
   readonly installationInvalidations: Array<{ installationId: string; reason: string }> = []
   readonly repositoryInvalidations: Array<{ installationId: string; repositoryIds: readonly string[] }> = []
 
@@ -79,6 +85,13 @@ class MemoryGrantStore implements GitHubGrantStore {
     return grant?.tenantId === input.tenantId && grant.projectId === input.projectId ? grant : null
   }
 
+  async getAuthorizedRepositoryAccess(input: { actorAccountId: string; tenantId: string; projectId: string; operation: 'scan' | 'pull' | 'prepare-patch' | 'write' }) {
+    if (!this.authorizedAccess) return null
+    const grant = await this.getRepositoryGrant(input)
+    const active = grant ? await this.getActiveInstallationGrant({ tenantId: input.tenantId, installationId: grant.installationId }) : null
+    return grant && active ? { grant, installation: active } : null
+  }
+
   async invalidateInstallation(input: { installationId: string; reason: 'deleted' | 'suspended' }) {
     this.installationInvalidations.push(input)
     if (this.installationGrant?.installation.id === input.installationId) this.installationGrant = null
@@ -91,22 +104,24 @@ class MemoryGrantStore implements GitHubGrantStore {
 }
 
 class MemoryDeliveryStore implements WebhookDeliveryStore {
-  readonly claimed = new Set<string>()
+  readonly claimed = new Map<string, string>()
   readonly completed = new Set<string>()
 
   async claimDelivery(input: { deliveryId: string }) {
-    if (this.claimed.has(input.deliveryId) || this.completed.has(input.deliveryId)) return false
-    this.claimed.add(input.deliveryId)
-    return true
+    if (this.claimed.has(input.deliveryId) || this.completed.has(input.deliveryId)) return null
+    const leaseId = `lease-${input.deliveryId}`
+    this.claimed.set(input.deliveryId, leaseId)
+    return { leaseId }
   }
 
-  async completeDelivery(input: { deliveryId: string }) {
+  async completeDelivery(input: { deliveryId: string; leaseId: string }) {
+    if (this.claimed.get(input.deliveryId) !== input.leaseId) throw new Error('wrong lease')
     this.claimed.delete(input.deliveryId)
     this.completed.add(input.deliveryId)
   }
 
-  async releaseDelivery(input: { deliveryId: string }) {
-    this.claimed.delete(input.deliveryId)
+  async releaseDelivery(input: { deliveryId: string; leaseId: string }) {
+    if (this.claimed.get(input.deliveryId) === input.leaseId) this.claimed.delete(input.deliveryId)
   }
 }
 
@@ -129,7 +144,7 @@ async function connectedService(providerPort: GitHubProviderPort = provider(), p
   const grantStore = new MemoryGrantStore()
   const states = new InstallationStateService(stateStore, { now: () => now, createState: () => stateValue })
   const grants = new GitHubGrantService(providerPort, grantStore, states, projectAuthorization, () => now)
-  const issued = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1' })
+  const issued = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1', purpose: 'authorize-user', installationId: installation.id })
   await grants.completeInstallation({ state: issued.state, actor, installationId: installation.id })
   return { grants, grantStore, states }
 }
@@ -152,10 +167,10 @@ describe('single-use installation state', () => {
   it('consumes a valid state exactly once', async () => {
     const store = new MemoryStateStore()
     const states = new InstallationStateService(store, { now: () => now, createState: () => stateValue })
-    const issued = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1' })
+    const issued = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1', purpose: 'authorize-user', installationId: installation.id })
 
-    await expect(states.consume(issued.state, actor.accountId)).resolves.toEqual({ tenantId: 'tenant-1' })
-    await expect(states.consume(issued.state, actor.accountId)).rejects.toSatisfy(error => errorCode(error) === 'INVALID_STATE')
+    await expect(states.consume(issued.state, actor.accountId, 'authorize-user')).resolves.toEqual({ tenantId: 'tenant-1', installationId: installation.id, codeVerifierCiphertext: null })
+    await expect(states.consume(issued.state, actor.accountId, 'authorize-user')).rejects.toSatisfy(error => errorCode(error) === 'INVALID_STATE')
   })
 
   it('rejects malformed, altered, wrong-account, and expired state', async () => {
@@ -163,13 +178,13 @@ describe('single-use installation state', () => {
     let currentTime = now
     const states = new InstallationStateService(store, { now: () => currentTime, createState: () => stateValue, ttlMs: 60_000 })
 
-    await expect(states.consume('short', actor.accountId)).rejects.toSatisfy(error => errorCode(error) === 'INVALID_STATE')
-    await expect(states.consume(`${stateValue.slice(0, -1)}x`, actor.accountId)).rejects.toSatisfy(error => errorCode(error) === 'INVALID_STATE')
-    const wrongAccount = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1' })
-    await expect(states.consume(wrongAccount.state, 'account-2')).rejects.toSatisfy(error => errorCode(error) === 'INVALID_STATE')
-    const expired = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1' })
+    await expect(states.consume('short', actor.accountId, 'authorize-user')).rejects.toSatisfy(error => errorCode(error) === 'INVALID_STATE')
+    await expect(states.consume(`${stateValue.slice(0, -1)}x`, actor.accountId, 'authorize-user')).rejects.toSatisfy(error => errorCode(error) === 'INVALID_STATE')
+    const wrongAccount = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1', purpose: 'authorize-user' })
+    await expect(states.consume(wrongAccount.state, 'account-2', 'authorize-user')).rejects.toSatisfy(error => errorCode(error) === 'INVALID_STATE')
+    const expired = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1', purpose: 'authorize-user' })
     currentTime += 60_001
-    await expect(states.consume(expired.state, actor.accountId)).rejects.toSatisfy(error => errorCode(error) === 'EXPIRED_STATE')
+    await expect(states.consume(expired.state, actor.accountId, 'authorize-user')).rejects.toSatisfy(error => errorCode(error) === 'INVALID_STATE')
   })
 })
 
@@ -179,11 +194,90 @@ describe('installation and repository grants', () => {
     const grantStore = new MemoryGrantStore()
     const states = new InstallationStateService(stateStore, { now: () => now, createState: () => stateValue })
     const grants = new GitHubGrantService(provider({ installations: [] }), grantStore, states, allowProjectAccess, () => now)
-    const issued = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1' })
+    const issued = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1', purpose: 'authorize-user', installationId: '9999' })
 
     await expect(grants.completeInstallation({ state: issued.state, actor, installationId: '9999' })).rejects.toSatisfy(error => errorCode(error) === 'INSTALLATION_NOT_VISIBLE')
     expect(grantStore.installationGrant).toBeNull()
     await expect(grants.completeInstallation({ state: issued.state, actor, installationId: '9999' })).rejects.toSatisfy(error => errorCode(error) === 'INVALID_STATE')
+  })
+
+  it('AT-REPO-LINK-001 preserves contents permission and denies write on a read-only repository', async () => {
+    const readOnly = { ...repository, contentsPermission: 'read' as const }
+    const { grants } = await connectedService(provider({ repository: readOnly }))
+    await grants.linkRepository({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repositoryId: repository.id })
+    await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'pull' })).resolves.toMatchObject({ repository: { contentsPermission: 'read' } })
+    await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+  })
+
+  it('AT-REPO-LINK-001 denies repository writes when the App installation is read-only', async () => {
+    let liveInstallation = installation
+    const providerPort: GitHubProviderPort = {
+      async listInstallationsForUser() {
+        return [liveInstallation]
+      },
+      async getRepositoryForInstallation() {
+        return repository
+      },
+    }
+    const { grants } = await connectedService(providerPort)
+    liveInstallation = { ...installation, contentsPermission: 'read' }
+    await grants.linkRepository({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repositoryId: repository.id })
+
+    await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'pull' })).resolves.toMatchObject({ repository: { contentsPermission: 'write' } })
+    await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+
+    const records = new Map<string, RepositoryJob>()
+    const jobs: RepositoryJobStore = {
+      async enqueue(job) { records.set(job.id, job) },
+      async get(id) { return records.get(id) ?? null },
+      async markRunning(id) { const job = records.get(id); if (job) records.set(id, { ...job, status: 'running' }) },
+    }
+    const minted: string[] = []
+    let id = '00000000-0000-4000-8000-000000000011'
+    const service = new RepositoryJobService(grants, jobs, { async mint(input) { minted.push(input.contentsPermission); return { token: `ghs_${input.contentsPermission}`, expiresAt: now + 60_000, contentsPermission: input.contentsPermission } } }, () => now, () => id)
+
+    await expect(service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    expect(records.size).toBe(0)
+
+    liveInstallation = installation
+    const deniedAtStart = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })
+    liveInstallation = { ...installation, contentsPermission: 'read' }
+    await expect(service.start(deniedAtStart.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    expect(minted).toEqual([])
+
+    liveInstallation = installation
+    id = '00000000-0000-4000-8000-000000000012'
+    const deniedBeforeWrite = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })
+    await service.start(deniedBeforeWrite.id)
+    liveInstallation = { ...installation, contentsPermission: 'read' }
+    await expect(service.authorizeWrite(deniedBeforeWrite.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    expect(minted).toEqual(['read'])
+  })
+
+  it('AT-REPO-LINK-001 rechecks membership at job start and immediately before source write', async () => {
+    const { grants, grantStore } = await connectedService()
+    await grants.linkRepository({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repositoryId: repository.id })
+    const records = new Map<string, RepositoryJob>()
+    const jobs: RepositoryJobStore = {
+      async enqueue(job) { records.set(job.id, job) },
+      async get(id) { return records.get(id) ?? null },
+      async markRunning(id) { const job = records.get(id); if (job) records.set(id, { ...job, status: 'running' }) },
+    }
+    const minted: string[] = []
+    let id = '00000000-0000-4000-8000-000000000001'
+    const service = new RepositoryJobService(grants, jobs, { async mint(input) { minted.push(input.contentsPermission); return { token: `ghs_${input.contentsPermission}`, expiresAt: now + 60_000, contentsPermission: input.contentsPermission } } }, () => now, () => id)
+    const revokedBeforeStart = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })
+    grantStore.authorizedAccess = false
+    await expect(service.start(revokedBeforeStart.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    expect(minted).toEqual([])
+
+    grantStore.authorizedAccess = true
+    id = '00000000-0000-4000-8000-000000000002'
+    const revokedBeforeWrite = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })
+    await expect(service.start(revokedBeforeWrite.id)).resolves.toMatchObject({ access: { contentsPermission: 'read' } })
+    grantStore.authorizedAccess = false
+    await expect(service.authorizeWrite(revokedBeforeWrite.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    expect(minted).toEqual(['read'])
   })
 
   it('rejects an installation visible to a different provider user', async () => {
@@ -199,7 +293,7 @@ describe('installation and repository grants', () => {
       },
     }
     const grants = new GitHubGrantService(scopedProvider, grantStore, states, allowProjectAccess, () => now)
-    const issued = await states.issue({ accountId: 'account-2', tenantId: 'tenant-1' })
+    const issued = await states.issue({ accountId: 'account-2', tenantId: 'tenant-1', purpose: 'authorize-user', installationId: installation.id })
 
     await expect(grants.completeInstallation({ state: issued.state, actor: { accountId: 'account-2', providerUserId: '1002' }, installationId: installation.id })).rejects.toSatisfy(error => errorCode(error) === 'INSTALLATION_NOT_VISIBLE')
   })
@@ -211,7 +305,7 @@ describe('installation and repository grants', () => {
     expect(linked.repository).toEqual(repository)
     await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })).resolves.toMatchObject({ repository })
     grantStore.installationGrant = null
-    await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })).rejects.toSatisfy(error => errorCode(error) === 'INSTALLATION_NOT_ACTIVE')
+    await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
   })
 
   it('rejects a repository returned from another installation', async () => {
@@ -271,6 +365,7 @@ describe('installation and repository grants', () => {
     const grantStore = new MemoryGrantStore()
     grantStore.installationGrant = { tenantId: 'tenant-1', installation, connectedByAccountId: actor.accountId, connectedAt: now }
     grantStore.repositoryGrant = { tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repository, linkedByAccountId: actor.accountId, linkedAt: now }
+    grantStore.authorizedAccess = false
     const grants = new GitHubGrantService(
       { listInstallationsForUser, getRepositoryForInstallation },
       grantStore,
@@ -280,9 +375,7 @@ describe('installation and repository grants', () => {
     )
 
     await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
-    expect(authorization).toHaveBeenCalledWith({ actorAccountId: actor.accountId, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })
-    expect(grantStore.repositoryGrantReads).toBe(0)
-    expect(grantStore.activeInstallationReads).toBe(0)
+    expect(authorization).not.toHaveBeenCalled()
     expect(listInstallationsForUser).not.toHaveBeenCalled()
     expect(getRepositoryForInstallation).not.toHaveBeenCalled()
   })

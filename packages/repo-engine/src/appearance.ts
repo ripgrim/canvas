@@ -19,26 +19,30 @@ export const cornerRadiusKeys = ['topLeft', 'topRight', 'bottomLeft', 'bottomRig
 export type CornerRadiusKey = typeof cornerRadiusKeys[number]
 export type CornerRadii = { all: number } | Record<CornerRadiusKey, number>
 export type ImageFit = 'cover' | 'contain' | 'stretch' | 'tile'
+/** Rendered image rectangle in node-local pixels. It preserves crop geometry without accepting arbitrary CSS. */
+export type ImageGeometry = { x: number; y: number; width: number; height: number }
 export type ColorValue = { kind: 'literal'; color: Color } | { kind: 'token'; tokenId: string }
 export type GradientStop = { id: string; position: number; midpoint?: number; color: ColorValue }
 export type SolidPaint = { id: string; type: 'solid'; color: ColorValue; opacity?: number; visible?: false; blendMode?: StoredBlendMode; cache?: PaintCache }
 export type GradientPaint = { id: string; type: 'gradient'; shape: GradientShape; angle: number; center: { x: number; y: number }; length: number; interpolation: GradientInterpolation; stops: GradientStop[]; visible?: false; blendMode?: StoredBlendMode; cache?: PaintCache }
-export type ImagePaint = { id: string; type: 'image'; assetId: string; fit: ImageFit; visible?: false; blendMode?: StoredBlendMode; cache?: PaintCache }
+export type ImagePaint = { id: string; type: 'image'; assetId: string; fit: ImageFit; geometry?: ImageGeometry; visible?: false; blendMode?: StoredBlendMode; cache?: PaintCache }
 export type Paint = SolidPaint | GradientPaint | ImagePaint
 /** Type-specific state kept when a fill switches type, so switching back restores what the user had. */
-export type PaintCache = { solid?: Pick<SolidPaint, 'color' | 'opacity'>; gradient?: Pick<GradientPaint, 'shape' | 'angle' | 'center' | 'length' | 'interpolation' | 'stops'>; image?: Pick<ImagePaint, 'assetId' | 'fit'> }
+export type PaintCache = { solid?: Pick<SolidPaint, 'color' | 'opacity'>; gradient?: Pick<GradientPaint, 'shape' | 'angle' | 'center' | 'length' | 'interpolation' | 'stops'>; image?: Pick<ImagePaint, 'assetId' | 'fit' | 'geometry'> }
 export type Stroke = { color: ColorValue; width: number; style: StrokeStyle; visible?: false }
 export type Outline = Stroke & { offset: number }
 /** Either one record for every side or individual sides, never both. */
 export type Borders = { all: Stroke } | { top?: Stroke; bottom?: Stroke; left?: Stroke; right?: Stroke }
 export type Appearance = { visible?: false; opacity?: number; blendMode?: StoredBlendMode; fills?: Paint[]; outline?: Outline; borders?: Borders; cornerRadii?: CornerRadii }
-export type ImageAsset = { id: string; name: string; mime: ImageMime; width: number; height: number; bytes: number; data: string }
-export const imageMimes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
+export type ImageAssetReference = { id: string; name: string; mime: ImageMime; extension: ImageExtension; bytes: number; width: number; height: number; sha256: string }
+export const imageMimes = ['image/avif', 'image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
 export type ImageMime = typeof imageMimes[number]
+export const imageExtensions = ['avif', 'gif', 'jpeg', 'jpg', 'png', 'webp'] as const
+export type ImageExtension = typeof imageExtensions[number]
 export type AppearanceKind = 'frame' | 'rectangle' | 'shape' | 'shader' | 'text' | 'component'
 export type AppearanceSection = 'blending' | 'fill' | 'outline' | 'border' | 'radius'
 
-export const appearanceLimits = { fills: 16, stops: 16, width: 1000, offset: 1000, radius: 100_000, assetBytes: 1_500_000, assetDimension: 16_384 }
+export const appearanceLimits = { fills: 16, stops: 16, width: 1000, offset: 1000, radius: 100_000, assetBytes: 25 * 1024 * 1024, assetDimension: 16_384, assetPixels: 16 * 1024 * 1024 }
 const own = (object: object, key: string) => Object.hasOwn(object, key)
 const finite = (value: unknown, min: number, max: number): value is number => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
 const fail = (message: string): never => { throw new Error(message) }
@@ -66,6 +70,7 @@ function exact(value: Record<string, unknown>, required: string[], optional: str
 }
 const visibleField = (value: Record<string, unknown>, label: string) => { if (own(value, 'visible') && value.visible !== false) fail(`Invalid ${label} visibility`) }
 const blendField = (value: Record<string, unknown>, label: string) => { if (own(value, 'blendMode') && (value.blendMode === 'normal' || !(blendModes as readonly unknown[]).includes(value.blendMode))) fail(`Invalid ${label} blend mode`) }
+const validImageGeometry = (value: unknown): value is ImageGeometry => record(value) && Object.keys(value).length === 4 && ['x', 'y'].every(key => finite(value[key], -1_000_000, 1_000_000)) && ['width', 'height'].every(key => finite(value[key], 1, 1_000_000))
 
 export function validateStop(value: unknown): GradientStop {
   ensure(record(value), 'Invalid gradient stop')
@@ -96,7 +101,11 @@ function validateCache(value: unknown) {
     if (!isColorValue(solid.color) || own(solid, 'opacity') && (!finite(solid.opacity, 0, 1) || solid.opacity === 1)) fail('Invalid fill cache')
   }
   if (own(value, 'gradient')) { ensure(record(value.gradient), 'Invalid fill cache'); exact(value.gradient, ['shape', 'angle', 'center', 'length', 'interpolation', 'stops'], [], 'fill cache'); validateGradientBody(value.gradient) }
-  if (own(value, 'image')) { if (!record(value.image) || Object.keys(value.image).length !== 2 || !validId(value.image.assetId) || !['cover', 'contain', 'stretch', 'tile'].includes(value.image.fit as string)) fail('Invalid fill cache') }
+  if (own(value, 'image')) { if (!record(value.image) || !exactImage(value.image)) fail('Invalid fill cache') }
+}
+
+function exactImage(value: Record<string, unknown>): boolean {
+  return Object.keys(value).every(key => ['assetId', 'fit', 'geometry'].includes(key)) && Object.hasOwn(value, 'assetId') && Object.hasOwn(value, 'fit') && validId(value.assetId) && ['cover', 'contain', 'stretch', 'tile'].includes(value.fit as string) && (!Object.hasOwn(value, 'geometry') || validImageGeometry(value.geometry))
 }
 
 export function validatePaint(value: unknown): Paint {
@@ -112,7 +121,10 @@ export function validatePaint(value: unknown): Paint {
     if (own(paint, 'opacity') && (!finite(paint.opacity, 0, 1) || paint.opacity === 1)) fail('Invalid fill opacity')
   }
   else if (paint.type === 'gradient') { exact(paint, ['id', 'type', 'shape', 'angle', 'center', 'length', 'interpolation', 'stops'], optional, 'fill'); validateGradientBody(paint) }
-  else if (paint.type === 'image') { exact(paint, ['id', 'type', 'assetId', 'fit'], optional, 'fill'); if (!validId(paint.assetId) || !['cover', 'contain', 'stretch', 'tile'].includes(paint.fit as string)) fail('Invalid image fill') }
+  else if (paint.type === 'image') {
+    exact(paint, ['id', 'type', 'assetId', 'fit'], [...optional, 'geometry'], 'fill')
+    if (!validId(paint.assetId) || !['cover', 'contain', 'stretch', 'tile'].includes(paint.fit as string) || own(paint, 'geometry') && !validImageGeometry(paint.geometry)) fail('Invalid image fill')
+  }
   else fail('Unsupported fill type')
   return paint as unknown as Paint
 }
@@ -168,15 +180,21 @@ export function validateAppearance(value: unknown, kind: AppearanceKind): Appear
   return value as unknown as Appearance
 }
 
-export function validateImageAsset(value: unknown): ImageAsset {
-  ensure(record(value), 'Invalid image asset')
-  exact(value, ['id', 'name', 'mime', 'width', 'height', 'bytes', 'data'], [], 'image asset')
-  if (!validId(value.id) || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 256) fail('Invalid image asset')
-  if (!(imageMimes as readonly unknown[]).includes(value.mime)) fail('Unsupported image type')
-  if (!finite(value.width, 1, appearanceLimits.assetDimension) || !finite(value.height, 1, appearanceLimits.assetDimension) || !Number.isInteger(value.width) || !Number.isInteger(value.height)) fail('Invalid image dimensions')
-  if (typeof value.data !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(value.data) || value.data.length % 4 !== 0 || value.data.length > appearanceLimits.assetBytes * 4 / 3 + 4) fail('Invalid image data')
+const imageMimeByExtension: Readonly<Record<ImageExtension, ImageMime>> = {
+  avif: 'image/avif', gif: 'image/gif', jpeg: 'image/jpeg', jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+}
+
+/** Exact immutable metadata for an image already verified by the private asset service. */
+export function validateImageAssetReference(value: unknown): ImageAssetReference {
+  ensure(record(value), 'Invalid image asset reference')
+  exact(value, ['id', 'name', 'mime', 'extension', 'bytes', 'width', 'height', 'sha256'], [], 'image asset reference')
+  if (!validId(value.id) || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 256) fail('Invalid image asset reference')
+  if (!(imageMimes as readonly unknown[]).includes(value.mime) || !(imageExtensions as readonly unknown[]).includes(value.extension)) fail('Unsupported image type')
+  if (imageMimeByExtension[value.extension as ImageExtension] !== value.mime) fail('Image type does not match its extension')
+  if (!finite(value.width, 1, appearanceLimits.assetDimension) || !finite(value.height, 1, appearanceLimits.assetDimension) || !Number.isInteger(value.width) || !Number.isInteger(value.height) || value.width * value.height > appearanceLimits.assetPixels) fail('Invalid image dimensions')
   if (!finite(value.bytes, 1, appearanceLimits.assetBytes) || !Number.isInteger(value.bytes)) fail('Invalid image size')
-  return value as unknown as ImageAsset
+  if (typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256)) fail('Invalid image digest')
+  return value as unknown as ImageAssetReference
 }
 
 /** Every color reference inside an appearance record, in stable order: fills (and stops), outline, borders. */
@@ -287,7 +305,7 @@ export function convertPaint(paint: Paint, type: Paint['type'], ids: () => strin
   const cache: PaintCache = { ...(paint.cache ?? {}) }
   if (paint.type === 'solid') cache.solid = { color: paint.color, ...(paint.opacity !== undefined ? { opacity: paint.opacity } : {}) }
   else if (paint.type === 'gradient') cache.gradient = { shape: paint.shape, angle: paint.angle, center: paint.center, length: paint.length, interpolation: paint.interpolation, stops: paint.stops }
-  else cache.image = { assetId: paint.assetId, fit: paint.fit }
+  else cache.image = { assetId: paint.assetId, fit: paint.fit, ...(paint.geometry ? { geometry: paint.geometry } : {}) }
   const shared = { id: paint.id, ...(paint.visible === false ? { visible: false as const } : {}), ...(paint.blendMode ? { blendMode: paint.blendMode } : {}), cache }
   if (type === 'solid') {
     const color = cache.solid?.color ?? (paint.type === 'gradient' ? [...paint.stops].sort((left, right) => left.position - right.position)[0]!.color : literal('#dddddd'))
@@ -312,7 +330,7 @@ export type PreviewStop = { color: string; position: number; midpoint?: number }
 export type PreviewFill =
   | { type: 'solid'; color: string; blendMode?: BlendMode }
   | { type: 'gradient'; shape: GradientShape; angle: number; center: { x: number; y: number }; length: number; interpolation: GradientInterpolation; stops: PreviewStop[]; blendMode?: BlendMode }
-  | { type: 'image'; assetId: string; fit: ImageFit; blendMode?: BlendMode }
+  | { type: 'image'; assetId: string; fit: ImageFit; geometry?: ImageGeometry; blendMode?: BlendMode }
 export type PreviewStroke = { color: string; width: number; style: StrokeStyle }
 export type PreviewAppearance = { visible?: false; opacity?: number; blendMode?: BlendMode; fills?: PreviewFill[]; outline?: PreviewStroke & { offset: number }; borders?: Partial<Record<BorderSide, PreviewStroke>>; cornerRadii?: CornerRadii }
 
@@ -345,7 +363,7 @@ export function projectAppearance(appearance: Appearance | undefined, resolve: (
     else if (paint.type === 'gradient') {
       const stops = [...paint.stops].sort((left, right) => left.position - right.position).map(stop => { const color = css(stop.color); return color ? { color, position: stop.position, ...(stop.midpoint !== undefined && stop.midpoint !== 0.5 ? { midpoint: stop.midpoint } : {}) } : null })
       if (stops.every(Boolean)) fills.push({ type: 'gradient', shape: paint.shape, angle: paint.angle, center: paint.center, length: paint.length, interpolation: paint.interpolation, stops: stops as PreviewStop[], ...blend })
-    } else if (hasAsset(paint.assetId)) fills.push({ type: 'image', assetId: paint.assetId, fit: paint.fit, ...blend })
+    } else if (hasAsset(paint.assetId)) fills.push({ type: 'image', assetId: paint.assetId, fit: paint.fit, ...(paint.geometry ? { geometry: paint.geometry } : {}), ...blend })
   }
   if (fills.length) out.fills = fills
   const stroke = (value: Stroke): PreviewStroke | null => { if (value.visible === false || value.width <= 0) return null; const color = css(value.color); return color ? { color, width: value.width, style: value.style } : null }

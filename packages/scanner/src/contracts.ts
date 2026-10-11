@@ -1,5 +1,5 @@
 export type ShadcnDiagnostic = Readonly<{
-  code: 'invalid-config' | 'missing-css' | 'missing-ui-root' | 'unsupported-export'
+  code: 'invalid-config' | 'missing-css' | 'missing-ui-root' | 'unsupported-export' | 'unsupported-preview-component'
   path: string
   message: string
 }>
@@ -13,6 +13,18 @@ export type ShadcnConfig = Readonly<{
   registryRoots: readonly string[]
   tokenFiles: readonly string[]
   registries: readonly string[]
+  moduleConfig: ShadcnModuleConfig | null
+  previewProvider: ShadcnPreviewProviderConfig | null
+  themeAdapters: readonly ShadcnThemeAdapterConfig[]
+}>
+
+export type ShadcnPreviewProviderConfig = Readonly<{ entryPath: string; exportName: string; props: Readonly<Record<string, string | number | boolean | null>> }>
+export type ShadcnThemeAdapterConfig = Readonly<{ entryPath: string; exportName: string }>
+
+export type ShadcnModuleConfig = Readonly<{
+  path: string
+  baseUrl: string
+  paths: Readonly<Record<string, readonly string[]>>
 }>
 
 export type ShadcnProp = Readonly<{ name: string; type: string; optional: boolean }>
@@ -47,3 +59,56 @@ export type ShadcnScan = Readonly<{
   sourceHashes: Readonly<Record<string, string>>
   diagnostics: readonly ShadcnDiagnostic[]
 }>
+
+export type ShadcnPreviewPropRule =
+  | Readonly<{ kind: 'string' | 'number' | 'boolean' }>
+  | Readonly<{ kind: 'enum'; values: readonly (string | number | boolean)[] }>
+
+export type ShadcnPreviewRegistryComponent = Readonly<{
+  componentId: string
+  entryPath: string
+  exportName: string
+  integrity: string
+  props: Readonly<Record<string, ShadcnPreviewPropRule>>
+  slots: readonly string[]
+}>
+
+export type ShadcnPreviewRegistryRequest = Readonly<{
+  version: 1
+  entry: Readonly<{ componentId: string }>
+  components: readonly ShadcnPreviewRegistryComponent[]
+  styles: readonly Readonly<{ path: string; integrity: string }>[]
+  aliases?: readonly Readonly<{
+    configPath: string
+    integrity: string
+    baseUrl: string
+    paths: readonly Readonly<{ pattern: string; target: string }>[]
+  }>[]
+  dependencies?: readonly Readonly<{ path: string; integrity: string }>[]
+  provider?: Readonly<ShadcnPreviewProviderConfig & { integrity: string; evidence: Readonly<{ configPath: string; integrity: string }> }>
+  themeAdapters?: readonly Readonly<ShadcnThemeAdapterConfig & { integrity: string; evidence: Readonly<{ configPath: string; integrity: string }> }>[]
+}>
+
+/** Read-only scanner output that can be reverified immediately before either preview consumer starts. */
+export type ShadcnPreviewRegistry = Readonly<{
+  request: ShadcnPreviewRegistryRequest
+  fingerprint: string
+  entryComponentId: string
+}>
+
+/** Renderer-safe catalog derived from the exact scanned components admitted to the verified preview registry. */
+export type ShadcnComponentCatalogEntry = Readonly<{
+  componentId: string
+  path: string
+  exportName: string
+  sourceHash: string
+  props: readonly ShadcnProp[]
+  slots: readonly string[]
+}>
+
+export type ShadcnComponentCatalog = Readonly<{
+  fingerprint: string
+  components: readonly ShadcnComponentCatalogEntry[]
+}>
+
+export type VerifiedShadcnScan = Readonly<{ scan: ShadcnScan; registry: ShadcnPreviewRegistry }>

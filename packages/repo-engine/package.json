@@ -28,6 +28,10 @@
       "types": "./dist/file-preview.d.ts",
       "import": "./dist/file-preview.js"
     },
+    "./hosted-catalog": {
+      "types": "./dist/hosted-catalog.d.ts",
+      "import": "./dist/hosted-catalog.js"
+    },
     "./color": {
       "types": "./dist/color.d.ts",
       "import": "./dist/color.js"

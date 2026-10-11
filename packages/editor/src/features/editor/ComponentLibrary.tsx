@@ -46,7 +46,7 @@ export function componentDestinations(file: FileDocument | null, pageId: string 
   return destinations
 }
 
-export function ComponentLibrary({ atoms }: { atoms: Atom[] }) {
+export function ComponentLibrary({ atoms, documentAtoms = atoms }: { atoms: Atom[]; documentAtoms?: Atom[] }) {
   const { file, pageId, blocked } = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
   const editor = useSyncExternalStore(editorStore.subscribe, editorStore.getSnapshot, editorStore.getSnapshot)
   const [destination, setDestination] = useState('root')
@@ -58,6 +58,7 @@ export function ComponentLibrary({ atoms }: { atoms: Atom[] }) {
   const active = choices.find(choice => choice.value === destination) ?? choices[0]!
   const options: PropertyOption[] = choices.map(choice => ({ value: choice.value, label: choice.label }))
   const insert = (componentId: string) => {
+    if (!documentStore.setAtoms(documentAtoms)) { setMessage(copy.insertFailed); return }
     const inserted = documentStore.commands.insertAt(componentId, componentInsertionPoint(documentStore.getSnapshot()), active.target)
     if (inserted && file && editor.capabilities.runtime === 'browser') {
       componentSyncQueue.queueBrowserUse(file.fileId, componentId)

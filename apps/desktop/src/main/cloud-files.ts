@@ -1,7 +1,7 @@
 import { createCloudApiClient } from '@canvas/cloud-client'
 import type { CloudFileSummary } from '@canvas/cloud-client'
 import type { ElectronAuthClient } from '@canvas/auth/electron'
-import type { ProjectSnapshot } from '@canvas/repo-engine'
+import type { Atom, ProjectSnapshot } from '@canvas/repo-engine'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { validateFileDocument } from '@canvas/repo-engine/file-document'
 import type { PreviewSnapshot } from '@canvas/preview-runtime'
@@ -9,6 +9,10 @@ import { bundledEditorOrigin } from './web-target'
 
 export type DesktopCloudSnapshot = ProjectSnapshot & { fileId: string; preview: PreviewSnapshot }
 export type DesktopCloudFile = Readonly<{ id: string; name: string; location: string; updatedAt: string; thumbnailUrl?: string }>
+export type DesktopWorkspacePreview = Readonly<{
+  atoms(): Atom[]
+  project(file: FileDocument): Promise<PreviewSnapshot>
+}>
 
 function safeOrigin(value: string | undefined, label: string): string | null {
   if (!value) return null
@@ -28,8 +32,9 @@ export class DesktopCloudFiles {
   private readonly editorOrigin: string
   private readonly assetsOrigin: string | null
   private activeFileId: string | null = null
+  private previewUrl: string | null = null
 
-  constructor(auth: Pick<ElectronAuthClient, 'request'>, apiOrigin: string, editorOrigin: string, previewOrigin?: string, assetsOrigin?: string) {
+  constructor(auth: Pick<ElectronAuthClient, 'request'>, apiOrigin: string, editorOrigin: string, previewOrigin?: string, assetsOrigin?: string, private readonly workspace?: DesktopWorkspacePreview) {
     this.previewOrigin = safeOrigin(previewOrigin, 'Preview origin')
     this.editorOrigin = safeEditorOrigin(editorOrigin)
     this.assetsOrigin = safeOrigin(assetsOrigin, 'Assets origin')
@@ -37,12 +42,13 @@ export class DesktopCloudFiles {
     this.client = createCloudApiClient<FileDocument>({
       apiOrigin,
       fetch: ((input: string | URL | Request, init?: RequestInit) => auth.request(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url, init)) as typeof fetch,
-      validateDocument: value => validateFileDocument(value, []),
+      validateDocument: value => validateFileDocument(value, this.workspace?.atoms() ?? [], { allowUnavailableBindings: true }),
     })
   }
 
   isActive(fileId: string): boolean { return this.activeFileId === fileId }
   hasActive(): boolean { return this.activeFileId !== null }
+  activePreviewUrl(): string | null { return this.previewUrl }
   accepts(fileId: string): boolean { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(fileId) }
 
   private summary(file: CloudFileSummary): DesktopCloudFile {
@@ -51,13 +57,14 @@ export class DesktopCloudFiles {
       name: file.name,
       location: 'Cloud',
       updatedAt: file.updatedAt,
-      ...(file.thumbnailKey && this.assetsOrigin ? { thumbnailUrl: `${this.assetsOrigin}/file-assets/thumbnails/${encodeURIComponent(file.id)}` } : {}),
+      ...(file.thumbnailKey && this.assetsOrigin ? { thumbnailUrl: `${this.assetsOrigin}/file-assets/thumbnails/${encodeURIComponent(file.id)}/thumbnail.avif` } : {}),
     }
   }
 
-  private snapshot(metadata: CloudFileSummary, file: FileDocument): DesktopCloudSnapshot {
+  private async snapshot(metadata: CloudFileSummary, file: FileDocument): Promise<DesktopCloudSnapshot> {
     if (metadata.id !== file.fileId) throw new Error('The server returned mismatched file metadata.')
-    const preview: PreviewSnapshot = this.previewOrigin ? {
+    const atoms = this.workspace?.atoms() ?? []
+    const preview: PreviewSnapshot = atoms.length && this.workspace ? await this.workspace.project(file) : this.previewOrigin ? {
       status: 'ready', currentGeneration: 1, activeGeneration: 1, origin: this.previewOrigin,
       url: `${this.previewOrigin}/?generation=1&editorOrigin=${encodeURIComponent(this.editorOrigin)}&file=${encodeURIComponent(file.fileId)}&mode=composition`,
       stale: false, diagnostics: [],
@@ -68,13 +75,13 @@ export class DesktopCloudFiles {
     return {
       projectId: metadata.projectId ?? metadata.id,
       fileId: metadata.id,
-      atoms: [],
+      atoms,
       sourceHashes: {},
       composition: { id: `composition-${metadata.id}`, name: metadata.name, componentId: null, children: [] },
       file,
       sourceHistory: [],
       conflict: null,
-      phases: [{ name: 'Cloud file loaded', completed: 1 }],
+      phases: [{ name: atoms.length ? 'Verified repository catalog loaded' : 'Cloud file loaded without a repository catalog', completed: 1 }],
       tokens: [],
       designThemes: [],
       preview,
@@ -86,8 +93,10 @@ export class DesktopCloudFiles {
   async open(fileId: string): Promise<DesktopCloudSnapshot> {
     const [metadata, opened] = await Promise.all([this.client.openFile(fileId), this.client.openDocument(fileId)])
     if (opened.revision !== opened.document.revision) throw new Error('The server returned mismatched document revisions.')
+    const snapshot = await this.snapshot(metadata, opened.document)
     this.activeFileId = fileId
-    return this.snapshot(metadata, opened.document)
+    this.previewUrl = snapshot.preview.url
+    return snapshot
   }
   async refresh(): Promise<DesktopCloudSnapshot> {
     if (!this.activeFileId) throw new Error('Open a cloud file first.')
@@ -95,7 +104,7 @@ export class DesktopCloudFiles {
   }
   async save(file: FileDocument, expectedRevision: number): Promise<DesktopCloudSnapshot> {
     if (!this.isActive(file.fileId)) throw new Error('Open this cloud file before saving it.')
-    const saved = await this.client.saveDocument(file.fileId, file, expectedRevision)
+    const saved = await this.client.saveDocument(file.fileId, { ...file, revision: expectedRevision }, expectedRevision)
     if (saved.revision !== saved.document.revision) throw new Error('The server returned mismatched document revisions.')
     return this.snapshot(await this.client.openFile(file.fileId), saved.document)
   }

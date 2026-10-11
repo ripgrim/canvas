@@ -3,6 +3,7 @@ import { HomeView } from '../home/HomeView'
 import { homeStore } from '../home/store'
 import { authSessionService } from './auth-service'
 import { applicationCopy as copy } from './application-copy'
+import { trackCanvasEvent } from '@canvas/tracking'
 
 export function displayDate(value: string | undefined, now = new Date()) {
   if (!value) return undefined
@@ -28,6 +29,6 @@ export function HomeScreen({ onOpenFile, onCreateFile }: HomeScreenProps) {
     const updatedAt = displayDate(sourceDate)
     return { ...summary, ...(updatedAt ? { updatedAt } : {}) }
   })
-  const create = () => { void homeStore.create().then(fileId => { if (fileId) onCreateFile(fileId) }) }
+  const create = () => { void homeStore.create().then(fileId => { if (fileId) { trackCanvasEvent('file_created'); onCreateFile(fileId) } }) }
   return <HomeView mode={state.mode} workspaceName={copy.productName} accountName={auth.user?.name ?? copy.productName} files={files} status={state.status} create={capabilities.create} open={capabilities.open} onCreate={create} onOpen={onOpenFile} onRetry={homeStore.retry} onBack={homeStore.back} onToggleMode={homeStore.toggleMode} />
 }

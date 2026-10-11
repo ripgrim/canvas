@@ -1,16 +1,17 @@
 import { utilityProcess } from 'electron'
 import type { UtilityProcess } from 'electron'
-import type { ShadcnScan } from '@canvas/scanner/contracts'
+import type { ShadcnPreviewRegistryRequest, ShadcnScan } from '@canvas/scanner/contracts'
 
-type ScanResponse = { ok: true; value: ShadcnScan } | { ok: false; error: string }
+export type ScannerResult = Readonly<{ scan: ShadcnScan; request: ShadcnPreviewRegistryRequest }>
+type ScanResponse = { ok: true; value: ScannerResult } | { ok: false; error: string }
 
 export class ScannerProcess {
   private worker: UtilityProcess | undefined
-  private pending: { resolve(value: ShadcnScan): void; reject(error: Error): void; timeout: ReturnType<typeof setTimeout> } | undefined
+  private pending: { resolve(value: ScannerResult): void; reject(error: Error): void; timeout: ReturnType<typeof setTimeout> } | undefined
 
   constructor(private readonly workerPath: string, private readonly root: string) {}
 
-  scan(): Promise<ShadcnScan> {
+  scan(): Promise<ScannerResult> {
     if (this.worker || this.pending) return Promise.reject(new Error('Repository scan is already running.'))
     return new Promise((resolve, reject) => {
       const env: Record<string, string> = { NODE_ENV: 'production' }
@@ -35,7 +36,7 @@ export class ScannerProcess {
     if (this.pending) this.finish(new Error('Repository scanner stopped.'))
   }
 
-  private finish(error: Error | null, value?: ShadcnScan): void {
+  private finish(error: Error | null, value?: ScannerResult): void {
     const pending = this.pending
     if (!pending) return
     clearTimeout(pending.timeout)

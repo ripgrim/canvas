@@ -16,6 +16,7 @@ const publicNames = [
   'DESIGN_EDITOR_LOGIN_URL',
   'DESIGN_EDITOR_PREVIEW_URL',
   'DESIGN_EDITOR_ASSETS_URL',
+  'VITE_DATABUDDY_CLIENT_ID',
 ]
 const localDefaults = {
   VITE_API_URL: 'http://127.0.0.1:4320',

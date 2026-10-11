@@ -366,7 +366,9 @@ export function InspectorScrubHandle({ children, className, ariaHidden = true, v
     window.addEventListener('keydown', key, true)
     document.addEventListener('pointerlockchange', lockChange)
     document.addEventListener('pointerlockerror', lockError)
-    try { void handle.requestPointerLock().then(() => { if (finished && document.pointerLockElement === handle) document.exitPointerLock() }).catch(() => undefined) } catch { /* Client coordinates remain available. */ }
+    try {
+      void handle.requestPointerLock().then(() => { if (finished && document.pointerLockElement === handle) document.exitPointerLock() }).catch(error => { console.warn('Pointer lock was unavailable; scrubbing continues with client coordinates.', error) })
+    } catch (error) { console.warn('Pointer lock was unavailable; scrubbing continues with client coordinates.', error) }
   }
   return <span className={className} data-scrub-area={scrubbable || undefined} data-scrub-handle={scrubbable || undefined} aria-hidden={ariaHidden || undefined} onPointerDown={onPointerDown}>{children}</span>
 }

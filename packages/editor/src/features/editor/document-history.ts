@@ -1,9 +1,17 @@
-import { validateFileDocument } from '@canvas/repo-engine/file-document'
-import type { FileDocument } from '@canvas/repo-engine/file-document'
+import { applyFileCommand, validateFileCommand, validateFileDocument } from '@canvas/repo-engine/file-document'
+import type { FileCommand, FileDocument } from '@canvas/repo-engine/file-document'
 import type { Atom } from './types'
 
-/** Persisted undo history for one file. Entries restore the whole file plus the page and selection the user saw. */
-export type HistoryEntry = { file: FileDocument; pageId: string; selection: string[] }
+/** Persisted history keeps semantic commands so undo and redo use the same save path as ordinary edits. */
+export type HistoryEntry = {
+  file: FileDocument
+  pageId: string
+  selection: string[]
+  afterPageId: string
+  afterSelection: string[]
+  undo: FileCommand
+  redo: FileCommand
+}
 export type DocumentHistory = { past: HistoryEntry[]; future: HistoryEntry[] }
 export type HistoryStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 export const documentHistoryLimit = 20
@@ -13,10 +21,10 @@ const plain = (value: unknown): value is Record<string, unknown> => typeof value
 const size = (source: string) => new TextEncoder().encode(source).byteLength
 const exactFields = (value: Record<string, unknown>, fields: string[]) => Object.keys(value).length === fields.length && fields.every(key => Object.hasOwn(value, key))
 
-/** Version 2 keys: version 1 entries held per-page documents and are not readable as file history. */
+/** Version 3 keys exclude snapshot-only history, which cannot be submitted to live collaboration. */
 function keyFor(fileId: string): string {
   if (typeof fileId !== 'string' || fileId.length === 0 || fileId.length > 256 || /[\u0000-\u001f\u007f]/.test(fileId)) throw new Error('Invalid history file identity')
-  return `design-editor:document-history:v2:${encodeURIComponent(fileId)}`
+  return `design-editor:document-history:v3:${encodeURIComponent(fileId)}`
 }
 
 function assertSerializable(value: unknown, active = new Set<object>(), depth = 0): void {
@@ -32,12 +40,20 @@ function assertSerializable(value: unknown, active = new Set<object>(), depth = 
 }
 
 function validateEntry(value: unknown, atoms: Atom[]): HistoryEntry {
-  if (!plain(value) || !exactFields(value, ['file', 'pageId', 'selection'])) throw new Error('Invalid document history entry')
+  if (!plain(value) || !exactFields(value, ['file', 'pageId', 'selection', 'afterPageId', 'afterSelection', 'undo', 'redo'])) throw new Error('Invalid document history entry')
   const file = validateFileDocument(value.file, atoms, { allowUnavailableBindings: true })
   if (typeof value.pageId !== 'string' || !file.pages.some(page => page.id === value.pageId)) throw new Error('Document history names a missing page')
   const selection = value.selection
   if (!Array.isArray(selection) || selection.length > 500 || selection.some(id => typeof id !== 'string' || !Object.hasOwn(file.nodes, id) || file.nodes[id]!.type === 'root') || new Set(selection).size !== selection.length) throw new Error('Document history contains an invalid selection')
-  return { file, pageId: value.pageId, selection: [...selection] as string[] }
+  const undo = validateFileCommand(value.undo)
+  const redo = validateFileCommand(value.redo)
+  const after = applyFileCommand(file, redo, atoms, { allowUnavailableBindings: true })
+  if (typeof value.afterPageId !== 'string' || !after.pages.some(page => page.id === value.afterPageId)) throw new Error('Document history names a missing page')
+  const afterSelection = value.afterSelection
+  if (!Array.isArray(afterSelection) || afterSelection.length > 500 || afterSelection.some(id => typeof id !== 'string' || !Object.hasOwn(after.nodes, id) || after.nodes[id]!.type === 'root') || new Set(afterSelection).size !== afterSelection.length) throw new Error('Document history contains an invalid selection')
+  const roundTrip = applyFileCommand(after, undo, atoms, { allowUnavailableBindings: true })
+  if (JSON.stringify({ ...roundTrip, revision: 0 }) !== JSON.stringify({ ...file, revision: 0 })) throw new Error('Document history commands do not round trip')
+  return { file, pageId: value.pageId, selection: [...selection] as string[], afterPageId: value.afterPageId, afterSelection: [...afterSelection] as string[], undo, redo }
 }
 
 function trim(history: DocumentHistory): DocumentHistory {
@@ -58,9 +74,9 @@ export function saveDocumentHistory(storage: HistoryStorage, fileId: string, cur
   assertSerializable(currentFile)
   assertSerializable(retained)
   for (const entry of [...retained.past, ...retained.future]) {
-    if (!plain(entry) || !exactFields(entry, ['file', 'pageId', 'selection'])) throw new Error('Invalid document history entry')
+    if (!plain(entry) || !exactFields(entry, ['file', 'pageId', 'selection', 'afterPageId', 'afterSelection', 'undo', 'redo'])) throw new Error('Invalid document history entry')
   }
-  const encode = () => JSON.stringify({ version: 2, fileId, currentFile, history: retained })
+  const encode = () => JSON.stringify({ version: 3, fileId, currentFile, history: retained })
   let source = encode()
   while (size(source) > documentHistoryByteLimit && (retained.past.length || retained.future.length)) {
     discardOldest(retained)
@@ -83,7 +99,7 @@ export function loadDocumentHistory(storage: HistoryStorage, fileId: string, cur
     if (size(source) > documentHistoryByteLimit) throw new Error('Document history exceeds its storage budget')
     const payload: unknown = JSON.parse(source)
     assertSerializable(payload)
-    if (!plain(payload) || !exactFields(payload, ['version', 'fileId', 'currentFile', 'history']) || payload.version !== 2 || payload.fileId !== fileId) throw new Error('Unsupported document history')
+    if (!plain(payload) || !exactFields(payload, ['version', 'fileId', 'currentFile', 'history']) || payload.version !== 3 || payload.fileId !== fileId) throw new Error('Unsupported document history')
     const current = validateFileDocument(payload.currentFile, atoms, { allowUnavailableBindings: true })
     if (JSON.stringify(current) !== JSON.stringify(currentFile)) throw new Error('Document history is stale')
     const candidate = payload.history

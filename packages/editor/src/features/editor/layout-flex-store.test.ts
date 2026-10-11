@@ -18,7 +18,7 @@ const flexLayout = (flex: FlexContainer, gap?: number): NodeLayout => ({ item: {
  * panel: Block with child p. frame: Freeform with absolute children f1 f2. d: a root label.
  */
 const fixture = (cardFlex: FlexContainer = { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' }): FileDocument => ({
-  schemaVersion: 6, fileId: 'file-1', revision: 0,
+  schemaVersion: 7, fileId: 'file-1', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -62,7 +62,7 @@ describe('LAY-BLOCK-001 store: Flex to Block in one revision', () => {
     expect(layoutOf(store, 'c')).toEqual({ item: { position: flow }, spacing: margin12 })
     expect(orderOf(store, 'card')).toEqual(['a', 'b', 'c'])
     store.undo()
-    expect(revision(store)).toBe(0)
+    expect(revision(store)).toBe(2)
     expect(layoutOf(store, 'card')).toEqual(flexLayout({ direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' }, 12))
     expect(layoutOf(store, 'a')).toEqual({ item: { position: flow, flex: { grow: 1 } } })
     expect(layoutOf(store, 'c')).toBeUndefined()

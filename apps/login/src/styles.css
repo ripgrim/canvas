@@ -11,12 +11,15 @@ button { font: inherit; }
 .login-card { width: 100%; display: flex; flex-direction: column; gap: var(--space-m); padding: var(--space-xl); border: 0; border-radius: var(--radius-l); background: var(--neutral-2); box-shadow: var(--border-shadow-s), var(--shadow-m); }
 .login-text { margin: 0; color: var(--cte-text-muted); font-size: var(--size-s); line-height: var(--line-s); letter-spacing: var(--letter-spacing-s); }
 .login-error { margin: 0; color: var(--error); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); }
+.login-error-reference { margin: 0; color: var(--neutral-6); font-family: var(--font-data); font-size: var(--size-xxs); line-height: var(--line-xxs); letter-spacing: var(--letter-spacing-xxs); }
 .login-actions { width: 100%; display: flex; flex-direction: column; gap: var(--space-s); }
 .login-button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-s); padding: var(--space-s) var(--space-m); border: 0; border-radius: var(--radius-s); background: var(--neutral-2); color: var(--neutral-10); box-shadow: var(--border-shadow-s); cursor: pointer; font-size: var(--size-m); line-height: var(--line-m); letter-spacing: var(--letter-spacing-m); font-weight: var(--weight-ui-medium); transition: background var(--motion-duration) var(--motion-easing), transform var(--motion-duration) var(--motion-easing); }
 .login-button:hover:not(:disabled) { background: var(--neutral-3); }
 .login-button:active:not(:disabled) { transform: translateY(var(--motion-press-distance)); }
 .login-button:focus-visible { outline: var(--focus-ring-outline); outline-offset: var(--space-xxs); }
-.login-button:disabled { cursor: default; opacity: 0.5; }
+.login-button:disabled { cursor: not-allowed; color: var(--neutral-6); }
+.login-button-google:disabled .login-provider-icon { filter: grayscale(1); }
+.login-provider-note { margin: calc(-1 * var(--space-xs)) 0 0; color: var(--neutral-6); font-size: var(--size-xxs); line-height: var(--line-xxs); letter-spacing: var(--letter-spacing-xxs); }
 .login-provider-icon { width: var(--space-l); height: var(--space-l); flex: none; }
 .login-status { display: flex; flex-direction: column; align-items: center; gap: var(--space-s); }
 .login-spinner { width: var(--space-xxl); height: var(--space-xxl); border-radius: var(--radius-full); box-shadow: inset 0 0 0 var(--border-m) var(--neutral-4); border-top: var(--border-m) solid var(--cte-accent); animation: login-spin calc(var(--motion-large-duration) * 3) linear infinite; }

@@ -1,13 +1,12 @@
 import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { applyColorOpacity, canonicalAppearance, convertPaint, defaultOutline } from '@canvas/repo-engine/appearance'
-import type { Appearance, BlendMode, BorderSide, ColorValue, GradientInterpolation, GradientPaint, GradientShape, ImageFit, ImagePaint, Outline, Paint, Stroke, StrokeStyle } from '@canvas/repo-engine/appearance'
+import type { Appearance, BlendMode, BorderSide, ColorValue, GradientInterpolation, GradientPaint, GradientShape, ImagePaint, Outline, Paint, Stroke, StrokeStyle } from '@canvas/repo-engine/appearance'
 import { resolveColorValue } from '@canvas/repo-engine/file-document'
-import type { FileCommand, FileDocument, SourcePalette } from '@canvas/repo-engine/file-document'
+import type { FileDocument, SourcePalette } from '@canvas/repo-engine/file-document'
 import { colorToCss, colorToHex, hexColor } from '@canvas/repo-engine/color'
 import type { Color } from '@canvas/repo-engine/color'
-import { layoutFromLegacy, legacyLayout } from '@canvas/repo-engine/layout'
-import { InspectorColorField, InspectorIconButton, InspectorNumberField, InspectorPaintStop, InspectorTextButton, splitHex } from '../../design-system/inspector-atoms'
+import { InspectorColorField, InspectorIconButton, InspectorNumberField, InspectorPaintStop, splitHex } from '../../design-system/inspector-atoms'
 import { AppearanceDragHandle, AppearanceFieldGlyph, AppearanceFilePicker, AppearanceImagePreview, AppearanceItem, AppearanceLine, AppearanceList, AppearanceMixedButton, AppearanceRemoveButton, AppearanceSection, AppearanceSegments, AppearanceSelect, AppearanceSpacer, AppearanceVisibilityButton, GradientBar } from '../../design-system/appearance-atoms'
 import type { DragSession, FilePickerHandle } from '../../design-system/appearance-atoms'
 import { ColorPicker } from '../../design-system/color-picker'
@@ -17,6 +16,7 @@ import type { BindingEntry, BindingState, BorderEntry, BorderKey, ColorSlot, Fil
 import { documentStore } from './document-store'
 import { inspectorCopy as copy } from './inspector-copy'
 import { tokenFieldCopy as tokenCopy } from './token-field-copy'
+import { loadDefaultImage } from '../../services/default-image'
 
 type Mode = 'light' | 'dark'
 type Target = { id: string; node: StyledNode; appearance: Appearance | undefined }
@@ -26,7 +26,7 @@ type Context = { file: FileDocument; paletteOf: (nodeId: string) => SourcePalett
 const fallbackColor = hexColor('#000000')
 const maxFills = 16
 const maxStops = 16
-const imageAccept = 'image/png,image/jpeg,image/gif,image/webp'
+const imageAccept = 'image/*'
 const newId = () => crypto.randomUUID()
 const literal = (hex: string): ColorValue => ({ kind: 'literal', color: hexColor(hex) })
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
@@ -225,11 +225,6 @@ function FillRow({ context, paint, index, row, count, mixed }: FillRowProps) {
   }
   /** Each node seeds its second stop from the color its own theme resolves. */
   const secondStop = (nodeId: string) => (color: ColorValue): ColorValue => { const resolved = resolveColorValue(file.theme, color, context.paletteOf(nodeId)); return resolved ? literal(darkerHex(colorToHex(resolved))) : color }
-  const convert = (type: Paint['type']) => {
-    const fills = targets.map(target => target.appearance?.fills?.[index])
-    if (type === 'image' && fills.some(current => current && current.type !== 'image' && !current.cache?.image)) { picker.current?.open(); return }
-    commitEach(targets, (appearance, target) => withFill(appearance, index, current => convertPaint(current, type, newId, secondStop(target.id))))
-  }
   const chooseImage = async (source: File) => {
     const assetId = await documentStore.commands.assets.add(source)
     if (!assetId) return
@@ -237,11 +232,21 @@ function FillRow({ context, paint, index, row, count, mixed }: FillRowProps) {
       ? { ...current, assetId }
       : convertPaint({ ...current, cache: { ...(current.cache ?? {}), image: { assetId, fit: current.cache?.image?.fit ?? 'cover' } } }, 'image', newId, secondStop(target.id))))
   }
+  const convert = async (type: Paint['type']) => {
+    const fills = targets.map(target => target.appearance?.fills?.[index])
+    if (type === 'image' && fills.some(current => current && current.type !== 'image' && !current.cache?.image)) {
+      try {
+        await chooseImage(await loadDefaultImage())
+      } catch { picker.current?.open() }
+      return
+    }
+    commitEach(targets, (appearance, target) => withFill(appearance, index, current => convertPaint(current, type, newId, secondStop(target.id))))
+  }
   const typeOptions = [{ value: 'solid' as const, label: copy.solid, glyph: 'solid' as const }, { value: 'gradient' as const, label: copy.gradient, glyph: 'gradient' as const }, { value: 'image' as const, label: copy.image, glyph: 'image' as const }]
   return <AppearanceItem label={copy.fillItem(number)} onMoveBy={delta => moveTo(row + delta)}>
     <AppearanceLine>
       <AppearanceDragHandle label={copy.reorderFill(number)} disabled={disabled || count < 2} onDragStart={dragStart} />
-      <AppearanceSegments label={copy.fillType(number)} value={paint.type} options={typeOptions} disabled={disabled} onChange={convert} />
+      <AppearanceSegments label={copy.fillType(number)} value={paint.type} options={typeOptions} disabled={disabled} onChange={type => { void convert(type) }} />
       {index > 0
         ? <AppearanceSelect id={`fill-${paint.id}-blend`} label={copy.fillBlend(number)} value={isMixed('blendMode') ? null : paint.blendMode ?? 'normal'} placeholder={copy.mixed} groups={blendGroups} disabled={disabled} onChange={mode => write(withPaintBlend(paint, mode as BlendMode))} />
         : <AppearanceSpacer />}
@@ -322,29 +327,13 @@ function GradientBody({ context, paint, index, number, isMixed, write, live }: B
   </>
 }
 
-function ImageBody({ context, paint, number, isMixed, write, onChoose }: BodyProps<ImagePaint> & { onChoose: () => void }) {
-  const { file, disabled, targets } = context
+function ImageBody({ context, paint, isMixed, onChoose }: BodyProps<ImagePaint> & { onChoose: () => void }) {
+  const { file, disabled } = context
   const asset = isMixed('assetId') ? undefined : file.assets?.[paint.assetId]
-  const fits = (Object.keys(copy.fits) as ImageFit[]).map(fit => ({ value: fit, label: copy.fits[fit] }))
-  const intrinsic = () => {
-    if (!asset) return
-    const size = { width: asset.width, height: asset.height }
-    const only = targets.length === 1 ? targets[0]! : null
-    if (only && only.node.type !== 'component') { documentStore.commands.setStyles(only.id, size); return }
-    documentStore.commands.executeBatch(targets.map((target): FileCommand => target.node.type === 'component'
-      ? { type: 'node.setLayout', nodeId: target.id, layout: layoutFromLegacy({ ...legacyLayout(target.node.layout), ...size }, target.node.layout) }
-      : { type: 'node.setStyles', nodeId: target.id, styles: size }))
-  }
-  return <>
-    <AppearanceLine>
-      <AppearanceImagePreview src={asset ? `data:${asset.mime};base64,${asset.data}` : null} name={isMixed('assetId') ? copy.mixed : asset?.name ?? copy.missingImage} />
-      <InspectorTextButton label={asset ? copy.replaceImage : copy.chooseImage} disabled={disabled} onClick={onChoose} />
-    </AppearanceLine>
-    <AppearanceLine>
-      <AppearanceSelect id={`fill-${paint.id}-fit`} label={copy.fit(number)} value={isMixed('fit') ? null : paint.fit} placeholder={copy.mixed} options={fits} disabled={disabled} onChange={fit => write({ ...paint, fit: fit as ImageFit })} />
-      <InspectorTextButton label={copy.intrinsicSize} disabled={disabled || !asset} onClick={intrinsic} />
-    </AppearanceLine>
-  </>
+  const preview = asset ? documentStore.assetPreview(asset.id) : null
+  return <AppearanceLine>
+    <AppearanceImagePreview src={preview ? `data:${preview.mime};base64,${preview.data}` : null} name={isMixed('assetId') ? copy.mixed : asset?.name ?? copy.missingImage} dimensions={asset ? `${asset.width}×${asset.height}` : null} editLabel={copy.editImage} disabled={disabled} onEdit={onChoose} />
+  </AppearanceLine>
 }
 
 // Outline -----------------------------------------------------------------------------------------------------------

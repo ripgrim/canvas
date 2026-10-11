@@ -20,6 +20,7 @@ const document = (): PreviewDocument => ({
     'button-1': { id: 'button-1', componentId: 'atom-button', exportName: 'Button', theme: lightTheme, props: { children: 'Go' }, children: {} },
   },
   frame: { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false },
+  assets: { flowers: { mime: 'image/webp', data: 'AAAA' } },
 })
 const item = { nodeId: 'button-1', mode: 'absolute', x: 10, y: 20, order: 0, width: 120, height: 40 }
 const layout = (items: unknown[]) => ({ ...envelope, type: 'set-layout', layoutGeneration: 0, items })
@@ -27,7 +28,7 @@ const transient = (items: unknown[]) => ({ ...envelope, type: 'set-transient-mov
 
 const accepted: [string, Record<string, unknown>, PreviewDocument | null][] = [
   ['set-layout', layout([item]), document()],
-  ['set-transient-move', transient([{ nodeId: 'button-1', dx: 10, dy: -20 }]), document()],
+  ['set-transient-move', transient([{ nodeId: 'button-1', dx: 10, dy: -20, width: 140, height: 60 }]), document()],
   ['set-theme', { ...envelope, type: 'set-theme', theme: { attribute: 'dark', colorScheme: 'dark' } }, null],
   ['set-camera', { ...envelope, type: 'set-camera', camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 } }, null],
   ['set-interaction-mode', { ...envelope, type: 'set-interaction-mode', mode: 'select' }, null],
@@ -181,6 +182,9 @@ describe('AT-CAN-005 transient move boundary', () => {
 
   it('accepts bounded current nodes and the empty clear command', () => {
     expect(deliver(transient([move]), document())).toEqual(transient([move]))
+    expect(deliver(transient([{ ...move, width: 140, height: 60 }]), document())).toEqual(transient([{ ...move, width: 140, height: 60 }]))
+    const appearance = { fills: [{ type: 'image', assetId: 'flowers', fit: 'cover', geometry: { x: -20, y: 0, width: 180, height: 120 } }] }
+    expect(deliver(transient([{ ...move, width: 140, height: 60, appearance }]), document())).toEqual(transient([{ ...move, width: 140, height: 60, appearance }]))
     expect(deliver(transient([]), null)).toEqual(transient([]))
   })
 
@@ -191,6 +195,10 @@ describe('AT-CAN-005 transient move boundary', () => {
     ['a string delta', { ...move, dx: '10' }],
     ['a non-finite delta', { ...move, dy: Number.POSITIVE_INFINITY }],
     ['an over-limit delta', { ...move, dx: 1_000_001 }],
+    ['a zero width', { ...move, width: 0 }],
+    ['a negative height', { ...move, height: -1 }],
+    ['an over-limit width', { ...move, width: 1_000_001 }],
+    ['an invalid image geometry', { ...move, appearance: { fills: [{ type: 'image', assetId: 'flowers', fit: 'cover', geometry: { x: 0, y: 0, width: 0, height: 40 } }] } }],
   ])('rejects %s', (_, candidate) => {
     expect(deliver(transient([candidate]), document())).toBeNull()
   })

@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "comp-canvas-sync",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "dev": {
+    "port": 4321
+  },
+  "services": [{ "binding": "SYNC_COORDINATOR", "service": "comp-canvas-sync-coordinator" }],
+  "vars": {
+    "API_ORIGIN": "http://127.0.0.1:4320",
+    "COLLABORATION_BUILD_ID": "0.1.0",
+    "ALLOWED_ORIGINS": "http://127.0.0.1:4317,http://localhost:4317,http://127.0.0.1:4319,http://localhost:4319"
+  }
+}

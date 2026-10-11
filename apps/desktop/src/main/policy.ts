@@ -2,6 +2,9 @@ import type { AuthRequest, RepositoryConnectionRequest, RepositoryRequest } from
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { parseGitHubCloneRequest } from '@canvas/repository'
 
+const analyticsScriptOrigin = 'https://cdn.databuddy.cc'
+const analyticsIngestOrigin = 'https://basket.databuddy.cc'
+
 export { localDevelopmentUrl as editorDevelopmentUrl } from './web-target'
 
 export const secureWebPreferences = Object.freeze({
@@ -15,17 +18,25 @@ export const secureWebPreferences = Object.freeze({
   safeDialogs: true,
 })
 
-export function contentSecurityPolicy(development: boolean, previewOrigin: string | null = null, scriptHashes: readonly string[] = []): string {
-  if (previewOrigin !== null && !/^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(previewOrigin)) throw new Error('Invalid preview origin.')
+export function contentSecurityPolicy(development: boolean, previewOrigin: string | readonly string[] | null = null, scriptHashes: readonly string[] = []): string {
+  const requestedPreviewOrigins = previewOrigin === null ? [] : typeof previewOrigin === 'string' ? [previewOrigin] : [...previewOrigin]
+  const previewOrigins = [...new Set(requestedPreviewOrigins.map(origin => {
+    let url: URL
+    try { url = new URL(origin) } catch { throw new Error('Invalid preview origin.') }
+    const local = url.protocol === 'http:' && url.hostname === '127.0.0.1'
+    if ((!local && url.protocol !== 'https:') || url.origin !== origin || url.username || url.password) throw new Error('Invalid preview origin.')
+    return url.origin
+  }))]
+  if (previewOrigins.length > 2) throw new Error('Invalid preview origin.')
   if (scriptHashes.length > 128 || scriptHashes.some((hash) => !/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/.test(hash))) throw new Error('Invalid inline script hash.')
   return [
     "default-src 'none'",
-    `script-src 'self'${development ? " 'unsafe-inline'" : ''}${scriptHashes.map((hash) => ` 'sha256-${hash}'`).join('')}`,
+    `script-src 'self' ${analyticsScriptOrigin}${development ? " 'unsafe-inline'" : ''}${scriptHashes.map((hash) => ` 'sha256-${hash}'`).join('')}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    `connect-src 'self'${development ? ' ws://127.0.0.1:4317' : ''}`,
-    `frame-src ${previewOrigin ?? "'none'"}`,
+    `connect-src 'self' ${analyticsIngestOrigin}${development ? ' ws://127.0.0.1:4317' : ''}`,
+    `frame-src ${previewOrigins.length ? [...new Set(previewOrigins)].join(' ') : "'none'"}`,
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",

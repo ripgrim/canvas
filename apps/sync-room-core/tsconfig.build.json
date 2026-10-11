@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@canvas/database": ["../../packages/database/dist/index.d.ts"],
+      "@canvas/database/collaboration": ["../../packages/database/dist/collaboration.d.ts"],
+      "@canvas/database/postgres": ["../../packages/database/dist/postgres.d.ts"],
+      "@canvas/repo-engine/file-document": ["../../packages/repo-engine/dist/file-document.d.ts"],
+      "@canvas/sync-protocol": ["../../packages/sync-protocol/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["tests"]
+}

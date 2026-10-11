@@ -133,7 +133,7 @@ try {
   assert.equal(boundary.url, 'design-editor://app/')
   assert.equal(boundary.node, 'undefined')
   assert.equal(boundary.process, 'undefined')
-  assert.deepEqual(boundary.bridge, ['cloneGitHubRepository', 'getAuthSession', 'getConnectedRepository', 'inspectFixture', 'listFiles', 'onAuthSessionChanged', 'openFile', 'pickLocalRepository', 'prepareLabelPadding', 'preparePromotion', 'prepareRedo', 'prepareToken', 'prepareUndo', 'refresh', 'rescanConnectedRepository', 'saveFile', 'savePrepared', 'scanShadcn', 'signInWithGitHub', 'signOut'])
+  assert.deepEqual(boundary.bridge, ['cloneGitHubRepository', 'createFile', 'getAuthSession', 'getConnectedRepository', 'inspectFixture', 'listFiles', 'onAuthSessionChanged', 'openFile', 'pickLocalRepository', 'prepareLabelPadding', 'preparePromotion', 'prepareRedo', 'prepareToken', 'prepareUndo', 'refresh', 'rescanConnectedRepository', 'saveFile', 'savePrepared', 'scanShadcn', 'signInWithGitHub', 'signOut'])
   assert.deepEqual(await first.call('listFiles'), [{ id: 'fixture-project', name: 'Fixture', location: 'Local' }])
   assert.equal((await first.call('openFile', 'fixture-project')).projectId !== undefined, true)
   assert.equal(await first.call('getConnectedRepository'), null)

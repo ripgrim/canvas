@@ -1,5 +1,5 @@
 import type { AnyRouter } from '@tanstack/react-router'
-import { fileSelection, filePageState } from '@canvas/editor/file'
+import { fileSelection, filePageState } from '@canvas/editor/file-route'
 
 const fileRouteId = '/file/$fileId'
 type FileMatch = { routeId: string; params: Record<string, string>; search: Record<string, unknown>; loaderData?: unknown }

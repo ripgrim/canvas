@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createDocument } from '@canvas/repo-engine/document'
 import { UnavailableCapabilityError } from '@canvas/editor/capabilities'
-import { browserDraftKey, browserSampleAtoms, browserSampleComposition, browserSampleThemes, createBrowserAdapter } from './browser'
+import { browserDraftKey, browserHollowAtoms, browserSampleComposition, browserSampleThemes, createBrowserAdapter } from './browser'
 import { browserFileKey, browserFilesIndexKey, migratedBrowserFileId } from '../features/files/service'
 import type { BrowserDraftLocks, BrowserDraftStorage } from './browser'
 
@@ -25,7 +25,7 @@ function serialLocks(): BrowserDraftLocks {
 
 /** The single draft the oldest browser build stored: the bundled login composition with one edited label. */
 function legacyDraft(buttonText: string) {
-  const document = createDocument(browserSampleAtoms, browserSampleComposition)
+  const document = createDocument(browserHollowAtoms, browserSampleComposition)
   document.nodes['sample-instance-button']!.props.children = buttonText
   return JSON.stringify({ ...document, revision: 2 })
 }
@@ -45,7 +45,7 @@ describe('browser local files', () => {
     expect(Object.values(opened.file.nodes)).toEqual([{ id: opened.file.pages[0]!.rootNodeId, type: 'root' }])
     expect(opened.file.theme.tokens).toEqual({})
     expect(opened.file.revision).toBe(0)
-    expect(opened.file.schemaVersion).toBe(6)
+    expect(opened.file.schemaVersion).toBe(7)
 
     const changed = structuredClone(opened.file)
     changed.pages[0]!.name = 'First page'
@@ -65,7 +65,7 @@ describe('browser local files', () => {
     expect(storage.getItem(browserDraftKey)).toBeNull()
     expect(storage.getItem(browserFilesIndexKey)).not.toBeNull()
     expect(storage.getItem(browserFileKey(created!.id))).not.toBeNull()
-    expect(JSON.parse(storage.getItem(browserFileKey(created!.id))!)).toMatchObject({ schemaVersion: 1, file: { schemaVersion: 6, revision: 1 } })
+    expect(JSON.parse(storage.getItem(browserFileKey(created!.id))!)).toMatchObject({ schemaVersion: 1, file: { schemaVersion: 7, revision: 1 } })
   })
 
   it('opens the migrated draft first, otherwise the most recent file, and asks for a file when none exist', async () => {
@@ -112,6 +112,7 @@ describe('browser local files', () => {
     const opened = await adapter.openFile(created!.id)
     expect(opened.atoms.map(atom => atom.componentId)).toEqual(['sample-button', 'sample-card', 'sample-input', 'sample-label'])
     expect(opened.atoms.every(atom => atom.path.startsWith('Bundled sample / '))).toBe(true)
+    expect(opened.phases).toEqual([{ name: 'Hollow browser catalog loaded', completed: 1 }])
     // Vitest stubs CSS imports, so the seed stylesheet catalog is empty here; the snapshot still carries the module's catalog and themes.
     expect(opened.tokens).toEqual([])
     expect(opened.designThemes).toEqual(browserSampleThemes)

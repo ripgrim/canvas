@@ -1,0 +1,16 @@
+{
+  "repositoryRoot": "../../../fixtures/component-repo",
+  "registry": {
+    "version": 1,
+    "entry": { "componentId": "fixture-login" },
+    "components": [
+      { "componentId": "fixture-login", "entryPath": "src/PreviewLogin.tsx", "exportName": "PreviewLogin", "props": {}, "slots": [] },
+      { "componentId": "atom-card", "entryPath": "src/atoms/Card.tsx", "exportName": "Card", "props": {}, "slots": ["children", "heading", "footer"] },
+      { "componentId": "atom-label", "entryPath": "src/atoms/Label.tsx", "exportName": "Label", "props": {}, "slots": [] },
+      { "componentId": "atom-input", "entryPath": "src/atoms/Input.tsx", "exportName": "Input", "props": {}, "slots": [] },
+      { "componentId": "atom-button", "entryPath": "src/atoms/Button.tsx", "exportName": "Button", "props": { "children": { "kind": "string" }, "variant": { "kind": "enum", "values": ["primary", "quiet"] } }, "slots": [] }
+    ],
+    "styles": [{ "path": "src/globals.css" }],
+    "themeAdapters": [{ "entryPath": "src/preview-theme-adapter.tsx", "exportName": "previewThemeAdapter", "evidence": { "configPath": "components.json" } }]
+  }
+}

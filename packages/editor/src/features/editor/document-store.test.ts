@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Atom } from './types'
 import type { Appearance, FileDocument, Paint, Stroke } from '@canvas/repo-engine/file-document'
+import type { ImageAssetReference } from '@canvas/repo-engine/appearance'
 import { childrenOf, nodeAppearance, worldPosition } from '@canvas/repo-engine/file-document'
-import { componentInsertionPoint, createDocumentStore } from './document-store'
+import { componentDefaultProps, componentInsertionPoint, createDocumentStore } from './document-store'
 import type { Scene } from './canvas-scene'
+import type { EditorPersistenceIntent } from '../../capabilities'
 
 const atom = (name: string, componentId: string, props: Atom['props']): Atom => ({ name, kind: 'atom', componentId, path: `src/${name}.tsx`, exportName: name, fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props })
 const atoms: Atom[] = [
@@ -19,7 +21,7 @@ const label = (id: string, text: string) => ({ id, type: 'component' as const, c
  * and one in `footer`. Page 2: other (0,0 80x80). Every primitive has one solid fill named `<id>-fill`.
  */
 const fixture = (): FileDocument => ({
-  schemaVersion: 6, fileId: 'file-1', revision: 0,
+  schemaVersion: 7, fileId: 'file-1', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -55,6 +57,13 @@ const key = (name: string, modifiers: Partial<{ ctrlKey: boolean; metaKey: boole
 const settled = (store: ReturnType<typeof createDocumentStore>) => vi.waitFor(() => expect(store.getSnapshot().saving).toBe(false))
 const appearanceOf = (store: ReturnType<typeof createDocumentStore>, id: string) => nodeAppearance(file(store).nodes[id])
 const fillsOf = (store: ReturnType<typeof createDocumentStore>, id: string) => appearanceOf(store, id)?.fills
+const onePixelPng = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01,
+  0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41,
+  0x54, 0x78, 0xda, 0x63, 0x64, 0x60, 0xf8, 0x5f, 0x0f, 0x00, 0x02, 0x87, 0x01, 0x80, 0xeb, 0x47, 0xba, 0x92, 0x00, 0x00,
+  0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+])
+const onePixelPreview = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 
 describe('AT-CAN file loading and pages', () => {
   it('opens the requested page, falling back to the first page for unknown ids', () => {
@@ -92,6 +101,20 @@ describe('AT-CAN file loading and pages', () => {
     expect(store.getSnapshot().selection).toEqual([])
     store.select('other')
     expect(store.getSnapshot().selection).toEqual(['other'])
+  })
+
+  it('UI-COLLAB-READONLY-001 keeps view controls active while rejecting semantic edits and history', () => {
+    const store = loaded()
+    store.setReadOnly(true)
+    expect(store.getSnapshot().readOnly).toBe(true)
+    expect(store.commands.rename('box', 'Changed')).toBe(false)
+    expect(file(store).nodes.box).toMatchObject({ name: 'Box' })
+    expect(store.undo()).toBe(false)
+    expect(store.setPage('page-2')).toBe(true)
+    store.setViewport({ x: 30, y: 40, zoom: 1.5 })
+    expect(store.getSnapshot()).toMatchObject({ pageId: 'page-2', viewport: { x: 30, y: 40, zoom: 1.5 }, dirty: false })
+    store.setReadOnly(false)
+    expect(store.commands.rename('other', 'Changed')).toBe(true)
   })
 
   it('creates, renames, duplicates, reorders, and deletes pages with page-scoped undo', () => {
@@ -205,11 +228,11 @@ describe('AT-CAN primitive canvas commands', () => {
   it('commits a move into a nested frame keeping the world position, and back out to the page', () => {
     const store = loaded()
     // inner sits at world (100 + 20, 50 + 30) = (120, 80); dropping box at world (150, 110) makes it local (30, 30).
-    expect(store.commands.commitMove([{ id: 'box', x: 150, y: 110, parentId: 'inner' }])).toBe(true)
+    expect(store.commands.commitMove([{ id: 'box', x: 150, y: 110, parentId: 'inner' }]).committed).toBe(true)
     expect(file(store).relationships.box!.parentId).toBe('inner')
     expect(styles(store, 'box')).toEqual({ left: 30, top: 30, width: 50, height: 40 })
     expect(worldPosition(file(store), 'box')).toEqual({ x: 150, y: 110 })
-    expect(store.commands.commitMove([{ id: 'box', x: 700, y: 20, parentId: null }])).toBe(true)
+    expect(store.commands.commitMove([{ id: 'box', x: 700, y: 20, parentId: null }]).committed).toBe(true)
     expect(file(store).relationships.box!.parentId).toBe('root-1')
     expect(styles(store, 'box')).toMatchObject({ left: 700, top: 20 })
     store.undo()
@@ -220,7 +243,7 @@ describe('AT-CAN primitive canvas commands', () => {
   it('refuses to move a primitive into a component instance', () => {
     const store = loaded()
     const before = file(store)
-    expect(store.commands.commitMove([{ id: 'box', x: 0, y: 0, parentId: 'card' }])).toBe(false)
+    expect(store.commands.commitMove([{ id: 'box', x: 0, y: 0, parentId: 'card' }]).committed).toBe(false)
     expect(file(store)).toBe(before)
     expect(store.getSnapshot().canUndo).toBe(false)
   })
@@ -236,11 +259,30 @@ describe('AT-CAN primitive canvas commands', () => {
 
   it('commits a resize in world geometry as parent-local styles', () => {
     const store = loaded()
-    expect(store.commands.commitResize('box', { x: 10.4, y: 20.6, width: 70.5, height: 0.3 })).toBe(true)
+    expect(store.commands.commitResize('box', { x: 10.4, y: 20.6, width: 70.5, height: 0.3 }).committed).toBe(true)
     expect(styles(store, 'box')).toEqual({ left: 10, top: 21, width: 71, height: 1 })
     // outer sits at world (100, 50).
-    expect(store.commands.commitResize('inner', { x: 130, y: 90, width: 50, height: 60 })).toBe(true)
+    expect(store.commands.commitResize('inner', { x: 130, y: 90, width: 50, height: 60 }).committed).toBe(true)
     expect(styles(store, 'inner')).toEqual({ left: 30, top: 40, width: 50, height: 60, overflow: 'clip' })
+  })
+
+  it('AT-CAN-006 holds direct freeform children in world space during a Mod resize and undoes once', () => {
+    const store = loaded()
+    expect(worldPosition(file(store), 'inner')).toEqual({ x: 120, y: 80 })
+    expect(store.commands.commitResize('outer', { x: 80, y: 40, width: 440, height: 320 }, undefined, true, { x: 100, y: 50, width: 400, height: 300 }).committed).toBe(true)
+    expect(styles(store, 'outer')).toMatchObject({ left: 80, top: 40, width: 440, height: 320 })
+    expect(styles(store, 'inner')).toMatchObject({ left: 40, top: 40 })
+    expect(worldPosition(file(store), 'inner')).toEqual({ x: 120, y: 80 })
+    expect(store.getHistory().past).toHaveLength(1)
+    store.undo()
+    expect(styles(store, 'outer')).toMatchObject({ left: 100, top: 50, width: 400, height: 300 })
+    expect(styles(store, 'inner')).toMatchObject({ left: 20, top: 30 })
+  })
+
+  it('AT-CAN-006 scales freeform descendants during an unmodified frame resize', () => {
+    const store = loaded()
+    expect(store.commands.commitResize('outer', { x: 100, y: 50, width: 800, height: 600 }, undefined, false, { x: 100, y: 50, width: 400, height: 300 }).committed).toBe(true)
+    expect(styles(store, 'inner')).toMatchObject({ left: 40, top: 60, width: 400, height: 200 })
   })
 
   it('duplicates a primitive 20 units to the right with a new id while the source keeps its own', () => {
@@ -308,6 +350,21 @@ describe('AT-CAN primitive canvas commands', () => {
 })
 
 describe('AT-CAN component instances in slots', () => {
+  it('derives defaults only for required verified scalar props and never invents slot content', () => {
+    const verified: Atom = {
+      ...atom('LoginForm', 'login-form', []),
+      slots: ['children'],
+      props: [
+        { name: 'title', type: 'string', optional: false },
+        { name: 'attempts', type: 'number', optional: false },
+        { name: 'enabled', type: 'boolean', optional: false },
+        { name: 'variant', type: "'compact' | 'wide'", optional: true },
+        { name: 'children', type: 'ReactNode', optional: false },
+      ],
+    }
+    expect(componentDefaultProps(verified)).toEqual({ title: '', attempts: 0, enabled: false })
+  })
+
   it('inserts a root instance at a deterministic world point and selects the same persistent id', () => {
     const store = loaded()
     store.setViewport({ x: 40, y: -20, zoom: 2 })
@@ -316,7 +373,7 @@ describe('AT-CAN component instances in slots', () => {
     expect(store.commands.insertAt('card-component', componentInsertionPoint(store.getSnapshot()))).toBe(true)
     expect(store.getSnapshot().selection).toEqual(['new-1'])
     expect(file(store).nodes['new-1']).toEqual({
-      id: 'new-1', type: 'component', componentId: 'card-component', exportName: 'Card', props: { heading: 'Card' }, themeMode: 'inherit',
+      id: 'new-1', type: 'component', componentId: 'card-component', exportName: 'Card', props: {}, themeMode: 'inherit',
       layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: -20 }, top: { kind: 'px', value: 10 } } } },
     })
     expect(file(store).relationships['new-1']!.parentId).toBe('root-1')
@@ -336,7 +393,7 @@ describe('AT-CAN component instances in slots', () => {
     expect(file(store).nodes['new-1']).toEqual({ id: 'new-1', type: 'component', componentId: 'label-component', exportName: 'Label', props: { children: 'Create account' }, themeMode: 'inherit' })
     expect(childrenOf(file(store), 'card', 'footer')).toEqual(['footer-label', 'new-1'])
     expect(store.commands.insert('label-component')).toBe(true)
-    expect(file(store).nodes['new-2']).toMatchObject({ props: { children: 'Label' } })
+    expect(file(store).nodes['new-2']).toMatchObject({ props: {} })
     expect(file(store).relationships['new-2']!.parentId).toBe('root-1')
     expect(store.commands.insert('missing-component')).toBe(false)
 
@@ -352,11 +409,11 @@ describe('AT-CAN component instances in slots', () => {
 
   it('reorders flow children within their own slot using insertion indexes', () => {
     const store = loaded()
-    expect(store.commands.reorderFlow('note', 0)).toBe(true)
+    expect(store.commands.reorderFlow('note', 0).committed).toBe(true)
     expect(childrenOf(file(store), 'card', 'children')).toEqual(['note', 'label', 'hint'])
-    expect(store.commands.reorderFlow('note', 0)).toBe(false)
+    expect(store.commands.reorderFlow('note', 0).committed).toBe(false)
     // Dropping before index 3 (after the last sibling) moves label to the end.
-    expect(store.commands.reorderFlow('label', 3)).toBe(true)
+    expect(store.commands.reorderFlow('label', 3).committed).toBe(true)
     expect(childrenOf(file(store), 'card', 'children')).toEqual(['note', 'hint', 'label'])
     expect(childrenOf(file(store), 'card', 'footer')).toEqual(['footer-label'])
     expect(store.commands.moveBy('hint', -1)).toBe(true)
@@ -690,6 +747,24 @@ describe('AT-APP-004 appearance commands', () => {
     expect(appearanceOf(store, 'outer')).toEqual({ fills: [solid('outer-fill', '#ffffff')] })
   })
 
+  it('AT-PERF-001 keeps the editor shell snapshot stable through live outline previews', () => {
+    const store = loaded()
+    const shell = store.getShellSnapshot()
+    const view = store.getViewSnapshot()
+    store.commands.appearance.gesture.begin()
+    const afterBegin = store.getShellSnapshot()
+    expect(afterBegin).toBe(shell)
+    for (let width = 1; width <= 120; width++) {
+      store.commands.appearance.gesture.preview({ box: { fills: [solid('box-fill', '#d9d9d9')], outline: { color: hex('#00ff00'), width, style: 'solid', offset: 0 } } })
+      expect(store.getShellSnapshot()).toBe(shell)
+    }
+    expect(store.getViewSnapshot()).not.toBe(view)
+    expect(store.commands.appearance.gesture.commit()).toBe(true)
+    expect(store.getShellSnapshot()).not.toBe(shell)
+    expect(appearanceOf(store, 'box')?.outline?.width).toBe(120)
+    expect(store.getHistory().past).toHaveLength(1)
+  })
+
   it('cancels a gesture leaving the file and history untouched', () => {
     const store = loaded()
     const before = file(store)
@@ -705,18 +780,13 @@ describe('AT-APP-004 appearance commands', () => {
     expect(file(store)).toBe(before)
   })
 
-  it('stores a local PNG as base64 and refuses to remove it while an image fill references it', async () => {
-    // A valid 1 x 1 RGBA PNG: signature, IHDR, IDAT, IEND (70 bytes, chunk CRCs checked when written).
-    const png = new Uint8Array([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01,
-      0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41,
-      0x54, 0x78, 0xda, 0x63, 0x64, 0x60, 0xf8, 0x5f, 0x0f, 0x00, 0x02, 0x87, 0x01, 0x80, 0xeb, 0x47, 0xba, 0x92, 0x00, 0x00,
-      0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-    ])
+  it('stores a canonical PNG reference with render bytes in the session sidecar and refuses referenced removal', async () => {
     vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1, height: 1, close() {} })))
     const store = loaded()
-    expect(await store.commands.assets.add(new File([png], 'dot.png', { type: 'image/png' }))).toBe('new-1')
-    expect(file(store).assets).toEqual({ 'new-1': { id: 'new-1', name: 'dot.png', mime: 'image/png', width: 1, height: 1, bytes: 70, data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' } })
+    expect(await store.commands.assets.add(new File([onePixelPng], 'dot.png', { type: 'image/png' }))).toBe('new-1')
+    expect(file(store).assets).toEqual({ 'new-1': { id: 'new-1', name: 'dot.png', mime: 'image/png', extension: 'png', width: 1, height: 1, bytes: 70, sha256: '497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581' } })
+    expect(file(store).assets!['new-1']).not.toHaveProperty('data')
+    expect(store.assetPreview('new-1')).toEqual({ mime: 'image/png', data: onePixelPreview })
 
     const image: Paint = { id: 'ignored', type: 'image', assetId: 'new-1', fit: 'cover' }
     expect(store.commands.appearance.updateFill(['box'], 0, image)).toBe(true)
@@ -737,9 +807,118 @@ describe('AT-APP-004 appearance commands', () => {
     vi.stubGlobal('createImageBitmap', decode)
     const store = loaded()
     expect(await store.commands.assets.add(new File(['hello'], 'note.txt', { type: 'text/plain' }))).toBeNull()
-    expect(store.getSnapshot().error).toBe('Choose a PNG, JPEG, GIF, or WebP image up to 1.5 MB.')
+    expect(store.getSnapshot().error).toBe('Choose an image up to 25 MB.')
     expect(decode).not.toHaveBeenCalled()
     expect(file(store)).not.toHaveProperty('assets')
+  })
+
+  it('ERROR-VISIBILITY-001 reports an image above the import limit before decoding it', async () => {
+    const decode = vi.fn(async () => ({ width: 1, height: 1, close() {} }))
+    const onError = vi.fn()
+    vi.stubGlobal('createImageBitmap', decode)
+    const store = loaded()
+    store.configure({ onError })
+    const image = new File([new Uint8Array(25 * 1024 * 1024 + 1)], 'large.png', { type: 'image/png' })
+
+    expect(await store.commands.assets.add(image)).toBeNull()
+    expect(decode).not.toHaveBeenCalled()
+    expect(store.getSnapshot().error).toBe('Choose an image up to 25 MB.')
+    expect(onError).toHaveBeenCalledWith({ title: "Image couldn't be added", message: 'Choose an image up to 25 MB.' })
+  })
+
+  it('FILE-ASSET-LIFECYCLE-001 uploads before attach and installs verified bytes before document subscribers run', async () => {
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1, height: 1, close() {} })))
+    const store = loaded()
+    const order: string[] = []
+    store.configure({
+      uploadImage: async input => {
+        order.push('upload')
+        expect(file(store).assets).toBeUndefined()
+        expect(input.fileId).toBe('file-1')
+        expect(input.bytes).toEqual(onePixelPng)
+        return { asset: input.asset, preview: { assetId: input.asset.id, sha256: input.asset.sha256, mime: input.asset.mime, data: onePixelPreview } }
+      },
+    })
+    store.subscribe(() => {
+      if (file(store).assets?.['new-1']) order.push(store.assetPreview('new-1') ? 'attach-with-preview' : 'attach-without-preview')
+    })
+
+    await expect(store.commands.assets.add(new File([onePixelPng], 'dot.png', { type: 'image/png' }))).resolves.toBe('new-1')
+    expect(order).toEqual(['upload', 'attach-with-preview'])
+  })
+
+  it('FILE-ASSET-LIFECYCLE-001 leaves no document reference and reports the upload error when durable upload fails', async () => {
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1, height: 1, close() {} })))
+    const store = loaded()
+    const onError = vi.fn()
+    store.configure({ uploadImage: async () => { throw new Error('Image storage is unavailable. Try again.') }, onError })
+
+    await expect(store.commands.assets.add(new File([onePixelPng], 'dot.png', { type: 'image/png' }))).resolves.toBeNull()
+    expect(file(store).assets).toBeUndefined()
+    expect(store.assetPreview('new-1')).toBeNull()
+    expect(onError).toHaveBeenCalledWith({ title: "Image couldn't be added", message: 'Image storage is unavailable. Try again.' })
+  })
+
+  it('FILE-ASSET-LIFECYCLE-001 removes installed render bytes when attach is rejected', async () => {
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1, height: 1, close() {} })))
+    const store = loaded()
+    let uploadedAsset: ImageAssetReference | null = null
+    store.configure({
+      uploadImage: async input => {
+        uploadedAsset = input.asset
+        return { asset: input.asset, preview: { assetId: input.asset.id, sha256: input.asset.sha256, mime: input.asset.mime, data: onePixelPreview } }
+      },
+    })
+    store.setEditPolicy(() => { throw new Error('Editing is no longer allowed.') })
+
+    await expect(store.commands.assets.add(new File([onePixelPng], 'dot.png', { type: 'image/png' }))).resolves.toBeNull()
+    expect(uploadedAsset).not.toBeNull()
+    expect(file(store).assets).toBeUndefined()
+
+    store.setEditPolicy(undefined)
+    store.load({ ...fixture(), assets: { [uploadedAsset!.id]: uploadedAsset! } }, atoms, { replace: true })
+    expect(store.assetPreview(uploadedAsset!.id)).toBeNull()
+  })
+
+  it('FILE-ASSET-LIFECYCLE-001 ignores an upload result after the open file generation changes', async () => {
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1, height: 1, close() {} })))
+    const store = loaded()
+    let uploadStarted = false
+    let finishUpload: () => void = () => undefined
+    store.configure({
+      uploadImage: input => new Promise(resolve => { uploadStarted = true; finishUpload = () => resolve({ asset: input.asset, preview: { assetId: input.asset.id, sha256: input.asset.sha256, mime: input.asset.mime, data: onePixelPreview } }) }),
+    })
+    const adding = store.commands.assets.add(new File([onePixelPng], 'dot.png', { type: 'image/png' }))
+    await vi.waitFor(() => expect(uploadStarted).toBe(true))
+    const next = { ...fixture(), fileId: 'file-2' }
+    store.load(next, atoms, { replace: true })
+    finishUpload()
+
+    await expect(adding).resolves.toBeNull()
+    expect(file(store).fileId).toBe('file-2')
+    expect(file(store).assets).toBeUndefined()
+    expect(store.assetPreview('new-1')).toBeNull()
+  })
+
+  it('FILE-ASSET-002 hydrates sidecars before notify, rejects mismatches, and clears them on file switch', () => {
+    const store = loaded()
+    const asset = { id: 'photo', name: 'photo.png', mime: 'image/png' as const, extension: 'png' as const, width: 1, height: 1, bytes: 3, sha256: 'a'.repeat(64) }
+    const hydrated = { ...fixture(), fileId: 'file-hydrated', assets: { photo: asset } }
+    const preview = { assetId: 'photo', sha256: asset.sha256, mime: asset.mime, data: 'AAAA' }
+    const observed: unknown[] = []
+    store.subscribe(() => observed.push(store.assetPreview('photo')))
+    store.load(hydrated, atoms, { replace: true, assetPreviews: [preview] })
+    expect(observed.at(-1)).toEqual({ mime: 'image/png', data: 'AAAA' })
+    expect(store.assetPreview('photo')).toEqual({ mime: 'image/png', data: 'AAAA' })
+
+    const before = file(store)
+    expect(() => store.load(hydrated, atoms, { replace: true, assetPreviews: [preview, preview] })).toThrow('Choose an image up to 25 MB.')
+    expect(file(store)).toBe(before)
+    expect(() => store.load(hydrated, atoms, { replace: true, assetPreviews: [{ ...preview, sha256: 'b'.repeat(64) }] })).toThrow('Choose an image up to 25 MB.')
+    expect(file(store)).toBe(before)
+
+    store.load({ ...fixture(), fileId: 'file-empty' }, atoms, { replace: true })
+    expect(store.assetPreview('photo')).toBeNull()
   })
 })
 
@@ -862,6 +1041,83 @@ describe('document store snapshots and viewport', () => {
 })
 
 describe('AT-CAN document persistence boundaries', () => {
+  it('CLOUD-SYNC-CLIENT-001 keeps exact commands and batch order across an in-flight save', async () => {
+    const store = loaded()
+    let release: (next: FileDocument) => void = () => {}
+    const first = new Promise<FileDocument>(resolve => { release = resolve })
+    const writes: { file: FileDocument; expected: number; intent: EditorPersistenceIntent }[] = []
+    store.configure({ persist: async (next, expected, intent) => {
+      writes.push({ file: next, expected, intent })
+      if (writes.length === 1) return first
+      return { ...next, revision: expected + 1 }
+    } })
+
+    store.commands.setStyles('box', { left: 610 })
+    store.commands.executeBatch([
+      { type: 'node.setStyles', nodeId: 'box', styles: { top: 410 } },
+      { type: 'node.rename', nodeId: 'outer', name: 'Frame renamed' },
+    ])
+    store.commands.renamePage('page-1', 'Canvas')
+
+    expect(writes).toHaveLength(1)
+    expect(writes[0]!.intent).toEqual({ kind: 'commands', commands: [{ type: 'node.setStyles', nodeId: 'box', styles: { left: 610 } }] })
+    release({ ...writes[0]!.file, revision: 1 })
+    await settled(store)
+
+    expect(writes).toHaveLength(3)
+    expect(writes[1]!.expected).toBe(1)
+    expect(writes[1]!.intent).toEqual({
+      kind: 'commands',
+      commands: [{
+        type: 'batch',
+        commands: [
+          { type: 'node.setStyles', nodeId: 'box', styles: { top: 410 } },
+          { type: 'node.rename', nodeId: 'outer', name: 'Frame renamed' },
+        ],
+      }],
+    })
+    expect(writes[2]).toMatchObject({ expected: 2, intent: { kind: 'commands', commands: [{ type: 'page.rename', pageId: 'page-1', name: 'Canvas' }] } })
+    expect((writes[1]!.file.nodes.box as { styles: { left: number; top: number } }).styles).toMatchObject({ left: 610, top: 410 })
+    expect((writes[1]!.file.nodes.outer as { name: string }).name).toBe('Frame renamed')
+    expect(writes[2]!.file.pages[0]?.name).toBe('Canvas')
+  })
+
+  it('CLOUD-SYNC-CLIENT-001 persists undo and redo as semantic inverse commands', async () => {
+    const store = loaded()
+    const intents: EditorPersistenceIntent[] = []
+    store.configure({ persist: async (next, expected, intent) => { intents.push(intent); return { ...next, revision: expected + 1 } } })
+    store.commands.setStyles('box', { left: 610 })
+    await settled(store)
+    store.undo()
+    await settled(store)
+    store.redo()
+    await settled(store)
+    expect(intents).toEqual([
+      { kind: 'commands', commands: [{ type: 'node.setStyles', nodeId: 'box', styles: { left: 610 } }] },
+      { kind: 'commands', commands: [{ type: 'node.setStyles', nodeId: 'box', styles: { left: 600 } }] },
+      { kind: 'commands', commands: [{ type: 'node.setStyles', nodeId: 'box', styles: { left: 610 } }] },
+    ])
+  })
+
+  it('CLOUD-SYNC-CLIENT-001 retries the same file and semantic commands after rejection', async () => {
+    const store = loaded()
+    const writes: { file: FileDocument; expected: number; intent: EditorPersistenceIntent }[] = []
+    store.configure({ persist: async (next, expected, intent) => {
+      writes.push({ file: next, expected, intent })
+      if (writes.length === 1) throw new Error('Revision conflict')
+      return { ...next, revision: expected + 1 }
+    } })
+    store.commands.setStyles('box', { left: 610 })
+    await settled(store)
+    store.retryPersistence()
+    await settled(store)
+    expect(writes).toHaveLength(2)
+    expect(writes[1]!.file).toBe(writes[0]!.file)
+    expect(writes[1]!.expected).toBe(writes[0]!.expected)
+    expect(writes[1]!.intent).toEqual(writes[0]!.intent)
+    expect(writes[1]!.intent).toEqual({ kind: 'commands', commands: [{ type: 'node.setStyles', nodeId: 'box', styles: { left: 610 } }] })
+  })
+
   it('sends the file with the saved revision and adopts the acknowledged revision', async () => {
     const store = loaded()
     const writes: [number, number][] = []
@@ -930,23 +1186,22 @@ describe('AT-CAN document persistence boundaries', () => {
     expect(store.getSnapshot().dirty).toBe(true)
   })
 
-  it('keeps unsaved edits on a refresh and blocks writes after a conflicting revision', () => {
+  it('rebases unsaved edits onto a newer source revision and keeps editing available', () => {
     const store = loaded()
     store.commands.setStyles('box', { left: 610 })
     store.load({ ...fixture(), revision: 0 }, atoms)
     expect(store.getSnapshot().blocked).toBe(false)
     expect(styles(store, 'box').left).toBe(610)
-    store.load({ ...fixture(), revision: 1 }, atoms)
+    const remote = fixture()
+    remote.pages[0]!.name = 'Remote page'
+    store.load({ ...remote, revision: 1 }, atoms)
     expect(styles(store, 'box').left).toBe(610)
+    expect(store.getSnapshot().file?.pages[0]?.name).toBe('Remote page')
     expect(store.getSnapshot().dirty).toBe(true)
-    expect(store.getSnapshot().blocked).toBe(true)
-    expect(store.getSnapshot().error).toBe('The document changed on disk. Refresh before saving.')
-    expect(store.commands.setStyles('box', { top: 410 })).toBe(false)
-    store.load({ ...fixture(), revision: 1 }, atoms, { replace: true })
-    expect(styles(store, 'box').left).toBe(600)
-    expect(store.getSnapshot().error).toBeNull()
     expect(store.getSnapshot().blocked).toBe(false)
-    expect(store.getSnapshot().canUndo).toBe(false)
+    expect(store.getSnapshot().error).toBeNull()
+    expect(store.commands.setStyles('box', { top: 410 })).toBe(true)
+    expect(styles(store, 'box')).toMatchObject({ left: 610, top: 410 })
   })
 })
 
@@ -981,7 +1236,7 @@ describe('AT-CAN document history transfer', () => {
     ;(history.past[0]!.file.nodes.box as { styles: { left: number } }).styles.left = 999
     reopened.undo()
     expect(styles(reopened, 'box')).toEqual({ left: 600, top: 400, width: 50, height: 40 })
-    expect(file(reopened).revision).toBe(7)
+    expect(file(reopened).revision).toBe(8)
     reopened.redo()
     expect(styles(reopened, 'box')).toMatchObject({ left: 610, top: 400 })
     reopened.redo()
@@ -1025,7 +1280,7 @@ describe('AT-CAN document history transfer', () => {
     const future = store.getHistory()
     expect(future.past).toEqual([])
     expect(future.future).toHaveLength(20)
-    expect((future.future[19]!.file.nodes.box as { styles: { left: number } }).styles.left).toBe(601)
+    expect(future.future[19]!.redo).toEqual({ type: 'node.setStyles', nodeId: 'box', styles: { left: 601 } })
     expect(createDocumentStore().restoreHistory({ past: [], future: [] })).toBe(false)
   })
 })

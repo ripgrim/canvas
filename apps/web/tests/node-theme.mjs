@@ -53,7 +53,7 @@ const fileId = 'node-theme-file'
 const literal = hex => ({ kind: 'literal', color: { kind: 'hex', hex } })
 /** Login card (inherit) with two Labels, Promo card stored Dark with one Label, and a free rectangle. */
 const file = {
-  schemaVersion: 6, fileId, revision: 2,
+  schemaVersion: 7, fileId, revision: 2,
   pages: [{ id: 'page-1', name: 'Themes', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },

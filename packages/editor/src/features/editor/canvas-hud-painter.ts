@@ -163,14 +163,15 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
     const moving = transient?.kind === 'move'
     const liveRect = (id: string): Rect | null => (transient?.kind === 'move' || transient?.kind === 'resize' ? transient.rects[id] : undefined) ?? scene.byId.get(id)?.rect ?? null
     const selected = state.selection.filter(id => scene.byId.has(id))
+    const selectedIds = new Set(selected)
     context.save()
     context.textBaseline = 'bottom'
     for (const node of scene.nodes.filter(candidate => candidate.parentId === null && (candidate.kind === 'frame' || candidate.kind === 'component'))) {
       if (state.renaming === node.id) continue
-      if (moving && selected.includes(node.id)) continue
+      if (moving && selectedIds.has(node.id)) continue
       const rect = liveRect(node.id) ?? node.rect
       const screen = oriented(node, rect)
-      const isSelected = selected.includes(node.id)
+      const isSelected = selectedIds.has(node.id)
       context.font = `${isSelected ? palette.mediumWeight : palette.regularWeight} ${palette.labelSize} ${palette.font}`
       context.fillStyle = isSelected ? palette.selection : palette.muted
       const face = topHudFace(screen.quad)
@@ -182,7 +183,7 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
       context.restore()
     }
     context.restore()
-    if (state.hover && !selected.includes(state.hover) && scene.byId.get(state.hover) && !transient) {
+    if (state.hover && !selectedIds.has(state.hover) && scene.byId.get(state.hover) && !transient) {
       painted.hover = state.hover
       const node = scene.byId.get(state.hover)!
       strokeQuad(context, oriented(node, node.rect).quad, `color-mix(in srgb, ${palette.selection} 60%, transparent)`)

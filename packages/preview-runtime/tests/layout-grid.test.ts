@@ -7,6 +7,7 @@ import { layoutDeclarations } from '../../repo-engine/src/file-preview.js'
 import type { ContentDistribution, GridItem, NodeLayout } from '../../repo-engine/src/layout.js'
 import { gridCellAt, gridOverlay } from '../../editor/src/features/editor/grid-overlay'
 import { createPreviewRuntime } from '../src/index.js'
+import { fixtureRegistry } from './fixture-registry.js'
 // Protocol v3: every document node carries its effective theme; the plain light fallback is not explicit.
 const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false } as const
 
@@ -27,7 +28,7 @@ const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, c
 // (1, 1) taken, so c lands on (2, 1); d finds row 1 full and opens (1, 2).
 
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
-const registry = ['Card', 'Label', 'Input', 'Button'].map(exportName => ({ componentId: `atom-${exportName.toLowerCase()}`, exportName, entryPath: `src/atoms/${exportName}.tsx` }))
+const registry = fixtureRegistry
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false }
 const labels = ['label-a', 'label-b', 'label-c', 'label-d']
 const previewDocument = {

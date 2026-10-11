@@ -1,8 +1,8 @@
-import { applyFileCommand, childrenOf, descendantsOf, pageRoot, resolveToken, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
-import type { ColorToken, FileCommand, FileDocument, FileNode, NodePlacement, Paint, PrimitiveKind, PrimitiveStyles, SourcePalette, TokenValue } from '@canvas/repo-engine/file-document'
-import { defaultFillColor, imageMimes, nextBorders, validateImageAsset } from '@canvas/repo-engine/appearance'
+import { applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, pageRoot, resolveToken, validateFileCommand, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
+import type { ColorToken, FileCommand, FileDocument, FileNode, NodePlacement, Paint, PrimitiveKind, PrimitiveStylePatch, PrimitiveStyles, SourcePalette, TokenValue } from '@canvas/repo-engine/file-document'
+import { appearanceLimits, defaultFillColor, imageMimes, nextBorders, validateImageAssetReference } from '@canvas/repo-engine/appearance'
 import { nodeAppearance } from '@canvas/repo-engine/file-document'
-import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAsset, ImageMime, Outline, Stroke } from '@canvas/repo-engine/appearance'
+import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAssetReference, ImageExtension, ImageMime, Outline, Stroke } from '@canvas/repo-engine/appearance'
 import type { DocumentNodeLayout } from '@canvas/repo-engine/document'
 import { layoutFromLegacy, legacyLayout } from '@canvas/repo-engine/layout'
 import type { NodeLayout, SizingMode } from '@canvas/repo-engine/layout'
@@ -24,12 +24,14 @@ import { compareOrder, orderKeyBetween } from '@canvas/repo-engine/order-keys'
 import type { Atom } from './types'
 import { canvasCopy } from './canvas-copy'
 import { canvasElementSizes } from './canvas-drawing'
+import { prepareImageFile } from './image-import'
 import type { CanvasBounds } from './canvas-drawing'
 import { clampZoom, fitCamera, gridVisible, nudgeStep, nudgeStepLarge, screenToWorld, stepZoom, zoomAtPoint } from './canvas-math'
 import type { Camera, Point, Rect, Size, SnapGuide } from './canvas-math'
 import { selectChildren, selectParents } from './canvas-scene'
 import type { Scene } from './canvas-scene'
 import { createStore } from 'zustand/vanilla'
+import type { EditorAssetPreview, EditorAssetUpload, EditorAssetUploadResult, EditorPersistenceIntent } from '../../capabilities'
 
 export type Viewport = Camera
 export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text' | 'rectangle' | 'shape' | 'interact'
@@ -37,7 +39,7 @@ export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text'
 export type CanvasTransient =
   | { kind: 'marquee'; rect: Rect }
   | { kind: 'move'; rects: Record<string, Rect>; offset: Point; guides: SnapGuide[]; targetFrameId: string | null; insertion: { axis: 'x' | 'y'; rect: Rect } | null }
-  | { kind: 'resize'; rects: Record<string, Rect> }
+  | { kind: 'resize'; rects: Record<string, Rect>; starts: Record<string, Rect>; appearances: Record<string, Appearance | undefined>; contentLocked: boolean }
   | { kind: 'draw'; elementKind: PrimitiveKind; rect: Rect; targetFrameId: string | null }
   | { kind: 'pan' }
 export type DocumentState = {
@@ -61,6 +63,8 @@ export type DocumentState = {
   saving: boolean
   error: string | null
   blocked: boolean
+  /** Server-enforced view-only mode. View state remains interactive; semantic document commands are rejected locally. */
+  readOnly: boolean
   canUndo: boolean
   canRedo: boolean
   /** Live appearance preview during a gesture: node id to appearance (null clears). Never persisted or recorded. */
@@ -70,25 +74,70 @@ export type DocumentState = {
   /** Increments whenever transient layout begins, commits, or cancels, so measurements from an older projection are recognizable. */
   layoutGeneration: number
 }
+export type DocumentErrorNotice = Readonly<{ title: string; message: string }>
 type StoreOptions = {
-  persist?: (file: FileDocument, expectedRevision: number) => Promise<FileDocument>
+  persist?: (file: FileDocument, expectedRevision: number, intent: EditorPersistenceIntent) => Promise<FileDocument>
+  uploadImage?: (input: EditorAssetUpload) => Promise<EditorAssetUploadResult>
   onChange?: (file: FileDocument) => void
   onSelection?: (nodeIds: string[]) => void
   onPageChange?: (pageId: string) => void
   onToolChange?: (tool: CanvasTool) => void
+  onError?: (notice: DocumentErrorNotice) => void
   /** Resolved design stylesheet colors for the active preview theme, used to resolve `source` tokens. */
   sources?: () => SourcePalette
   /** Design themes, the file's preview choice and per-theme palettes, for resolving each node in its own effective theme. */
   themeContext?: () => ThemeProjectionContext
 }
-/** One undo entry restores the whole file plus the page and selection the user was looking at. */
-export type HistoryEntry = { file: FileDocument; pageId: string; selection: string[] }
+/** One history step owns the semantic inverse plus both sides of its page and selection view. */
+export type HistoryEntry = {
+  file: FileDocument
+  pageId: string
+  selection: string[]
+  afterPageId: string
+  afterSelection: string[]
+  undo: FileCommand
+  redo: FileCommand
+}
 export type DocumentHistory = { past: HistoryEntry[]; future: HistoryEntry[] }
 type KeyInput = { key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }
 export type MoveCommit = { id: string; x: number; y: number; parentId?: string | null; width?: number; height?: number }
 export type InsertTarget = { parentId: string | null; slot?: string; index?: number }
 export type ComponentInsertPoint = { x: number; y: number }
 export type SourceTokenImport = Readonly<{ property: string; name: string; fallback: Color }>
+export type PersistenceCommit = Readonly<{ committed: boolean; persistence: Promise<void> | null }>
+type PersistenceReceipt = Readonly<{
+  promise: Promise<void>
+  resolve(): void
+  reject(error: unknown): void
+}>
+type PendingPersistenceChange = Readonly<{ file: FileDocument; intent: EditorPersistenceIntent; receipt: PersistenceReceipt | null }>
+type AssetPreviewData = Readonly<{ sha256: string; mime: ImageMime; data: string }>
+
+function decodedByteLength(data: string): number {
+  if (!data || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) throw new Error(canvasCopy.unsupportedImage)
+  try { return atob(data).length } catch { throw new Error(canvasCopy.unsupportedImage) }
+}
+
+function validateAssetPreview(asset: ImageAssetReference, preview: EditorAssetPreview): AssetPreviewData {
+  if (preview.assetId !== asset.id || preview.sha256 !== asset.sha256 || preview.mime !== asset.mime || decodedByteLength(preview.data) !== asset.bytes) throw new Error(canvasCopy.unsupportedImage)
+  return { sha256: preview.sha256, mime: preview.mime, data: preview.data }
+}
+
+function sameAssetReference(left: ImageAssetReference, right: ImageAssetReference): boolean {
+  return left.id === right.id && left.name === right.name && left.mime === right.mime && left.extension === right.extension
+    && left.width === right.width && left.height === right.height && left.bytes === right.bytes && left.sha256 === right.sha256
+}
+
+function hydratedAssetPreviews(file: FileDocument, previews: readonly EditorAssetPreview[]): Map<string, AssetPreviewData> {
+  const hydrated = new Map<string, AssetPreviewData>()
+  for (const preview of previews) {
+    if (hydrated.has(preview.assetId)) throw new Error(canvasCopy.unsupportedImage)
+    const asset = file.assets?.[preview.assetId]
+    if (!asset) throw new Error(canvasCopy.unsupportedImage)
+    hydrated.set(preview.assetId, validateAssetPreview(asset, preview))
+  }
+  return hydrated
+}
 
 /** The world-space point represented by the visible center of the canvas. */
 export function componentInsertionPoint(state: Pick<DocumentState, 'viewport' | 'viewportSize'>): ComponentInsertPoint {
@@ -104,6 +153,31 @@ const defaultAppearance = (kind: PrimitiveKind, makeId: () => string): Appearanc
   if (kind === 'shader') return { fills: [{ id: makeId(), type: 'gradient', shape: 'linear', angle: 135, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'srgb', stops: [{ id: makeId(), position: 0, color: literalColor('#685fff') }, { id: makeId(), position: 1, color: literalColor('#202124') }] }] }
   const hex = kind === 'frame' || kind === 'rectangle' ? '#ffffff' : kind === 'text' ? '#202124' : '#d9d9d9'
   return { fills: [{ id: makeId(), type: 'solid', color: literalColor(hex) }] }
+}
+
+function literalDefault(member: string): string | number | boolean | undefined {
+  const value = member.trim()
+  if (value === 'string') return ''
+  if (value === 'number') return 0
+  if (value === 'boolean') return false
+  if (value === 'true') return true
+  if (value === 'false') return false
+  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return Number(value)
+  const quoted = /^(?:'([^']*)'|"([^"]*)")$/.exec(value)
+  return quoted ? quoted[1] ?? quoted[2] ?? '' : undefined
+}
+
+/** Required verified scalar props get deterministic safe values; optional props and child slots remain absent. */
+export function componentDefaultProps(atom: Atom): Record<string, string | number | boolean> {
+  const slots = new Set(atom.slots ?? [])
+  return Object.fromEntries(atom.props.flatMap(prop => {
+    if (prop.optional || slots.has(prop.name)) return []
+    for (const member of prop.type.split('|')) {
+      const value = literalDefault(member)
+      if (value !== undefined) return [[prop.name, value] as const]
+    }
+    return []
+  }))
 }
 
 /** A copy of a paint with new fill and stop identities, for cloning a structure onto other nodes. */
@@ -127,11 +201,15 @@ export function documentOrder(file: FileDocument, pageId: string): string[] {
 
 export const isPrimitive = (node: FileNode | undefined): node is Extract<FileNode, { styles: PrimitiveStyles }> => Boolean(node && node.type !== 'root' && node.type !== 'component')
 
+const emptyDocumentState = (): DocumentState => ({ file: null, pageId: null, atoms: [], selection: [], hover: null, renaming: null, transient: null, viewport: defaultCamera, viewportSize: { width: 0, height: 0 }, gridVisible: false, fitRequested: null, spaceHeld: false, tool: 'move', dirty: false, saving: false, error: null, blocked: false, readOnly: false, canUndo: false, canRedo: false, appearanceOverrides: null, layoutOverrides: null, layoutGeneration: 0 })
+
 const placementCommand = (node: FileNode | undefined, placement: DocumentNodeLayout): FileCommand => ({ type: 'node.setLayout', nodeId: node!.id, layout: layoutFromLegacy(placement, node?.type === 'component' ? node.layout : undefined) })
 export function createDocumentStore(makeId: () => string = () => crypto.randomUUID()) {
-  const backing = createStore<DocumentState>(() => ({ file: null, pageId: null, atoms: [], selection: [], hover: null, renaming: null, transient: null, viewport: defaultCamera, viewportSize: { width: 0, height: 0 }, gridVisible: false, fitRequested: null, spaceHeld: false, tool: 'move', dirty: false, saving: false, error: null, blocked: false, canUndo: false, canRedo: false, appearanceOverrides: null, layoutOverrides: null, layoutGeneration: 0 }))
+  const backing = createStore<DocumentState>(emptyDocumentState)
   let viewSource = backing.getState()
   let viewSnapshot = viewSource
+  let shellSource = viewSource
+  let shellSnapshot = viewSource
   /** React panels do not consume pointer-only transient geometry, so keep their snapshot stable across drag frames. */
   const getViewSnapshot = () => {
     const next = backing.getState()
@@ -141,24 +219,66 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     if (!sameExceptTransient) viewSnapshot = next
     return viewSnapshot
   }
+  /** The editor shell leaves live gesture rendering to its subscribed inspector and preview services. */
+  const getShellSnapshot = () => {
+    const next = backing.getState()
+    if (next === shellSource) return shellSnapshot
+    const sameExceptLiveGesture = (Object.keys(next) as (keyof DocumentState)[]).every(key => key === 'transient' || key === 'appearanceOverrides' || key === 'layoutOverrides' || next[key] === shellSource[key])
+    shellSource = next
+    if (!sameExceptLiveGesture) shellSnapshot = next
+    return shellSnapshot
+  }
   let options: StoreOptions = {}
+  /** Render bytes are session-local sidecar data. The authoritative schema stores immutable references only. */
+  const assetPreviewData = new Map<string, AssetPreviewData>()
   let editPolicy: ((file: FileDocument) => void) | undefined
-  const permits = (file: FileDocument) => { try { editPolicy?.(file); return true } catch (error) { emit({ error: error instanceof Error ? error.message : canvasCopy.persistenceFailed }); return false } }
   let past: HistoryEntry[] = []
   let future: HistoryEntry[] = []
   let generation = 0
-  let changeVersion = 0
   let savedRevision = 0
+  let pendingPersistenceChanges: PendingPersistenceChange[] = []
+  let persistenceRun: Promise<void> | null = null
   let selectionAnchor: string | null = null
   let persistenceBlocked = false
+  const noPersistenceCommit: PersistenceCommit = Object.freeze({ committed: false, persistence: null })
+  const persistenceReceipt = (): PersistenceReceipt => {
+    let resolvePromise: () => void = () => undefined
+    let rejectPromise: (error: unknown) => void = () => undefined
+    let settled = false
+    const promise = new Promise<void>((resolve, reject) => { resolvePromise = resolve; rejectPromise = reject })
+    return Object.freeze({
+      promise,
+      resolve() { if (!settled) { settled = true; resolvePromise() } },
+      reject(error: unknown) { if (!settled) { settled = true; rejectPromise(error) } },
+    })
+  }
+  const rejectPersistenceChanges = (changes: readonly PendingPersistenceChange[], error: Error) => {
+    for (const change of changes) change.receipt?.reject(error)
+  }
   const subscriptions = new Set<() => void>()
   const emit = (patch: Partial<DocumentState>) => backing.setState(patch)
-  const currentEntry = (): HistoryEntry => { const state = backing.getState(); return { file: state.file!, pageId: state.pageId!, selection: [...state.selection] } }
+  const messageFor = (error: unknown) => error instanceof Error ? error.message : canvasCopy.persistenceFailed
+  const report = (error: unknown, title: string = canvasCopy.changeFailed) => { const message = messageFor(error); emit({ error: message }); options.onError?.({ title, message }); return false }
+  const permits = (file: FileDocument) => { try { editPolicy?.(file); return true } catch (error) { return report(error) } }
+  const currentView = () => { const state = backing.getState(); return { file: state.file!, pageId: state.pageId!, selection: [...state.selection] } }
   const setSelection = (selection: string[]) => { emit({ selection, renaming: null }); options.onSelection?.(selection) }
   const selectable = (file: FileDocument, pageId: string | null, id: string) => { const node = file.nodes[id]; return Boolean(node && node.type !== 'root' && (pageId === null || documentOrder(file, pageId).includes(id))) }
   const sources = () => options.sources?.() ?? {}
   const themeContext = (): ThemeProjectionContext => options.themeContext?.() ?? { themes: [], previewThemeId: null, palette: () => sources() }
   const root = (state: DocumentState) => state.file && state.pageId ? pageRoot(state.file, state.pageId) : null
+  const capturePersistenceChange = (): Readonly<{ change: PendingPersistenceChange; count: number }> | null => {
+    const first = pendingPersistenceChanges[0]
+    if (!first) return null
+    return { change: first, count: 1 }
+  }
+  const commandFor = (intent: EditorPersistenceIntent): FileCommand => intent.commands.length === 1 ? intent.commands[0]! : { type: 'batch', commands: [...intent.commands] }
+  const rebasePersistenceChanges = (base: FileDocument, changes: readonly PendingPersistenceChange[], atoms: Atom[]): PendingPersistenceChange[] => {
+    let projected = base
+    return changes.map(change => {
+      projected = applyFileCommand(projected, commandFor(change.intent), atoms, { allowUnavailableBindings: true })
+      return { file: projected, intent: change.intent, receipt: change.receipt }
+    })
+  }
   const persist = async () => {
     const state = backing.getState()
     if (!options.persist || state.saving || !state.dirty || !state.file || persistenceBlocked) return
@@ -168,50 +288,79 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       while (currentGeneration === generation) {
         const state = backing.getState()
         if (!state.dirty || !state.file) break
-        const version = changeVersion
-        const acknowledged = await options.persist(state.file, savedRevision)
+        const captured = capturePersistenceChange()
+        if (!captured) break
+        const acknowledged = await options.persist(captured.change.file, savedRevision, captured.change.intent)
         if (currentGeneration !== generation) return
         const current = backing.getState()
         const saved = validateFileDocument(acknowledged, current.atoms, { allowUnavailableBindings: true })
         savedRevision = saved.revision
-        if (version === changeVersion) emit({ file: saved, dirty: false })
-        else emit({ file: { ...current.file!, revision: saved.revision } })
+        pendingPersistenceChanges.splice(0, captured.count)
+        captured.change.receipt?.resolve()
+        pendingPersistenceChanges = rebasePersistenceChanges(saved, pendingPersistenceChanges, current.atoms)
+        const projected = pendingPersistenceChanges.at(-1)?.file ?? saved
+        emit({ file: projected, dirty: pendingPersistenceChanges.length > 0 })
       }
     } catch (error) {
-      if (currentGeneration === generation) { persistenceBlocked = true; emit({ blocked: true, error: error instanceof Error ? error.message : canvasCopy.persistenceFailed }) }
+      if (currentGeneration === generation) {
+        capturePersistenceChange()?.change.receipt?.reject(error)
+        persistenceBlocked = true
+        const message = messageFor(error)
+        emit({ blocked: true, error: message })
+        options.onError?.({ title: canvasCopy.saveFailed, message })
+      }
     } finally { if (currentGeneration === generation) emit({ saving: false }) }
   }
-  const changed = (file: FileDocument, pageId: string, selection: string[]) => {
-    changeVersion++
+  const schedulePersistence = () => {
+    if (!options.persist) return null
+    if (persistenceRun) return persistenceRun
+    const running = persist()
+    let tracked: Promise<void>
+    tracked = running.finally(() => { if (persistenceRun === tracked) persistenceRun = null })
+    persistenceRun = tracked
+    return tracked
+  }
+  const changed = (file: FileDocument, pageId: string, selection: string[], intent: EditorPersistenceIntent, trackPersistence = false) => {
+    const receipt = trackPersistence && options.persist ? persistenceReceipt() : null
+    pendingPersistenceChanges.push({ file, intent, receipt })
     const state = backing.getState()
     const pageChanged = pageId !== state.pageId
     emit({ file, pageId, selection, dirty: true, error: null, canUndo: past.length > 0, canRedo: future.length > 0 })
     if (pageChanged) options.onPageChange?.(pageId)
     options.onSelection?.(selection)
     options.onChange?.(file)
-    void persist()
+    void schedulePersistence()
+    return receipt?.promise ?? null
   }
   const same = (left: FileDocument, right: FileDocument) => JSON.stringify({ ...left, revision: 0 }) === JSON.stringify({ ...right, revision: 0 })
-  const commit = (next: FileDocument, selection: string[], pageId = backing.getState().pageId!) => {
+  const commitWithPersistence = (projection: ReturnType<typeof applyFileCommandWithHistory>, selection: string[], pageId = backing.getState().pageId!, trackPersistence = false): PersistenceCommit => {
     const state = backing.getState()
-    if (!permits(next)) return false
-    if (same(next, state.file!)) return false
-    past.push(currentEntry())
+    const next = projection.file
+    if (state.readOnly) return noPersistenceCommit
+    if (!permits(next)) return noPersistenceCommit
+    if (same(next, state.file!)) return noPersistenceCommit
+    const before = currentView()
+    const page = next.pages.some(candidate => candidate.id === pageId) ? pageId : next.pages[0]!.id
+    const nextSelection = selection.filter(id => selectable(next, page, id))
+    past.push({ ...before, afterPageId: page, afterSelection: nextSelection, undo: projection.undo, redo: projection.redo })
     if (past.length > 100) past.shift()
     future = []
-    const page = next.pages.some(candidate => candidate.id === pageId) ? pageId : next.pages[0]!.id
-    changed(next, page, selection.filter(id => selectable(next, page, id)))
-    return true
+    const persistence = changed(next, page, nextSelection, { kind: 'commands', commands: [projection.redo] }, trackPersistence)
+    return Object.freeze({ committed: true, persistence })
   }
-  const fail = (error: unknown) => { emit({ error: error instanceof Error ? error.message : canvasCopy.persistenceFailed }); return false }
+  const fail = (error: unknown, title?: string) => report(error, title)
   /** Applies one semantic command (or batch) as one undo step. */
-  const execute = (command: FileCommand, selection?: string[], pageId?: string) => {
+  const executeWithPersistence = (command: FileCommand, selection?: string[], pageId?: string, trackPersistence = false): PersistenceCommit => {
     const state = backing.getState()
-    if (!state.file || persistenceBlocked) return false
-    try { return commit(applyFileCommand(state.file, command, state.atoms, { allowUnavailableBindings: true }), selection ?? state.selection, pageId) }
-    catch (error) { return fail(error) }
+    if (!state.file || persistenceBlocked) return noPersistenceCommit
+    try { return commitWithPersistence(applyFileCommandWithHistory(state.file, command, state.atoms, { allowUnavailableBindings: true }), selection ?? state.selection, pageId, trackPersistence) }
+    catch (error) { fail(error); return noPersistenceCommit }
   }
+  const execute = (command: FileCommand, selection?: string[], pageId?: string) => executeWithPersistence(command, selection, pageId).committed
   const executeBatch = (commands: FileCommand[], selection?: string[]) => commands.length ? execute(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, selection) : false
+  const executeBatchWithPersistence = (commands: FileCommand[], selection?: string[]) => commands.length
+    ? executeWithPersistence(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, selection, undefined, true)
+    : noPersistenceCommit
   const node = (id: string) => backing.getState().file?.nodes[id]
   const styledIds = (ids: readonly string[]) => [...new Set(ids)].filter(id => { const current = node(id); return Boolean(current && current.type !== 'root') })
   const kindOf = (id: string) => { const current = node(id)!; return current.type === 'component' ? 'component' as const : current.type as PrimitiveKind }
@@ -255,24 +404,33 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     if (index < 0 || index >= siblings.length) return false
     return execute({ type: 'node.reorder', nodeId, index })
   }
-  const restore = (entry: HistoryEntry) => changed({ ...entry.file, revision: savedRevision }, entry.file.pages.some(page => page.id === entry.pageId) ? entry.pageId : entry.file.pages[0]!.id, entry.selection)
   const undo = () => {
     const state = backing.getState()
-    if (!state.file || !past.length || persistenceBlocked) return false
-    if (!permits(past[past.length - 1]!.file)) return false
-    const previous = past.pop()!
-    future.push(currentEntry())
-    restore(previous)
-    return true
+    if (!state.file || !past.length || persistenceBlocked || state.readOnly) return false
+    const step = past[past.length - 1]!
+    try {
+      const previous = applyFileCommand(state.file, step.undo, state.atoms, { allowUnavailableBindings: true })
+      if (!permits(previous)) return false
+      past.pop()
+      future.push({ ...step, afterPageId: state.pageId!, afterSelection: [...state.selection] })
+      const page = previous.pages.some(candidate => candidate.id === step.pageId) ? step.pageId : previous.pages[0]!.id
+      changed(previous, page, step.selection.filter(id => selectable(previous, page, id)), { kind: 'commands', commands: [step.undo] })
+      return true
+    } catch (error) { return fail(error) }
   }
   const redo = () => {
     const state = backing.getState()
-    if (!state.file || !future.length || persistenceBlocked) return false
-    if (!permits(future[future.length - 1]!.file)) return false
-    const next = future.pop()!
-    past.push(currentEntry())
-    restore(next)
-    return true
+    if (!state.file || !future.length || persistenceBlocked || state.readOnly) return false
+    const step = future[future.length - 1]!
+    try {
+      const next = applyFileCommand(state.file, step.redo, state.atoms, { allowUnavailableBindings: true })
+      if (!permits(next)) return false
+      future.pop()
+      past.push(step)
+      const page = next.pages.some(candidate => candidate.id === step.afterPageId) ? step.afterPageId : next.pages[0]!.id
+      changed(next, page, step.afterSelection.filter(id => selectable(next, page, id)), { kind: 'commands', commands: [step.redo] })
+      return true
+    } catch (error) { return fail(error) }
   }
   const setCamera = (viewport: Viewport) => {
     const state = backing.getState()
@@ -330,7 +488,10 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   const lastTokenKey = (file: FileDocument) => Object.values(file.theme.tokens).sort(compareOrder).at(-1)?.orderKey ?? null
   return {
     getSnapshot: backing.getState,
+    /** Resolves after the current persistence drain has acknowledged or rejected every queued change. */
+    waitForPersistence: () => persistenceRun,
     getViewSnapshot,
+    getShellSnapshot,
     subscribe: (listener: () => void) => {
       const stop = backing.subscribe(listener)
       const unsubscribe = () => { stop(); subscriptions.delete(unsubscribe) }
@@ -339,6 +500,11 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     },
     sources,
     themeContext,
+    assetPreview: (assetId: string): { mime: ImageMime; data: string } | null => {
+      const asset = backing.getState().file?.assets?.[assetId]
+      const preview = assetPreviewData.get(assetId)
+      return asset && preview?.sha256 === asset.sha256 ? { mime: preview.mime, data: preview.data } : null
+    },
     /** The concrete theme, palette and diagnostic of one node in the open file (the fallback theme for unknown nodes). */
     nodeTheme: (nodeId: string): { theme: PreviewNodeTheme; palette: SourcePalette; diagnostic: ThemeDiagnostic | null; effective: EffectiveNodeTheme } | null => {
       const file = backing.getState().file
@@ -349,7 +515,33 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     /** Source palette that resolves this node's bound tokens (its effective theme), or the fallback palette. */
     paletteFor: (nodeId: string): SourcePalette => { const file = backing.getState().file; return file ? nodeThemeProjection(file, nodeId, themeContext()).palette : sources() },
     setEditPolicy: (next: ((file: FileDocument) => void) | undefined) => { editPolicy = next },
+    setReadOnly: (readOnly: boolean) => { if (backing.getState().readOnly !== readOnly) emit({ readOnly, transient: null, renaming: null }) },
+    clear: () => {
+      generation++
+      persistenceRun = null
+      rejectPersistenceChanges(pendingPersistenceChanges, new Error('The document closed before the change was saved.'))
+      past = []
+      future = []
+      savedRevision = 0
+      pendingPersistenceChanges = []
+      selectionAnchor = null
+      persistenceBlocked = false
+      assetPreviewData.clear()
+      backing.setState(emptyDocumentState(), true)
+    },
     configure: (next: StoreOptions) => { options = next },
+    /** Rebinds validation to a newly verified catalog without changing the stored document or its history. */
+    setAtoms: (atoms: Atom[]) => {
+      const state = backing.getState()
+      try {
+        if (state.file) validateFileDocument(state.file, atoms, { allowUnavailableBindings: true })
+        emit({ atoms: structuredClone(atoms), error: null })
+        return true
+      } catch (error) {
+        report(error instanceof Error ? error : new Error(canvasCopy.componentUnavailable))
+        return false
+      }
+    },
     getHistory: (): DocumentHistory => {
       const nextFuture = future.slice(-20)
       const remaining = 20 - nextFuture.length
@@ -363,12 +555,19 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         const history = input as { past?: unknown; future?: unknown }
         if (!Array.isArray(history.past) || !Array.isArray(history.future) || history.past.length + history.future.length > 20) throw new Error(canvasCopy.historyUnavailable)
         const entry = (inputEntry: unknown): HistoryEntry => {
-          if (!inputEntry || typeof inputEntry !== 'object' || Array.isArray(inputEntry) || Object.keys(inputEntry).some(key => !['file', 'pageId', 'selection'].includes(key))) throw new Error(canvasCopy.historyUnavailable)
-          const value = inputEntry as { file?: unknown; pageId?: unknown; selection?: unknown }
+          if (!inputEntry || typeof inputEntry !== 'object' || Array.isArray(inputEntry) || Object.keys(inputEntry).some(key => !['file', 'pageId', 'selection', 'afterPageId', 'afterSelection', 'undo', 'redo'].includes(key))) throw new Error(canvasCopy.historyUnavailable)
+          const value = inputEntry as { file?: unknown; pageId?: unknown; selection?: unknown; afterPageId?: unknown; afterSelection?: unknown; undo?: unknown; redo?: unknown }
           const file = validateFileDocument(value.file, state.atoms, { allowUnavailableBindings: true })
           if (typeof value.pageId !== 'string' || !file.pages.some(page => page.id === value.pageId)) throw new Error(canvasCopy.historyUnavailable)
           if (!Array.isArray(value.selection) || value.selection.some(id => typeof id !== 'string' || !selectable(file, null, id)) || new Set(value.selection).size !== value.selection.length) throw new Error(canvasCopy.historyUnavailable)
-          return { file, pageId: value.pageId, selection: [...value.selection] }
+          const undo = validateFileCommand(value.undo)
+          const redo = validateFileCommand(value.redo)
+          const after = applyFileCommand(file, redo, state.atoms, { allowUnavailableBindings: true })
+          if (typeof value.afterPageId !== 'string' || !after.pages.some(page => page.id === value.afterPageId)) throw new Error(canvasCopy.historyUnavailable)
+          if (!Array.isArray(value.afterSelection) || value.afterSelection.some(id => typeof id !== 'string' || !selectable(after, null, id)) || new Set(value.afterSelection).size !== value.afterSelection.length) throw new Error(canvasCopy.historyUnavailable)
+          const roundTrip = applyFileCommand(after, undo, state.atoms, { allowUnavailableBindings: true })
+          if (!same(file, roundTrip)) throw new Error(canvasCopy.historyUnavailable)
+          return { file, pageId: value.pageId, selection: [...value.selection], afterPageId: value.afterPageId, afterSelection: [...value.afterSelection], undo, redo }
         }
         const nextPast = history.past.map(entry)
         const nextFuture = history.future.map(entry)
@@ -376,25 +575,63 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         future = nextFuture
         emit({ canUndo: past.length > 0, canRedo: future.length > 0, error: null })
         return true
-      } catch { emit({ error: canvasCopy.historyUnavailable }); return false }
+      } catch { report(new Error(canvasCopy.historyUnavailable)); return false }
     },
     /** Loads a file. `pageId` selects the open page (defaults to the current page when it still exists, else the first). */
-    load: (file: FileDocument, atoms: Atom[], settings: { replace?: boolean; pageId?: string | null } = {}) => {
+    load: (file: FileDocument, atoms: Atom[], settings: { replace?: boolean; pageId?: string | null; assetPreviews?: readonly EditorAssetPreview[] } = {}) => {
       const state = backing.getState()
       const incoming = validateFileDocument(file, atoms, { allowUnavailableBindings: true })
+      const fileChanged = state.file?.fileId !== incoming.fileId
+      let incomingPreviews: Map<string, AssetPreviewData> | null = null
+      try {
+        if (settings.assetPreviews !== undefined) incomingPreviews = hydratedAssetPreviews(incoming, settings.assetPreviews)
+        else if (fileChanged) incomingPreviews = new Map()
+      } catch (error) {
+        options.onError?.({ title: canvasCopy.imageFailed, message: messageFor(error) })
+        throw error
+      }
+      const updateAssetPreviews = () => {
+        if (incomingPreviews) {
+          assetPreviewData.clear()
+          for (const [assetId, preview] of incomingPreviews) assetPreviewData.set(assetId, preview)
+          return
+        }
+        for (const [assetId, preview] of assetPreviewData) {
+          const asset = incoming.assets?.[assetId]
+          if (!asset || asset.sha256 !== preview.sha256 || asset.mime !== preview.mime) assetPreviewData.delete(assetId)
+        }
+      }
       if (state.file && state.dirty && !settings.replace) {
-        if (incoming.revision !== savedRevision) { persistenceBlocked = true; emit({ atoms, blocked: true, error: canvasCopy.documentChanged }) }
-        else emit({ atoms })
+        if (incoming.revision <= savedRevision) { emit({ atoms }); return }
+        try {
+          savedRevision = incoming.revision
+          pendingPersistenceChanges = rebasePersistenceChanges(incoming, pendingPersistenceChanges, atoms)
+          const rebased = pendingPersistenceChanges.at(-1)?.file ?? incoming
+          const requested = settings.pageId ?? state.pageId
+          const pageId = requested && rebased.pages.some(page => page.id === requested) ? requested : rebased.pages[0]!.id
+          updateAssetPreviews()
+          persistenceBlocked = false
+          emit({ file: rebased, pageId, atoms, selection: state.selection.filter(id => selectable(rebased, pageId, id)), hover: null, renaming: null, transient: null, dirty: pendingPersistenceChanges.length > 0, error: null, blocked: false, canUndo: past.length > 0, canRedo: future.length > 0 })
+          void schedulePersistence()
+        } catch {
+          persistenceBlocked = true
+          emit({ atoms, blocked: true, error: canvasCopy.rebaseFailed })
+          options.onError?.({ title: canvasCopy.saveFailed, message: canvasCopy.rebaseFailed })
+        }
         return
       }
       generation++
+      persistenceRun = null
       persistenceBlocked = false
       savedRevision = incoming.revision
+      rejectPersistenceChanges(pendingPersistenceChanges, new Error('The document changed before the pending edit was saved.'))
+      pendingPersistenceChanges = []
       if (!state.file || settings.replace) { past = []; future = []; selectionAnchor = null }
       const sameTree = state.file && same(state.file, incoming)
       if (!sameTree) { past = []; future = [] }
       const requested = settings.pageId ?? state.pageId
       const pageId = requested && incoming.pages.some(page => page.id === requested) ? requested : incoming.pages[0]!.id
+      updateAssetPreviews()
       emit({ file: incoming, pageId, atoms, selection: state.selection.filter(id => selectable(incoming, pageId, id)), hover: null, renaming: null, transient: null, dirty: false, saving: false, error: null, blocked: false, canUndo: past.length > 0, canRedo: future.length > 0 })
     },
     /** Switches the open page: a view change, not a document change. Selection is page-scoped. */
@@ -413,9 +650,15 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       savedRevision = saved.revision
       persistenceBlocked = false
       const sameTree = state.file && same(state.file, saved)
-      emit({ file: sameTree || !state.file ? saved : { ...state.file, revision: saved.revision }, dirty: !sameTree && Boolean(state.file), error: null, blocked: false })
+      const acknowledgedIndex = pendingPersistenceChanges.findIndex(change => same(change.file, saved))
+      if (acknowledgedIndex >= 0) {
+        const acknowledged = pendingPersistenceChanges.splice(0, acknowledgedIndex + 1)
+        for (const change of acknowledged) change.receipt?.resolve()
+      }
+      pendingPersistenceChanges = pendingPersistenceChanges.map(change => ({ ...change, file: { ...change.file, revision: saved.revision } }))
+      emit({ file: sameTree || !state.file ? saved : { ...state.file, revision: saved.revision }, dirty: pendingPersistenceChanges.length > 0 || !sameTree && Boolean(state.file), error: null, blocked: false })
     },
-    retryPersistence: () => { persistenceBlocked = false; emit({ error: null, blocked: false }); void persist() },
+    retryPersistence: () => { persistenceBlocked = false; emit({ error: null, blocked: false }); void schedulePersistence() },
     select: (nodeId: string | null, selectionOptions: { additive?: boolean; range?: boolean } = {}) => {
       const state = backing.getState()
       if (!state.file || nodeId && !selectable(state.file, state.pageId, nodeId)) return
@@ -470,7 +713,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         if (!atom) return fail(new Error(canvasCopy.componentUnavailable))
         if (!state.file || !state.pageId) return fail(new Error(canvasCopy.openFileForTools))
         const id = makeId()
-        const defaults: Record<string, string | number | boolean> = atom.exportName === 'Label' ? { children: canvasCopy.defaultLabel } : atom.exportName === 'Button' ? { children: canvasCopy.defaultButton } : atom.exportName === 'Card' ? { heading: canvasCopy.defaultCard } : atom.exportName === 'Input' ? { placeholder: canvasCopy.defaultInput } : {}
+        const defaults = componentDefaultProps(atom)
         return execute({ type: 'node.insert', node: { id, type: 'component', componentId, exportName: atom.exportName, props: { ...defaults, ...props } }, placement: placementFor(target, state) }, [id])
       },
       /** Inserts a root component at one deterministic world point. Slot targets retain their component-owned flow. */
@@ -480,7 +723,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         if (!atom) return fail(new Error(canvasCopy.componentUnavailable))
         if (!state.file || !state.pageId) return fail(new Error(canvasCopy.openFileForTools))
         const id = makeId()
-        const defaults: Record<string, string | number | boolean> = atom.exportName === 'Label' ? { children: canvasCopy.defaultLabel } : atom.exportName === 'Button' ? { children: canvasCopy.defaultButton } : atom.exportName === 'Card' ? { heading: canvasCopy.defaultCard } : atom.exportName === 'Input' ? { placeholder: canvasCopy.defaultInput } : {}
+        const defaults = componentDefaultProps(atom)
         const rootTarget = target?.parentId == null
         const layout = rootTarget ? layoutFromLegacy({ mode: 'absolute', x: Math.round(point.x), y: Math.round(point.y) }) : undefined
         return execute({ type: 'node.insert', node: { id, type: 'component', componentId, exportName: atom.exportName, props: { ...defaults, ...props }, ...(layout ? { layout } : {}) }, placement: placementFor(target, state) }, [id])
@@ -492,15 +735,15 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       moveBy,
       nudge,
       /** Reorders a flow child among its current siblings. */
-      reorderFlow: (nodeId: string, index: number) => {
+      reorderFlow: (nodeId: string, index: number): PersistenceCommit => {
         const state = backing.getState()
         const relationship = state.file?.relationships[nodeId]
-        if (!state.file || !relationship) return false
+        if (!state.file || !relationship) return noPersistenceCommit
         const siblings = childrenOf(state.file, relationship.parentId, relationship.slot)
         const current = siblings.indexOf(nodeId)
         const target = Math.max(0, Math.min(siblings.length - 1, index > current ? index - 1 : index))
-        if (target === current) return false
-        return execute({ type: 'node.reorder', nodeId, index: target })
+        if (target === current) return noPersistenceCommit
+        return executeWithPersistence({ type: 'node.reorder', nodeId, index: target }, undefined, undefined, true)
       },
       setProps: (nodeId: string, props: Record<string, string | number | boolean>) => execute({ type: 'node.setProps', nodeId, props }),
       removeProps: (nodeId: string, names: string[]) => execute({ type: 'node.setProps', nodeId, props: {}, remove: names }),
@@ -508,9 +751,9 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       setLayout: (nodeId: string, layout: DocumentNodeLayout) => { const node = backing.getState().file?.nodes[nodeId]; return node ? execute(placementCommand(node, layout)) : false },
       rename: (nodeId: string, name: string) => { const next = name.trim(); return next ? execute({ type: 'node.rename', nodeId, name: next }) : false },
       setText: (nodeId: string, text: string) => execute({ type: 'node.setText', nodeId, text }),
-      setStyles: (nodeId: string, styles: { [K in keyof PrimitiveStyles]?: PrimitiveStyles[K] | undefined }) => execute({ type: 'node.setStyles', nodeId, styles }),
+      setStyles: (nodeId: string, styles: PrimitiveStylePatch) => execute({ type: 'node.setStyles', nodeId, styles }),
       /** One primitive geometry/transform edit across a selection is one revision and one undo step. */
-      setStylesMany: (entries: Record<string, { [K in keyof PrimitiveStyles]?: PrimitiveStyles[K] | undefined }>) => executeBatch(Object.entries(entries).flatMap(([nodeId, styles]): FileCommand[] => isPrimitive(node(nodeId)) ? [{ type: 'node.setStyles', nodeId, styles }] : [])),
+      setStylesMany: (entries: Record<string, PrimitiveStylePatch>) => executeBatch(Object.entries(entries).flatMap(([nodeId, styles]): FileCommand[] => isPrimitive(node(nodeId)) ? [{ type: 'node.setStyles', nodeId, styles }] : [])),
       // Appearance ---------------------------------------------------------------------------------------------
       /** Selection-level appearance edits: every method builds one atomic batch so one user action is one undo step. */
       appearance: {
@@ -610,23 +853,47 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           cancel: () => { const state = backing.getState(); if (state.layoutOverrides !== null) emit({ layoutOverrides: null, layoutGeneration: state.layoutGeneration + 1 }) },
         },
       },
-      /** Local image assets: read, validated, and stored inside the file. No upload, no URLs. */
+      /** Imports image bytes into a session sidecar and stores only the canonical immutable reference in the file. */
       assets: {
         add: async (source: File): Promise<string | null> => {
           const state = backing.getState()
           if (!state.file || persistenceBlocked) return null
-          if (!(imageMimes as readonly string[]).includes(source.type)) { fail(new Error(canvasCopy.unsupportedImage)); return null }
+          const currentGeneration = generation
+          const fileId = state.file.fileId
+          let prepared: File
+          try { prepared = await prepareImageFile(source) } catch (error) { fail(error instanceof Error ? error : new Error(canvasCopy.unsupportedImage), canvasCopy.imageFailed); return null }
+          if (!(imageMimes as readonly string[]).includes(prepared.type) || prepared.size < 1 || prepared.size > appearanceLimits.assetBytes) { fail(new Error(canvasCopy.unsupportedImage), canvasCopy.imageFailed); return null }
           let bitmap: ImageBitmap
-          try { bitmap = await createImageBitmap(source) } catch { fail(new Error(canvasCopy.unsupportedImage)); return null }
-          const bytes = new Uint8Array(await source.arrayBuffer())
+          try { bitmap = await createImageBitmap(prepared) } catch { fail(new Error(canvasCopy.unsupportedImage), canvasCopy.imageFailed); return null }
+          const bytes = new Uint8Array(await prepared.arrayBuffer())
           let binary = ''
           for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
-          const asset: ImageAsset = { id: makeId(), name: source.name.slice(0, 256) || 'Image', mime: source.type as ImageMime, width: bitmap.width, height: bitmap.height, bytes: bytes.length, data: btoa(binary) }
+          const mime = prepared.type as ImageMime
+          const namedExtension = /\.([A-Za-z0-9]+)$/.exec(prepared.name)?.[1]?.toLowerCase()
+          const extensionByMime: Record<ImageMime, ImageExtension> = { 'image/avif': 'avif', 'image/gif': 'gif', 'image/jpeg': namedExtension === 'jpg' ? 'jpg' : 'jpeg', 'image/png': 'png', 'image/webp': 'webp' }
+          const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(value => value.toString(16).padStart(2, '0')).join('')
+          const asset: ImageAssetReference = { id: makeId(), name: prepared.name.slice(0, 256) || 'Image', mime, extension: extensionByMime[mime], width: bitmap.width, height: bitmap.height, bytes: bytes.length, sha256: digest }
           bitmap.close()
-          try { validateImageAsset(asset) } catch (error) { fail(error); return null }
-          return execute({ type: 'asset.add', asset }) ? asset.id : null
+          try { validateImageAssetReference(asset) } catch { fail(new Error(canvasCopy.unsupportedImage), canvasCopy.imageFailed); return null }
+          const localPreview: EditorAssetPreview = { assetId: asset.id, sha256: asset.sha256, mime: asset.mime, data: btoa(binary) }
+          let uploaded: EditorAssetUploadResult = { asset, preview: localPreview }
+          if (options.uploadImage) {
+            try { uploaded = await options.uploadImage({ fileId, asset, bytes }) }
+            catch (error) { if (currentGeneration === generation && backing.getState().file?.fileId === fileId) fail(error, canvasCopy.imageFailed); return null }
+          }
+          if (currentGeneration !== generation || backing.getState().file?.fileId !== fileId) return null
+          try {
+            validateImageAssetReference(uploaded.asset)
+            if (!sameAssetReference(uploaded.asset, asset) || uploaded.preview.data !== localPreview.data) throw new Error(canvasCopy.unsupportedImage)
+            assetPreviewData.set(uploaded.asset.id, validateAssetPreview(uploaded.asset, uploaded.preview))
+          } catch (error) { fail(error, canvasCopy.imageFailed); return null }
+          if (!execute({ type: 'asset.attach', asset: uploaded.asset })) {
+            assetPreviewData.delete(uploaded.asset.id)
+            return null
+          }
+          return uploaded.asset.id
         },
-        remove: (assetId: string) => execute({ type: 'asset.remove', assetId }),
+        remove: (assetId: string) => execute({ type: 'asset.detach', assetId }),
       },
       /** Draws a primitive at parent-local coordinates (world when no parent). */
       insertCanvas: (kind: PrimitiveKind, bounds: { x: number; y: number; parentId?: string | null } & Partial<Pick<CanvasBounds, 'width' | 'height'>>) => {
@@ -646,9 +913,9 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         return execute({ type: 'node.reparent', nodeId, placement: { parentId: target }, preserveWorldPosition: true })
       },
       /** Commits freeform moves in world coordinates as one history step. Primitives may change parent; component roots leave the host flow. */
-      commitMove: (moves: MoveCommit[]) => {
+      commitMove: (moves: MoveCommit[]): PersistenceCommit => {
         const state = backing.getState()
-        if (!state.file) return false
+        if (!state.file) return noPersistenceCommit
         const commands: FileCommand[] = []
         for (const move of moves) {
           const item = state.file.nodes[move.id]
@@ -665,24 +932,42 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           const baked = placement.mode === 'absolute' || placement.width !== undefined || move.width === undefined ? {} : { width: Math.max(1, Math.round(move.width)) }
           commands.push(placementCommand(item, { ...placement, ...baked, mode: 'absolute', x: Math.round(move.x), y: Math.round(move.y) }))
         }
-        return executeBatch(commands)
+        return executeBatchWithPersistence(commands)
       },
-      /** Commits a resize from world geometry. Flow component nodes only change size; roots and primitives also move. */
-      commitResize: (id: string, world: Rect) => {
+      /** Commits bounds and any image crop as one undo step. Mod-resize also holds direct freeform children in world space. */
+      commitResize: (id: string, world: Rect, appearance?: Appearance, contentLocked = false, start?: Rect): PersistenceCommit => {
         const state = backing.getState()
         const item = state.file?.nodes[id]
-        if (!state.file || !item) return false
+        if (!state.file || !item) return noPersistenceCommit
+        const batch: FileCommand[] = []
         if (isPrimitive(item)) {
           const parent = parentOf(id)
           const parentWorld = parent && parent !== root(state) ? worldPosition(state.file, parent) : { x: 0, y: 0 }
-          return execute({ type: 'node.setStyles', nodeId: id, styles: { left: Math.round(world.x - parentWorld.x), top: Math.round(world.y - parentWorld.y), width: Math.max(1, Math.round(world.width)), height: Math.max(1, Math.round(world.height)) } })
+          batch.push({ type: 'node.setStyles', nodeId: id, styles: { left: Math.round(world.x - parentWorld.x), top: Math.round(world.y - parentWorld.y), width: Math.max(1, Math.round(world.width)), height: Math.max(1, Math.round(world.height)) } })
+          if (contentLocked && start && item.type === 'frame') {
+            const offset = { x: start.x - world.x, y: start.y - world.y }
+            for (const childId of childrenOf(state.file, id)) {
+              const child = state.file.nodes[childId]
+              if (child && isPrimitive(child)) batch.push({ type: 'node.setStyles', nodeId: childId, styles: { left: Math.round(child.styles.left + offset.x), top: Math.round(child.styles.top + offset.y) } })
+            }
+          } else if (start && item.type === 'frame') {
+            const scale = { x: world.width / start.width, y: world.height / start.height }
+            for (const childId of descendantsOf(state.file, id)) {
+              const child = state.file.nodes[childId]
+              if (child && isPrimitive(child)) batch.push({ type: 'node.setStyles', nodeId: childId, styles: { left: Math.round(child.styles.left * scale.x), top: Math.round(child.styles.top * scale.y), width: Math.max(1, Math.round(child.styles.width * scale.x)), height: Math.max(1, Math.round(child.styles.height * scale.y)) } })
+            }
+          }
+          if (appearance) batch.push({ type: 'node.setAppearance', nodeId: id, appearance })
+          return executeBatchWithPersistence(batch)
         }
-        if (item.type !== 'component') return false
+        if (item.type !== 'component') return noPersistenceCommit
         const layout = legacyLayout(item.layout)
         const next: DocumentNodeLayout = isRootChild(id)
           ? { ...layout, mode: 'absolute', x: Math.round(world.x), y: Math.round(world.y), width: Math.max(1, Math.round(world.width)), height: Math.max(1, Math.round(world.height)) }
           : { ...layout, width: Math.max(1, Math.round(world.width)), height: Math.max(1, Math.round(world.height)) }
-        return execute(placementCommand(item, next))
+        batch.push(placementCommand(item, next))
+        if (appearance) batch.push({ type: 'node.setAppearance', nodeId: id, appearance })
+        return executeBatchWithPersistence(batch)
       },
       // Pages ------------------------------------------------------------------------------------------------------
       /** Creates a page. With `activate: false` the open page stays put so a router can push the new page as its own history entry. */
@@ -782,7 +1067,15 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       if (plain && ['v', 'k', 'h', 'f', 'g', 's', 't', 'r', 'o', 'i'].includes(key)) { const tool: CanvasTool = key === 'v' ? 'move' : key === 'k' ? 'scale' : key === 'h' ? 'hand' : key === 'f' ? 'frame' : key === 'g' || key === 's' ? 'shader' : key === 't' ? 'text' : key === 'r' ? 'rectangle' : key === 'o' ? 'shape' : 'interact'; emit({ tool, transient: null }); options.onToolChange?.(tool); return true }
       return false
     },
-    dispose: () => { generation++; for (const stop of subscriptions) stop(); options = {} },
+    dispose: () => {
+      generation++
+      persistenceRun = null
+      rejectPersistenceChanges(pendingPersistenceChanges, new Error('The document store was disposed before the change was saved.'))
+      pendingPersistenceChanges = []
+      for (const stop of subscriptions) stop()
+      assetPreviewData.clear()
+      options = {}
+    },
   }
 }
 

@@ -97,6 +97,24 @@ describe('hosted auth environment', () => {
     }))
   })
 
+  it('permits the explicitly trusted Vercel surfaces to send the host-only API cookie', () => {
+    createHostedAuth({
+      database,
+      baseURL: 'https://comp-canvas-api.vercel.app',
+      secret: '01234567890123456789012345678901',
+      githubClientId: 'github-client',
+      githubClientSecret: 'github-secret',
+      desktopScheme: 'com.comp-canvas.desktop',
+      trustedOrigins: ['https://comp-canvas-login.vercel.app', 'https://comp-canvas-web.vercel.app'],
+    })
+    expect(authMocks.betterAuth).toHaveBeenCalledWith(expect.objectContaining({
+      advanced: {
+        useSecureCookies: true,
+        defaultCookieAttributes: { httpOnly: true, secure: true, sameSite: 'none', path: '/' },
+      },
+    }))
+  })
+
   it.each([
     ['BETTER_AUTH_URL', 'http://api.canvas.test'],
     ['BETTER_AUTH_URL', 'https://api.canvas.test/unexpected-path'],

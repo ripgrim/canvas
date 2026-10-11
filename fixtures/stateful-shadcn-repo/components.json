@@ -1,0 +1,28 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "tsx": true,
+  "aliases": {
+    "ui": "@/components/ui"
+  },
+  "tailwind": {
+    "css": "src/globals.css",
+    "cssVariables": true
+  },
+  "designEditor": {
+    "preview": {
+      "provider": {
+        "entryPath": "src/PreviewProvider.tsx",
+        "exportName": "PreviewProvider",
+        "props": {
+          "brand": "Registry provider"
+        }
+      },
+      "themeAdapters": [
+        {
+          "entryPath": "src/preview/theme-adapter.ts",
+          "exportName": "statefulThemeAdapter"
+        }
+      ]
+    }
+  }
+}

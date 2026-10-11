@@ -19,16 +19,27 @@
     "./memory": {
       "types": "./dist/memory.d.ts",
       "import": "./dist/memory.js"
+    },
+    "./github": {
+      "types": "./dist/github.d.ts",
+      "import": "./dist/github.js"
+    },
+    "./collaboration": {
+      "types": "./dist/collaboration.d.ts",
+      "import": "./dist/collaboration.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:collaboration:postgres": "pnpm build && node tests/collaboration-postgres-acceptance.mjs",
+    "test:postgres:safety": "pnpm build && node tests/postgres-acceptance.mjs --safety-only",
     "test:postgres": "pnpm build && node tests/postgres-acceptance.mjs",
     "migrate": "pnpm build && node dist/migrate.js"
   },
   "dependencies": {
+    "@canvas/github-app": "workspace:*",
     "pg": "8.23.1"
   },
   "devDependencies": {

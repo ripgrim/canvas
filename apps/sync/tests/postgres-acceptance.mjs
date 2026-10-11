@@ -16,7 +16,7 @@ const rootId = `root-${fileId}`
 const functionName = `sync_reject_${fileId.replaceAll('-', '')}`
 const triggerName = `sync_reject_${fileId.replaceAll('-', '')}`
 const document = {
-  schemaVersion: 6,
+  schemaVersion: 7,
   fileId,
   revision: 0,
   pages: [{ id: pageId, name: 'Page 1', rootNodeId: rootId }],

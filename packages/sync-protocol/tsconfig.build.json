@@ -4,7 +4,10 @@
     "noEmit": false,
     "declaration": true,
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "paths": {
+      "@canvas/repo-engine/file-document": ["../repo-engine/dist/file-document.d.ts"]
+    }
   },
   "include": ["src/**/*.ts"],
   "exclude": ["tests"]

@@ -8,21 +8,27 @@ import { mayExposeLocalCapabilities } from '../main/web-target'
 import type { GitHubCloneRequest } from '@canvas/repository'
 import type { AuthSessionView } from '@canvas/auth'
 
+function responseError(response: Readonly<{ error: string; reference?: string }>): Error {
+  const error = new Error(response.error) as Error & { reference?: string }
+  if (response.reference) error.reference = response.reference
+  return error
+}
+
 async function invoke<T>(request: RepositoryRequest): Promise<T> {
   const response: RepositoryResponse = await ipcRenderer.invoke(repositoryChannel, request)
-  if (!response.ok) throw new Error(response.error)
+  if (!response.ok) throw responseError(response)
   return response.value as T
 }
 
 async function invokeRepository<T>(request: RepositoryConnectionRequest): Promise<T> {
   const response: RepositoryConnectionResponse = await ipcRenderer.invoke(repositoryConnectionChannel, request)
-  if (!response.ok) throw new Error(response.error)
+  if (!response.ok) throw responseError(response)
   return response.value as T
 }
 
 async function invokeAuth(request: AuthRequest): Promise<AuthSessionView> {
   const response: AuthResponse = await ipcRenderer.invoke(authChannel, request)
-  if (!response.ok) throw new Error(response.error)
+  if (!response.ok) throw responseError(response)
   return response.value
 }
 

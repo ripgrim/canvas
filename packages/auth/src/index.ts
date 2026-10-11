@@ -8,6 +8,7 @@ export type AuthSessionView = Readonly<{
   status: AuthStatus
   user: Readonly<{ id: string; name: string; email: string; avatarUrl: string | null }> | null
   message: string | null
+  reference?: string
 }>
 
 export type NativeAuthAttempt = Readonly<{
@@ -33,6 +34,15 @@ export type DesktopSignInRequest = Readonly<{
   state: string
   code_challenge: string
 }>
+
+export function authUserView(value: unknown): AuthSessionView['user'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const user = value as Record<string, unknown>
+  if (typeof user.id !== 'string' || typeof user.name !== 'string' || typeof user.email !== 'string') return null
+  const image = typeof user.avatarUrl === 'string' ? user.avatarUrl : user.image
+  const avatarUrl = typeof image === 'string' && /^https:\/\//.test(image) ? image : null
+  return Object.freeze({ id: user.id, name: user.name, email: user.email, avatarUrl })
+}
 
 export type NativeAuthAttemptOptions = Readonly<{
   ownerWindowId: number
@@ -152,10 +162,12 @@ export function parseDesktopSignInRequest(input: Readonly<Record<string, unknown
   return Object.freeze({ client_id: candidate.client_id, state: candidate.state, code_challenge: candidate.code_challenge })
 }
 
-export function authSessionView(status: AuthStatus, user: AuthSessionView['user'] = null, message: string | null = null): AuthSessionView {
-  if (status === 'signed-in' && !user) throw new Error('A signed-in session needs a user.')
-  if (status !== 'signed-in' && user) throw new Error('Only a signed-in session can expose a user.')
-  return Object.freeze({ status, user, message })
+export function authSessionView(status: AuthStatus, user: unknown = null, message: string | null = null, reference?: string): AuthSessionView {
+  if (status !== 'signed-in' && user !== null) throw new Error('Only a signed-in session can expose a user.')
+  const displayUser = status === 'signed-in' ? authUserView(user) : null
+  if (status === 'signed-in' && !displayUser) throw new Error('A signed-in session needs a user.')
+  if (reference !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(reference)) throw new Error('Auth error reference is invalid.')
+  return Object.freeze({ status, user: displayUser, message, ...(reference ? { reference } : {}) })
 }
 
 export function consumeNativeAuthCallback(attempt: NativeAuthAttempt, callback: NativeAuthCallback, ownerWindowId: number, now = Date.now()): NativeAuthAttempt {

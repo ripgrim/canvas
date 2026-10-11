@@ -1,13 +1,13 @@
 import type { PreparedChange, ProjectSnapshot, SaveResult } from '@canvas/repo-engine'
 import type { PreviewSnapshot } from '@canvas/preview-runtime'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
-import type { ShadcnScan } from '@canvas/scanner/contracts'
+import type { ShadcnComponentCatalog, ShadcnScan } from '@canvas/scanner/contracts'
 import type { ConnectedRepository, GitHubCloneRequest } from '@canvas/repository'
 import type { AuthSessionView } from '@canvas/auth'
 
 export type DesktopProjectSnapshot = ProjectSnapshot & { preview: PreviewSnapshot }
 export type DesktopSaveResult = Omit<SaveResult, 'snapshot'> & { snapshot: DesktopProjectSnapshot }
-export type ConnectedRepositoryScan = Readonly<{ repository: ConnectedRepository; scan: ShadcnScan }>
+export type ConnectedRepositoryScan = Readonly<{ repository: ConnectedRepository; scan: ShadcnScan; registry: ShadcnComponentCatalog }>
 export type DesktopFileSummary = Readonly<{
   id: string
   name: string
@@ -51,7 +51,7 @@ export type RepositoryResult = ProjectSnapshot | PreparedChange | SaveResult | D
 
 export type RepositoryResponse =
   | { ok: true; value: RepositoryResult }
-  | { ok: false; error: string }
+  | { ok: false; error: string; reference?: string }
 
 export const repositoryChannel = 'design-editor:repository'
 
@@ -61,7 +61,7 @@ export type RepositoryConnectionRequest =
 
 export type RepositoryConnectionResponse =
   | { ok: true; value: ConnectedRepositoryScan | null }
-  | { ok: false; error: string }
+  | { ok: false; error: string; reference?: string }
 
 export const repositoryConnectionChannel = 'design-editor:repository-connection'
 
@@ -69,7 +69,7 @@ export type AuthRequest = { method: 'getSession' | 'signInWithGitHub' | 'signOut
 
 export type AuthResponse =
   | { ok: true; value: AuthSessionView }
-  | { ok: false; error: string }
+  | { ok: false; error: string; reference?: string }
 
 export const authChannel = 'design-editor:auth'
 export const authSessionChangedChannel = 'design-editor:auth-session-changed'

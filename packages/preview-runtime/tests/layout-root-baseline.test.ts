@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { chromium, type Browser, type Frame, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createPreviewRuntime } from '../src/index.js'
+import { fixtureRegistry } from './fixture-registry.js'
 // Protocol v3: every document node carries its effective theme; the plain light fallback is not explicit.
 const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false } as const
 
@@ -15,7 +16,7 @@ const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, c
 // declaration priorities, and nested absolute placement.
 
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
-const registry = ['Card', 'Label', 'Input', 'Button'].map(exportName => ({ componentId: `atom-${exportName.toLowerCase()}`, exportName, entryPath: `src/atoms/${exportName}.tsx` }))
+const registry = fixtureRegistry
 type Declaration = [name: string, value: string, priority: string]
 type Root = { id: string; tag: string; chain: string[]; same: boolean | null; declarations: Declaration[]; computed: Record<string, string> }
 type Observation = { elementCount: number; roots: Root[] }
@@ -135,6 +136,11 @@ beforeAll(async () => {
   await send({ type: 'set-transient-move', items: [] })
   observations.transientRestored = await waitFor(observe, value => byId(value)['button-1']?.declarations.find(([name]) => name === 'translate')?.[1] === '3px 4px')
 
+  // The authoritative pointer-up document must retire the active transient itself. A later clear message is not
+  // required for correctness and must not be the thing that prevents a one-frame stale-position flash.
+  await send({ type: 'set-transient-move', items: [{ nodeId: 'button-1', dx: 31, dy: 12 }] })
+  await waitFor(observe, value => byId(value)['button-1']?.declarations.find(([name]) => name === 'translate')?.[1] === '34px 16px')
+
   await send({ type: 'set-document', document: previewDocument(3) })
   await send({ type: 'set-layout', items: [], layoutGeneration: 0 })
   observations.restored = await waitFor(observe, value => byId(value)['button-1']?.computed.width === '150px' && byId(value)['button-1']?.computed.opacity === '0.9' && byId(value)['input-1']?.computed.position === 'static')
@@ -202,6 +208,15 @@ describe('LAY-ROOT-001 layout and appearance apply to the bound component roots'
     expect(moved.declarations.find(([name]) => name === 'translate')).toEqual(['translate', '21px -3px', 'important'])
     expect(restored.declarations.find(([name]) => name === 'translate')).toEqual(['translate', '3px 4px', 'important'])
     expect(restored.computed.translate).toBe(byId(observations.applied!)['button-1']!.computed.translate)
+  })
+
+  it('AT-CAN-005 replaces an active transient with the authoritative document without a later clear command', () => {
+    const before = byId(observations.baseline!)['button-1']!
+    const after = byId(observations.restored!)['button-1']!
+    expect(after.declarations.find(([name]) => name === 'translate')).toEqual(['translate', '3px 4px', 'important'])
+    expect(after.computed.translate).toBe(before.computed.translate)
+    expect(after.computed.left).toBe(before.computed.left)
+    expect(after.computed.top).toBe(before.computed.top)
   })
 
   it('accepted every command without a diagnostic or a render failure', () => {

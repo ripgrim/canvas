@@ -16,6 +16,10 @@
   --color-3-transparent: #76ef6b33;
   --color-4: #e864ff;
   --color-4-transparent: #e864ff33;
+  --collaborator-color-1-foreground: #ffffff;
+  --collaborator-color-2-foreground: #000000;
+  --collaborator-color-3-foreground: #000000;
+  --collaborator-color-4-foreground: #000000;
   --color-none: transparent;
   --cte-accent: oklch(0.3797 0.0772 167.68);
   --cte-accent-text: #ffffff;
@@ -176,6 +180,10 @@
   --color-3-transparent: #76ef6b33;
   --color-4: #e864ff;
   --color-4-transparent: #e864ff33;
+  --collaborator-color-1-foreground: #ffffff;
+  --collaborator-color-2-foreground: #000000;
+  --collaborator-color-3-foreground: #000000;
+  --collaborator-color-4-foreground: #000000;
   --color-none: transparent;
   --cte-accent: oklch(0.3797 0.0772 167.68);
   --cte-accent-text: oklch(97% 0 0);

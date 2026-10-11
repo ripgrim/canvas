@@ -1,0 +1,46 @@
+{
+  "hash": "52f24a05",
+  "configHash": "a5c62fc3",
+  "lockfileHash": "9cea548c",
+  "browserHash": "6173563a",
+  "optimized": {
+    "react": {
+      "src": "../../../../../../node_modules/.pnpm/react@19.3.0/node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "16b7a9c1",
+      "needsInterop": true
+    },
+    "react-dom": {
+      "src": "../../../../../../node_modules/.pnpm/react-dom@19.3.0_react@19.3.0/node_modules/react-dom/index.js",
+      "file": "react-dom.js",
+      "fileHash": "5d81040f",
+      "needsInterop": true
+    },
+    "react/jsx-dev-runtime": {
+      "src": "../../../../../../node_modules/.pnpm/react@19.3.0/node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "5c09d354",
+      "needsInterop": true
+    },
+    "react/jsx-runtime": {
+      "src": "../../../../../../node_modules/.pnpm/react@19.3.0/node_modules/react/jsx-runtime.js",
+      "file": "react_jsx-runtime.js",
+      "fileHash": "c9af570e",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../../../../../node_modules/.pnpm/react-dom@19.3.0_react@19.3.0/node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "751e715b",
+      "needsInterop": true
+    }
+  },
+  "chunks": {
+    "chunk-HUPU2N4T": {
+      "file": "chunk-HUPU2N4T.js"
+    },
+    "chunk-F5JC4ZUX": {
+      "file": "chunk-F5JC4ZUX.js"
+    }
+  }
+}

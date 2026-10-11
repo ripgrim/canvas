@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "comp-canvas-sync-coordinator",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "dev": { "port": 4326 },
+  "durable_objects": {
+    "bindings": [{ "name": "SYNC_ROOMS", "class_name": "FileSyncRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FileSyncRoom"] }],
+  "vars": {
+    "SYNC_ROOM_RUNTIME_ORIGIN": "http://127.0.0.1:4325",
+    "SYNC_ROOM_TICKET_TTL_MS": "300000",
+    "ALLOWED_ORIGINS": "http://127.0.0.1:4317,http://localhost:4317,http://127.0.0.1:4319,http://localhost:4319"
+  }
+}

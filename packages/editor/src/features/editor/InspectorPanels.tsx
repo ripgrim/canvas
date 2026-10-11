@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import type { Appearance } from '@canvas/repo-engine/appearance'
 import { colorToCss, colorToHex, hexColor } from '@canvas/repo-engine/color'
 import { resolveColorValue } from '@canvas/repo-engine/file-document'
-import type { ComponentNode, FileDocument, FileNode, PrimitiveNode, PrimitiveStyles } from '@canvas/repo-engine/file-document'
+import type { ComponentNode, FileDocument, FileNode, PrimitiveNode, PrimitiveStylePatch } from '@canvas/repo-engine/file-document'
 import { ColorPicker } from '../../design-system/color-picker'
 import { InspectorCheck, InspectorHeading, InspectorNumberField, InspectorRow, InspectorSection, InspectorStack, InspectorTextField, InspectorTransformActions } from '../../design-system/inspector-atoms'
 import { InspectorColorField } from '../../design-system/inspector-atoms'
@@ -60,7 +60,7 @@ export function PageInspector() {
 type AppearanceProps = { file: FileDocument; overrides: Overrides; mode: Mode; disabled: boolean }
 
 function PrimitiveInspector({ nodes, file, overrides, mode, disabled }: AppearanceProps & { nodes: readonly PrimitiveNode[] }) {
-  type StylePatch = { [K in keyof PrimitiveStyles]?: PrimitiveStyles[K] | undefined }
+  type StylePatch = PrimitiveStylePatch
   const apply = (patch: StylePatch) => { documentStore.commands.setStylesMany(Object.fromEntries(nodes.map(node => [node.id, patch]))) }
   const value = (key: 'left' | 'top' | 'width' | 'height' | 'rotation') => same(nodes.map(node => key === 'rotation' ? node.styles.rotation ?? 0 : node.styles[key]))
   const single = nodes.length === 1 ? nodes[0]! : null
@@ -79,7 +79,7 @@ function PrimitiveInspector({ nodes, file, overrides, mode, disabled }: Appearan
       <InspectorRow>
         <InspectorNumberField id="layout-width" label={copy.width} prefix="W" value={value('width')} placeholder={copy.mixed} min={1} max={1000000} disabled={disabled} onCommit={width => apply({ width })} />
         <InspectorNumberField id="layout-height" label={copy.height} prefix="H" value={value('height')} placeholder={copy.mixed} min={1} max={1000000} disabled={disabled} onCommit={height => apply({ height })} />
-        <InspectorTransformActions actionsLabel={copy.transformActions} rotateLabel={copy.rotate90} flipXLabel={copy.flipHorizontal} flipYLabel={copy.flipVertical} flipXPressed={flipX} flipYPressed={flipY} disabled={disabled} onRotate={() => transform(rotated)} onFlipX={() => transform(node => ({ flipX: node.styles.flipX ? undefined : true }))} onFlipY={() => transform(node => ({ flipY: node.styles.flipY ? undefined : true }))} />
+        <InspectorTransformActions actionsLabel={copy.transformActions} rotateLabel={copy.rotate90} flipXLabel={copy.flipHorizontal} flipYLabel={copy.flipVertical} flipXPressed={flipX} flipYPressed={flipY} disabled={disabled} onRotate={() => transform(rotated)} onFlipX={() => transform(node => ({ flipX: node.styles.flipX ? null : true }))} onFlipY={() => transform(node => ({ flipY: node.styles.flipY ? null : true }))} />
       </InspectorRow>
       {nodes.every(node => node.type === 'frame') && <InspectorCheck id="layout-clip" label={copy.clip} checked={nodes.every(node => node.styles.overflow !== 'visible')} disabled={disabled} onChange={clip => apply({ overflow: clip ? 'clip' : 'visible' })} />}
     </InspectorSection>

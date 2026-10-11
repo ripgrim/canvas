@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { chromium, type Browser, type Frame, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createPreviewRuntime } from '../src/index.js'
+import { fixtureRegistry } from './fixture-registry.js'
 // Protocol v3: every document node carries its effective theme; the plain light fallback is not explicit.
 const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false } as const
 
@@ -15,7 +16,7 @@ const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, c
 // Every position below is a child's border-box offset from the card's border-box corner, derived by hand.
 
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
-const registry = ['Card', 'Label', 'Input', 'Button'].map(exportName => ({ componentId: `atom-${exportName.toLowerCase()}`, exportName, entryPath: `src/atoms/${exportName}.tsx` }))
+const registry = fixtureRegistry
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false }
 const ids = ['item-a', 'item-b', 'item-c'] as const
 const documentWith = (order: readonly string[]) => ({

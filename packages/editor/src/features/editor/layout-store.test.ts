@@ -15,7 +15,7 @@ const percent = (value: number) => ({ kind: 'percent' as const, value })
 const label = (id: string, text: string): ComponentNode => ({ id, type: 'component', componentId: 'label-component', exportName: 'Label', props: { children: text } })
 /** card (flex row container) holds a, b, c; d is an absolute root with width 200. */
 const fixture = (): FileDocument => ({
-  schemaVersion: 6, fileId: 'file-1', revision: 0,
+  schemaVersion: 7, fileId: 'file-1', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -49,7 +49,7 @@ describe('LAY-SIZE-003 and LAY-BATCH-001: sizing across a selection', () => {
     expect(layoutOf(store, 'c')).toBeUndefined()
     expect(store.getSnapshot().canUndo).toBe(true)
     store.undo()
-    expect(revision(store)).toBe(0)
+    expect(revision(store)).toBe(2)
     expect(layoutOf(store, 'a')).toBeUndefined()
     expect(layoutOf(store, 'b')).toBeUndefined()
     expect(store.getSnapshot().canUndo).toBe(false)
@@ -106,13 +106,13 @@ describe('LAY-GEST-003: reparent keeps the world pose from measurement', () => {
     expect(store.getSnapshot().file!.relationships.d).toMatchObject({ parentId: 'card', slot: 'children' })
     expect(layoutOf(store, 'd')).toEqual({ item: { position: { mode: 'absolute', left: px(8), top: px(9) }, width: { value: px(200) } } })
     store.undo()
-    expect(revision(store)).toBe(0)
+    expect(revision(store)).toBe(2)
     expect(store.getSnapshot().file!.relationships.d).toEqual({ parentId: 'root-1', orderKey: 'W' })
     expect(layoutOf(store, 'd')!.item.position).toEqual({ mode: 'absolute', left: px(40), top: px(60), right: px(4), zIndex: 2 })
     // Without measurement nothing is written; a primitive target is refused.
     expect(store.commands.layout.reparent('d', { parentId: 'card', slot: 'children' }, {})).toBe(false)
     expect(store.commands.layout.reparent('d', { parentId: 'a' }, nodes)).toBe(false)
-    expect(revision(store)).toBe(0)
+    expect(revision(store)).toBe(2)
   })
 })
 

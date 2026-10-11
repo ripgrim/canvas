@@ -7,6 +7,7 @@
     ".": "./src/pages/EditorPage.tsx",
     "./home": "./src/pages/HomePage.tsx",
     "./file": "./src/pages/FilePage.tsx",
+    "./file-route": "./src/features/application/file-route.ts",
     "./bootstrap": "./src/bootstrap.tsx",
     "./auth": "./src/auth.ts",
     "./capabilities": "./src/capabilities.ts",
@@ -20,10 +21,12 @@
   "dependencies": {
     "@base-ui/react": "^1.0.0",
     "@canvas/auth": "workspace:*",
+    "@canvas/preview-runtime": "workspace:*",
     "@canvas/repo-engine": "workspace:*",
     "@canvas/repository": "workspace:*",
     "@canvas/scanner": "workspace:*",
-    "@canvas/preview-runtime": "workspace:*",
+    "@canvas/tracking": "workspace:*",
+    "heic-to": "1.6.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "zustand": "5.0.15"
@@ -32,7 +35,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "typescript": "^5.9.0",
-    "vitest": "^3.2.0",
-    "vite": "^7.2.0"
+    "vite": "^7.2.0",
+    "vitest": "^3.2.0"
   }
 }

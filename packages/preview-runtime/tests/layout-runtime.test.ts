@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { chromium, type Browser, type Frame, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createPreviewRuntime } from '../src/index.js'
+import { fixtureRegistry } from './fixture-registry.js'
 // Protocol v3: every document node carries its effective theme; the plain light fallback is not explicit.
 const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false } as const
 
@@ -14,7 +15,7 @@ const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, c
 // 8px column gap the fr track is 406 - 120 - 8 = 278.
 
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
-const registry = ['Card', 'Label', 'Input', 'Button'].map(exportName => ({ componentId: `atom-${exportName.toLowerCase()}`, exportName, entryPath: `src/atoms/${exportName}.tsx` }))
+const registry = fixtureRegistry
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false }
 const previewDocument = {
   version: 1, revision: 1, rootIds: ['card-1', 'button-1'], frame: frameSize,

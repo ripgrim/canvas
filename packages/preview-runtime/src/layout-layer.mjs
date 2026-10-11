@@ -18,6 +18,7 @@ export function createLayoutLayer(ownerDocument, container) {
   const reports = new Map()
   let editorDocument = null
   let items = []
+  let transientBounds = new Map()
   let active = false
   let applying = false
 
@@ -171,6 +172,10 @@ export function createLayoutLayer(ownerDocument, container) {
             declarations.set(name, value)
           }
         }
+        const transient = transientBounds.get(item.nodeId)
+        if (transient?.width !== undefined || transient?.height !== undefined) declarations.set('box-sizing', 'border-box')
+        if (transient?.width !== undefined) { declarations.set('width', `${transient.width}px`); declarations.set('flex', '0 0 auto') }
+        if (transient?.height !== undefined) declarations.set('height', `${transient.height}px`)
         // Hug with only absolute children: CSS gives the box no content size, so the children's extent plus the
         // trailing padding and border becomes the size (observed Wonder rule, LAY-HUG-001). Last round's size applies now.
         const childIds = childrenOf(item.nodeId)
@@ -216,6 +221,7 @@ export function createLayoutLayer(ownerDocument, container) {
     active = false
     editorDocument = null
     items = []
+    transientBounds = new Map()
   }
   return {
     start: () => {
@@ -226,6 +232,18 @@ export function createLayoutLayer(ownerDocument, container) {
     /** Replaces the document and the layout items, then reapplies; stale elements are restored first. */
     update: (document, nextItems) => { editorDocument = document; items = Array.isArray(nextItems) ? nextItems : []; apply() },
     setItems: nextItems => { items = Array.isArray(nextItems) ? nextItems : []; apply() },
+    setTransientBounds: nextItems => {
+      const next = new Map()
+      for (const item of nextItems) if (item.width !== undefined || item.height !== undefined) next.set(item.nodeId, item)
+      let unchanged = next.size === transientBounds.size
+      for (const [nodeId, item] of next) {
+        const previous = transientBounds.get(nodeId)
+        if (previous?.width !== item.width || previous?.height !== item.height) { unchanged = false; break }
+      }
+      if (unchanged) return
+      transientBounds = next
+      apply()
+    },
     apply,
     /** Per node: whether the projection applied and which controlled longhands a stylesheet forces with !important. */
     report: () => new Map([...reports].map(([id, value]) => [id, { status: value.status, conflicts: [...value.conflicts] }])),

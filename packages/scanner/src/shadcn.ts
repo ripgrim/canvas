@@ -4,13 +4,14 @@ import path from 'node:path'
 import postcss, { type Node as PostCssNode } from 'postcss'
 import { Node, Project, SyntaxKind, ts } from 'ts-morph'
 import { confined } from './paths.js'
-import type { ShadcnComponent, ShadcnConfig, ShadcnDiagnostic, ShadcnProp, ShadcnScan, ShadcnToken } from './contracts.js'
+import type { ShadcnComponent, ShadcnConfig, ShadcnDiagnostic, ShadcnModuleConfig, ShadcnProp, ShadcnScan, ShadcnToken } from './contracts.js'
 export type { ShadcnComponent, ShadcnConfig, ShadcnDiagnostic, ShadcnProp, ShadcnScan, ShadcnToken } from './contracts.js'
 
 type RawComponentsConfig = {
   aliases?: { ui?: unknown }
   tailwind?: { css?: unknown }
   registries?: unknown
+  designEditor?: { preview?: { provider?: unknown; themeAdapters?: unknown } }
 }
 
 const ignoredDirectories = new Set(['.git', '.next', '.output', '.turbo', '.vite', 'build', 'coverage', 'dist', 'node_modules'])
@@ -45,7 +46,29 @@ function stringMapKeys(value: unknown): string[] {
   return Object.keys(value).filter((key) => typeof (value as Record<string, unknown>)[key] === 'string')
 }
 
-async function tsconfigAliases(root: string, workspace: string): Promise<{ base: string; paths: Record<string, string[]> }> {
+function explicitPreviewConfig(raw: RawComponentsConfig, workspace: string): Pick<ShadcnConfig, 'previewProvider' | 'themeAdapters'> {
+  const value = raw.designEditor?.preview
+  const provider = value?.provider
+  const previewProvider = provider && typeof provider === 'object' && !Array.isArray(provider)
+    && typeof (provider as Record<string, unknown>).entryPath === 'string'
+    && typeof (provider as Record<string, unknown>).exportName === 'string'
+    && ((provider as Record<string, unknown>).props === undefined || (provider as Record<string, unknown>).props !== null && typeof (provider as Record<string, unknown>).props === 'object' && !Array.isArray((provider as Record<string, unknown>).props))
+    ? {
+        entryPath: posix(path.join(workspace, (provider as Record<string, string>).entryPath!)),
+        exportName: (provider as Record<string, string>).exportName!,
+        props: ((provider as Record<string, unknown>).props ?? {}) as Record<string, string | number | boolean | null>,
+      }
+    : null
+  const adapters = Array.isArray(value?.themeAdapters) ? value.themeAdapters : []
+  const themeAdapters = adapters.flatMap(adapter => adapter && typeof adapter === 'object' && !Array.isArray(adapter)
+    && typeof (adapter as Record<string, unknown>).entryPath === 'string'
+    && typeof (adapter as Record<string, unknown>).exportName === 'string'
+    ? [{ entryPath: posix(path.join(workspace, (adapter as Record<string, string>).entryPath!)), exportName: (adapter as Record<string, string>).exportName! }]
+    : [])
+  return { previewProvider, themeAdapters }
+}
+
+async function moduleConfig(root: string, workspace: string): Promise<ShadcnModuleConfig | null> {
   for (const filename of ['tsconfig.json', 'jsconfig.json']) {
     const relative = posix(path.join(workspace, filename))
     if (!await existingFile(root, relative)) continue
@@ -53,24 +76,26 @@ async function tsconfigAliases(root: string, workspace: string): Promise<{ base:
       const parsed = ts.parseConfigFileTextToJson(relative, await readFile(await confined(root, relative), 'utf8')).config
       const compiler = parsed?.compilerOptions ?? {}
       return {
-        base: posix(path.join(workspace, typeof compiler.baseUrl === 'string' ? compiler.baseUrl : '.')),
+        path: relative,
+        baseUrl: posix(path.join(workspace, typeof compiler.baseUrl === 'string' ? compiler.baseUrl : '.')),
         paths: Object.fromEntries(Object.entries(compiler.paths ?? {}).filter((entry): entry is [string, string[]] => Array.isArray(entry[1]) && entry[1].every((item) => typeof item === 'string'))),
       }
-    } catch { return { base: workspace, paths: {} } }
+    } catch { return null }
   }
-  return { base: workspace, paths: {} }
+  return null
 }
 
-function aliasCandidates(alias: string, aliases: Awaited<ReturnType<typeof tsconfigAliases>>): string[] {
-  if (alias.startsWith('./') || alias.startsWith('../')) return [posix(path.join(aliases.base, alias))]
+function aliasCandidates(alias: string, aliases: ShadcnModuleConfig | null, workspace: string): string[] {
+  const base = aliases?.baseUrl ?? workspace
+  if (alias.startsWith('./') || alias.startsWith('../')) return [posix(path.join(base, alias))]
   const candidates: string[] = []
-  for (const [pattern, targets] of Object.entries(aliases.paths)) {
+  for (const [pattern, targets] of Object.entries(aliases?.paths ?? {})) {
     const star = pattern.indexOf('*')
     const prefix = star < 0 ? pattern : pattern.slice(0, star)
     const suffix = star < 0 ? '' : pattern.slice(star + 1)
     if (star < 0 ? alias !== pattern : !alias.startsWith(prefix) || !alias.endsWith(suffix)) continue
     const capture = star < 0 ? '' : alias.slice(prefix.length, suffix ? -suffix.length : undefined)
-    for (const target of targets) candidates.push(posix(path.join(aliases.base, target.replace('*', capture))))
+    for (const target of targets) candidates.push(posix(path.join(base, target.replace('*', capture))))
   }
   return candidates
 }
@@ -83,8 +108,8 @@ async function parseConfig(root: string, configPath: string, diagnostics: Shadcn
     return null
   }
   const uiAlias = typeof raw.aliases?.ui === 'string' ? raw.aliases.ui : null
-  const aliases = await tsconfigAliases(root, workspace)
-  const configuredRoots = uiAlias ? aliasCandidates(uiAlias, aliases) : []
+  const aliases = await moduleConfig(root, workspace)
+  const configuredRoots = uiAlias ? aliasCandidates(uiAlias, aliases, workspace) : []
   const fallbacks = [...uiDirectoryCandidates, 'src/components'].map(candidate => posix(path.join(workspace, candidate)))
   const uiRoots: string[] = []
   for (const candidate of [...configuredRoots, ...fallbacks]) {
@@ -106,7 +131,7 @@ async function parseConfig(root: string, configPath: string, diagnostics: Shadcn
   const registries = Array.isArray(raw.registries)
     ? raw.registries.filter((entry): entry is string => typeof entry === 'string')
     : stringMapKeys(raw.registries)
-  return { source: 'manifest', path: configPath, workspace, uiAlias, uiRoots, registryRoots, tokenFiles, registries }
+  return { source: 'manifest', path: configPath, workspace, uiAlias, uiRoots, registryRoots, tokenFiles, registries, moduleConfig: aliases, ...explicitPreviewConfig(raw, workspace) }
 }
 
 function inferredWorkspace(filename: string): { workspace: string; uiRoot: string } | null {
@@ -152,6 +177,9 @@ async function inferConfigs(root: string, paths: readonly string[], occupiedWork
       registryRoots,
       tokenFiles,
       registries: [],
+      moduleConfig: await moduleConfig(root, workspace),
+      previewProvider: null,
+      themeAdapters: [],
     })
   }
   return configs
@@ -206,6 +234,24 @@ function declarationFingerprint(node: Node): string {
   return hash(parts.join('|'))
 }
 
+function hasUseServerDirective(node: Node): boolean {
+  const statements = Node.isSourceFile(node)
+    ? node.getStatements()
+    : Node.isFunctionDeclaration(node) || Node.isArrowFunction(node) || Node.isFunctionExpression(node)
+      ? (() => {
+          const body = node.getBody()
+          return body && Node.isBlock(body) ? body.getStatements() : []
+        })()
+      : []
+  for (const statement of statements) {
+    if (!Node.isExpressionStatement(statement)) return false
+    const expression = statement.getExpression()
+    if (!Node.isStringLiteral(expression)) return false
+    if (expression.getLiteralText() === 'use server') return true
+  }
+  return false
+}
+
 function discoverComponents(root: string, files: Readonly<Record<string, string>>, roots: readonly string[], diagnostics: ShadcnDiagnostic[]): ShadcnComponent[] {
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
@@ -221,6 +267,10 @@ function discoverComponents(root: string, files: Readonly<Record<string, string>
       for (const [exportName, declarations] of sourceFile.getExportedDeclarations()) for (const declaration of declarations) {
         if (Node.isTypeAliasDeclaration(declaration) || Node.isInterfaceDeclaration(declaration)) continue
         const resolved = unwrapComponentDeclaration(declaration)
+        if (hasUseServerDirective(sourceFile) || hasUseServerDirective(resolved?.body ?? declaration)) {
+          diagnostics.push({ code: 'unsupported-export', path: relative, message: `${exportName} is server-only and cannot be indexed as a preview component.` })
+          continue
+        }
         const rendersJsx = resolved?.body.getDescendants().some((node) => [SyntaxKind.JsxElement, SyntaxKind.JsxSelfClosingElement, SyntaxKind.JsxFragment].includes(node.getKind())) ?? false
         if (!resolved || !rendersJsx) {
           if (declaration.getSourceFile() === sourceFile) diagnostics.push({ code: 'unsupported-export', path: relative, message: `${exportName} is exported from the UI root but is not a supported React component declaration.` })
@@ -294,6 +344,10 @@ export async function scanShadcnRepository(repositoryRoot: string): Promise<Shad
   const relevant = new Set<string>()
   for (const config of configs) {
     config.tokenFiles.forEach((filename) => relevant.add(filename))
+    if (config.moduleConfig) relevant.add(config.moduleConfig.path)
+    if (config.previewProvider || config.themeAdapters.length) relevant.add(config.path)
+    if (config.previewProvider) relevant.add(config.previewProvider.entryPath)
+    config.themeAdapters.forEach(adapter => relevant.add(adapter.entryPath))
     for (const componentRoot of [...config.uiRoots, ...config.registryRoots]) for (const filename of paths) if (filename.startsWith(`${componentRoot}/`) && /\.[cm]?tsx?$/.test(filename)) relevant.add(filename)
   }
   const files: Record<string, string> = {}

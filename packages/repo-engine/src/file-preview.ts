@@ -11,7 +11,7 @@ import type { DesignTheme } from './design-themes.js'
 import { colorToCss } from './color.js'
 import type { DisplayMode, NodeLayout } from './layout.js'
 import { assetReferences, childrenOf, flowHost, hostOrigin, nodeAppearance, pageRoot, projectAppearance, resolveColorValue } from './file-document.js'
-import type { FileDocument, ImageMime, PreviewAppearance, SourcePalette } from './file-document.js'
+import type { FileDocument, ImageAssetReference, PreviewAppearance, SourcePalette } from './file-document.js'
 
 /** The effective design theme of one component instance; `explicit` marks the root where the runtime stamps the attribute. */
 export type PreviewNodeTheme = { mode: ColorScheme; designThemeId: string; attribute: string | null; colorScheme: ColorScheme; explicit: boolean }
@@ -23,7 +23,7 @@ export type ThemeDiagnostic = { nodeId: string; reason: 'missing-theme' | 'ambig
 const isThemeContext = (value: SourcePalette | ThemeProjectionContext): value is ThemeProjectionContext => typeof (value as ThemeProjectionContext).palette === 'function' && Array.isArray((value as ThemeProjectionContext).themes)
 const baseTheme: DesignTheme = { id: defaultDesignThemeId, name: 'Default', selector: ':root', attribute: null, colorScheme: 'light' }
 export type PreviewPageElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; x: number; y: number; width: number; height: number; rotation: number; flipX?: boolean; flipY?: boolean; text?: string; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance }
-export type PreviewPageAsset = { mime: ImageMime; data: string }
+export type PreviewPageAsset = Omit<ImageAssetReference, 'id'>
 export type PreviewPageDocument = { version: 1; revision: number; rootIds: string[]; nodes: Record<string, PreviewPageNode>; frame: { name?: string; width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean }; canvas: { elements: PreviewPageElement[] }; background?: string; assets?: Record<string, PreviewPageAsset> }
 export type PreviewLayoutEntry = { nodeId: string; mode: DocumentNodeLayout['mode']; x: number; y: number; order: number; width?: number; height?: number; declarations?: Record<string, string> }
 const kebab = (name: string) => name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)
@@ -95,7 +95,20 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
   const appearanceOf = (id: string, sources: SourcePalette): { appearance: PreviewAppearance } | Record<string, never> => {
     const source = nodeAppearance(file.nodes[id])
     const projected = projectAppearance(source, value => resolveColorValue(file.theme, value, sources), hasAsset)
-    if (source) for (const assetId of assetReferences(source)) { const asset = file.assets?.[assetId]; if (asset) assets[assetId] = { mime: asset.mime, data: asset.data } }
+    if (source) for (const assetId of assetReferences(source)) {
+      const asset = file.assets?.[assetId]
+      if (asset) {
+        assets[assetId] = {
+          name: asset.name,
+          mime: asset.mime,
+          extension: asset.extension,
+          bytes: asset.bytes,
+          width: asset.width,
+          height: asset.height,
+          sha256: asset.sha256,
+        }
+      }
+    }
     return projected ? { appearance: projected } : {}
   }
   const visitComponent = (id: string, order: number, parentDisplay: DisplayMode | null) => {

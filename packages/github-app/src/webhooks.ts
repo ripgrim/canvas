@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import type { GitHubGrantStore, InstallationInvalidationReason, WebhookDeliveryStore } from './contracts.js'
 import { GitHubAppError, githubId } from './validation.js'
 
@@ -43,14 +43,24 @@ export function parseLifecycleWebhook(eventName: string, body: string | Uint8Arr
     if (error instanceof GitHubAppError) throw error
     throw new GitHubAppError('INVALID_WEBHOOK', 'Invalid GitHub webhook.')
   }
-  if (eventName === 'installation' && (payload.action === 'suspend' || payload.action === 'deleted')) {
-    return { type: 'installation.invalidated', installationId: installationId(payload), reason: payload.action === 'suspend' ? 'suspended' : 'deleted' }
+  if (eventName === 'installation') {
+    const id = installationId(payload)
+    if (typeof payload.action !== 'string') throw new GitHubAppError('INVALID_WEBHOOK', 'Invalid GitHub webhook.')
+    if (payload.action === 'suspend' || payload.action === 'deleted') {
+      return { type: 'installation.invalidated', installationId: id, reason: payload.action === 'suspend' ? 'suspended' : 'deleted' }
+    }
+    return null
   }
-  if (eventName === 'installation_repositories' && payload.action === 'removed') {
-    if (!Array.isArray(payload.repositories_removed) || payload.repositories_removed.length === 0 || payload.repositories_removed.length > 1_000) throw new GitHubAppError('INVALID_WEBHOOK', 'Invalid GitHub webhook.')
-    const repositoryIds = payload.repositories_removed.map(repository => githubId(record(repository).id))
+  if (eventName === 'installation_repositories') {
+    const id = installationId(payload)
+    if (payload.action !== 'added' && payload.action !== 'removed') throw new GitHubAppError('INVALID_WEBHOOK', 'Invalid GitHub webhook.')
+    const field = payload.action === 'removed' ? payload.repositories_removed : payload.repositories_added
+    if (!Array.isArray(field) || field.length > 1_000) throw new GitHubAppError('INVALID_WEBHOOK', 'Invalid GitHub webhook.')
+    const repositoryIds = field.map(repository => githubId(record(repository).id))
     if (new Set(repositoryIds).size !== repositoryIds.length) throw new GitHubAppError('INVALID_WEBHOOK', 'Invalid GitHub webhook.')
-    return { type: 'repositories.removed', installationId: installationId(payload), repositoryIds }
+    return payload.action === 'removed' && repositoryIds.length > 0
+      ? { type: 'repositories.removed', installationId: id, repositoryIds }
+      : null
   }
   return null
 }
@@ -73,16 +83,18 @@ export class GitHubWebhookService {
     if (!deliveryPattern.test(input.deliveryId) || input.eventName.length < 1 || input.eventName.length > 100) throw new GitHubAppError('INVALID_WEBHOOK', 'Invalid GitHub webhook.')
     const event = parseLifecycleWebhook(input.eventName, input.body)
     const receivedAt = this.now()
-    if (!await this.deliveries.claimDelivery({ deliveryId: input.deliveryId, receivedAt })) throw new GitHubAppError('DUPLICATE_DELIVERY', 'GitHub webhook was already received.')
+    const bodyDigest = createHash('sha256').update(bytes(input.body)).digest('hex')
+    const claim = await this.deliveries.claimDelivery({ deliveryId: input.deliveryId, eventName: input.eventName, bodyDigest, receivedAt, leaseExpiresAt: receivedAt + 60_000 })
+    if (!claim) throw new GitHubAppError('DUPLICATE_DELIVERY', 'GitHub webhook was already received.')
     try {
       if (event?.type === 'installation.invalidated') {
         await this.grants.invalidateInstallation({ installationId: event.installationId, reason: event.reason, invalidatedAt: receivedAt })
       } else if (event) {
         await this.grants.invalidateRepositories({ installationId: event.installationId, repositoryIds: event.repositoryIds, reason: 'removed', invalidatedAt: receivedAt })
       }
-      await this.deliveries.completeDelivery({ deliveryId: input.deliveryId, completedAt: this.now() })
+      await this.deliveries.completeDelivery({ deliveryId: input.deliveryId, leaseId: claim.leaseId, completedAt: this.now() })
     } catch (error) {
-      await this.deliveries.releaseDelivery({ deliveryId: input.deliveryId })
+      await this.deliveries.releaseDelivery({ deliveryId: input.deliveryId, leaseId: claim.leaseId })
       throw error
     }
     return event ? { status: 'applied', event } : { status: 'ignored', event: null }

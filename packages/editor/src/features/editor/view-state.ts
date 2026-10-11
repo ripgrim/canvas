@@ -54,5 +54,5 @@ export function writeFileView(view: FileViewState, source: ViewStorage | null = 
     const collection = readCollection(source)
     collection.files[view.fileId] = valid
     source?.setItem(viewStateKey, JSON.stringify(collection))
-  } catch { /* storage unavailable or full: viewing preferences are not essential data */ }
+  } catch (error) { console.warn('The file view preference could not be stored for the next session.', error) }
 }

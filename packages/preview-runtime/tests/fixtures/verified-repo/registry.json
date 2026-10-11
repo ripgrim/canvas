@@ -1,0 +1,24 @@
+{
+  "repositoryRoot": ".",
+  "registry": {
+    "version": 1,
+    "entry": { "componentId": "verified-alert" },
+    "components": [
+      {
+        "componentId": "verified-alert",
+        "entryPath": "src/AlertPanel.tsx",
+        "exportName": "AlertPanel",
+        "props": { "tone": { "kind": "enum", "values": ["calm", "urgent"] } },
+        "slots": ["children"]
+      }
+    ],
+    "styles": [{ "path": "src/styles.css" }],
+    "provider": { "entryPath": "src/PreviewProvider.tsx", "exportName": "PreviewProvider", "props": {}, "evidence": { "configPath": "components.json" } },
+    "themeAdapters": [{ "entryPath": "src/theme-adapter.ts", "exportName": "themeAdapter", "evidence": { "configPath": "components.json" } }],
+    "assets": [
+      { "assetId": "fixture-mark", "sourcePath": "public/mark.svg", "publicPath": "/registry-assets/mark.svg", "mime": "image/svg+xml" },
+      { "assetId": "fixture-font", "sourcePath": "public/fixture.woff2", "publicPath": "/registry-assets/fixture.woff2", "mime": "font/woff2" }
+    ],
+    "fonts": [{ "family": "Registry fixture", "assetId": "fixture-font", "weight": "400", "style": "normal", "display": "swap" }]
+  }
+}

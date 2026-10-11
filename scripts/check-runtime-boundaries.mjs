@@ -18,7 +18,7 @@ function prohibited(specifier) {
   if (specifier === 'server-only') return 'Server-only module import is forbidden in browser code'
   if (specifier.startsWith('node:') || builtins.has(specifier.split('?')[0])) return 'Node built-in import is forbidden in browser code'
   if (specifier === 'electron' || specifier.startsWith('electron/')) return 'Electron import is forbidden in browser code'
-  if ((specifier === '@canvas/repo-engine' || specifier.startsWith('@canvas/repo-engine/')) && !['@canvas/repo-engine/document', '@canvas/repo-engine/contracts', '@canvas/repo-engine/design-themes', '@canvas/repo-engine/file-document', '@canvas/repo-engine/appearance', '@canvas/repo-engine/file-migration', '@canvas/repo-engine/file-preview', '@canvas/repo-engine/color', '@canvas/repo-engine/order-keys', '@canvas/repo-engine/layout', '@canvas/repo-engine/grid-tracks', '@canvas/repo-engine/grid-placement', '@canvas/repo-engine/flex-inference', '@canvas/repo-engine/layout-matrix', '@canvas/repo-engine/layout-css', '@canvas/repo-engine/node-theme'].includes(specifier)) return 'Use a browser-safe repo-engine contract subpath'
+  if ((specifier === '@canvas/repo-engine' || specifier.startsWith('@canvas/repo-engine/')) && !['@canvas/repo-engine/document', '@canvas/repo-engine/contracts', '@canvas/repo-engine/design-themes', '@canvas/repo-engine/file-document', '@canvas/repo-engine/hosted-catalog', '@canvas/repo-engine/appearance', '@canvas/repo-engine/file-migration', '@canvas/repo-engine/file-preview', '@canvas/repo-engine/color', '@canvas/repo-engine/order-keys', '@canvas/repo-engine/layout', '@canvas/repo-engine/grid-tracks', '@canvas/repo-engine/grid-placement', '@canvas/repo-engine/flex-inference', '@canvas/repo-engine/layout-matrix', '@canvas/repo-engine/layout-css', '@canvas/repo-engine/node-theme'].includes(specifier)) return 'Use a browser-safe repo-engine contract subpath'
   if ((specifier === '@canvas/preview-runtime' || specifier.startsWith('@canvas/preview-runtime/')) && !['@canvas/preview-runtime/protocol', '@canvas/preview-runtime/browser', '@canvas/preview-runtime/browser-contracts'].includes(specifier)) return 'Use a browser-safe preview-runtime subpath'
   if (specifier === '@canvas/auth/electron' || specifier === '@canvas/auth/server' || specifier === '@canvas/auth/hosted') return 'Privileged auth implementation is forbidden in browser code'
   if (serverOnly(specifier)) return 'Server-only module import is forbidden in browser code'
@@ -146,6 +146,7 @@ function graphResolver(sources) {
     '@canvas/repo-engine/contracts': 'packages/repo-engine/src/contracts.ts',
     '@canvas/repo-engine/design-themes': 'packages/repo-engine/src/design-themes.ts',
     '@canvas/repo-engine/file-document': 'packages/repo-engine/src/file-document.ts',
+    '@canvas/repo-engine/hosted-catalog': 'packages/repo-engine/src/hosted-catalog.ts',
     '@canvas/repo-engine/appearance': 'packages/repo-engine/src/appearance.ts',
     '@canvas/repo-engine/file-migration': 'packages/repo-engine/src/file-migration.ts',
     '@canvas/repo-engine/file-preview': 'packages/repo-engine/src/file-preview.ts',
@@ -171,7 +172,11 @@ function graphResolver(sources) {
       const matches = alias.pattern.includes('*') ? specifier.startsWith(prefix) && specifier.endsWith(suffix) : specifier === alias.pattern
       if (!matches) continue
       const captured = alias.pattern.includes('*') ? specifier.slice(prefix.length, suffix ? -suffix.length : undefined) : ''
-      const candidates = alias.targets.filter(target => typeof target === 'string').map(target => normalize(path.posix.join(alias.base, target.replace('*', captured))))
+      const candidates = alias.targets.filter(target => typeof target === 'string').flatMap(target => {
+        const candidate = normalize(path.posix.join(alias.base, target.replace('*', captured)))
+        const source = candidate.replace(/\/dist\/(.+)\.d\.([cm]?)ts$/, '/src/$1.$2ts')
+        return source === candidate ? [candidate] : [source, candidate]
+      })
       for (const candidate of candidates) { const found = sourceCandidate(sources, candidate); if (found) return found }
       return candidates[0] ?? null
     }

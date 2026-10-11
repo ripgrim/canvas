@@ -14,7 +14,20 @@ import { inspectorCopy as copy } from './inspector-copy'
 type ThemedNode = Exclude<FileNode, { type: 'root' }>
 const icons: Partial<Record<NodeThemeMode, IconName>> = { light: 'sun', dark: 'moon' }
 const schemes: readonly ColorScheme[] = ['light', 'dark']
+type ThemeAvailability = Readonly<Partial<Record<ColorScheme, 'missing' | 'ambiguous'>>>
 const sourceKey = (effective: EffectiveNodeTheme) => effective.source.kind === 'ancestor' ? `ancestor:${effective.source.nodeId}` : effective.source.kind
+
+export function themeAvailabilityNote(availability: ThemeAvailability): string | undefined {
+  if (availability.light === 'missing' && availability.dark === 'missing') return copy.themeVariantsMissing
+  if (availability.light === 'ambiguous' && availability.dark === 'ambiguous') return copy.themeVariantsAmbiguous
+  const notes = schemes.flatMap(scheme => {
+    const status = availability[scheme]
+    if (status === 'missing') return [copy.themeVariantMissing[scheme]]
+    if (status === 'ambiguous') return [copy.themeVariantAmbiguous[scheme]]
+    return []
+  })
+  return notes.length ? notes.join('. ') : undefined
+}
 
 /** Accessible context for an inherited selection: where its effective scheme comes from. */
 function inheritedLine(file: FileDocument, effective: readonly EffectiveNodeTheme[]): string | undefined {
@@ -41,10 +54,16 @@ export function NodeThemeSection({ nodes, disabled }: { nodes: readonly ThemedNo
 
   const context = documentStore.themeContext()
   const unavailable = new Map<NodeThemeMode, string>()
+  const availability: Partial<Record<ColorScheme, 'missing' | 'ambiguous'>> = {}
   for (const scheme of schemes) {
     const resolved = resolveThemeForMode(context.themes, context.previewThemeId, scheme)
-    if (resolved.status === 'missing') unavailable.set(scheme, copy.themeMissing(copy.themeModes[scheme]))
-    else if (resolved.status === 'ambiguous') unavailable.set(scheme, copy.themeAmbiguous(copy.themeModes[scheme], resolved.candidates.length))
+    if (resolved.status === 'missing') {
+      availability[scheme] = 'missing'
+      unavailable.set(scheme, copy.themeMissing(copy.themeModes[scheme]))
+    } else if (resolved.status === 'ambiguous') {
+      availability[scheme] = 'ambiguous'
+      unavailable.set(scheme, copy.themeAmbiguous(copy.themeModes[scheme], resolved.candidates.length))
+    }
   }
 
   const stored = nodes.map(node => nodeThemeMode(node))
@@ -53,7 +72,9 @@ export function NodeThemeSection({ nodes, disabled }: { nodes: readonly ThemedNo
   const description = value === 'inherit' ? inheritedLine(file, themes.map(theme => theme.effective)) : undefined
   const accessibleLabel = description ? `${copy.theme}. ${description}` : copy.theme
 
-  const notes = new Set<string>(unavailable.values())
+  const notes = new Set<string>()
+  const availabilityNote = themeAvailabilityNote(availability)
+  if (availabilityNote) notes.add(availabilityNote)
   for (const theme of themes) {
     if (theme.diagnostic?.reason === 'cycle') notes.add(copy.themeLoop)
     if (theme.diagnostic?.reason === 'missing-node') notes.add(copy.themeMissingParent)

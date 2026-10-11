@@ -4,5 +4,5 @@ export function resolveAuthenticatedApiPath(baseURL: string, input: string): str
   if (target.origin !== base.origin || !target.pathname.startsWith('/api/') || target.hash || target.username || target.password) {
     throw new Error('Authenticated API target is not allowed.')
   }
-  return `${target.pathname}${target.search}`
+  return target.toString()
 }

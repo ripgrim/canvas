@@ -15,6 +15,8 @@ export function PanelHeaderActions({ children }: { children: ReactNode }) { retu
 /** Secondary panel actions: a compact right-aligned row set below the rail's top edge. */
 export function PanelToolbar({ label, children }: { label: string; children: ReactNode }) { return <div className="panel-toolbar" role="toolbar" aria-label={label}>{children}</div> }
 
+export function PanelToolbarActions({ children }: { children: ReactNode }) { return <div className="panel-toolbar-actions">{children}</div> }
+
 export function HeaderIconButton({ label, icon, glyph, disabled, pressed, compact = false, onClick }: { label: string; icon?: IconName; glyph?: ReactNode; disabled?: boolean; pressed?: boolean; compact?: boolean; onClick: () => void }) {
   return <button type="button" className="header-icon-button" data-compact={compact || undefined} aria-label={label} title={label} disabled={disabled} aria-pressed={pressed} onClick={onClick}>{glyph ?? (icon ? <Icon name={icon} /> : null)}</button>
 }

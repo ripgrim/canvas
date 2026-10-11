@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@canvas/database": ["../../packages/database/src/index.ts"],
+      "@canvas/database/collaboration": ["../../packages/database/src/collaboration.ts"],
+      "@canvas/database/postgres": ["../../packages/database/src/postgres.ts"],
+      "@canvas/repo-engine/file-document": ["../../packages/repo-engine/src/file-document.ts"],
+      "@canvas/sync-protocol": ["../../packages/sync-protocol/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
+}

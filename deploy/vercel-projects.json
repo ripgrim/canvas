@@ -1,0 +1,67 @@
+{
+  "$schema": "./vercel-projects.schema.json",
+  "scope": "grims-projects-c1f684ea",
+  "repository": "https://github.com/ripgrim/comp-canvas.git",
+  "gitDeployments": "disabled",
+  "projects": [
+    {
+      "service": "web",
+      "name": "comp-canvas-web",
+      "rootDirectory": "apps/web",
+      "framework": "vite",
+      "buildCommand": "pnpm --filter @canvas/web... build",
+      "outputDirectory": "dist/client",
+      "environment": ["VITE_API_ORIGIN", "VITE_PREVIEW_ORIGIN", "VITE_ASSETS_ORIGIN", "VITE_LOGIN_ORIGIN", "VITE_SYNC_ORIGIN", "VITE_DATABUDDY_CLIENT_ID"]
+    },
+    {
+      "service": "login",
+      "name": "comp-canvas-login",
+      "rootDirectory": "apps/login",
+      "framework": "vite",
+      "buildCommand": "pnpm --filter @canvas/login... build",
+      "outputDirectory": "dist",
+      "environment": ["VITE_API_URL", "VITE_APP_URL", "VITE_DATABUDDY_CLIENT_ID"]
+    },
+    {
+      "service": "api",
+      "name": "comp-canvas-api",
+      "rootDirectory": "apps/api",
+      "framework": "other",
+      "buildCommand": "pnpm --filter @canvas/api... build",
+      "outputDirectory": "public",
+      "environment": [
+        "DATABASE_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET",
+        "LOGIN_URL", "APP_URL", "AUTH_TRUSTED_ORIGINS", "AUTH_COOKIE_DOMAIN", "API_SERVICE_TOKEN", "ASSETS_ORIGIN", "COLLABORATION_ADMISSION_SERVICE_TOKEN", "COLLABORATION_BUILD_ID", "THUMBNAIL_SERVICE_TOKEN",
+        "CANVAS_VERIFIED_REGISTRY_FINGERPRINT",
+        "GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET",
+        "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_WEBHOOK_SECRET", "GITHUB_APP_CREDENTIAL_ENCRYPTION_KEY",
+        "GITHUB_APP_AUTHORIZATION_CALLBACK_URL"
+      ]
+    },
+    {
+      "service": "preview",
+      "name": "comp-canvas-preview",
+      "rootDirectory": "apps/preview",
+      "framework": "vite",
+      "buildCommand": "pnpm --dir ../.. run build:preview:vercel",
+      "outputDirectory": "dist",
+      "environment": []
+    },
+    {
+      "service": "thumbnail-renderer",
+      "name": "comp-canvas-thumbnail-renderer",
+      "rootDirectory": "apps/thumbnail-renderer",
+      "framework": "vite",
+      "buildCommand": "pnpm --dir ../.. run build:thumbnail-renderer:vercel",
+      "outputDirectory": "dist",
+      "environment": []
+    }
+  ],
+  "externalServices": [
+    { "service": "assets", "platform": "cloudflare-workers", "reason": "Private R2 binding and scheduled Worker cleanup" },
+    { "service": "sync", "platform": "long-lived-node", "reason": "Stateful WebSocket fanout requires a persistent process" },
+    { "service": "thumbnail-jobs", "platform": "private-container", "reason": "Playwright capture worker requires a provisioned browser and queue lease loop" },
+    { "service": "desktop", "platform": "desktop-release", "reason": "Electron application" }
+  ]
+}
+

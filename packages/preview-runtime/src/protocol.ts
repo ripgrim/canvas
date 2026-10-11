@@ -12,13 +12,13 @@ export type PreviewStop = { color: string; position: number; midpoint?: number }
 export type PreviewFill =
   | { type: 'solid'; color: string; blendMode?: PreviewBlendMode }
   | { type: 'gradient'; shape: 'linear' | 'radial' | 'conic'; angle: number; center: { x: number; y: number }; length: number; interpolation: 'oklab' | 'oklch' | 'srgb'; stops: PreviewStop[]; blendMode?: PreviewBlendMode }
-  | { type: 'image'; assetId: string; fit: 'cover' | 'contain' | 'stretch' | 'tile'; blendMode?: PreviewBlendMode }
+  | { type: 'image'; assetId: string; fit: 'cover' | 'contain' | 'stretch' | 'tile'; geometry?: { x: number; y: number; width: number; height: number }; blendMode?: PreviewBlendMode }
 export type PreviewStroke = { color: string; width: number; style: 'solid' | 'dashed' | 'dotted' }
 export type PreviewBorderSide = 'top' | 'bottom' | 'left' | 'right'
 export type PreviewCornerRadii = { all: number } | { topLeft: number; topRight: number; bottomLeft: number; bottomRight: number }
 /** Render-ready appearance. Fills are in storage order, bottom to top. */
 export type PreviewAppearance = { visible?: false; opacity?: number; blendMode?: PreviewBlendMode; fills?: PreviewFill[]; outline?: PreviewStroke & { offset: number }; borders?: Partial<Record<PreviewBorderSide, PreviewStroke>>; cornerRadii?: PreviewCornerRadii }
-export const previewImageMimes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
+export const previewImageMimes = ['image/avif', 'image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
 export type PreviewAsset = { mime: typeof previewImageMimes[number]; data: string }
 /** Effective design theme of one instance; `explicit` marks the root the theme layer stamps, the rest inherit through the DOM or a portal owner claim. */
 export type PreviewNodeTheme = { mode: 'light' | 'dark'; designThemeId: string; attribute: string | null; colorScheme: 'light' | 'dark'; explicit: boolean }
@@ -34,13 +34,14 @@ export function isPreviewNodeTheme(value: unknown): value is PreviewNodeTheme {
 }
 export type PreviewCanvasElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; x: number; y: number; width: number; height: number; rotation: number; flipX?: boolean; flipY?: boolean; text?: string; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance }
 export type PreviewDocument = { version: 1; revision: number; rootIds: string[]; nodes: Record<string, PreviewDocumentNode>; frame: { width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean; name?: string }; canvas?: { elements: PreviewCanvasElement[] }; background?: string; assets?: Record<string, PreviewAsset> }
-export type PreviewRegistryBinding = { componentId: string; exportName: string; entryPath: string }
+export type PreviewPropRule = { kind: 'string' | 'number' | 'boolean' } | { kind: 'enum'; values: readonly (string | number | boolean)[] }
+export type PreviewRegistryBinding = { componentId: string; exportName: string; entryPath: string; props?: Readonly<Record<string, PreviewPropRule>>; slots?: readonly string[] }
 /** The design theme applied to the preview document root. `attribute` becomes `data-theme`; null clears it for the base theme. */
 export type PreviewTheme = { attribute: string | null; colorScheme: 'light' | 'dark' }
 /** Placement for one mounted node: the five-field host placement plus optional layout longhands projected by the editor. */
 export type PreviewLayoutItem = { nodeId: string; mode: 'flow' | 'absolute'; x: number; y: number; order: number; width?: number; height?: number; declarations?: LayoutDeclarations }
-/** A pointer-only visual offset. The editor clears it before committing authoritative document geometry. */
-export type PreviewTransientMove = { nodeId: string; dx: number; dy: number }
+/** Pointer-only visual bounds. Optional dimensions make resize gestures live without changing the document. */
+export type PreviewTransientMove = { nodeId: string; dx: number; dy: number; width?: number; height?: number; appearance?: PreviewAppearance }
 
 export type PreviewCommand =
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-props'; props: Record<string, JsonValue> }
@@ -107,7 +108,9 @@ const oneOf = (value: unknown, options: readonly string[]) => typeof value === '
 const blendField = (value: Record<string, unknown>) => !Object.hasOwn(value, 'blendMode') || oneOf(value.blendMode, previewBlendModes)
 /** Required keys must all be present; every other key must be one of the optional keys. */
 const shape = (value: Record<string, unknown>, required: string[], optional: string[] = []) => required.every(key => Object.hasOwn(value, key)) && Object.keys(value).every(key => required.includes(key) || optional.includes(key))
-export const previewAppearanceLimits = { fills: 16, stops: 16, strokeWidth: 1000, outlineOffset: 1000, radius: 100_000, assets: 64, assetData: 2_000_004 }
+/** Largest binary asset whose canonical base64 representation fits in one preview message asset entry. */
+export const previewAssetByteLimit = 1_500_003
+export const previewAppearanceLimits = { fills: 16, stops: 16, strokeWidth: 1000, outlineOffset: 1000, radius: 100_000, assets: 64, assetData: Math.ceil(previewAssetByteLimit / 3) * 4 }
 
 function isPreviewStroke(value: unknown, outline: boolean): boolean {
   if (!record(value) || !shape(value, ['color', 'width', 'style', ...(outline ? ['offset'] : [])])) return false
@@ -121,7 +124,10 @@ function isPreviewStop(value: unknown): value is PreviewStop {
 function isPreviewPaint(value: unknown, assets: Record<string, unknown> | undefined): value is PreviewFill {
   if (!record(value) || !blendField(value)) return false
   if (value.type === 'solid') return shape(value, ['type', 'color'], ['blendMode']) && safeColor(value.color)
-  if (value.type === 'image') return shape(value, ['type', 'assetId', 'fit'], ['blendMode']) && validId(value.assetId) && assets !== undefined && Object.hasOwn(assets, value.assetId) && oneOf(value.fit, ['cover', 'contain', 'stretch', 'tile'])
+  if (value.type === 'image') {
+    if (!shape(value, ['type', 'assetId', 'fit'], ['geometry', 'blendMode']) || !validId(value.assetId) || assets === undefined || !Object.hasOwn(assets, value.assetId) || !oneOf(value.fit, ['cover', 'contain', 'stretch', 'tile'])) return false
+    return !Object.hasOwn(value, 'geometry') || record(value.geometry) && shape(value.geometry, ['x', 'y', 'width', 'height']) && finiteWithin(value.geometry.x, coordinateLimit) && finiteWithin(value.geometry.y, coordinateLimit) && numberWithin(value.geometry.width, 1, coordinateLimit) && numberWithin(value.geometry.height, 1, coordinateLimit)
+  }
   if (value.type !== 'gradient' || !shape(value, ['type', 'shape', 'angle', 'center', 'length', 'interpolation', 'stops'], ['blendMode'])) return false
   if (!oneOf(value.shape, ['linear', 'radial', 'conic']) || !oneOf(value.interpolation, ['oklab', 'oklch', 'srgb']) || !numberWithin(value.angle, -360, 360) || !numberWithin(value.length, 0.01, 10)) return false
   if (!record(value.center) || !shape(value.center, ['x', 'y']) || !numberWithin(value.center.x, -2, 3) || !numberWithin(value.center.y, -2, 3)) return false
@@ -161,19 +167,27 @@ export function isPreviewAssets(value: unknown): value is Record<string, Preview
     && typeof asset.data === 'string' && asset.data.length > 0 && asset.data.length <= previewAppearanceLimits.assetData && asset.data.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(asset.data))
 }
 
-function validFixtureProp(exportName: string, name: string, value: unknown): boolean {
+function validComponentProp(binding: Pick<PreviewRegistryBinding, 'props' | 'slots'> | undefined, name: string, value: unknown): boolean {
   if (name.startsWith('data-preview-')) return false
+  if (/^on[A-Z]/.test(name) || ['dangerouslySetInnerHTML', 'style', 'ref', 'key'].includes(name)) return false
+  if (!/^[A-Za-z_$][\w$-]{0,127}$/.test(name)) return false
   if (typeof value === 'string' && value.length > 10_000) return false
   if (typeof value === 'number' && !Number.isFinite(value)) return false
   if (!['string', 'number', 'boolean'].includes(typeof value)) return false
-  if (['children', 'heading', 'footer'].includes(name)) return name === 'children' ? exportName !== 'Input' : exportName === 'Card'
-  if (name === 'variant') return exportName === 'Button' && ['primary', 'quiet'].includes(value as string)
-  if (name === 'type') return exportName === 'Input' ? typeof value === 'string' : exportName === 'Button' && ['button', 'submit', 'reset'].includes(value as string)
-  if (['value', 'defaultValue', 'min', 'max', 'step'].includes(name)) return ['Input', 'Button'].includes(exportName) && ['string', 'number'].includes(typeof value)
+  const rule = binding?.props?.[name]
+  // ReactNode slots may be represented either by child instance ids in `children` or by a scalar document prop.
+  // Scanner registries intentionally keep slots out of the scalar prop-rule table, so the declared slot list is the
+  // only additional authority granted here. The collision check below still rejects a slot supplied both ways.
+  if (binding?.props && !rule && !binding.slots?.includes(name)) return false
+  if (rule?.kind === 'enum') return rule.values.some(candidate => candidate === value)
+  if (rule) return typeof value === rule.kind
   if (/^(aria|data)-[a-z][a-z0-9-]*$/.test(name)) return true
   if (textProps.has(name)) return typeof value === 'string'
   if (booleanProps.has(name)) return typeof value === 'boolean'
-  return numericProps.has(name) && typeof value === 'number'
+  if (numericProps.has(name)) return typeof value === 'number'
+  // Older scan snapshots do not yet carry prop rules. They stay scalar-only and still reject executable or raw HTML
+  // surfaces. Generated registries should carry exact prop rules.
+  return true
 }
 
 export function isPreviewCanvasElement(value: unknown, assets?: Record<string, unknown>): value is PreviewCanvasElement {
@@ -193,7 +207,7 @@ export function isPreviewCanvasElement(value: unknown, assets?: Record<string, u
   return true
 }
 
-export function isPreviewDocument(value: unknown, registry?: readonly Pick<PreviewRegistryBinding, 'componentId' | 'exportName'>[]): value is PreviewDocument {
+export function isPreviewDocument(value: unknown, registry?: readonly Pick<PreviewRegistryBinding, 'componentId' | 'exportName' | 'props' | 'slots'>[]): value is PreviewDocument {
   if (!record(value)) return false
   const optional = ['canvas', 'background', 'assets'].filter(name => Object.hasOwn(value, name))
   if (!exactFields(value, ['version', 'revision', 'rootIds', 'nodes', 'frame', ...optional]) || value.version !== 1 || !Number.isSafeInteger(value.revision) || (value.revision as number) < 0) return false
@@ -219,15 +233,16 @@ export function isPreviewDocument(value: unknown, registry?: readonly Pick<Previ
     }
   }
   for (const [id, node] of Object.entries(value.nodes)) {
-    if (!record(node) || !exactFields(node, ['id', 'componentId', 'exportName', 'props', 'children', ...['name', 'appearance', 'theme'].filter(name => Object.hasOwn(node, name))]) || !validId(id) || node.id !== id || !validId(node.componentId) || !['Card', 'Label', 'Input', 'Button'].includes(node.exportName as string)) return false
+    if (!record(node) || !exactFields(node, ['id', 'componentId', 'exportName', 'props', 'children', ...['name', 'appearance', 'theme'].filter(name => Object.hasOwn(node, name))]) || !validId(id) || node.id !== id || !validId(node.componentId) || typeof node.exportName !== 'string' || !/^[A-Za-z_$][\w$]{0,127}$/.test(node.exportName)) return false
     if (Object.hasOwn(node, 'theme') && !isPreviewNodeTheme(node.theme)) return false
     if (Object.hasOwn(node, 'name') && !validName(node.name)) return false
     if (Object.hasOwn(node, 'appearance') && !isPreviewAppearance(node.appearance, assets, 'component')) return false
-    if (registry && !registry.some(binding => binding.componentId === node.componentId && binding.exportName === node.exportName)) return false
+    const binding = registry?.find(binding => binding.componentId === node.componentId && binding.exportName === node.exportName)
+    if (registry && !binding) return false
     if (!record(node.props) || Object.keys(node.props).length > 100 || !record(node.children)) return false
-    for (const [name, prop] of Object.entries(node.props)) if (!validFixtureProp(node.exportName as string, name, prop)) return false
+    for (const [name, prop] of Object.entries(node.props)) if (!validComponentProp(binding, name, prop)) return false
     for (const [slot, children] of Object.entries(node.children)) {
-      if (node.exportName !== 'Card' || !['children', 'heading', 'footer'].includes(slot) || !Array.isArray(children) || children.length > 500 || !children.every(validId) || (children.length > 0 && Object.hasOwn(node.props, slot))) return false
+      if (!/^[A-Za-z_$][\w$-]{0,127}$/.test(slot) || slot.startsWith('data-preview-') || binding?.slots && !binding.slots.includes(slot) || !Array.isArray(children) || children.length > 500 || !children.every(validId) || (children.length > 0 && Object.hasOwn(node.props, slot))) return false
     }
   }
   const doc = value as unknown as PreviewDocument
@@ -246,7 +261,7 @@ export function isPreviewTheme(value: unknown): value is PreviewTheme {
   return record(value) && exactFields(value, ['attribute', 'colorScheme']) && (value.attribute === null || typeof value.attribute === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(value.attribute)) && ['light', 'dark'].includes(value.colorScheme as string)
 }
 
-export function acceptPreviewCommand(event: Pick<MessageEvent, 'origin' | 'source' | 'data'>, editorOrigin: string, parent: MessageEventSource, generation: number, document: PreviewDocument | null = null): PreviewCommand | null {
+export function acceptPreviewCommand(event: Pick<MessageEvent, 'origin' | 'source' | 'data'>, editorOrigin: string, parent: MessageEventSource, generation: number, document: PreviewDocument | null = null, registry?: readonly Pick<PreviewRegistryBinding, 'componentId' | 'exportName' | 'props' | 'slots'>[]): PreviewCommand | null {
   if (event.origin !== editorOrigin || event.source !== parent || !record(event.data)) return null
   const data = event.data
   if (data.channel !== 'design-editor-preview' || data.version !== protocolVersion || data.generation !== generation) return null
@@ -271,7 +286,15 @@ export function acceptPreviewCommand(event: Pick<MessageEvent, 'origin' | 'sourc
     if (!exactFields(data, ['channel', 'version', 'generation', 'type', 'items']) || !Array.isArray(data.items) || data.items.length > 500) return null
     const ids = new Set<string>()
     for (const item of data.items) {
-      if (!record(item) || !exactFields(item, ['nodeId', 'dx', 'dy']) || !validId(item.nodeId) || ids.has(item.nodeId) || !finiteWithin(item.dx, coordinateLimit) || !finiteWithin(item.dy, coordinateLimit)) return null
+      if (!record(item)) return null
+      const fields = ['nodeId', 'dx', 'dy', ...['width', 'height', 'appearance'].filter(key => Object.hasOwn(item, key))]
+      if (!exactFields(item, fields) || !validId(item.nodeId) || ids.has(item.nodeId) || !finiteWithin(item.dx, coordinateLimit) || !finiteWithin(item.dy, coordinateLimit)) return null
+      for (const key of ['width', 'height']) if (Object.hasOwn(item, key) && (!finiteWithin(item[key], coordinateLimit) || (item[key] as number) < 1)) return null
+      if (Object.hasOwn(item, 'appearance')) {
+        const canvas = document?.canvas?.elements.find(element => element.id === item.nodeId)
+        const kind = canvas?.kind ?? (document && Object.hasOwn(document.nodes, item.nodeId as string) ? 'component' : null)
+        if (!kind || !isPreviewAppearance(item.appearance, document?.assets, kind)) return null
+      }
       if (document && !Object.hasOwn(document.nodes, item.nodeId as string) && !document.canvas?.elements.some(element => element.id === item.nodeId)) return null
       ids.add(item.nodeId)
     }
@@ -284,7 +307,7 @@ export function acceptPreviewCommand(event: Pick<MessageEvent, 'origin' | 'sourc
   }
   if (data.type === 'set-document') {
     const fields = ['channel', 'version', 'generation', 'type', 'document', ...(Object.hasOwn(data, 'theme') ? ['theme'] : [])]
-    return exactFields(data, fields) && (!Object.hasOwn(data, 'theme') || isPreviewTheme(data.theme)) && isPreviewDocument(data.document) ? data as PreviewCommand : null
+    return exactFields(data, fields) && (!Object.hasOwn(data, 'theme') || isPreviewTheme(data.theme)) && isPreviewDocument(data.document, registry) ? data as PreviewCommand : null
   }
   if (data.type !== 'set-props' || Object.keys(data).length !== 5 || !record(data.props) || !isJsonValue(data.props)) return null
   if (JSON.stringify(data.props).length > 65_536) return null

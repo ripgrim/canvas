@@ -43,9 +43,7 @@ export function createRevisionSyncService(options: Readonly<{ repository: SyncRe
     }
     const data = encodeServerSyncMessage(message)
     peer.pendingOutboundMessages += 1
-    const delivery = peer.outbound
-      .catch(() => undefined)
-      .then(async () => { if (!peer.disconnected) await peer.socket.send(data) })
+    const delivery = peer.outbound.then(async () => { if (!peer.disconnected) await peer.socket.send(data) })
     peer.outbound = delivery
       .catch(() => {
         if (!peer.disconnected) peer.socket.close(1011, 'Send failed')

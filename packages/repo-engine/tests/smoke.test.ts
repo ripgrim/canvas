@@ -8,6 +8,7 @@ import { validatePreviewFiles } from '../../preview-runtime/src/index'
 
 const fixture = fileURLToPath(new URL('../../../tests/fixtures/component-repo-seed/', import.meta.url))
 const fixtureDependencies = fileURLToPath(new URL('../../../fixtures/component-repo/node_modules/', import.meta.url))
+const fixtureLockfile = fileURLToPath(new URL('../../../fixtures/component-repo/pnpm-lock.yaml', import.meta.url))
 
 async function removeFixture(root: string) {
   const canonical = await realpath(root)
@@ -24,6 +25,7 @@ it('independent API smoke: inspect then prepare, without saving source', async (
   try {
     await cp(path.join(fixture, 'src'), path.join(root, 'src'), { recursive: true })
     await cp(path.join(fixture, 'package.json'), path.join(root, 'package.json'))
+    await cp(fixtureLockfile, path.join(root, 'pnpm-lock.yaml'))
     await symlink(fixtureDependencies, path.join(root, 'node_modules'), 'junction')
     const engine = await createRepoEngine(root, {
       validatePreview: input => validatePreviewFiles({ repositoryRoot: input.root, editorOrigin: 'design-editor://app', executionTrust: 'fixture-only' }, { ...input.binding, styles: ['src/globals.css'] }, input.files),
@@ -36,7 +38,7 @@ it('independent API smoke: inspect then prepare, without saving source', async (
     expect(prepared.files.map(file => file.path)).toEqual(['src/atoms/Label.tsx'])
     expect(prepared.validation.map(check => [check.name, check.status])).toEqual([['Parse', 'passed'], ['Types', 'passed'], ['Preview build', 'passed']])
     expect(after.sourceHashes).toEqual(before.sourceHashes)
-    expect(before.file).toMatchObject({ schemaVersion: 6, fileId: before.projectId, revision: 0 })
+    expect(before.file).toMatchObject({ schemaVersion: 7, fileId: before.projectId, revision: 0 })
     expect(before.file.pages).toHaveLength(1)
     expect(after.file).toEqual(before.file)
     expect(before).not.toHaveProperty('previewTheme')

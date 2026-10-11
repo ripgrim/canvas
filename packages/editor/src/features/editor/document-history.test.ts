@@ -8,7 +8,7 @@ const atoms: Atom[] = [{ componentId: 'button', name: 'Button', exportName: 'But
 
 function file(revision: number, text = 'Sign in'): FileDocument {
   return {
-    schemaVersion: 6, fileId: 'file-a', revision,
+    schemaVersion: 7, fileId: 'file-a', revision,
     pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
     nodes: {
       'root-1': { id: 'root-1', type: 'root' },
@@ -27,19 +27,28 @@ function storage() {
   return { data, removed, api }
 }
 
-const example = (): DocumentHistory => ({ past: [{ file: file(1, 'Continue'), pageId: 'page-1', selection: ['submit'] }], future: [{ file: file(3, 'Welcome'), pageId: 'page-1', selection: [] }] })
-const keyA = 'design-editor:document-history:v2:file-a'
-const keyB = 'design-editor:document-history:v2:file-b'
+const entry = (source: FileDocument, selection: string[] = [], afterSelection: string[] = selection) => ({
+  file: source,
+  pageId: 'page-1',
+  selection,
+  afterPageId: 'page-1',
+  afterSelection,
+  undo: { type: 'page.rename', pageId: 'page-1', name: source.pages[0]!.name } as const,
+  redo: { type: 'page.rename', pageId: 'page-1', name: `${source.pages[0]!.name} edited` } as const,
+})
+const example = (): DocumentHistory => ({ past: [entry(file(1, 'Continue'), ['submit'])], future: [entry(file(3, 'Welcome'))] })
+const keyA = 'design-editor:document-history:v3:file-a'
+const keyB = 'design-editor:document-history:v3:file-b'
 const text = (entry: { file: FileDocument } | undefined) => (entry?.file.nodes.submit as { props: { children: string } } | undefined)?.props.children
 
 describe('persistent file undo history', () => {
-  it('stores a version 2 payload and restores prior and next files with page and selection', () => {
+  it('stores a version 3 payload and restores semantic history with page and selection', () => {
     const store = storage()
     const history = example()
     saveDocumentHistory(store.api, 'file-a', file(2), history)
     const payload = JSON.parse(store.data.get(keyA)!)
     expect(Object.keys(payload)).toEqual(['version', 'fileId', 'currentFile', 'history'])
-    expect(payload.version).toBe(2)
+    expect(payload.version).toBe(3)
     expect(payload.fileId).toBe('file-a')
     expect(payload.currentFile.revision).toBe(2)
     ;(history.past[0]!.file.nodes.submit as unknown as { props: { children: string } }).props.children = 'Caller changed its copy'
@@ -47,6 +56,8 @@ describe('persistent file undo history', () => {
     expect(text(restored?.past[0])).toBe('Continue')
     expect(restored?.past[0]!.pageId).toBe('page-1')
     expect(restored?.past[0]!.selection).toEqual(['submit'])
+    expect(restored?.past[0]!.undo).toEqual({ type: 'page.rename', pageId: 'page-1', name: 'Page 1' })
+    expect(restored?.past[0]!.redo).toEqual({ type: 'page.rename', pageId: 'page-1', name: 'Page 1 edited' })
     expect(text(restored?.future[0])).toBe('Welcome')
     expect(restored?.future[0]!.selection).toEqual([])
     expect(store.removed).toEqual([])
@@ -55,7 +66,7 @@ describe('persistent file undo history', () => {
   it('encodes the file id in the key and never reads version 1 caches', () => {
     const store = storage()
     saveDocumentHistory(store.api, 'team/file a', file(2), example())
-    expect([...store.data.keys()]).toEqual(['design-editor:document-history:v2:team%2Ffile%20a'])
+    expect([...store.data.keys()]).toEqual(['design-editor:document-history:v3:team%2Ffile%20a'])
     store.data.set('design-editor:document-history:v1:file-a', JSON.stringify({ version: 1, projectId: 'file-a', currentDocument: {}, history: { past: [], future: [] } }))
     expect(loadDocumentHistory(store.api, 'file-a', file(2), atoms)).toBeNull()
     expect(() => saveDocumentHistory(store.api, '', file(2), example())).toThrow('Invalid history file identity')
@@ -64,10 +75,10 @@ describe('persistent file undo history', () => {
   it('accepts selected primitives and rejects missing, root, or duplicate selections', () => {
     const store = storage()
     const current = file(2)
-    saveDocumentHistory(store.api, 'file-a', current, { past: [{ file: file(1), pageId: 'page-1', selection: ['shape'] }], future: [] })
+    saveDocumentHistory(store.api, 'file-a', current, { past: [entry(file(1), ['shape'])], future: [] })
     expect(loadDocumentHistory(store.api, 'file-a', current, atoms)?.past[0]!.selection).toEqual(['shape'])
     for (const selection of [['missing-shape'], ['root-1'], ['shape', 'shape']]) {
-      saveDocumentHistory(store.api, 'file-a', current, { past: [{ file: file(1), pageId: 'page-1', selection: ['shape'] }], future: [] })
+      saveDocumentHistory(store.api, 'file-a', current, { past: [entry(file(1), ['shape'])], future: [] })
       const payload = JSON.parse(store.data.get(keyA)!)
       payload.history.past[0].selection = selection
       store.data.set(keyA, JSON.stringify(payload))
@@ -122,21 +133,21 @@ describe('persistent file undo history', () => {
 
   it('retains the twenty nearest entries with future first and rejects oversized stored entry arrays', () => {
     const store = storage()
-    const history = { past: Array.from({ length: 30 }, (_, index) => ({ file: file(index), pageId: 'page-1', selection: ['submit'] })), future: [{ file: file(40), pageId: 'page-1', selection: [] }, { file: file(41), pageId: 'page-1', selection: [] }] }
+    const history = { past: Array.from({ length: 30 }, (_, index) => entry(file(index), ['submit'])), future: [entry(file(40)), entry(file(41))] }
     saveDocumentHistory(store.api, 'file-a', file(31), history)
     const restored = loadDocumentHistory(store.api, 'file-a', file(31), atoms)!
     expect(restored.past.map(entry => entry.file.revision)).toEqual([12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29])
     expect(restored.future.map(entry => entry.file.revision)).toEqual([40, 41])
     expect(history.past).toHaveLength(30)
     const payload = JSON.parse(store.data.get(keyA)!)
-    payload.history.past.push({ file: file(30), pageId: 'page-1', selection: [] })
+    payload.history.past.push(entry(file(30)))
     store.data.set(keyA, JSON.stringify(payload))
     expect(loadDocumentHistory(store.api, 'file-a', file(31), atoms)).toBeNull()
   })
 
   it('retains no past entries when twenty nearest redos consume the budget', () => {
     const store = storage()
-    saveDocumentHistory(store.api, 'file-a', file(2), { past: example().past, future: Array.from({ length: 25 }, (_, index) => ({ file: file(index), pageId: 'page-1', selection: [] })) })
+    saveDocumentHistory(store.api, 'file-a', file(2), { past: example().past, future: Array.from({ length: 25 }, (_, index) => entry(file(index))) })
     const restored = loadDocumentHistory(store.api, 'file-a', file(2), atoms)!
     expect(restored.past).toEqual([])
     expect(restored.future.map(entry => entry.file.revision)).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])
@@ -151,7 +162,7 @@ describe('persistent file undo history', () => {
       large.nodes[id] = { id, type: 'component', componentId: 'button', exportName: 'Button', props: { children: '界'.repeat(3000) } }
       large.relationships[id] = { parentId: 'root-1', orderKey: 'X' }
     }
-    const history = { past: Array.from({ length: 8 }, (_, index) => ({ file: { ...large, revision: index + 1 }, pageId: 'page-1', selection: [] })), future: [] }
+    const history = { past: Array.from({ length: 8 }, (_, index) => entry({ ...large, revision: index + 1 })), future: [] }
     saveDocumentHistory(store.api, 'file-a', file(9), history)
     expect(new TextEncoder().encode(store.data.get(keyA)!).byteLength).toBeLessThanOrEqual(documentHistoryByteLimit)
     const restored = loadDocumentHistory(store.api, 'file-a', file(9), atoms)!

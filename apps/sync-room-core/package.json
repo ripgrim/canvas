@@ -1,0 +1,33 @@
+{
+  "name": "@canvas/sync-room-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "pnpm build && node dist/dev-host.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "node dist/serve.js"
+  },
+  "dependencies": {
+    "@canvas/cloud-document": "workspace:*",
+    "@canvas/database": "workspace:*",
+    "@canvas/repo-engine": "workspace:*",
+    "@canvas/sync-protocol": "workspace:*",
+    "pg": "8.23.1",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

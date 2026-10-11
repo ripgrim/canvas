@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "typeRoots": ["../sync/node_modules/@types", "../../node_modules/@types"],
+    "paths": {
+      "@canvas/cloud-document": ["../../packages/cloud-document/src/index.ts"],
+      "@canvas/sync-protocol": ["../../packages/sync-protocol/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
+}

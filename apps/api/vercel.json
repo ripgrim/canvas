@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --filter @canvas/api... build",
+  "outputDirectory": "public",
+  "functions": {
+    "api/handler.ts": {
+      "maxDuration": 60,
+      "supportsCancellation": true
+    }
+  },
+  "rewrites": [
+    { "source": "/healthz", "destination": "/api/handler?__canvas_path=healthz" },
+    { "source": "/api/:path*", "destination": "/api/handler?__canvas_path=api/:path*" },
+    { "source": "/internal/:path*", "destination": "/api/handler?__canvas_path=internal/:path*" }
+  ]
+}
+

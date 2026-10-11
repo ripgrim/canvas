@@ -1,0 +1,46 @@
+{
+  "hash": "49828ef6",
+  "configHash": "9814b436",
+  "lockfileHash": "9cea548c",
+  "browserHash": "d5970156",
+  "optimized": {
+    "react": {
+      "src": "../../../../node_modules/.pnpm/react@19.3.0/node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "3a16893e",
+      "needsInterop": true
+    },
+    "react-dom": {
+      "src": "../../../../node_modules/.pnpm/react-dom@19.3.0_react@19.3.0/node_modules/react-dom/index.js",
+      "file": "react-dom.js",
+      "fileHash": "d52b2cbb",
+      "needsInterop": true
+    },
+    "react/jsx-dev-runtime": {
+      "src": "../../../../node_modules/.pnpm/react@19.3.0/node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "6a3cc664",
+      "needsInterop": true
+    },
+    "react/jsx-runtime": {
+      "src": "../../../../node_modules/.pnpm/react@19.3.0/node_modules/react/jsx-runtime.js",
+      "file": "react_jsx-runtime.js",
+      "fileHash": "ad6b1e67",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../../../node_modules/.pnpm/react-dom@19.3.0_react@19.3.0/node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "350d97ff",
+      "needsInterop": true
+    }
+  },
+  "chunks": {
+    "chunk-SR7CHS53": {
+      "file": "chunk-SR7CHS53.js"
+    },
+    "chunk-2VG5BRIH": {
+      "file": "chunk-2VG5BRIH.js"
+    }
+  }
+}

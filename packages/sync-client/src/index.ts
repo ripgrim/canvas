@@ -1,6 +1,11 @@
 import { defaultMaxSyncMessageBytes, syncProtocolVersion } from '@canvas/sync-protocol'
 import type { FileEdit, JsonObject, JsonValue, PersistedFileEditBatch, ServerSyncMessage } from '@canvas/sync-protocol'
 
+export * from './collaboration-state.js'
+export * from './snapshot-assembler.js'
+export * from './collaboration-client.js'
+export * from './collaboration-store.js'
+
 export type SyncClientStatus = 'idle' | 'connecting' | 'subscribing' | 'ready' | 'reconnecting' | 'conflict' | 'error' | 'disposed'
 
 export type SyncConflict = Readonly<{
@@ -43,11 +48,22 @@ export type SyncWebSocket = Readonly<{
   removeEventListener<K extends keyof WebSocketEventMap>(type: K, listener: (event: WebSocketEventMap[K]) => void): void
 }>
 
+export type SyncClientLifecycleTarget = Readonly<{
+  addEventListener(type: 'online' | 'offline' | 'visibilitychange', listener: () => void): void
+  removeEventListener(type: 'online' | 'offline' | 'visibilitychange', listener: () => void): void
+}>
+
 export type RevisionSyncClientOptions<TDocument extends object> = Readonly<{
   syncOrigin: string
   createWebSocket?: (url: string) => SyncWebSocket
   validateDocument(value: unknown): TDocument
   reconnectDelaysMs?: readonly number[]
+  random?: () => number
+  heartbeatIntervalMs?: number
+  heartbeatTimeoutMs?: number
+  lifecycleTarget?: SyncClientLifecycleTarget | null
+  isOnline?: () => boolean
+  isVisible?: () => boolean
   setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>
   clearTimer?: (timer: ReturnType<typeof setTimeout>) => void
   createId?: () => string
@@ -197,11 +213,38 @@ function messageText(event: MessageEvent<unknown>): string | null {
   return typeof event.data === 'string' ? event.data : null
 }
 
+function browserLifecycleTarget(): SyncClientLifecycleTarget | null {
+  const connectivityTarget = typeof globalThis.addEventListener === 'function' ? globalThis : null
+  const visibilityTarget = typeof document === 'undefined' ? null : document
+  if (!connectivityTarget && !visibilityTarget) return null
+  return {
+    addEventListener(type, listener) {
+      const target = type === 'visibilitychange' ? visibilityTarget : connectivityTarget
+      target?.addEventListener(type, listener)
+    },
+    removeEventListener(type, listener) {
+      const target = type === 'visibilitychange' ? visibilityTarget : connectivityTarget
+      target?.removeEventListener(type, listener)
+    },
+  }
+}
+
+function positiveInteger(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${label} must be a positive integer.`)
+  return value
+}
+
 export function createRevisionSyncClient<TDocument extends object>(options: RevisionSyncClientOptions<TDocument>) {
   const origin = syncOrigin(options.syncOrigin)
   const socketFactory = options.createWebSocket ?? (url => new WebSocket(url))
-  const reconnectDelays = options.reconnectDelaysMs ?? [250, 500, 1_000, 2_000, 4_000]
-  if (reconnectDelays.some(delay => !Number.isSafeInteger(delay) || delay < 0)) throw new Error('Reconnect delays must be non-negative integers.')
+  const reconnectDelays = options.reconnectDelaysMs ?? [250, 500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
+  if (!reconnectDelays.length || reconnectDelays.some(delay => !Number.isSafeInteger(delay) || delay < 0)) throw new Error('Reconnect delays must contain non-negative integers.')
+  const random = options.random ?? Math.random
+  const heartbeatIntervalMs = positiveInteger(options.heartbeatIntervalMs ?? 15_000, 'Heartbeat interval')
+  const heartbeatTimeoutMs = positiveInteger(options.heartbeatTimeoutMs ?? 5_000, 'Heartbeat timeout')
+  const lifecycleTarget = options.lifecycleTarget === undefined ? browserLifecycleTarget() : options.lifecycleTarget
+  const isOnline = options.isOnline ?? (() => typeof navigator === 'undefined' || navigator.onLine !== false)
+  const isVisible = options.isVisible ?? (() => typeof document === 'undefined' || document.visibilityState !== 'hidden')
   const schedule = options.setTimer ?? setTimeout
   const cancel = options.clearTimer ?? clearTimeout
   const createId = options.createId ?? (() => crypto.randomUUID())
@@ -212,11 +255,15 @@ export function createRevisionSyncClient<TDocument extends object>(options: Revi
   let socket: SyncWebSocket | null = null
   let socketListeners: { open: (event: Event) => void; message: (event: MessageEvent<unknown>) => void; close: (event: CloseEvent) => void; error: (event: Event) => void } | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null
+  let heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | null = null
   let generation = 0
   let requestId: string | null = null
   let pending: PendingMutation<TDocument> | null = null
   let stopped = true
   let disposed = false
+  let terminal = false
+  let lifecycleListening = false
 
   const publish = (patch: Partial<SyncClientSnapshot<TDocument>>) => {
     cached = Object.freeze({ ...cached, ...patch })
@@ -224,7 +271,13 @@ export function createRevisionSyncClient<TDocument extends object>(options: Revi
     return cached
   }
 
+  const clearHeartbeat = () => {
+    if (heartbeatTimer) { cancel(heartbeatTimer); heartbeatTimer = null }
+    if (heartbeatTimeoutTimer) { cancel(heartbeatTimeoutTimer); heartbeatTimeoutTimer = null }
+  }
+
   const detachSocket = (close = false) => {
+    clearHeartbeat()
     const target = socket
     const bound = socketListeners
     socket = null
@@ -235,6 +288,12 @@ export function createRevisionSyncClient<TDocument extends object>(options: Revi
     target.removeEventListener('close', bound.close)
     target.removeEventListener('error', bound.error)
     if (close) target.close(1000, 'Client stopped')
+  }
+
+  const cancelReconnect = () => {
+    if (!reconnectTimer) return
+    cancel(reconnectTimer)
+    reconnectTimer = null
   }
 
   const rejectPending = (error: Error) => {
@@ -342,22 +401,106 @@ export function createRevisionSyncClient<TDocument extends object>(options: Revi
     }
   }
 
-  const connect = () => {
-    if (stopped || disposed || !cached.fileId || !cached.clientId) return
+  const reconnectDelay = (attempt: number) => {
+    const base = reconnectDelays[Math.min(attempt, reconnectDelays.length - 1)]!
+    const sample = random()
+    const jitter = Number.isFinite(sample) ? Math.max(0, Math.min(1, sample)) : 0.5
+    return Math.round(base * (0.5 + jitter))
+  }
+
+  const terminalCloseError = (event: CloseEvent): Error | null => {
+    if (event.code === 1009) return new SyncClientMessageTooLargeError()
+    if (event.code === 4401) return new Error('Sign in to resume live sync.')
+    if (event.code === 4403) return new Error('You no longer have access to this file.')
+    if (event.code === 4404) return new Error('This file is no longer available.')
+    return null
+  }
+
+  let connect: () => void
+
+  const scheduleReconnect = () => {
+    if (stopped || disposed || terminal || socket || reconnectTimer) return
+    if (!isOnline()) {
+      publish({ status: 'reconnecting', error: null })
+      return
+    }
+    const attempt = cached.reconnectAttempt
+    publish({ status: 'reconnecting', reconnectAttempt: attempt + 1, error: null })
+    reconnectTimer = schedule(() => {
+      reconnectTimer = null
+      connect()
+    }, reconnectDelay(attempt))
+  }
+
+  const forceReconnect = (target: SyncWebSocket, currentGeneration: number, reason: string) => {
+    if (generation !== currentGeneration || socket !== target || stopped || disposed) return
+    detachSocket()
+    target.close(4000, reason)
+    scheduleReconnect()
+  }
+
+  const armHeartbeat = (target: SyncWebSocket, currentGeneration: number, delayMs = heartbeatIntervalMs) => {
+    clearHeartbeat()
+    heartbeatTimer = schedule(() => {
+      heartbeatTimer = null
+      if (generation !== currentGeneration || socket !== target || stopped || disposed) return
+      if (!isVisible()) {
+        armHeartbeat(target, currentGeneration)
+        return
+      }
+      try {
+        target.send('ping')
+      } catch {
+        forceReconnect(target, currentGeneration, 'Heartbeat send failed')
+        return
+      }
+      heartbeatTimeoutTimer = schedule(() => {
+        heartbeatTimeoutTimer = null
+        forceReconnect(target, currentGeneration, 'Heartbeat timeout')
+      }, heartbeatTimeoutMs)
+    }, delayMs)
+  }
+
+  connect = () => {
+    if (stopped || disposed || terminal || socket || !cached.fileId || !cached.clientId) return
+    if (!isOnline()) {
+      publish({ status: 'reconnecting', error: null })
+      return
+    }
     const currentGeneration = ++generation
     requestId = createId()
-    const target = socketFactory(`${origin}/sync/${encodeURIComponent(cached.fileId)}?tabId=${encodeURIComponent(cached.clientId)}`)
+    let target: SyncWebSocket
+    try {
+      target = socketFactory(`${origin}/sync/${encodeURIComponent(cached.fileId)}?tabId=${encodeURIComponent(cached.clientId)}`)
+    } catch {
+      scheduleReconnect()
+      return
+    }
     socket = target
     const open = () => {
       if (generation !== currentGeneration || socket !== target || stopped) return
       publish({ status: 'subscribing', error: null })
-      target.send(JSON.stringify({ type: 'file.subscribe', protocolVersion: syncProtocolVersion, requestId, fileId: cached.fileId, clientId: cached.clientId, afterRevision: cached.revision }))
+      armHeartbeat(target, currentGeneration)
+      try {
+        target.send(JSON.stringify({ type: 'file.subscribe', protocolVersion: syncProtocolVersion, requestId, fileId: cached.fileId, clientId: cached.clientId, afterRevision: cached.revision }))
+      } catch {
+        forceReconnect(target, currentGeneration, 'Subscription send failed')
+      }
     }
     const message = (event: MessageEvent<unknown>) => {
       if (generation !== currentGeneration || socket !== target || stopped) return
       try {
         const source = messageText(event)
         if (source === null) throw new Error('Sync messages must be text.')
+        if (source === 'pong') {
+          if (heartbeatTimeoutTimer) { cancel(heartbeatTimeoutTimer); heartbeatTimeoutTimer = null }
+          armHeartbeat(target, currentGeneration)
+          return
+        }
+        if (source === 'ping') {
+          target.send('pong')
+          return
+        }
         receive(parseServerMessage(source))
       } catch (error) {
         const reason = error instanceof Error ? error.message : 'The sync service returned an invalid message.'
@@ -369,21 +512,14 @@ export function createRevisionSyncClient<TDocument extends object>(options: Revi
     const closed = (event: CloseEvent) => {
       if (generation !== currentGeneration || socket !== target || stopped) return
       detachSocket()
-      if (event.code === 1009) {
-        const error = new SyncClientMessageTooLargeError()
-        publish({ status: 'error', error: error.message })
-        rejectPending(error)
+      const terminalError = terminalCloseError(event)
+      if (terminalError) {
+        terminal = true
+        publish({ status: 'error', error: terminalError.message })
+        rejectPending(terminalError)
         return
       }
-      const attempt = cached.reconnectAttempt
-      const delay = reconnectDelays[attempt]
-      if (delay === undefined) {
-        publish({ status: 'error', error: 'Live sync could not reconnect.' })
-        rejectPending(new Error('Live sync could not reconnect.'))
-        return
-      }
-      publish({ status: 'reconnecting', reconnectAttempt: attempt + 1, error: null })
-      reconnectTimer = schedule(() => { reconnectTimer = null; connect() }, delay)
+      scheduleReconnect()
     }
     const error = () => undefined
     socketListeners = { open, message, close: closed, error }
@@ -393,6 +529,51 @@ export function createRevisionSyncClient<TDocument extends object>(options: Revi
     target.addEventListener('error', error)
   }
 
+  const online = () => {
+    if (stopped || disposed || terminal || socket) return
+    cancelReconnect()
+    connect()
+  }
+
+  const offline = () => {
+    if (stopped || disposed || terminal) return
+    cancelReconnect()
+    if (socket) detachSocket(true)
+    publish({ status: 'reconnecting', error: null })
+  }
+
+  const visibilityChanged = () => {
+    if (stopped || disposed || terminal) return
+    if (!isVisible()) {
+      clearHeartbeat()
+      return
+    }
+    if (socket) {
+      armHeartbeat(socket, generation, 0)
+      return
+    }
+    if (isOnline()) {
+      cancelReconnect()
+      connect()
+    }
+  }
+
+  const attachLifecycle = () => {
+    if (!lifecycleTarget || lifecycleListening) return
+    lifecycleTarget.addEventListener('online', online)
+    lifecycleTarget.addEventListener('offline', offline)
+    lifecycleTarget.addEventListener('visibilitychange', visibilityChanged)
+    lifecycleListening = true
+  }
+
+  const detachLifecycle = () => {
+    if (!lifecycleTarget || !lifecycleListening) return
+    lifecycleTarget.removeEventListener('online', online)
+    lifecycleTarget.removeEventListener('offline', offline)
+    lifecycleTarget.removeEventListener('visibilitychange', visibilityChanged)
+    lifecycleListening = false
+  }
+
   return Object.freeze({
     getSnapshot: () => cached,
     subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener) },
@@ -400,10 +581,12 @@ export function createRevisionSyncClient<TDocument extends object>(options: Revi
       if (disposed) throw new Error('This sync client was disposed.')
       text(input.fileId, 'file id'); text(input.clientId, 'client id')
       if (!safeInteger(input.revision)) throw new Error('Invalid file revision.')
-      if (reconnectTimer) { cancel(reconnectTimer); reconnectTimer = null }
+      cancelReconnect()
       detachSocket(true)
       rejectPending(new Error('The synced file changed.'))
       stopped = false
+      terminal = false
+      attachLifecycle()
       const document = options.validateDocument(structuredClone(input.document))
       publish({ status: 'connecting', fileId: input.fileId, clientId: input.clientId, revision: input.revision, document, conflict: null, error: null, reconnectAttempt: 0 })
       connect()
@@ -429,8 +612,9 @@ export function createRevisionSyncClient<TDocument extends object>(options: Revi
       if (disposed) return
       stopped = true
       generation += 1
-      if (reconnectTimer) { cancel(reconnectTimer); reconnectTimer = null }
+      cancelReconnect()
       detachSocket(true)
+      detachLifecycle()
       rejectPending(new Error('Live sync stopped.'))
       publish({ status: 'idle', conflict: null, error: null, reconnectAttempt: 0 })
     },
@@ -439,8 +623,9 @@ export function createRevisionSyncClient<TDocument extends object>(options: Revi
       stopped = true
       disposed = true
       generation += 1
-      if (reconnectTimer) { cancel(reconnectTimer); reconnectTimer = null }
+      cancelReconnect()
       detachSocket(true)
+      detachLifecycle()
       rejectPending(new Error('Live sync was disposed.'))
       publish({ status: 'disposed', conflict: null, error: null, reconnectAttempt: 0 })
       listeners.clear()

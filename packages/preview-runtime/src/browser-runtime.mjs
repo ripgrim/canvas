@@ -69,7 +69,7 @@ function renderCanvasTree(elements, parentId, offset, assets) {
  * in a provider boundary (no DOM node) for the components it claims, and may register portal roots it can attribute to
  * an instance. Nothing else about providers or portals is inferred.
  */
-export function startPreview({ Component, Provider, providerProps, initialProps, generation, editorOrigin, componentId, registry = [], sourceDocument = null, themeAdapters = [] }) {
+export function startPreview({ Component, Provider, providerProps, initialProps, generation, editorOrigin, componentId, registry = /** @type {readonly any[]} */ ([]), sourceDocument = null, themeAdapters = /** @type {readonly any[]} */ ([]) }) {
   const container = document.getElementById('preview-root')
   let props = initialProps
   if (sourceDocument && !isPreviewDocument(sourceDocument, registry)) throw new Error('Invalid source binding document')
@@ -134,8 +134,10 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     // A verified provider boundary wraps React children only; it never adds a DOM node around the actual root.
     return adapter && typeof adapter.renderBoundary === 'function' && node.theme ? React.createElement(React.Fragment, { key: node.id }, adapter.renderBoundary({ instanceId: node.id, theme: node.theme, children: element })) : element
   }
-  const render = () => {
-    transientMoveLayer.clear()
+  const render = (finishTransient = false) => {
+    if (!finishTransient) transientMoveLayer.update([])
+    transientMoveLayer.setDocument(editorDocument)
+    layoutLayer.setTransientBounds([])
     applyPageBackground(document, editorDocument?.background)
     const component = editorDocument && !sourceDocument ? editorDocument.rootIds.map(renderNode) : React.createElement(Component, props)
     const content = Provider ? React.createElement(Provider, providerProps, component) : component
@@ -150,14 +152,14 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     layoutLayer.update(editorDocument, layoutItems)
     appearanceLayer.update(editorDocument)
     themeLayer.update(editorDocument)
-    transientMoveLayer.reapply()
+    if (finishTransient) transientMoveLayer.update([])
     selectedNodeIds = selectedNodeIds.filter(id => editorDocument && (Object.hasOwn(editorDocument.nodes, id) || editorDocument.canvas?.elements.some(element => element.id === id)))
     selectionDecorations.update(editorDocument, renderChrome ? selectedNodeIds : [], selectionColor); geometry.update(editorDocument, null, componentId)
   }
   // The design theme is applied exactly as the design declares it: an attribute on the document root plus the matching color-scheme.
   const setTheme = theme => { if (theme.attribute === null) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme.attribute; document.documentElement.style.colorScheme = theme.colorScheme }
   const receive = event => {
-    const command = acceptPreviewCommand(event, editorOrigin, window.parent, generation, editorDocument)
+    const command = acceptPreviewCommand(event, editorOrigin, window.parent, generation, editorDocument, registry)
     if (!command || disposed) return
     if (command.type === 'dispose') dispose()
     else if (command.type === 'ping' && !failed) { if (sourceDocument) send('source-bindings', { instanceIds: Object.keys(sourceDocument.nodes) }); send('ready', { componentId }); geometry.refresh() }
@@ -165,22 +167,28 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     else if (command.type === 'set-theme') { setTheme(command.theme); geometry.refresh() }
     else if (command.type === 'set-interaction-mode') interactionMode = command.mode
     else if (command.type === 'set-camera') { camera = { ...command.camera }; applyCamera(); geometry.refresh() }
-    else if (command.type === 'set-layout') { geometry.suspend(); transientMoveLayer.clear(); layoutItems = command.items; layoutGeneration = command.layoutGeneration; layoutLayer.setItems(layoutItems); appearanceLayer.apply(); transientMoveLayer.reapply(); if (!transientMoves.length) geometry.resume() }
-    else if (command.type === 'set-transient-move') { transientMoves = command.items; if (transientMoves.length) geometry.suspend(); transientMoveLayer.update(transientMoves); if (!transientMoves.length) geometry.resume() }
+    else if (command.type === 'set-layout') { geometry.suspend(); transientMoveLayer.clear(); layoutLayer.setTransientBounds([]); layoutItems = command.items; layoutGeneration = command.layoutGeneration; layoutLayer.setItems(layoutItems); appearanceLayer.apply(); transientMoveLayer.reapply(); if (!transientMoves.length) geometry.resume() }
+    else if (command.type === 'set-transient-move') {
+      transientMoves = command.items
+      if (transientMoves.length) geometry.suspend()
+      layoutLayer.setTransientBounds(transientMoves)
+      transientMoveLayer.update(transientMoves)
+      if (!transientMoves.length) geometry.resume()
+    }
     else if (command.type === 'set-selection') { selectedNodeIds = [...command.nodeIds]; renderChrome = command.renderChrome !== false; selectionColor = command.color; selectionDecorations.update(editorDocument, renderChrome ? selectedNodeIds : [], selectionColor); geometry.update(editorDocument, null, componentId) }
     else if (command.type === 'set-document') {
-      if (!isPreviewDocument(command.document, registry)) { send('diagnostic', { message: 'Component binding needs review. The last preview is retained.' }); return }
       // The incoming document is the authoritative pointer-up result. Drop the visual offset before rendering it so
       // the committed geometry is never translated twice while the editor's clear message follows.
       transientMoves = []
-      transientMoveLayer.clear()
+      layoutLayer.setTransientBounds([])
       if (sourceDocument) {
         try { flushSync(() => applySourceDocument(command.document)) }
         catch (error) { send('diagnostic', { message: String(error.message).slice(0, 4000) }); return }
       }
       editorDocument = command.document
+      transientMoveLayer.setDocument(editorDocument)
       if (command.theme) setTheme(command.theme)
-      render()
+      render(true)
     }
     else if (!editorDocument) { props = command.props; render() }
     else send('diagnostic', { message: 'Edit document instance props through the component inspector.' })
@@ -212,7 +220,10 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     transientMoveLayer.dispose()
     layoutLayer.dispose()
     portalWatch.disconnect()
-    for (const dispose of adapterDisposers) { try { dispose() } catch { /* an adapter that fails to dispose cannot block the preview from disposing */ } }
+    for (const dispose of adapterDisposers) {
+      try { dispose() }
+      catch (error) { console.warn('A preview adapter could not dispose cleanly.', error) }
+    }
     themeLayer.dispose()
     root.unmount()
     if (sourceDocument) disposeSourceBindings()

@@ -44,7 +44,17 @@ function fillLayer(fill, assets) {
   if (fill.type === 'gradient') return { image: gradientLayer(fill), size: 'auto', repeat: 'no-repeat' }
   const asset = assets && Object.hasOwn(assets, fill.assetId) ? assets[fill.assetId] : null
   if (!asset) return null
-  return { image: `url("data:${asset.mime};base64,${asset.data}")`, size: imageSizes[fill.fit], repeat: fill.fit === 'tile' ? 'repeat' : 'no-repeat' }
+  return { image: `url("data:${asset.mime};base64,${asset.data}")`, size: fill.geometry ? `${number(fill.geometry.width)}px ${number(fill.geometry.height)}px` : imageSizes[fill.fit], position: fill.geometry ? `${number(fill.geometry.x)}px ${number(fill.geometry.y)}px` : 'center', repeat: fill.fit === 'tile' && !fill.geometry ? 'repeat' : 'no-repeat' }
+}
+
+function fillGeometry(fill, assets) {
+  if (fill.type === 'solid' || fill.type === 'gradient') return { size: 'auto', position: 'center', repeat: 'no-repeat' }
+  if (!assets || !Object.hasOwn(assets, fill.assetId)) return null
+  return {
+    size: fill.geometry ? `${number(fill.geometry.width)}px ${number(fill.geometry.height)}px` : imageSizes[fill.fit],
+    position: fill.geometry ? `${number(fill.geometry.x)}px ${number(fill.geometry.y)}px` : 'center',
+    repeat: fill.fit === 'tile' && !fill.geometry ? 'repeat' : 'no-repeat',
+  }
 }
 
 /** CSS background layers, topmost first, with parallel size, repeat, position, and blend lists. */
@@ -55,8 +65,19 @@ export function fillLayers(fills, assets) {
     backgroundImage: layers.map(layer => layer.image).join(', '),
     backgroundSize: layers.map(layer => layer.size).join(', '),
     backgroundRepeat: layers.map(layer => layer.repeat).join(', '),
-    backgroundPosition: layers.map(() => 'center').join(', '),
+    backgroundPosition: layers.map(layer => layer.position ?? 'center').join(', '),
     backgroundBlendMode: layers.map(layer => layer.blend).join(', '),
+  }
+}
+
+/** Geometry-only background declarations for live image resize. This never rebuilds or rewrites asset data URLs. */
+export function fillGeometryStyle(fills, assets) {
+  const layers = [...fills].reverse().map(fill => fillGeometry(fill, assets)).filter(Boolean)
+  if (!layers.length) return null
+  return {
+    backgroundSize: layers.map(layer => layer.size).join(', '),
+    backgroundPosition: layers.map(layer => layer.position).join(', '),
+    backgroundRepeat: layers.map(layer => layer.repeat).join(', '),
   }
 }
 
