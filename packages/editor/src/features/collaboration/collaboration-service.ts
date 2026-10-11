@@ -164,7 +164,7 @@ export function createCollaborationService(
     if (!api) { documents.setReadOnly(false); publish(unavailableSnapshot); return }
     const next = api.getSnapshot()
     const authoritativeLocal = next.participants.find(participant => participant.clientId === next.localClientId)
-    localInteractionConfirmed = Boolean(localInteraction
+    localInteractionConfirmed ||= Boolean(localInteraction
       && authoritativeLocal?.awareness.interaction?.interactionId === localInteraction.interactionId)
     documents.setReadOnly(!next.canMutate)
     const followed = remoteIn(next, snapshot.followingPresenceId)

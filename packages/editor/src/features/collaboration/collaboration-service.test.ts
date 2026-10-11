@@ -240,6 +240,28 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     expect(transport.updates.at(-1)).toEqual({ pageId: 'page-1', interaction: null })
     service.stop()
   })
+
+  it('keeps an owned lease reusable while an unrelated room snapshot catches up', () => {
+    const docs = documents()
+    const local = participant('local', 'tab-local')
+    const transport = collaboration(snapshot('live', 'tab-local', [local]))
+    const service = createCollaborationService(docs.api, fakeWindow, animationClock().clock)
+    service.configure(transport.api)
+    service.start()
+
+    const firstId = service.beginInteraction('move', ['node-1'])
+    const requested = transport.updates.find(update => update.interaction)?.interaction
+    transport.publish(snapshot('live', 'tab-local', [{ ...local, sequence: 2, awareness: { ...local.awareness, interaction: requested! } }]))
+    expect(service.canCommitInteraction(firstId!)).toBe(true)
+
+    transport.publish(snapshot('live', 'tab-local', [{ ...local, sequence: 3 }]))
+
+    const secondId = service.beginInteraction('move', ['node-1'])
+    expect(secondId).toBe(firstId)
+    service.endInteraction(firstId!)
+    service.endInteraction(secondId!)
+    service.stop()
+  })
 })
 
 function documents() {
