@@ -1,0 +1,85 @@
+apps/sync-runtime/README.md
+  s_012c57818fbf95::t_662160730aaacf 3-6,8-9
+.env.production.example
+  s_012c57818fbf95::t_dd8145a9d355d3 11
+apps/sync-coordinator/tests/coordinator.test.ts
+  s_012c57818fbf95::t_4ab3e3ac941c9e 227
+  s_012c57818fbf95::t_29546552b6888e 4,66-67,69,83,226,235,237-244
+  s_012c57818fbf95::t_e499f17edc4b94 230,234,236,245
+  s_012c57818fbf95::t_6c65ed050c2f41 99,229
+  s_012c57818fbf95::t_fe78359f852928 246
+apps/sync-coordinator/wrangler.jsonc
+  s_012c57818fbf95::t_4ab3e3ac941c9e 12,37
+  s_012c57818fbf95::t_6c65ed050c2f41 35-36,38-46
+  s_012c57818fbf95::t_29546552b6888e 4-5,8,10-11,13-21,29,47,51
+apps/sync-worker/src/index.ts
+  s_012c57818fbf95::t_88850bb576deac 62
+apps/sync-worker/src/config.ts
+  s_012c57818fbf95::t_88850bb576deac 1,4,57
+apps/sync-coordinator/README.md
+  s_012c57818fbf95::t_662160730aaacf 3,9,11
+apps/web/src/client.tsx
+  s_012c57818fbf95::t_8d27c44de95bca 16
+apps/web/src/adapters/cloud.test.ts
+  s_012c57818fbf95::t_1a46c991c2505c 329,348
+apps/sync-coordinator/src/index.ts
+  s_012c57818fbf95::t_29546552b6888e 51
+  s_012c57818fbf95::t_97adfa59ddee30 53
+apps/sync-worker/src/platform.ts
+  s_012c57818fbf95::t_88850bb576deac 1-2
+scripts/vercel-staging-env.mjs
+  s_012c57818fbf95::t_dd8145a9d355d3 64
+scripts/deployment-environments.test.mjs
+  s_012c57818fbf95::t_1a46c991c2505c 38
+  s_012c57818fbf95::t_dd8145a9d355d3 44
+apps/sync-room-core/src/room-core.ts
+  s_012c57818fbf95::t_97adfa59ddee30 300-303,312,316-317,320,348,352
+apps/sync-worker/tests/worker.test.ts
+  s_012c57818fbf95::t_88850bb576deac 18-28,146-149
+apps/sync-coordinator/package.json
+  s_012c57818fbf95::t_7b02b9690c7c27 13-14
+apps/sync-worker/README.md
+  s_012c57818fbf95::t_662160730aaacf 3
+apps/sync-coordinator/src/worker.ts
+  s_012c57818fbf95::t_29546552b6888e 1-16
+apps/sync-worker/wrangler.jsonc
+  s_012c57818fbf95::t_88850bb576deac 11-13,23-25
+apps/sync-room-core/tests/room-core.test.ts
+  s_012c57818fbf95::t_97adfa59ddee30 129-148
+package.json
+  s_012c57818fbf95::t_29546552b6888e 35
+.env.staging.example
+  s_012c57818fbf95::t_dd8145a9d355d3 32
+deploy/vercel-projects.json
+  s_012c57818fbf95::t_dd8145a9d355d3 19
+scripts/local-services.mjs
+  s_012c57818fbf95::t_8d27c44de95bca 31
+apps/sync-coordinator/src/config.ts
+  s_012c57818fbf95::t_29546552b6888e 9-10,14-24,54-55,58-60,64-74
+apps/sync-coordinator/src/room-container.ts
+  s_012c57818fbf95::t_29546552b6888e 1-9,12-17,20-36,39-42
+  s_012c57818fbf95::t_6c65ed050c2f41 10-11,18-19,37-38
+pnpm-lock.yaml
+  s_012c57818fbf95::t_216868a9137ab4 214-216,1083-1085,4995-4996
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "10ddb4b9bf847d7293281b186362f6d1535289e2",
+  "prompts": {},
+  "humans": {
+    "h_3279d55133f19f": {
+      "author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
