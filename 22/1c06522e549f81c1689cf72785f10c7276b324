@@ -1,0 +1,127 @@
+packages/editor/src/features/editor/canvas-hud-painter.ts
+  s_012c57818fbf95::t_e93aa590adaf5a 31-32,152,183,194,207,217,244-245,251,255,259-260
+packages/editor/src/features/editor/ToolRail.tsx
+  s_012c57818fbf95::t_aab1b32c1837d8 13,24,26,34-35
+deploy/vercel-projects.json
+  s_012c57818fbf95::t_2552c01a4956f9 5-7,16-17,27-28,38-39,56-57,67-68
+apps/preview/vercel.json
+  s_012c57818fbf95::t_2552c01a4956f9 12
+  s_012c57818fbf95::t_cc433888aca854 4
+deploy/environments.json
+  s_012c57818fbf95::t_8afe8f62cef8f1 1-27
+apps/api/vercel.json
+  s_012c57818fbf95::t_cc433888aca854 4
+packages/editor/src/design-system/canvas-atoms.tsx
+  s_012c57818fbf95::t_aab1b32c1837d8 43-46
+packages/editor/src/design-system/styles.css
+  s_012c57818fbf95::t_195ce288103480 110
+  s_012c57818fbf95::t_e93aa590adaf5a 108-109,111-116
+.env.production.example
+  s_012c57818fbf95::t_29c4de0c99beaf 1
+scripts/vercel-projects.test.mjs
+  s_012c57818fbf95::t_cc433888aca854 49
+  s_012c57818fbf95::t_2552c01a4956f9 23-25,32-40
+  s_012c57818fbf95::t_b79074c71e9ad4 41-42
+packages/editor/src/features/editor/SelectionHud.tsx
+  s_012c57818fbf95::t_d52f1cef86ffb3 3-4,15-16,30,51-59,71
+scripts/vercel-staging-env.test.mjs
+  s_012c57818fbf95::t_57eed526b8dbdc 1-53
+DEPLOYMENT.md
+  s_012c57818fbf95::t_29c4de0c99beaf 11
+  s_012c57818fbf95::t_5046fec4768f29 12
+  s_012c57818fbf95::t_d7bd77dfaf0fc0 13
+  s_012c57818fbf95::t_57eed526b8dbdc 9,14-15
+  s_012c57818fbf95::t_8afe8f62cef8f1 3-8,10
+  s_012c57818fbf95::t_cc433888aca854 17
+  s_012c57818fbf95::t_235a5ba353583c 16
+apps/thumbnail-renderer/vercel.json
+  s_012c57818fbf95::t_cc433888aca854 4
+deploy/vercel-projects.schema.json
+  s_012c57818fbf95::t_2552c01a4956f9 5,10-12,19,27-28
+.github/workflows/promote-staging.yml
+  s_012c57818fbf95::t_8afe8f62cef8f1 1-45
+scripts/deployment-environments.test.mjs
+  s_012c57818fbf95::t_5c40b3321f7244 10,36-37,40-41,43-44
+  s_012c57818fbf95::t_29c4de0c99beaf 11,38-39,42,45-58
+  s_012c57818fbf95::t_8afe8f62cef8f1 1-9,12-35,59
+packages/editor/src/design-system/shell-atoms.tsx
+  s_012c57818fbf95::t_a72b3c8b3d1243 20-23
+apps/workers/wrangler.jsonc
+  s_012c57818fbf95::t_2552c01a4956f9 25-30,39-40
+apps/web/vercel.json
+  s_012c57818fbf95::t_29c4de0c99beaf 9-18
+  s_012c57818fbf95::t_cc433888aca854 4
+.gitignore
+  s_012c57818fbf95::t_5046fec4768f29 46
+scripts/vercel-projects.mjs
+  s_012c57818fbf95::t_2552c01a4956f9 41,52
+  s_012c57818fbf95::t_1247e026a71249 45,53,60-61,73
+  s_012c57818fbf95::t_a60b7d0c110da3 33,75-77,83-84,89-102
+  s_012c57818fbf95::t_dbe63a5bc3c159 103
+.env.staging.example
+  s_012c57818fbf95::t_29c4de0c99beaf 3,24
+  s_012c57818fbf95::t_e421ef5299581e 23
+  s_012c57818fbf95::t_5046fec4768f29 1-2,4-22,25-31
+packages/editor/src/features/editor/Editor.tsx
+  s_012c57818fbf95::t_325d7be3a9c122 163-164,177-178,180-181,186-188,190
+  s_012c57818fbf95::t_04fb8b41916916 25,36-37,86,107,116,119,122,129
+package.json
+  s_012c57818fbf95::t_8afe8f62cef8f1 30
+  s_012c57818fbf95::t_57eed526b8dbdc 26-27,29,55
+packages/editor/src/design-system/tool-rail.css
+  s_012c57818fbf95::t_aab1b32c1837d8 22-29
+scripts/vercel-staging-env.mjs
+  s_012c57818fbf95::t_29c4de0c99beaf 52,56
+  s_012c57818fbf95::t_57eed526b8dbdc 1-51,53-55,57-105
+packages/editor/src/design-system/shell.css
+  s_012c57818fbf95::t_cd95693b824818 33
+  s_012c57818fbf95::t_a72b3c8b3d1243 26-32,34-44
+apps/login/vercel.json
+  s_012c57818fbf95::t_cc433888aca854 4
+deploy/environments.schema.json
+  s_012c57818fbf95::t_8afe8f62cef8f1 1-35
+packages/editor/src/design-system/tool-rail.tsx
+  s_012c57818fbf95::t_aab1b32c1837d8 8,12-14,17,21,23
+packages/editor/src/features/editor/CanvasWorkspace.tsx
+  s_012c57818fbf95::t_8b40e60f3218c6 4,17,28,37,44-46,48,55,59,64
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_61d27ee9018b6b 316-319,321
+  s_012c57818fbf95::t_e93aa590adaf5a 191-202
+  s_012c57818fbf95::t_b4e5144dbf5cd6 320,322
+packages/editor/src/features/editor/mobile-editor.ts
+  s_012c57818fbf95::t_a72b3c8b3d1243 1-13,15-44
+  s_012c57818fbf95::t_cd95693b824818 14
+packages/editor/src/design-system/canvas.css
+  s_012c57818fbf95::t_aab1b32c1837d8 67-83
+deploy/cloudflare-r2.json
+  s_012c57818fbf95::t_2552c01a4956f9 22,24-25
+packages/editor/src/features/editor/canvas-hud-painter.test.ts
+  s_012c57818fbf95::t_e93aa590adaf5a 2,23-25
+  s_012c57818fbf95::t_458ec412894751 26-27
+packages/editor/src/features/editor/mobile-editor.test.ts
+  s_012c57818fbf95::t_a72b3c8b3d1243 1-44,46-47
+  s_012c57818fbf95::t_cd95693b824818 45
+packages/editor/src/features/editor/canvas-copy.ts
+  s_012c57818fbf95::t_aab1b32c1837d8 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "221c06522e549f81c1689cf72785f10c7276b324",
+  "prompts": {},
+  "humans": {
+    "h_3279d55133f19f": {
+      "author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
