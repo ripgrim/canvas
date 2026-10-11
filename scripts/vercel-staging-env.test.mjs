@@ -31,10 +31,10 @@ test('rejects a production origin in the staging environment', () => {
   assert.match(result.stderr, /VITE_API_ORIGIN points at a production origin/)
 })
 
-test('rejects a shared parent-domain auth cookie', () => {
-  const result = run(filledTemplate('filled').replace('AUTH_COOKIE_DOMAIN=""', 'AUTH_COOKIE_DOMAIN="canvas.ripgrim.com"'))
+test('rejects a cookie domain that cannot reach the staging sync host', () => {
+  const result = run(filledTemplate('filled').replace('AUTH_COOKIE_DOMAIN="canvas.ripgrim.com"', 'AUTH_COOKIE_DOMAIN="staging.canvas.ripgrim.com"'))
   assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /AUTH_COOKIE_DOMAIN must stay empty/)
+  assert.match(result.stderr, /AUTH_COOKIE_DOMAIN must be canvas\.ripgrim\.com/)
 })
 
 test('rejects a staging cookie prefix that can collide with production', () => {
@@ -44,7 +44,7 @@ test('rejects a staging cookie prefix that can collide with production', () => {
 })
 
 function filledTemplate(value) {
-  return template.replaceAll('=""', `="${value}"`).replace(`AUTH_COOKIE_DOMAIN="${value}"`, 'AUTH_COOKIE_DOMAIN=""')
+  return template.replaceAll('=""', `="${value}"`)
 }
 
 function run(source) {

@@ -319,7 +319,7 @@ Run `pnpm test:vercel-config`, `pnpm test:vercel-builds`, then `pnpm vercel:chec
 
 Run `pnpm test:deployment-config` and `pnpm test:vercel-env`. Verify production and staging have disjoint origins for editor, login, API, preview, thumbnail rendering, assets, and sync. The preview iframe must remain cross-origin. Validate `.env.staging` without printing its values, then upload each Vercel variable only to the Preview environment scoped to the `staging` branch. Push a test commit to `staging`; confirm its staging surfaces update and exactly one open pull request targets `main`. Push another test commit and confirm the existing pull request updates instead of creating a duplicate. Merge that pull request and confirm only the `main` revision reaches production.
 
-Negative controls: point any staging service at its production origin, share a parent-domain auth cookie, omit a required staging secret, add a direct workflow push to `main`, or remove the existing-pull-request check. Each mutation must fail its staging configuration test.
+Negative controls: point any staging service at its production origin, reuse the production auth cookie prefix, scope the staging cookie so it cannot reach the sync host, omit a required staging secret, add a direct workflow push to `main`, or remove the existing-pull-request check. Each mutation must fail its staging configuration test.
 
 ### CLOUDFLARE-R2-001: Private environment-isolated object storage
 

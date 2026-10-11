@@ -36,9 +36,9 @@ process.stdout.write(`Configured ${assignments.length} staging variables across 
 
 function validate(input) {
   if (manifest.stagingBranch !== environments.staging.branch) fail('Staging branch configuration drifted.')
-  const missing = manifest.projects.flatMap(project => project.environment.filter(name => !(name in input) || (name !== 'AUTH_COOKIE_DOMAIN' && !input[name]?.trim())))
+  const missing = manifest.projects.flatMap(project => project.environment.filter(name => !(name in input) || !input[name]?.trim()))
   if (missing.length) fail(`Staging environment is incomplete: ${[...new Set(missing)].join(', ')}`)
-  if (input.AUTH_COOKIE_DOMAIN !== '') fail('AUTH_COOKIE_DOMAIN must stay empty so staging uses a host-only cookie.')
+  exact(input, 'AUTH_COOKIE_DOMAIN', 'canvas.ripgrim.com')
   exact(input, 'AUTH_COOKIE_PREFIX', 'comp-canvas-staging')
 
   const productionOrigins = new Set(Object.values(environments.production.origins))

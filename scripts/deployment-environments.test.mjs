@@ -35,9 +35,9 @@ test('opens one staging-to-main pull request and never pushes main directly', ()
   assert.doesNotMatch(workflow, /git push[^\n]*main/)
 })
 
-test('keeps browser auth on the staging editor origin with a host-only cookie', () => {
+test('shares an isolated staging auth cookie with the sync host', () => {
   assert.match(stagingTemplate, /^BETTER_AUTH_URL="https:\/\/staging\.canvas\.ripgrim\.com"$/m)
-  assert.match(stagingTemplate, /^AUTH_COOKIE_DOMAIN=""$/m)
+  assert.match(stagingTemplate, /^AUTH_COOKIE_DOMAIN="canvas\.ripgrim\.com"$/m)
   assert.match(stagingTemplate, /^AUTH_COOKIE_PREFIX="comp-canvas-staging"$/m)
   assert.match(stagingTemplate, /^VITE_APP_URL="https:\/\/staging\.canvas\.ripgrim\.com"$/m)
   assert.match(stagingTemplate, /^VITE_API_URL="https:\/\/staging\.canvas\.ripgrim\.com"$/m)
