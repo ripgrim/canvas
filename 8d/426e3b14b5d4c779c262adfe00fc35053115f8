@@ -1,0 +1,36 @@
+packages/editor/src/features/collaboration/CollaborationPresence.tsx
+  s_012c57818fbf95::t_ce4eca883802fd 2,11,82-92,147
+  s_012c57818fbf95::t_0821c3710ae5f1 141
+packages/editor/src/features/editor/canvas-hud-painter.ts
+  s_012c57818fbf95::t_ce4eca883802fd 195-204
+apps/web/tests/selected-container-drag.mjs
+  s_012c57818fbf95::t_ce4eca883802fd 79-83
+packages/editor/src/features/collaboration/CollaborationPresence.test.ts
+  s_012c57818fbf95::t_ce4eca883802fd 11,80-85
+  s_012c57818fbf95::t_32670bdc2d605d 86-87
+apps/web/tests/transient-move.mjs
+  s_012c57818fbf95::t_ce4eca883802fd 64-69,72
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_ce4eca883802fd 632
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8d426e3b14b5d4c779c262adfe00fc35053115f8",
+  "prompts": {},
+  "humans": {
+    "h_3279d55133f19f": {
+      "author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
