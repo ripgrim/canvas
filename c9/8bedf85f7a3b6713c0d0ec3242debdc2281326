@@ -1,0 +1,36 @@
+packages/sync-client/tests/collaboration-client.test.ts
+  s_012c57818fbf95::t_2e4798caece25c 867-869,879
+  s_012c57818fbf95::t_a19f8e309a3f4d 866,870-878,880-887,897-898
+  s_012c57818fbf95::t_c9f29e64493692 888-896
+apps/sync-room-core/tests/room-core.test.ts
+  s_012c57818fbf95::t_a19f8e309a3f4d 3,946-977
+  s_012c57818fbf95::t_32091242f4c735 978-979
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_a19f8e309a3f4d 235
+  s_012c57818fbf95::t_c9f29e64493692 234
+apps/sync-room-core/src/room-core.ts
+  s_012c57818fbf95::t_2e4798caece25c 356,718
+  s_012c57818fbf95::t_a19f8e309a3f4d 39-42,420-422,426,468-470,508-510,591-593,610-612,697,699-700,702,705-709,712,716-717,719-723
+  s_012c57818fbf95::t_5443e97dbc2a0e 724-725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c98bedf85f7a3b6713c0d0ec3242debdc2281326",
+  "prompts": {},
+  "humans": {
+    "h_3279d55133f19f": {
+      "author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
