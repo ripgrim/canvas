@@ -2,7 +2,7 @@
 
 `@canvas/sync-room-core` is the generation-scoped collaboration data plane. It owns one file generation at a time, verifies room capabilities, streams the current projection, serializes semantic operations, and acknowledges an operation only after the collaboration persistence layer records it.
 
-The executable binds only to loopback. A routing layer will own public traffic, placement, admission queuing, and container activation. This package does not claim a Cloudflare deployment or placement strategy.
+The executable stays behind the routing layer. Local development binds it to loopback; the staging Container binds it to the Container network only. The public admission Worker, coordinator, and runtime Worker own public traffic, admission, stable generation routing, and Container activation.
 
 ## Local multi-room host
 
@@ -28,6 +28,7 @@ Optional runtime values are:
 - `SYNC_ROOM_HANDSHAKE_TIMEOUT_MS`, default `5000`
 - `SYNC_HOST_STARTUP_TIMEOUT_MS`, default `10000`
 - `SYNC_HOST_SHUTDOWN_TIMEOUT_MS`, default `30000`
+- `SYNC_ROOM_ALLOW_NON_LOOPBACK`, disabled by default and set only inside the private Container network
 
 Start the host with:
 
@@ -60,4 +61,4 @@ pnpm --filter @canvas/sync-room-core typecheck
 pnpm --filter @canvas/sync-room-core build
 ```
 
-The focused suite provides local contract evidence toward `DEV-STACK-001`, `CLOUD-SYNC-CONTAINER-001`, `CLOUD-SYNC-DRAIN-001`, `CLOUD-SYNC-MEMORY-001`, and `CLOUD-SYNC-REPLAY-001`. It does not close deployment-level acceptance tests. Platform placement, reconnect replay against PostgreSQL, process-kill recovery, live presence, and full-pipeline peak memory remain open.
+The focused suite provides local contract evidence toward `DEV-STACK-001`, `CLOUD-SYNC-CONTAINER-001`, `CLOUD-SYNC-DRAIN-001`, `CLOUD-SYNC-MEMORY-001`, and `CLOUD-SYNC-REPLAY-001`. It does not close deployment-level acceptance tests. Reconnect replay against PostgreSQL, process-kill recovery, live presence, and full-pipeline peak memory remain open.

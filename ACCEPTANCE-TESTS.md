@@ -411,6 +411,8 @@ Negative control: delete a queued operation before its acknowledgement and termi
 
 Run the approved Cloudflare platform fixture. Verify the first opener of a cold file creates one generation and starts one Container, concurrent openers converge on that generation, all live document and presence traffic uses that Container, and the room stays pinned while active. After drain and lease release, open from the relocation fixture and verify a new generation can be created through that request path. Record observed DO region, Container region, startup time, and socket latency without claiming colocation.
 
+Staging deployment evidence must also show that the runtime Worker has no public route, each file generation resolves to a stable Container object name, the admission Worker exposes only `sync-staging.canvas.ripgrim.com`, and the public, coordinator, and runtime secrets remain split across their owning services.
+
 Negative controls: start two authoritative Containers for the same fence and verify one loses acquisition. Reuse the prior generation after release and verify it cannot acknowledge an operation.
 
 ### CLOUD-SYNC-LEASE-001: Generation lease and stale-owner fencing

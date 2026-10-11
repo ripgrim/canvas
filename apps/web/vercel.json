@@ -7,14 +7,14 @@
   "outputDirectory": "dist/client",
   "rewrites": [
     {
-      "source": "/api/auth/:path*",
+      "source": "/api/:path*",
       "has": [{ "type": "host", "value": "staging.canvas.ripgrim.com" }],
-      "destination": "https://api-staging.canvas.ripgrim.com/api/auth/:path*"
+      "destination": "https://api-staging.canvas.ripgrim.com/api/:path*"
     },
     {
-      "source": "/api/auth/:path*",
+      "source": "/api/:path*",
       "has": [{ "type": "host", "value": "canvas.ripgrim.com" }],
-      "destination": "https://api.canvas.ripgrim.com/api/auth/:path*"
+      "destination": "https://api.canvas.ripgrim.com/api/:path*"
     },
     { "source": "/(.*)", "destination": "/_shell.html" }
   ]

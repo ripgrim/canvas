@@ -127,10 +127,13 @@ describe("configuration", () => {
       .toThrow("Sync service credentials must be independent")
   })
 
-  it("keeps hosted deployment unavailable until the coordinator has a Container manager", () => {
+  it("CLOUD-SYNC-CONTAINER-001 exposes staging only after the private Container path exists", () => {
     const config = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"))
     expect(config.workers_dev).toBe(false)
     expect(config.routes).toBeUndefined()
-    expect(config.env).toBeUndefined()
+    expect(config.env.preview.name).toBe("comp-canvas-sync-preview")
+    expect(config.env.preview.routes).toEqual([{ pattern: "sync-staging.canvas.ripgrim.com", custom_domain: true }])
+    expect(config.env.preview.services).toEqual([{ binding: "SYNC_COORDINATOR", service: "comp-canvas-sync-coordinator-preview" }])
+    expect(config.env.production).toBeUndefined()
   })
 })

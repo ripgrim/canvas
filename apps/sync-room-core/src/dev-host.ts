@@ -37,6 +37,7 @@ const maxPendingUpgrades = integer('SYNC_HOST_MAX_PENDING_UPGRADES', 64, 4_096)
 const handshakeTimeoutMs = integer('SYNC_ROOM_HANDSHAKE_TIMEOUT_MS', 5_000, 30_000)
 const startupTimeoutMs = integer('SYNC_HOST_STARTUP_TIMEOUT_MS', 10_000, 120_000)
 const shutdownTimeoutMs = integer('SYNC_HOST_SHUTDOWN_TIMEOUT_MS', 30_000, 300_000)
+const allowNonLoopback = process.env.SYNC_ROOM_ALLOW_NON_LOOPBACK === 'true'
 const allowedOrigins = required('ALLOWED_ORIGINS').split(',').map(value => value.trim()).filter(Boolean)
 const pool = createPostgresPool(required('DATABASE_URL'))
 const controlPlane = createPostgresControlPlane(pool)
@@ -61,6 +62,7 @@ const host = createMultiRoomHost({
   handshakeTimeoutMs,
   startupTimeoutMs,
   shutdownTimeoutMs,
+  allowNonLoopback,
   tickets,
   createRoom(identity) {
     return new CollaborationRoomCore({ identity, leaseDurationMs, leaseRenewalMs, drainTimeoutMs, maxMessageBytes }, {

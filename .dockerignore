@@ -1,0 +1,11 @@
+.git
+.github
+.pnpm-store
+**/node_modules
+**/.wrangler
+**/dist
+outputs
+test-results
+playwright-report
+.env*
+*.pem

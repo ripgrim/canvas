@@ -8,7 +8,7 @@ The public staging entry point is `staging.canvas.ripgrim.com`. Supporting servi
 
 Staging must use its own database credentials, Better Auth secret, R2 bucket, collaboration secrets, and service tokens. Never populate a staging deployment with production database or storage credentials. Main remains the only production deployment branch.
 
-Copy `.env.staging.example` to the ignored `.env.staging` file and fill the empty credentials before configuring the remote environment. Keep `AUTH_COOKIE_DOMAIN` empty in staging so its host-only auth cookie cannot collide with production cookies under `canvas.ripgrim.com`. The editor origin owns browser auth and proxies only `/api/auth/*` to the API project. Register `https://staging.canvas.ripgrim.com/api/auth/callback/github` as the staging social-login OAuth callback. Use a separate staging GitHub App for repository installations because a GitHub App has one webhook URL and staging must not send repository events through production.
+Copy `.env.staging.example` to the ignored `.env.staging` file and fill the empty credentials before configuring the remote environment. Keep `AUTH_COOKIE_DOMAIN` empty in staging so its host-only auth cookie cannot collide with production cookies under `canvas.ripgrim.com`. The editor origin owns browser auth and proxies `/api/*` to the API project, so browser requests keep the host-only session cookie. Register `https://staging.canvas.ripgrim.com/api/auth/callback/github` as the staging social-login OAuth callback. Use a separate staging GitHub App for repository installations because a GitHub App has one webhook URL and staging must not send repository events through production.
 
 Each independently deployed HTTP surface has its own Vercel project. Run `pnpm vercel:check` to validate the manifest and live project settings. Run `pnpm vercel:setup` to connect each staging branch domain, disable Vercel Authentication so phone and external-device testing reaches the product login, and enable Git deployments without creating a deployment itself. Vercel treats `main` as production and `staging` as a persistent preview branch. Pushing either branch publishes its corresponding environment after the remote setup has been explicitly approved and applied.
 
@@ -68,10 +68,11 @@ Deploy it only with explicit release approval using
 
 ## Cloudflare sync
 
-Revision sync is being cut over to a public admission Worker, a private
-generation coordinator, and an authoritative room runtime. PostgreSQL remains
-the durable document and operation-log authority. Hosted sync remains disabled
-until the Container manager and placement gate are complete.
+Revision sync uses a public admission Worker, a private generation coordinator,
+and a private Cloudflare room Container. PostgreSQL remains the durable document
+and operation-log authority. Staging uses the `lite` Container class, one stable
+Container object per file generation, a ten-minute inactivity timeout, and no
+public runtime route. Production sync remains undeployed.
 
 Local development exposes the public Worker at `ws://127.0.0.1:4321`, the room
 runtime at `http://127.0.0.1:4325`, and the private coordinator at
@@ -80,7 +81,13 @@ files so the API admission token never reaches the coordinator and the room
 ticket secret never reaches the public Worker. Do not put either value in a
 `VITE_` variable or a WebSocket URL.
 
-The checked-in Wrangler configurations and dry-run builds do not create a
-Container manager, attach the custom domain, upload secrets, run migrations, or
-deploy code. Those release operations require explicit approval.
+Before the first staging deployment, upload `DATABASE_URL` and
+`SYNC_ROOM_TICKET_SECRET` to `comp-canvas-sync-runtime-preview`, upload the same
+ticket secret plus `SYNC_COORDINATOR_INTERNAL_SECRET` to the preview coordinator,
+and upload the same coordinator secret plus
+`COLLABORATION_ADMISSION_SERVICE_TOKEN` to the preview admission Worker. Keep
+the three trust boundaries separate. Then run `pnpm sync:deploy:staging`; it
+deploys the private runtime first, the coordinator second, and the public Worker
+last. The public route is `sync-staging.canvas.ripgrim.com`. No production sync
+configuration is declared.
 

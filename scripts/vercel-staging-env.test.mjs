@@ -26,7 +26,7 @@ test('rejects a missing staging secret', () => {
 })
 
 test('rejects a production origin in the staging environment', () => {
-  const result = run(filledTemplate('filled').replace('VITE_API_ORIGIN="https://api-staging.canvas.ripgrim.com"', 'VITE_API_ORIGIN="https://api.canvas.ripgrim.com"'))
+  const result = run(filledTemplate('filled').replace('VITE_API_ORIGIN="https://staging.canvas.ripgrim.com"', 'VITE_API_ORIGIN="https://api.canvas.ripgrim.com"'))
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /VITE_API_ORIGIN points at a production origin/)
 })

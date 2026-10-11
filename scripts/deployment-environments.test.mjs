@@ -45,14 +45,14 @@ test('keeps browser auth on the staging editor origin with a host-only cookie', 
 
   assert.deepEqual(webVercel.rewrites.slice(0, 2), [
     {
-      source: '/api/auth/:path*',
+      source: '/api/:path*',
       has: [{ type: 'host', value: 'staging.canvas.ripgrim.com' }],
-      destination: 'https://api-staging.canvas.ripgrim.com/api/auth/:path*',
+      destination: 'https://api-staging.canvas.ripgrim.com/api/:path*',
     },
     {
-      source: '/api/auth/:path*',
+      source: '/api/:path*',
       has: [{ type: 'host', value: 'canvas.ripgrim.com' }],
-      destination: 'https://api.canvas.ripgrim.com/api/auth/:path*',
+      destination: 'https://api.canvas.ripgrim.com/api/:path*',
     },
   ])
   assert.deepEqual(webVercel.rewrites.at(-1), { source: '/(.*)', destination: '/_shell.html' })

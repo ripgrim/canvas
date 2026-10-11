@@ -1,5 +1,6 @@
 export type DurableObjectStub = Readonly<{ fetch(request: Request): Promise<Response> }>
 export type DurableObjectNamespace = Readonly<{ idFromName(name: string): unknown; get(id: unknown): DurableObjectStub }>
+export type ServiceFetcher = Readonly<{ fetch(request: Request): Promise<Response> }>
 export type DurableObjectTransaction = Readonly<{
   get<T>(key: string): Promise<T | undefined>
   put<T>(key: string, value: T): Promise<void>

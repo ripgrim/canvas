@@ -14,5 +14,19 @@
     "SYNC_ROOM_RUNTIME_ORIGIN": "http://127.0.0.1:4325",
     "SYNC_ROOM_TICKET_TTL_MS": "300000",
     "ALLOWED_ORIGINS": "http://127.0.0.1:4317,http://localhost:4317,http://127.0.0.1:4319,http://localhost:4319"
+  },
+  "env": {
+    "preview": {
+      "name": "comp-canvas-sync-coordinator-preview",
+      "services": [{ "binding": "SYNC_RUNTIME", "service": "comp-canvas-sync-runtime-preview" }],
+      "durable_objects": {
+        "bindings": [{ "name": "SYNC_ROOMS", "class_name": "FileSyncRoom" }]
+      },
+      "vars": {
+        "SYNC_ROOM_RUNTIME_ORIGIN": "http://127.0.0.1:4325",
+        "SYNC_ROOM_TICKET_TTL_MS": "300000",
+        "ALLOWED_ORIGINS": "https://staging.canvas.ripgrim.com,https://login-staging.canvas.ripgrim.com"
+      }
+    }
   }
 }

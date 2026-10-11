@@ -217,10 +217,13 @@ describe("private coordinator and real DO boundary", () => {
       .toThrow("Sync service credentials must be independent")
   })
 
-  it("keeps hosted deployment intentionally unavailable until the Container manager exists", () => {
+  it("CLOUD-SYNC-CONTAINER-001 binds staging only to the private room runtime", () => {
     const config = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"))
     expect(config.workers_dev).toBe(false)
     expect(config.routes).toBeUndefined()
-    expect(config.env).toBeUndefined()
+    expect(config.env.preview.name).toBe("comp-canvas-sync-coordinator-preview")
+    expect(config.env.preview.services).toEqual([{ binding: "SYNC_RUNTIME", service: "comp-canvas-sync-runtime-preview" }])
+    expect(config.env.preview.durable_objects.bindings).toEqual([{ name: "SYNC_ROOMS", class_name: "FileSyncRoom" }])
+    expect(config.env.production).toBeUndefined()
   })
 })

@@ -8,4 +8,4 @@ The admitted browser build is carried through the signed Worker envelope and roo
 
 The environment intentionally has no API admission token, browser session authority, database URL, repository credential, or source credential.
 
-Hosted configuration is intentionally absent. `workers_dev` is disabled and no routes or hosted environments are declared. A production deployment remains unsupported until a Container manager provides generation start, health, convergence, drain, and stop. Local development uses `SYNC_ROOM_RUNTIME_ORIGIN=http://127.0.0.1:4325`.
+The staging coordinator has no public route. Its preview service binding reaches the private room runtime Worker, while its generation Durable Object keeps the one-use admission ledger. No production environment is declared. Local development uses `SYNC_ROOM_RUNTIME_ORIGIN=http://127.0.0.1:4325`.

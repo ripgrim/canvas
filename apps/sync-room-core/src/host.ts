@@ -27,6 +27,7 @@ export type MultiRoomHostOptions = Readonly<{
   handshakeTimeoutMs: number
   startupTimeoutMs: number
   shutdownTimeoutMs: number
+  allowNonLoopback?: boolean
   tickets: RoomTicketVerifier
   createRoom(identity: RoomIdentity): HostedCollaborationRoom
   now?: () => number
@@ -305,7 +306,7 @@ export function createMultiRoomHost(options: MultiRoomHostOptions): MultiRoomHos
     get roomCount() { return rooms.size },
     get pendingUpgradeCount() { return pendingUpgrades },
     listen(port = 4325, hostname = '127.0.0.1') {
-      if (!['127.0.0.1', '::1', 'localhost'].includes(hostname)) return Promise.reject(new Error('Sync room host may only bind to a loopback hostname.'))
+      if (!options.allowNonLoopback && !['127.0.0.1', '::1', 'localhost'].includes(hostname)) return Promise.reject(new Error('Sync room host may only bind to a loopback hostname.'))
       return new Promise((resolve, rejectListen) => {
         const failed = (error: Error) => { server.off('listening', ready); rejectListen(error) }
         const ready = () => {

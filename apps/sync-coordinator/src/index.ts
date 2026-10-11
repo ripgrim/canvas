@@ -50,7 +50,8 @@ export async function proxyRoomUpgrade(input: Readonly<{ request: Request; env: 
   runtimeUrl.searchParams.set("clientId", verified.route.clientId); runtimeUrl.searchParams.set("connectionNonce", connectionNonce)
   const headers = new Headers({ "Authorization": `Bearer ${roomTicket}`, "Connection": "Upgrade", "Origin": verified.admission.origin, "Upgrade": "websocket", "Sec-WebSocket-Key": input.request.headers.get("Sec-WebSocket-Key")!, "Sec-WebSocket-Version": "13", [requestIdHeader]: verified.admission.requestId })
   if (verified.handshake.protocol) headers.set("Sec-WebSocket-Protocol", verified.handshake.protocol)
-  const response = await (input.runtimeFetch ?? (request => fetch(request)))(new Request(runtimeUrl, { method: "GET", headers }))
+  const runtimeFetch = input.runtimeFetch ?? (input.env.SYNC_RUNTIME ? request => input.env.SYNC_RUNTIME!.fetch(request) : request => fetch(request))
+  const response = await runtimeFetch(new Request(runtimeUrl, { method: "GET", headers }))
   return response.status === 101 ? response : json("room_unavailable", "File is busy.", 503)
 }
 

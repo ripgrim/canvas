@@ -58,7 +58,7 @@ test('keeps stateful and privileged services off the static Vercel plan', () => 
     manifest.externalServices.map(service => [service.service, service.platform]),
     [
       ['assets', 'cloudflare-workers'],
-      ['sync', 'long-lived-node'],
+      ['sync', 'cloudflare-containers'],
       ['thumbnail-jobs', 'private-container'],
       ['desktop', 'desktop-release'],
     ],

@@ -1,7 +1,9 @@
 import type { DurableObjectNamespace } from "./platform.js"
+import type { ServiceFetcher } from "./platform.js"
 
 export type SyncCoordinatorEnv = Readonly<{
   SYNC_ROOMS: DurableObjectNamespace
+  SYNC_RUNTIME?: ServiceFetcher
   SYNC_COORDINATOR_INTERNAL_SECRET: string
   SYNC_ROOM_TICKET_SECRET: string
   SYNC_ROOM_RUNTIME_ORIGIN: string

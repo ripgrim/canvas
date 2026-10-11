@@ -55,7 +55,7 @@ function validate(input) {
   exact(input, 'ASSETS_ORIGIN', expected.assets)
   exact(input, 'VITE_API_URL', expected.web)
   exact(input, 'VITE_APP_URL', expected.web)
-  exact(input, 'VITE_API_ORIGIN', expected.api)
+  exact(input, 'VITE_API_ORIGIN', expected.web)
   exact(input, 'VITE_LOGIN_ORIGIN', expected.login)
   exact(input, 'VITE_PREVIEW_ORIGIN', expected.preview)
   exact(input, 'VITE_ASSETS_ORIGIN', expected.assets)
