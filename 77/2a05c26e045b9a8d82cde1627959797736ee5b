@@ -1,0 +1,39 @@
+packages/editor/src/features/editor/canvas-hud-painter.ts
+  s_012c57818fbf95::t_c76f843b54e1da 152
+packages/editor/src/features/collaboration/collaboration-service.ts
+  s_012c57818fbf95::t_929732d77b793c 306
+  s_012c57818fbf95::t_c76f843b54e1da 70,207,213,217-222,231,240,260,273,303-305,307-312,316,319,324,327
+packages/preview-runtime/src/browser-runtime.mjs
+  s_012c57818fbf95::t_c76f843b54e1da 180-181,184
+packages/preview-runtime/tests/layout-root-baseline.test.ts
+  s_012c57818fbf95::t_cc63d129881753 51,147-160,236-239
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_c76f843b54e1da 468,470
+packages/editor/src/features/collaboration/collaboration-service.test.ts
+  s_012c57818fbf95::t_b847f902a2b568 110-111
+  s_012c57818fbf95::t_c76f843b54e1da 216-242
+packages/preview-runtime/tests/transient-move-layer.test.ts
+  s_012c57818fbf95::t_cc63d129881753 64-70
+  s_012c57818fbf95::t_c76f843b54e1da 55-63,71-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "772a05c26e045b9a8d82cde1627959797736ee5b",
+  "prompts": {},
+  "humans": {
+    "h_3279d55133f19f": {
+      "author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
