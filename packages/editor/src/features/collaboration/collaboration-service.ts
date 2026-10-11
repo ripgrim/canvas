@@ -67,6 +67,7 @@ export function createCollaborationService(
   let lastDocumentViewport = documents.getSnapshot().viewport
   let localInteraction: EditorCollaborationInteraction | null = null
   let localInteractionConfirmed = false
+  let localInteractionClaims = 0
   const commitWaiters = new Map<string, Set<(allowed: boolean) => void>>()
   const listeners = new Set<() => void>()
   const followingListeners = new Set<() => void>()
@@ -203,14 +204,21 @@ export function createCollaborationService(
     try { api.updateAwareness({ pageId, interaction }, { immediate: true }); return true }
     catch (error) { reportError(error, 'awareness'); return false }
   }
-  const releaseInteraction = (expectedInteractionId?: string) => {
+  const clearInteraction = (expectedInteractionId?: string) => {
     if (!localInteraction) return
     if (expectedInteractionId && localInteraction.interactionId !== expectedInteractionId) return
     const releasedInteractionId = localInteraction.interactionId
     localInteraction = null
     localInteractionConfirmed = false
+    localInteractionClaims = 0
     settleCommitWaiters(releasedInteractionId, false)
     publishInteraction(null)
+  }
+  const releaseInteraction = (expectedInteractionId?: string) => {
+    if (!localInteraction) return
+    if (expectedInteractionId && localInteraction.interactionId !== expectedInteractionId) return
+    if (localInteractionClaims > 1) { localInteractionClaims -= 1; return }
+    clearInteraction(expectedInteractionId)
   }
   const bindApi = () => {
     if (!api || stopApi) return
@@ -220,7 +228,7 @@ export function createCollaborationService(
 
   return Object.freeze({
     configure(next: EditorCollaborationApi | undefined) {
-      releaseInteraction()
+      clearInteraction()
       stopApi?.()
       stopApi = undefined
       cancelAnimation()
@@ -229,6 +237,7 @@ export function createCollaborationService(
       cursorTargets = emptyPositions
       localInteraction = null
       localInteractionConfirmed = false
+      localInteractionClaims = 0
       const base = next?.getSnapshot()
       documents.setReadOnly(base ? !base.canMutate : false)
       publish(base ? Object.freeze({ ...base, followingPresenceId: null, cursorPositions: emptyPositions, canRetry: Boolean(next?.retry), canLeave: Boolean(next?.leave) }) : unavailableSnapshot)
@@ -248,7 +257,7 @@ export function createCollaborationService(
     stop() {
       if (!running && !api) return
       running = false
-      releaseInteraction()
+      clearInteraction()
       stopApi?.()
       stopDocuments?.()
       stopApi = undefined
@@ -261,6 +270,7 @@ export function createCollaborationService(
       cursorTargets = emptyPositions
       localInteraction = null
       localInteractionConfirmed = false
+      localInteractionClaims = 0
       documents.setReadOnly(false)
       publish(unavailableSnapshot)
     },
@@ -290,22 +300,31 @@ export function createCollaborationService(
     beginInteraction(kind: EditorCollaborationInteraction['kind'], nodeIds: readonly string[]) {
       const pageId = documents.getSnapshot().pageId
       const uniqueNodeIds = Object.freeze([...new Set(nodeIds)])
-      if (!pageId || !uniqueNodeIds.length || localInteraction) return null
+      if (!pageId || !uniqueNodeIds.length) return null
+      if (localInteraction) {
+        const sameNodes = localInteraction.nodeIds.length === uniqueNodeIds.length && uniqueNodeIds.every(nodeId => localInteraction?.nodeIds.includes(nodeId))
+        if (!localInteractionConfirmed || localInteraction.pageId !== pageId || localInteraction.kind !== kind || !sameNodes || remoteInteractions(uniqueNodeIds).length) return null
+        localInteraction = Object.freeze({ ...localInteraction, transforms: Object.freeze([]) })
+        localInteractionClaims += 1
+        if (publishInteraction(localInteraction)) return localInteraction.interactionId
+        clearInteraction(localInteraction.interactionId)
+        return null
+      }
       if (remoteInteractions(uniqueNodeIds).length) return null
       localInteraction = Object.freeze({ interactionId: crypto.randomUUID(), pageId, kind, nodeIds: uniqueNodeIds, transforms: Object.freeze([]) })
       localInteractionConfirmed = false
+      localInteractionClaims = 1
       if (publishInteraction(localInteraction)) return localInteraction.interactionId
       localInteraction = null
+      localInteractionClaims = 0
       return null
     },
     updateInteraction(interactionId: string, transforms: readonly EditorCollaborationTransform[]) {
       if (!localInteraction || localInteraction.interactionId !== interactionId) return false
-      if (remoteInteractions(localInteraction.nodeIds).length > 0) { releaseInteraction(); return false }
+      if (remoteInteractions(localInteraction.nodeIds).length > 0) { clearInteraction(); return false }
       localInteraction = Object.freeze({ ...localInteraction, transforms: Object.freeze(transforms.map(transform => Object.freeze({ ...transform }))) })
       if (publishInteraction(localInteraction)) return true
-      publishInteraction(null)
-      localInteraction = null
-      localInteractionConfirmed = false
+      clearInteraction()
       return false
     },
     canCommitInteraction(interactionId: string) {

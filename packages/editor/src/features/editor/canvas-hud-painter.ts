@@ -149,7 +149,7 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
     const dpr = Math.max(1, window.devicePixelRatio || 1)
     const width = canvas.clientWidth
     const height = canvas.clientHeight
-    const chrome = canvasHudChromeForViewport(width)
+    const chrome = canvasHudChromeForViewport(window.innerWidth)
     if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) { canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr) }
     const context = canvas.getContext('2d')
     if (!context) return

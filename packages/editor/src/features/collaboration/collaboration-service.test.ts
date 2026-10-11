@@ -107,6 +107,8 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     const interactionId = service.beginInteraction('move', ['node-1'])
     expect(interactionId).toBeTypeOf('string')
     expect(service.canCommitInteraction(interactionId!)).toBe(false)
+    expect(service.beginInteraction('move', ['node-1'])).toBeNull()
+    expect(transport.updates.filter(update => update.interaction)).toHaveLength(1)
     const permission = service.waitForCommitInteraction(interactionId!)
     let settled: boolean | undefined
     void permission.then(allowed => { settled = allowed })
@@ -209,6 +211,33 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     expect(transport.updates.filter(update => update.interaction)).toHaveLength(1)
 
     service.endInteraction(interactionId!)
+    service.stop()
+  })
+
+  it('reuses a confirmed lease for an immediate compatible gesture and releases it after both claims finish', () => {
+    const docs = documents()
+    const local = participant('local', 'tab-local')
+    const transport = collaboration(snapshot('live', 'tab-local', [local]))
+    const service = createCollaborationService(docs.api, fakeWindow, animationClock().clock)
+    service.configure(transport.api)
+    service.start()
+
+    const firstId = service.beginInteraction('move', ['node-1'])
+    const requested = transport.updates.find(update => update.interaction)?.interaction
+    transport.publish(snapshot('live', 'tab-local', [{ ...local, sequence: 2, awareness: { ...local.awareness, interaction: requested! } }]))
+    expect(service.canCommitInteraction(firstId!)).toBe(true)
+
+    const secondId = service.beginInteraction('move', ['node-1'])
+    expect(secondId).toBe(firstId)
+    expect(transport.updates.at(-1)?.interaction).toMatchObject({ interactionId: firstId, kind: 'move', nodeIds: ['node-1'], transforms: [] })
+
+    service.endInteraction(firstId!)
+    expect(service.canCommitInteraction(secondId!)).toBe(true)
+    expect(transport.updates.at(-1)?.interaction).not.toBeNull()
+
+    service.endInteraction(secondId!)
+    expect(service.canCommitInteraction(secondId!)).toBe(false)
+    expect(transport.updates.at(-1)).toEqual({ pageId: 'page-1', interaction: null })
     service.stop()
   })
 })
