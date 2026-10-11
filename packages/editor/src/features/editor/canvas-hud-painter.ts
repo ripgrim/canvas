@@ -163,7 +163,6 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
     const toScreen = (rect: Rect) => worldRectToScreen(rect, state.viewport, state.viewportSize)
     const oriented = (node: SceneNode, rect: Rect) => nodeHudGeometry(node, rect, measured[node.id], state.viewport, state.viewportSize)
     const transient = state.transient
-    const moving = transient?.kind === 'move'
     const liveRect = (id: string): Rect | null => (transient?.kind === 'move' || transient?.kind === 'resize' ? transient.rects[id] : undefined) ?? scene.byId.get(id)?.rect ?? null
     const selected = state.selection.filter(id => scene.byId.has(id))
     const selectedIds = new Set(selected)
@@ -171,7 +170,6 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
     context.textBaseline = 'bottom'
     for (const node of scene.nodes.filter(candidate => candidate.parentId === null && (candidate.kind === 'frame' || candidate.kind === 'component'))) {
       if (state.renaming === node.id) continue
-      if (moving && selectedIds.has(node.id)) continue
       const rect = liveRect(node.id) ?? node.rect
       const screen = oriented(node, rect)
       const isSelected = selectedIds.has(node.id)
@@ -194,18 +192,16 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
     if (transient?.kind === 'move' && transient.targetFrameId && scene.byId.get(transient.targetFrameId)) { const node = scene.byId.get(transient.targetFrameId)!; strokeQuad(context, oriented(node, node.rect).quad, palette.selection, chrome.outlineWidth, [4, 3]) }
     const selectedRects: Rect[] = []
     const selectedGeometry: HudOrientedRect[] = []
-    if (!moving) {
-      for (const id of selected) {
-        const rect = liveRect(id)
-        if (!rect) continue
-        const node = scene.byId.get(id)!
-        const screen = oriented(node, rect)
-        painted.selected[id] = screen.bounds
-        painted.quads[id] = screen.quad
-        selectedRects.push(rect)
-        selectedGeometry.push(screen)
-        strokeQuad(context, screen.quad, palette.selection, chrome.outlineWidth)
-      }
+    for (const id of selected) {
+      const rect = liveRect(id)
+      if (!rect) continue
+      const node = scene.byId.get(id)!
+      const screen = oriented(node, rect)
+      painted.selected[id] = screen.bounds
+      painted.quads[id] = screen.quad
+      selectedRects.push(rect)
+      selectedGeometry.push(screen)
+      strokeQuad(context, screen.quad, palette.selection, chrome.outlineWidth)
     }
     if (selected.length > 1) { const union = unionRects(selectedRects); if (union) strokeRect(context, toScreen(union), `color-mix(in srgb, ${palette.selection} 45%, transparent)`) }
     if (transient?.kind === 'marquee') {

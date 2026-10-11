@@ -76,7 +76,11 @@ try {
 
   await moveBy(page, dragStart, delta, false)
   assert.equal((await layers.locator(`[data-instance-id="${frameId}"]`).getAttribute('aria-selected')), 'true')
-  assert.deepEqual((await hud(page)).selected, {}, 'selected-frame chrome must stay hidden during its transient move')
+  const heldFrame = await preview.locator(`[data-preview-canvas="${frameId}"]`).boundingBox()
+  const heldHud = await waitFor(() => hud(page), value => value.selected[frameId], 'selected-frame chrome did not follow its transient move')
+  const hudBox = await page.locator('.canvas-hud-canvas').boundingBox()
+  assert.ok(Math.abs(hudBox.x + heldHud.selected[frameId].x - heldFrame.x) <= 1.5, 'selected-frame outline did not match the held frame x')
+  assert.ok(Math.abs(hudBox.y + heldHud.selected[frameId].y - heldFrame.y) <= 1.5, 'selected-frame outline did not match the held frame y')
   assert.notEqual(await preview.locator(`[data-preview-canvas="${frameId}"]`).evaluate(element => element.style.translate), '')
   assert.equal(await childNode.evaluate(element => element.style.translate), '', 'child must not receive a separate transient move')
   await page.screenshot({ path: join(evidenceRoot, 'selected-frame-held-over-child.png') })

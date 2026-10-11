@@ -8,7 +8,7 @@ import { CollaborationAgentAvatar, CollaborationAvatar, CollaborationCursor, Col
 import { FileScreen } from '../application/FileScreen'
 import { documentStore } from '../editor/document-store'
 import { collaborationCopy as copy } from './copy'
-import { collaborationRoster, collaborationShellPresentation, remotePeopleOnPage, visiblePeople } from './CollaborationPresence'
+import { collaborationRoster, collaborationSelectionRect, collaborationShellPresentation, remotePeopleOnPage, visiblePeople } from './CollaborationPresence'
 
 const participant = (id: string, clientId = id, pageId: string | null = 'page-1', focused = true, isHeadless = false): EditorCollaborationParticipant => ({
   presenceId: id,
@@ -75,6 +75,14 @@ describe('UI-COLLAB-PRESENCE-001 presence presentation', () => {
   it('filters cursors and selections to remote people on the active page', () => {
     const people = remotePeopleOnPage([participant('local', 'tab-local'), participant('same'), participant('other', 'other', 'page-2')], 'tab-local', 'page-1')
     expect(people.map(person => person.presenceId)).toEqual(['same'])
+  })
+
+  it('CLOUD-SYNC-GESTURE-001 keeps a remote selection attached to a locally dragged node', () => {
+    const saved = { x: 20, y: 30, width: 120, height: 80 }
+    const live = { x: 84, y: -12, width: 120, height: 80 }
+    expect(collaborationSelectionRect(saved, live, undefined)).toEqual(live)
+    expect(collaborationSelectionRect(saved, undefined, { nodeId: 'node-1', dx: 9, dy: 7 })).toEqual({ x: 29, y: 37, width: 120, height: 80 })
+    expect(collaborationSelectionRect(saved, live, { nodeId: 'node-1', dx: -500, dy: -500 })).toEqual(live)
   })
 
   it('uses the same human avatar for viewers without a viewer badge or join toast', () => {
