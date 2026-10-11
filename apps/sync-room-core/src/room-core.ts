@@ -36,6 +36,10 @@ type Session = Readonly<{
   requestId: string
 }>
 
+type ClaimsCheck =
+  | Readonly<{ status: 'current'; claims: VerifiedRoomTicketClaims }>
+  | Readonly<{ status: 'refresh-required' | 'revoked' }>
+
 export type RoomAdmission = Readonly<{
   peer: RoomPeer
   ticketContext: RoomTicketContext
@@ -349,7 +353,7 @@ export class CollaborationRoomCore {
           throw error
         }
         await this.#send(peer, assigned)
-        if (!await this.#verifyCurrentClaims(currentClaims)) return rejectAdmission('access')
+        if ((await this.#verifyCurrentClaims(currentClaims)).status !== 'current') return rejectAdmission('access')
         await this.#streamProjection(peer, projectionStream)
         await this.#send(peer, plannedRoster)
         this.#sessions.set(peer.connectionId, session)
@@ -413,13 +417,13 @@ export class CollaborationRoomCore {
   }
 
   async #operation(session: Session, message: OperationSubmitMessage): Promise<void> {
-    const currentClaims = await this.#refreshClaims(session)
-    if (!currentClaims) {
-      await this.#roomError(session, 'access_revoked', 'File access changed.', 'none', message.operation.mutationId)
-      session.peer.close(4403, 'File access changed')
+    const claims = await this.#refreshClaims(session)
+    if (claims.status !== 'current') {
+      await this.#rejectClaims(session, claims.status, message.operation.mutationId)
       this.disconnect(session.peer.connectionId)
       return
     }
+    const currentClaims = claims.claims
     if (currentClaims.role !== 'owner') { await this.#roomError(session, 'read_only', 'This file is read only.', 'none', message.operation.mutationId); return }
     const projection = this.#projection
     const lease = this.#lease
@@ -461,11 +465,11 @@ export class CollaborationRoomCore {
       const recipients = [...this.#sessions.values()].filter(recipient => recipient.peer !== session.peer)
       await Promise.all(recipients.map(async recipient => {
         try {
-          if (!await this.#refreshClaims(recipient)) {
-            await this.#roomError(recipient, 'access_revoked', 'File access changed.', 'none').catch(error => {
+          const recipientClaims = await this.#refreshClaims(recipient)
+          if (recipientClaims.status !== 'current') {
+            await this.#rejectClaims(recipient, recipientClaims.status).catch(error => {
               this.#log('room_error_delivery_failed', { connectionId: recipient.peer.connectionId, error: errorMessage(error) })
             })
-            recipient.peer.close(4403, 'File access changed')
             this.disconnect(recipient.peer.connectionId)
             return
           }
@@ -501,9 +505,9 @@ export class CollaborationRoomCore {
   }
 
   async #presence(session: Session, message: PresenceUpdateMessage): Promise<void> {
-    if (!this.#claimsAreLocallyCurrent(session.claims)) {
-      await this.#roomError(session, 'access_revoked', 'File access changed.', 'none')
-      session.peer.close(4403, 'File access changed')
+    const claims = this.#localClaimsCheck(session.claims)
+    if (claims !== 'current') {
+      await this.#rejectClaims(session, claims)
       this.disconnect(session.peer.connectionId)
       return
     }
@@ -584,11 +588,11 @@ export class CollaborationRoomCore {
     const recipients = [...this.#sessions.values()].filter(recipient => recipient.peer.connectionId !== excludedConnectionId)
     await Promise.all(recipients.map(async recipient => {
       try {
-        if (!this.#claimsAreLocallyCurrent(recipient.claims)) {
-          await this.#roomError(recipient, 'access_revoked', 'File access changed.', 'none').catch(error => {
+        const claims = this.#localClaimsCheck(recipient.claims)
+        if (claims !== 'current') {
+          await this.#rejectClaims(recipient, claims).catch(error => {
             this.#log('room_error_delivery_failed', { connectionId: recipient.peer.connectionId, error: errorMessage(error) })
           })
-          recipient.peer.close(4403, 'File access changed')
           this.disconnect(recipient.peer.connectionId)
           return
         }
@@ -603,11 +607,11 @@ export class CollaborationRoomCore {
   async #pruneUnauthorizedSessions(): Promise<void> {
     const removed: Session[] = []
     for (const session of [...this.#sessions.values()]) {
-      if (await this.#refreshClaims(session)) continue
-      await this.#roomError(session, 'access_revoked', 'File access changed.', 'none').catch(error => {
+      const claims = await this.#refreshClaims(session)
+      if (claims.status === 'current') continue
+      await this.#rejectClaims(session, claims.status).catch(error => {
         this.#log('room_error_delivery_failed', { connectionId: session.peer.connectionId, error: errorMessage(error) })
       })
-      session.peer.close(4403, 'File access changed')
       const stale = this.#removeSession(session.peer.connectionId)
       if (stale) removed.push(stale)
     }
@@ -690,22 +694,33 @@ export class CollaborationRoomCore {
     this.#log('room_lease_lost')
   }
 
-  async #verifyCurrentClaims(expected: VerifiedRoomTicketClaims): Promise<VerifiedRoomTicketClaims | null> {
+  async #verifyCurrentClaims(expected: VerifiedRoomTicketClaims): Promise<ClaimsCheck> {
     const nowUnixMs = Date.now()
-    if (!this.#claimsAreLocallyCurrent(expected, nowUnixMs)) return null
+    const local = this.#localClaimsCheck(expected, nowUnixMs)
+    if (local !== 'current') return Object.freeze({ status: local })
     const current = await this.#dependencies.tickets.isCurrent(expected, nowUnixMs).catch(() => false)
-    return current ? expected : null
+    return current ? Object.freeze({ status: 'current', claims: expected }) : Object.freeze({ status: 'revoked' })
   }
 
-  #claimsAreLocallyCurrent(expected: VerifiedRoomTicketClaims, nowUnixMs = Date.now()): boolean {
-    return expected.protocolEpoch === 2
-      && expected.fileId === this.#options.identity.fileId
-      && expected.generationId === this.#options.identity.generationId
-      && expected.expiresAtUnixMs > nowUnixMs
+  #localClaimsCheck(expected: VerifiedRoomTicketClaims, nowUnixMs = Date.now()): ClaimsCheck['status'] {
+    if (expected.protocolEpoch !== 2
+      || expected.fileId !== this.#options.identity.fileId
+      || expected.generationId !== this.#options.identity.generationId) return 'revoked'
+    return expected.expiresAtUnixMs > nowUnixMs ? 'current' : 'refresh-required'
   }
 
-  #refreshClaims(session: Session): Promise<VerifiedRoomTicketClaims | null> {
+  #refreshClaims(session: Session): Promise<ClaimsCheck> {
     return this.#verifyCurrentClaims(session.claims)
+  }
+
+  async #rejectClaims(session: Session, status: Exclude<ClaimsCheck['status'], 'current'>, mutationId?: string): Promise<void> {
+    if (status === 'refresh-required') {
+      await this.#roomError(session, 'draining', 'Session refresh required.', 'reconnect', mutationId, 250)
+      session.peer.close(1012, 'Session refresh required')
+      return
+    }
+    await this.#roomError(session, 'access_revoked', 'File access changed.', 'none', mutationId)
+    session.peer.close(4403, 'File access changed')
   }
 
   #scheduleRenewal(): void {

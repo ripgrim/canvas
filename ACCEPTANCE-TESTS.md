@@ -231,6 +231,8 @@ Negative control: bypass the UI guard and call the API. Unauthorized access must
 
 Revoke a member and a share link. Verify later HTTP requests and active subscriptions lose access. Confirm revoked state is shown without leaking project content.
 
+Expire a collaboration transport ticket without changing database authorization. Verify an active owner re-admits automatically, keeps the visible document, and never enters the access-removed state. Preserve the owner's pending semantic operation across re-admission. As a negative control, change the database access epoch or remove access and verify the same room still terminates the subscription as revoked.
+
 ### AT-GHAPP-001: GitHub App installation grants
 
 Connect a GitHub App installation with a valid single-use state and a GitHub user who can see that installation. Live-check the selected repository through GitHub before storing the grant. Verify invalid state, a spoofed setup `installation_id`, another user's installation, an invalid webhook signature, and a duplicate delivery all fail. Installation suspension, deletion, and repository removal invalidate later scans and writes.
