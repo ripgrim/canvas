@@ -37,6 +37,12 @@ test('rejects a shared parent-domain auth cookie', () => {
   assert.match(result.stderr, /AUTH_COOKIE_DOMAIN must stay empty/)
 })
 
+test('rejects a staging cookie prefix that can collide with production', () => {
+  const result = run(filledTemplate('filled').replace('AUTH_COOKIE_PREFIX="comp-canvas-staging"', 'AUTH_COOKIE_PREFIX="better-auth"'))
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /AUTH_COOKIE_PREFIX must be comp-canvas-staging/)
+})
+
 function filledTemplate(value) {
   return template.replaceAll('=""', `="${value}"`).replace(`AUTH_COOKIE_DOMAIN="${value}"`, 'AUTH_COOKIE_DOMAIN=""')
 }

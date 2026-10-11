@@ -38,6 +38,7 @@ test('opens one staging-to-main pull request and never pushes main directly', ()
 test('keeps browser auth on the staging editor origin with a host-only cookie', () => {
   assert.match(stagingTemplate, /^BETTER_AUTH_URL="https:\/\/staging\.canvas\.ripgrim\.com"$/m)
   assert.match(stagingTemplate, /^AUTH_COOKIE_DOMAIN=""$/m)
+  assert.match(stagingTemplate, /^AUTH_COOKIE_PREFIX="comp-canvas-staging"$/m)
   assert.match(stagingTemplate, /^VITE_APP_URL="https:\/\/staging\.canvas\.ripgrim\.com"$/m)
   assert.match(stagingTemplate, /^VITE_API_URL="https:\/\/staging\.canvas\.ripgrim\.com"$/m)
   assert.match(stagingTemplate, /^GITHUB_APP_AUTHORIZATION_CALLBACK_URL="https:\/\/api-staging\.canvas\.ripgrim\.com\/api\/github\/authorization\/callback"$/m)

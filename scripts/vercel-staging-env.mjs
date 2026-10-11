@@ -39,6 +39,7 @@ function validate(input) {
   const missing = manifest.projects.flatMap(project => project.environment.filter(name => !(name in input) || (name !== 'AUTH_COOKIE_DOMAIN' && !input[name]?.trim())))
   if (missing.length) fail(`Staging environment is incomplete: ${[...new Set(missing)].join(', ')}`)
   if (input.AUTH_COOKIE_DOMAIN !== '') fail('AUTH_COOKIE_DOMAIN must stay empty so staging uses a host-only cookie.')
+  exact(input, 'AUTH_COOKIE_PREFIX', 'comp-canvas-staging')
 
   const productionOrigins = new Set(Object.values(environments.production.origins))
   for (const project of manifest.projects) {

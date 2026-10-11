@@ -14,6 +14,7 @@ export type HostedAuthOptions = Readonly<{
   desktopClientId?: string
   trustedOrigins?: readonly string[]
   cookieDomain?: string
+  cookiePrefix?: string
 }>
 
 export type HostedSessionUser = Readonly<{ id: string; name: string; email: string; image: string | null }>
@@ -57,6 +58,13 @@ function sharedCookieDomain(value: string | undefined, baseURL: string): string 
   return `.${domain}`
 }
 
+function cookiePrefix(value: string | undefined): string | undefined {
+  const candidate = value?.trim().toLowerCase()
+  if (!candidate) return undefined
+  if (candidate.length > 48 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(candidate)) throw new Error('AUTH_COOKIE_PREFIX must contain only lowercase letters, numbers, and hyphens.')
+  return candidate
+}
+
 function trustedWebOrigins(values: readonly string[], baseURL: string, cookieDomain?: string): readonly string[] {
   const base = new URL(baseURL)
   const allowLoopbackHttp = base.protocol === 'http:'
@@ -72,6 +80,7 @@ function trustedWebOrigins(values: readonly string[], baseURL: string, cookieDom
 export function hostedAuthOptionsFromEnvironment(environment: HostedAuthEnvironment, database: HostedAuthOptions['database']): HostedAuthOptions {
   const baseURL = webOrigin(requiredEnvironment(environment, 'BETTER_AUTH_URL'), 'Better Auth URL')
   const cookieDomain = sharedCookieDomain(environment.AUTH_COOKIE_DOMAIN, baseURL)
+  const authCookiePrefix = cookiePrefix(environment.AUTH_COOKIE_PREFIX)
   const trustedOrigins = trustedWebOrigins([environment.LOGIN_URL, environment.APP_URL, environment.AUTH_TRUSTED_ORIGINS]
     .flatMap(value => value?.split(',') ?? [])
     .map(origin => origin.trim())
@@ -85,6 +94,7 @@ export function hostedAuthOptionsFromEnvironment(environment: HostedAuthEnvironm
     desktopScheme: desktopAuthProtocolScheme,
     desktopClientId: desktopAuthClientId,
     ...(cookieDomain ? { cookieDomain } : {}),
+    ...(authCookiePrefix ? { cookiePrefix: authCookiePrefix } : {}),
     ...(trustedOrigins?.length ? { trustedOrigins } : {}),
   }
 }
@@ -100,6 +110,7 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
   const canonicalBaseURL = webOrigin(options.baseURL, 'Auth base URL')
   const baseURL = new URL(canonicalBaseURL)
   const cookieDomain = sharedCookieDomain(options.cookieDomain, canonicalBaseURL)
+  const authCookiePrefix = cookiePrefix(options.cookiePrefix)
   const trustedOrigins = trustedWebOrigins(options.trustedOrigins ?? [], canonicalBaseURL, cookieDomain)
   const crossSiteCookie = baseURL.protocol === 'https:' && !cookieDomain && trustedOrigins.some(origin => new URL(origin).hostname !== baseURL.hostname)
   if (options.secret.length < 32) throw new Error('Better Auth secret must contain at least 32 characters.')
@@ -113,6 +124,7 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
     advanced: {
       useSecureCookies: baseURL.protocol === 'https:',
       defaultCookieAttributes: { httpOnly: true, secure: baseURL.protocol === 'https:', sameSite: crossSiteCookie ? 'none' : 'lax', path: '/' },
+      ...(authCookiePrefix ? { cookiePrefix: authCookiePrefix } : {}),
       ...(cookieDomain ? { crossSubDomainCookies: { enabled: true, domain: cookieDomain } } : {}),
     },
     socialProviders: {
