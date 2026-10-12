@@ -1,0 +1,19 @@
+apps/desktop/tests/packaged-launch-smoke.mjs
+  s_012c57818fbf95::t_74c4c227b3c6f8 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cd1a9c9ddd1840dc67500c23cddc5e80c03d10bd",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
