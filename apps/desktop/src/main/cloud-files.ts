@@ -44,6 +44,7 @@ function shellState(lifecycle: ReturnType<CollaborationClient['getSnapshot']>['l
   if (lifecycle === 'access-revoked') return 'access-removed'
   if (lifecycle === 'incompatible-build') return 'update-required'
   if (lifecycle === 'capacity-refused') return 'file-busy'
+  if (lifecycle === 'connection-failed') return 'connection-failed'
   return null
 }
 
@@ -62,7 +63,7 @@ function waitForDocument(client: CollaborationClient, fileId: string): Promise<F
       const current = client.getSnapshot()
       if (current.fileId !== fileId) return
       if ((current.lifecycle === 'live' || current.lifecycle === 'read-only') && current.document) finish({ document: current.document })
-      else if (['access-revoked', 'incompatible-build', 'capacity-refused', 'closed'].includes(current.lifecycle)) finish({ error: new Error(current.error ?? 'Live sync could not open this file.') })
+      else if (['access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed', 'closed'].includes(current.lifecycle)) finish({ error: new Error(current.error ?? 'Live sync could not open this file.') })
     }
     unsubscribe = client.subscribe(check)
     check()
@@ -174,14 +175,14 @@ export class DesktopCloudFiles {
       return { status: 'unavailable', shellState: null, localClientId: null, localProfile: null, canMutate: false, canManageShare: false, participants: [], agents: [], error: null }
     }
     if (this.authorityFileId !== current.fileId) this.resetAuthority(current.fileId)
-    const authorityFailed = ['access-revoked', 'incompatible-build', 'capacity-refused'].includes(current.lifecycle)
+    const authorityFailed = ['access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed'].includes(current.lifecycle)
     if (authorityFailed) this.resetAuthority(current.fileId)
     const roleIsCurrent = !authorityFailed && !['cold', 'opening', 'connecting', 'authorizing', 'closing', 'closed'].includes(current.lifecycle)
     if (current.role && roleIsCurrent) this.authoritativeRole = current.role
     const local = current.participants.find(participant => participant.clientId === current.clientId)
     if (this.authoritativeRole && local) this.localProfile = { subjectId: local.subjectId, displayName: local.displayName, avatarUrl: local.avatarUrl, role: this.authoritativeRole }
     else if (this.authoritativeRole && this.localProfile && this.localProfile.role !== this.authoritativeRole) this.localProfile = { ...this.localProfile, role: this.authoritativeRole }
-    const status: EditorCollaborationSnapshot['status'] = current.lifecycle === 'live' ? 'live' : current.lifecycle === 'read-only' ? 'read-only' : ['offline-clean', 'offline-dirty', 'reconnecting', 'replaying', 'draining', 'parked'].includes(current.lifecycle) ? 'reconnecting' : ['access-revoked', 'incompatible-build', 'capacity-refused'].includes(current.lifecycle) ? 'error' : 'connecting'
+    const status: EditorCollaborationSnapshot['status'] = current.lifecycle === 'live' ? 'live' : current.lifecycle === 'read-only' ? 'read-only' : ['offline-clean', 'offline-dirty', 'reconnecting', 'replaying', 'draining', 'parked'].includes(current.lifecycle) ? 'reconnecting' : ['access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed'].includes(current.lifecycle) ? 'error' : 'connecting'
     return {
       status,
       shellState: shellState(current.lifecycle),

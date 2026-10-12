@@ -58,11 +58,11 @@ describe('control-plane file documents', () => {
     const source = { ...initial.document, schemaVersion: 6, assets: { asset: { data: 'inline' } } }
     expect((await store.saveFileDocument('owner', file.id, 0, { ...source, revision: 1 })).status).toBe('saved')
     const stored = (await store.getFileDocumentForCapture(file.id))!
-    const migrated = { ...stored.document, schemaVersion: 7 }
+    const migrated = { ...stored.document, schemaVersion: 9 }
     delete (migrated as { assets?: unknown }).assets
 
     const saved = await store.externalizeLegacyFileDocument(file.id, 1, stored.document, migrated)
-    expect(saved).toMatchObject({ status: 'saved', document: { revision: 1, document: { schemaVersion: 7, revision: 1 } } })
+    expect(saved).toMatchObject({ status: 'saved', document: { revision: 1, document: { schemaVersion: 9, revision: 1 } } })
     expect((await store.getFile('owner', file.id))?.headRevision).toBe(1)
     expect(await store.externalizeLegacyFileDocument(file.id, 1, stored.document, migrated)).toMatchObject({ status: 'unchanged' })
     expect(await store.externalizeLegacyFileDocument(file.id, 0, stored.document, migrated)).toEqual({ status: 'conflict', currentRevision: 1 })
@@ -91,7 +91,7 @@ describe('control-plane file documents', () => {
     const opened = await store.getFileDocument('owner', file.id)
     expect(opened).not.toBeNull()
     const document = validateFileDocument(opened!.document, [])
-    expect(document).toMatchObject({ schemaVersion: 7, fileId: file.id, revision: 0, pages: [{ name: 'Page 1' }], theme: { tokens: {} } })
+    expect(document).toMatchObject({ schemaVersion: 9, fileId: file.id, revision: 0, pages: [{ name: 'Page 1' }], theme: { tokens: {} } })
     expect(Object.values(document.nodes)).toEqual([{ id: document.pages[0]!.rootNodeId, type: 'root' }])
   })
 

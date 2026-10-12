@@ -1,10 +1,12 @@
 import {
   collaborationEnvelopeSchemaVersion,
   collaborationProtocolEpoch,
+  collaborationWebSocketProtocol,
   decodeSemanticCommandFromPersistence,
   defaultMaxCollaborationMessageBytes,
   encodeSemanticCommandForPersistence,
   encodeCollaborationMessage,
+  flowDragResourceLimits,
   isValidClientLifecycleTransition,
   parseCollaborationClientMessage,
   parseCollaborationServerMessage,
@@ -16,6 +18,15 @@ import type {
   CollaborationMode,
   CollaborationServerMessage,
   DurableSequence,
+  FlowDragLane,
+  FlowDragPresentation,
+  FlowDragServerLeaseId,
+  FlowDragTerminalBinding,
+  FlowDragTopologyAuthority,
+  InteractionResultMessage,
+  InteractionRosterEntry,
+  InteractionSampleAcceptedMessage,
+  InteractionReleasedMessage,
   PresenceParticipant,
   PresencePatch,
   PresenceState,
@@ -42,11 +53,11 @@ const policyViolation = 4008
 const messageTooLarge = 4009
 const internalError = 4011
 const reconnectRequired = 4012
-const syncWebSocketProtocol = 'canvas-sync-v2'
 const maxPendingMutations = 512
 const presenceFrameMs = 30
 const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const digestPattern = /^[0-9a-f]{64}$/
 
 export type CollaborationSocketEventMap = Readonly<{
   open: Event
@@ -63,6 +74,11 @@ export type CollaborationWebSocket = Readonly<{
   removeEventListener<K extends keyof CollaborationSocketEventMap>(type: K, listener: (event: CollaborationSocketEventMap[K]) => void): void
 }>
 
+export type CollaborationClientLifecycleTarget = Readonly<{
+  addEventListener(type: 'online' | 'offline' | 'visibilitychange', listener: () => void): void
+  removeEventListener(type: 'online' | 'offline' | 'visibilitychange', listener: () => void): void
+}>
+
 export type CollaborationMutationReceipt = Readonly<{
   mutationId: string
   sequence: DurableSequence
@@ -72,6 +88,34 @@ export type CollaborationMutationReceipt = Readonly<{
 export type CollaborationMutationInput = Readonly<{
   mutationId: string
   command: SemanticFileCommand
+  flowBinding?: FlowDragTerminalBinding
+}>
+
+export type CollaborationFlowClaim = Readonly<{
+  pageId: string
+  interactionId: string
+  sourceNodeId: string
+  localClaimGeneration: number
+}>
+
+export type CollaborationFlowRequest = Readonly<{
+  claim: CollaborationFlowClaim
+  result: Promise<InteractionResultMessage>
+}>
+
+export type CollaborationRemoteFlowEvent =
+  | Readonly<{ type: 'sample'; source: 'live' | 'roster'; sample: InteractionSampleAcceptedMessage | InteractionRosterEntry }>
+  | Readonly<{ type: 'released'; release: InteractionReleasedMessage }>
+
+export type CollaborationFlowClaimSnapshot = Readonly<{
+  claim: CollaborationFlowClaim
+  leaseId: FlowDragServerLeaseId | null
+  reservationGeneration: number
+  currentTargetLane: FlowDragLane | null
+  latestAcceptedPresentation: FlowDragPresentation | null
+  sampleSequence: number
+  pendingRelease: boolean
+  boundMutationIds: readonly string[]
 }>
 
 export type CollaborationAppliedOperation =
@@ -100,6 +144,7 @@ export type CollaborationClientSnapshot<TDocument extends object> = Readonly<{
   serverSequence: DurableSequence
   lastOperation: CollaborationAppliedOperation | null
   participants: readonly PresenceParticipant[]
+  remoteInteractions: readonly InteractionRosterEntry[]
   pendingMutationIds: readonly string[]
   recoverableMutationIds: readonly string[]
   reconnectAttempt: number
@@ -121,15 +166,23 @@ export type CollaborationClientOptions<TDocument extends object> = Readonly<{
   clientId: string
   validateDocument(value: unknown): TDocument
   applyCommand(document: TDocument, command: SemanticFileCommand): TDocument
-  createWebSocket?: (url: string, protocol: typeof syncWebSocketProtocol) => CollaborationWebSocket
+  createWebSocket?: (url: string, protocol: typeof collaborationWebSocketProtocol) => CollaborationWebSocket
   createId?: () => string
   reconnectDelaysMs?: readonly number[]
   random?: () => number
+  heartbeatIntervalMs?: number
+  heartbeatTimeoutMs?: number
+  maxPreAdmissionFailures?: number
+  lifecycleTarget?: CollaborationClientLifecycleTarget | null
+  isOnline?: () => boolean
+  isVisible?: () => boolean
   setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>
   clearTimer?: (timer: ReturnType<typeof setTimeout>) => void
   maxMessageBytes?: number
   reportError?: (error: unknown, operation: 'room.leave') => void
   reportCacheError?: (error: unknown) => void
+  onRemoteFlow?: (event: CollaborationRemoteFlowEvent) => void
+  resolveFlowAuthority?: (document: TDocument, pageId: string) => FlowDragTopologyAuthority | null
   durableStore?: CollaborationDurableStore
 }>
 
@@ -152,6 +205,9 @@ type SocketBinding = Readonly<{
 type PendingMutation<TDocument extends object> = {
   readonly id: string
   readonly command: SemanticFileCommand
+  readonly replayScopeId: string
+  flowBinding: FlowDragTerminalBinding | null
+  quarantinedFlowBinding: boolean
   baseSequence: DurableSequence | null
   sentSocketEpoch: number | null
   readonly resolve: (receipt: CollaborationMutationReceipt) => void
@@ -167,13 +223,38 @@ type StagedSnapshot<TDocument extends object> = Readonly<{
   document: TDocument
 }>
 
+type StagedCheckpoint<TDocument extends object> = Readonly<{
+  checkpoint: StoredCollaborationCheckpoint
+  document: TDocument
+}>
+
+type MutableFlowClaim = {
+  readonly claim: CollaborationFlowClaim
+  leaseId: FlowDragServerLeaseId | null
+  reservationGeneration: number
+  currentTargetLane: FlowDragLane | null
+  latestAcceptedPresentation: FlowDragPresentation | null
+  sampleSequence: number
+  requestedPresentation: FlowDragPresentation
+  requestedTargetLane: FlowDragLane | null
+  pendingRelease: Readonly<{ terminalSampleSequence: number; reason: 'committed' | 'cancelled' | 'failed' | 'disconnecting' }> | null
+  readonly boundMutationIds: Set<string>
+}
+
+type FlowResultWaiter = Readonly<{
+  action: 'acquire' | 'reserve' | 'release'
+  localClaimGeneration: number
+  reservationGeneration: number
+  resolve(result: InteractionResultMessage): void
+  reject(error: Error): void
+}>
+
 const emptyPresence: PresenceState = Object.freeze({
   pageId: null,
   focused: false,
   selection: null,
   camera: null,
   cursor: null,
-  interaction: null,
 })
 
 function copyPresenceState(value: PresenceState): PresenceState {
@@ -183,7 +264,6 @@ function copyPresenceState(value: PresenceState): PresenceState {
     selection: value.selection ? Object.freeze({ pageId: value.selection.pageId, nodeIds: Object.freeze([...value.selection.nodeIds]) }) : null,
     camera: value.camera ? Object.freeze({ ...value.camera }) : null,
     cursor: value.cursor ? Object.freeze({ ...value.cursor }) : null,
-    ...(Object.hasOwn(value, 'interaction') ? { interaction: value.interaction ? Object.freeze({ ...value.interaction, nodeIds: Object.freeze([...value.interaction.nodeIds]), transforms: Object.freeze(value.interaction.transforms.map(transform => Object.freeze({ ...transform }))) }) : null } : {}),
   })
 }
 
@@ -210,7 +290,6 @@ function mergePresenceState(current: PresenceState, patch: PresencePatch): Prese
     selection: Object.hasOwn(patch, 'selection') ? patch.selection ?? null : pageChanged ? null : current.selection,
     camera: Object.hasOwn(patch, 'camera') ? patch.camera ?? null : pageChanged ? null : current.camera,
     cursor: Object.hasOwn(patch, 'cursor') ? patch.cursor ?? null : pageChanged ? null : current.cursor,
-    interaction: Object.hasOwn(patch, 'interaction') ? patch.interaction ?? null : pageChanged ? null : current.interaction ?? null,
   })
 }
 
@@ -221,7 +300,6 @@ function fullPresencePatch(value: PresenceState): PresencePatch {
     selection: value.selection,
     camera: value.camera,
     cursor: value.cursor,
-    interaction: value.interaction ?? null,
   })
 }
 
@@ -231,14 +309,8 @@ function mergePresencePatch(current: PresencePatch | null, patch: PresencePatch)
     if (!Object.hasOwn(patch, 'selection')) merged.selection = null
     if (!Object.hasOwn(patch, 'camera')) merged.camera = null
     if (!Object.hasOwn(patch, 'cursor')) merged.cursor = null
-    if (!Object.hasOwn(patch, 'interaction')) merged.interaction = null
   }
   return Object.freeze(merged)
-}
-
-function isImmediateInteractionPatch(patch: PresencePatch): boolean {
-  const keys = Object.keys(patch)
-  return Object.hasOwn(patch, 'interaction') && keys.every(key => key === 'pageId' || key === 'interaction')
 }
 
 function validateIdentifier(value: string, label: string): string {
@@ -301,13 +373,14 @@ function hydrateStoredRoom<TDocument extends object>(
   let repaired = false
   let checkpoint: StoredCollaborationCheckpoint | null = null
   let document: TDocument | null = null
-  if (value.checkpoint !== null && isRecord(value.checkpoint) && exactKeys(value.checkpoint, ['snapshotId', 'serverSequence', 'document'])) {
+  if (value.checkpoint !== null && isRecord(value.checkpoint) && exactKeys(value.checkpoint, ['snapshotId', 'serverSequence', 'document', 'replayScopeId'])) {
     try {
       if (typeof value.checkpoint.snapshotId !== 'string') throw new Error('Invalid snapshot id.')
       const snapshotId = validateIdentifier(value.checkpoint.snapshotId, 'snapshot id')
       const serverSequence = validateSequence(value.checkpoint.serverSequence)
+      if (typeof value.checkpoint.replayScopeId !== 'string' || !digestPattern.test(value.checkpoint.replayScopeId)) throw new Error('Invalid replay scope id.')
       document = validateDocument(value.checkpoint.document)
-      checkpoint = Object.freeze({ snapshotId, serverSequence, document })
+      checkpoint = Object.freeze({ snapshotId, serverSequence, document, replayScopeId: value.checkpoint.replayScopeId })
     } catch { repaired = true }
   } else if (value.checkpoint !== null) repaired = true
 
@@ -315,15 +388,35 @@ function hydrateStoredRoom<TDocument extends object>(
   const seen = new Set<string>()
   for (const item of value.pending) {
     try {
-      if (!isRecord(item) || !exactKeys(item, ['mutationId', 'baseSequence', 'command', 'status'])) throw new Error('Invalid stored mutation.')
+      if (!isRecord(item)) throw new Error('Invalid stored mutation.')
+      const hasFlowBinding = exactKeys(item, ['mutationId', 'baseSequence', 'command', 'status', 'replayScopeId', 'flowBinding'])
+      const hasReplayScope = exactKeys(item, ['mutationId', 'baseSequence', 'command', 'status', 'replayScopeId'])
+      const isLegacyMutation = exactKeys(item, ['mutationId', 'baseSequence', 'command', 'status'])
+      if (!hasFlowBinding && !hasReplayScope && !isLegacyMutation) throw new Error('Invalid stored mutation.')
       if (typeof item.mutationId !== 'string') throw new Error('Invalid stored mutation id.')
       const mutationId = validateIdentifier(item.mutationId, 'mutation id')
       if (mutationId.length < 8 || seen.has(mutationId)) throw new Error('Invalid stored mutation id.')
       const baseSequence = item.baseSequence === null ? null : validateSequence(item.baseSequence)
       const command = encodeSemanticCommandForPersistence(decodeSemanticCommandFromPersistence(item.command))
       if (item.status !== 'pending' && item.status !== 'recoverable') throw new Error('Invalid stored mutation status.')
+      const replayScopeId = (hasFlowBinding || hasReplayScope) && typeof item.replayScopeId === 'string' && digestPattern.test(item.replayScopeId)
+        ? item.replayScopeId
+        : null
+      let flowBinding: FlowDragTerminalBinding | null = null
+      let invalidFlowBinding = false
+      if (hasFlowBinding && item.flowBinding !== null) {
+        try {
+          const validated = parseCollaborationClientMessage(JSON.stringify({
+            type: 'operation.submit',
+            operation: { mutationId, baseSequence: '0', command: decodeSemanticCommandFromPersistence(command), flowBinding: item.flowBinding },
+          }))
+          flowBinding = frozenJsonCopy((validated as Extract<CollaborationClientMessage, { type: 'operation.submit' }>).operation.flowBinding ?? null)
+        } catch { invalidFlowBinding = true }
+      }
+      const status = replayScopeId === null || invalidFlowBinding ? 'recoverable' as const : item.status
+      if (!hasFlowBinding || replayScopeId === null || invalidFlowBinding || status !== item.status) repaired = true
       seen.add(mutationId)
-      pending.push(Object.freeze({ mutationId, baseSequence, command, status: item.status }))
+      pending.push(Object.freeze({ mutationId, baseSequence, command, status, replayScopeId, flowBinding }))
     } catch { repaired = true }
   }
   const room: StoredCollaborationRoom = Object.freeze({
@@ -351,6 +444,41 @@ function websocketUrl(origin: string, fileId: string, clientId: string): string 
   return url.toString()
 }
 
+function browserLifecycleTarget(): CollaborationClientLifecycleTarget | null {
+  const connectivityTarget = typeof globalThis.addEventListener === 'function' ? globalThis : null
+  const visibilityTarget = typeof document === 'undefined' ? null : document
+  if (!connectivityTarget && !visibilityTarget) return null
+  return {
+    addEventListener(type, listener) {
+      const target = type === 'visibilitychange' ? visibilityTarget : connectivityTarget
+      target?.addEventListener(type, listener)
+    },
+    removeEventListener(type, listener) {
+      const target = type === 'visibilitychange' ? visibilityTarget : connectivityTarget
+      target?.removeEventListener(type, listener)
+    },
+  }
+}
+
+function frozenJsonCopy<T>(value: T): T {
+  const copy = structuredClone(value)
+  const freeze = (candidate: unknown): void => {
+    if (candidate === null || typeof candidate !== 'object' || Object.isFrozen(candidate)) return
+    for (const entry of Object.values(candidate)) freeze(entry)
+    Object.freeze(candidate)
+  }
+  freeze(copy)
+  return copy
+}
+
+function sameFlowSlot(left: FlowDragLane['slot'], right: FlowDragLane['slot']): boolean {
+  return left.presence === right.presence && (left.presence === 'absent' || right.presence === 'present' && left.value === right.value)
+}
+
+function sameFlowLane(left: FlowDragLane | null, right: FlowDragLane | null): boolean {
+  return left === right || Boolean(left && right && left.parentId === right.parentId && sameFlowSlot(left.slot, right.slot))
+}
+
 export function createCollaborationClient<TDocument extends object>(options: CollaborationClientOptions<TDocument>) {
   const origin = validateSyncOrigin(options.syncOrigin)
   const buildId = validateIdentifier(options.buildId, 'build id')
@@ -359,6 +487,12 @@ export function createCollaborationClient<TDocument extends object>(options: Col
   const reconnectDelays = options.reconnectDelaysMs ?? [250, 500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
   if (!reconnectDelays.length || reconnectDelays.some(delay => !Number.isSafeInteger(delay) || delay < 0)) throw new Error('Reconnect delays must contain non-negative integers.')
   const random = options.random ?? Math.random
+  const heartbeatIntervalMs = validatePositiveInteger(options.heartbeatIntervalMs ?? 15_000, 'Heartbeat interval')
+  const heartbeatTimeoutMs = validatePositiveInteger(options.heartbeatTimeoutMs ?? 5_000, 'Heartbeat timeout')
+  const maxPreAdmissionFailures = validatePositiveInteger(options.maxPreAdmissionFailures ?? 8, 'Pre-admission failure limit')
+  const lifecycleTarget = options.lifecycleTarget === undefined ? browserLifecycleTarget() : options.lifecycleTarget
+  const isOnline = options.isOnline ?? (() => typeof navigator === 'undefined' || navigator.onLine !== false)
+  const isVisible = options.isVisible ?? (() => typeof document === 'undefined' || document.visibilityState !== 'hidden')
   const schedule = options.setTimer ?? setTimeout
   const cancel = options.clearTimer ?? clearTimeout
   const maxMessageBytes = validatePositiveInteger(options.maxMessageBytes ?? defaultMaxCollaborationMessageBytes, 'Message byte limit')
@@ -380,6 +514,7 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     serverSequence: '0',
     lastOperation: null,
     participants: Object.freeze([]),
+    remoteInteractions: Object.freeze([]),
     pendingMutationIds: Object.freeze([]),
     recoverableMutationIds: Object.freeze([]),
     reconnectAttempt: 0,
@@ -389,11 +524,16 @@ export function createCollaborationClient<TDocument extends object>(options: Col
   let binding: SocketBinding | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let presenceTimer: ReturnType<typeof setTimeout> | null = null
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null
+  let heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | null = null
   let socketEpoch = 0
   let requestId: string | null = null
   let roomEnvelope: ServerRoomEnvelope | null = null
+  let currentReplayScopeId: string | null = null
+  let visibleReplayScopeId: string | null = null
   let assembler: ReturnType<typeof createSnapshotAssembler> | null = null
   let stagedSnapshot: StagedSnapshot<TDocument> | null = null
+  let stagedCheckpoint: StagedCheckpoint<TDocument> | null = null
   let stopped = true
   let disposed = false
   let presenceSequence = 0
@@ -404,6 +544,16 @@ export function createCollaborationClient<TDocument extends object>(options: Col
   let recoverableMutationIds = new Set<string>()
   let persistenceChain = Promise.resolve()
   let sessionEpoch = 0
+  let lifecycleListening = false
+  let admittedSocketEpoch: number | null = null
+  const explicitRecoverySessionEpochs = new Set<number>()
+  const flowClaims = new Map<number, MutableFlowClaim>()
+  const flowWaiters = new Set<FlowResultWaiter>()
+  const flowResultListeners = new Set<(result: InteractionResultMessage) => void>()
+  const remoteFlowListeners = new Set<(event: CollaborationRemoteFlowEvent) => void>()
+  const remoteFlows = new Map<string, InteractionRosterEntry>()
+  let localClaimGeneration = 0
+  let flowTransportGeneration = 0
 
   const persist = <T>(operation: () => Promise<T>): Promise<T> => {
     const result = persistenceChain.then(operation)
@@ -430,6 +580,42 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     recoverableMutationIds: Object.freeze([...recoverableMutationIds]),
   })
 
+  const flowClaimSnapshot = (claim: MutableFlowClaim): CollaborationFlowClaimSnapshot => Object.freeze({
+    claim: claim.claim,
+    leaseId: claim.leaseId,
+    reservationGeneration: claim.reservationGeneration,
+    currentTargetLane: claim.currentTargetLane,
+    latestAcceptedPresentation: claim.latestAcceptedPresentation,
+    sampleSequence: claim.sampleSequence,
+    pendingRelease: claim.pendingRelease !== null,
+    boundMutationIds: Object.freeze([...claim.boundMutationIds]),
+  })
+
+  const emitRemoteFlow = (event: CollaborationRemoteFlowEvent) => {
+    options.onRemoteFlow?.(event)
+    for (const listener of remoteFlowListeners) listener(event)
+  }
+
+  const rejectFlowWaiters = (error: Error) => {
+    const waiters = [...flowWaiters]
+    flowWaiters.clear()
+    for (const waiter of waiters) waiter.reject(error)
+  }
+
+  const clearFlowState = (error: Error) => {
+    flowTransportGeneration += 1
+    rejectFlowWaiters(error)
+    flowClaims.clear()
+    remoteFlows.clear()
+    if (cached.remoteInteractions.length > 0) publish({ remoteInteractions: Object.freeze([]) })
+    for (const mutation of pending) {
+      if (mutation.flowBinding) {
+        mutation.quarantinedFlowBinding = true
+        mutation.sentSocketEpoch = null
+      }
+    }
+  }
+
   const releaseAllPending = (error: Error) => {
     const rejected = pending.splice(0)
     publishPending()
@@ -440,15 +626,19 @@ export function createCollaborationClient<TDocument extends object>(options: Col
   }
 
   const retainPendingAsRecoverable = (error: Error) => {
-    const store = durableStore
-    const scope = durableScope
     for (const mutation of pending) {
       recoverableMutationIds.add(mutation.id)
       if (!mutation.settled) mutation.reject(error)
       mutation.settled = true
-      if (store && scope) void persist(() => store.markRecoverable(scope, mutation.id)).catch(reportCacheError)
     }
     publishPending()
+  }
+
+  const rejectPendingWithoutReclassification = (error: Error) => {
+    for (const mutation of pending) {
+      if (!mutation.settled) mutation.reject(error)
+      mutation.settled = true
+    }
   }
 
   const disposeAssembler = () => {
@@ -469,9 +659,19 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     pendingPresence = null
   }
 
+  const clearHeartbeat = () => {
+    if (heartbeatTimer !== null) cancel(heartbeatTimer)
+    if (heartbeatTimeoutTimer !== null) cancel(heartbeatTimeoutTimer)
+    heartbeatTimer = null
+    heartbeatTimeoutTimer = null
+  }
+
   const detach = (close: boolean, code = normalClosure, reason = 'Client stopped') => {
+    clearHeartbeat()
+    clearFlowState(new Error(reason))
     const current = binding
     binding = null
+    if (current && admittedSocketEpoch === current.epoch) admittedSocketEpoch = null
     if (!current) return
     current.socket.removeEventListener('open', current.open)
     current.socket.removeEventListener('message', current.message)
@@ -488,23 +688,76 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     return true
   }
 
-  const terminal = (lifecycle: 'access-revoked' | 'incompatible-build' | 'capacity-refused', error: Error) => {
+  const terminal = (lifecycle: 'access-revoked' | 'incompatible-build' | 'capacity-refused' | 'connection-failed', error: Error) => {
+    const currentLifecycle = state.getSnapshot().lifecycle
+    if (!isValidClientLifecycleTransition(currentLifecycle, lifecycle)) throw new Error(`Invalid terminal collaboration transition from ${currentLifecycle} to ${lifecycle}.`)
     cancelReconnect()
     cancelPresence()
+    detachLifecycle()
     publishParticipants([])
     stopped = true
+    const requiresExplicitRecovery = lifecycle === 'access-revoked'
+    if (requiresExplicitRecovery) explicitRecoverySessionEpochs.add(sessionEpoch)
     disposeAssembler()
-    transitionIfAllowed(lifecycle)
+    roomEnvelope = null
+    currentReplayScopeId = null
+    visibleReplayScopeId = null
+    stagedCheckpoint = null
+    state.transition(lifecycle)
     publishState(lifecycle === 'access-revoked'
       ? { error: error.message, document: null, snapshotId: null, serverSequence: '0', lastOperation: null }
       : { error: error.message })
-    retainPendingAsRecoverable(error)
-    if (lifecycle === 'access-revoked' && durableStore && durableScope) {
+    if (requiresExplicitRecovery) retainPendingAsRecoverable(error)
+    else rejectPendingWithoutReclassification(error)
+    if (requiresExplicitRecovery && durableStore && durableScope) {
       const store = durableStore
       const scope = durableScope
-      void persist(() => store.clearCheckpoint(scope)).catch(reportCacheError)
+      void persist(() => store.markAllRecoverable(scope, { clearCheckpoint: lifecycle === 'access-revoked' })).catch(reportCacheError)
     }
     detach(true, policyViolation, error.message.slice(0, 123))
+  }
+
+  const trustedFlowAuthority = (pageId: string): FlowDragTopologyAuthority => {
+    const document = cached.document
+    const authority = document ? options.resolveFlowAuthority?.(document, pageId) ?? null : null
+    if (!authority || authority.pageId !== pageId || authority.fileId !== cached.fileId) {
+      throw new Error('Authoritative interaction topology is unavailable.')
+    }
+    return authority
+  }
+
+  const parseServerFrame = (source: string, decoded: unknown): CollaborationServerMessage => {
+    if (!isRecord(decoded)) return parseCollaborationServerMessage(source, maxMessageBytes)
+    if (decoded.type === 'interaction.sample') {
+      const authority = typeof decoded.pageId === 'string' ? trustedFlowAuthority(decoded.pageId) : undefined
+      return parseCollaborationServerMessage(source, maxMessageBytes, authority)
+    }
+    if (decoded.type !== 'interaction.roster') return parseCollaborationServerMessage(source, maxMessageBytes)
+    if (!Array.isArray(decoded.interactions) || decoded.interactions.length === 0) {
+      return parseCollaborationServerMessage(source, maxMessageBytes)
+    }
+    if (decoded.interactions.length > flowDragResourceLimits.maxReservationsPerRoom) {
+      throw new Error('Invalid collaboration server message')
+    }
+    const interactions: InteractionRosterEntry[] = []
+    const leases = new Set<string>()
+    const interactionIds = new Set<string>()
+    let parsedFrame: Extract<CollaborationServerMessage, { type: 'interaction.roster' }> | null = null
+    for (const item of decoded.interactions) {
+      if (!isRecord(item) || typeof item.pageId !== 'string') throw new Error('Invalid collaboration server message')
+      const singleton = JSON.stringify({ ...decoded, interactions: [item] })
+      const parsed = parseCollaborationServerMessage(singleton, maxMessageBytes, trustedFlowAuthority(item.pageId))
+      if (parsed.type !== 'interaction.roster' || parsed.interactions.length !== 1) throw new Error('Invalid collaboration server message')
+      const entry = parsed.interactions[0]!
+      if (leases.has(entry.leaseId) || interactionIds.has(entry.presentation.identity.interactionId)) {
+        throw new Error('Invalid collaboration server message')
+      }
+      leases.add(entry.leaseId)
+      interactionIds.add(entry.presentation.identity.interactionId)
+      interactions.push(entry)
+      parsedFrame ??= parsed
+    }
+    return Object.freeze({ ...parsedFrame!, interactions: Object.freeze(interactions) })
   }
 
   const send = (message: CollaborationClientMessage) => {
@@ -512,7 +765,10 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     if (!current || current.socket.readyState !== openState) throw new Error('Collaboration socket is not open.')
     const encoded = encodeCollaborationMessage(message)
     if (new TextEncoder().encode(encoded).byteLength > maxMessageBytes) throw new CollaborationMessageTooLargeError()
-    parseCollaborationClientMessage(encoded, maxMessageBytes)
+    const authority = message.type === 'interaction.acquire' || message.type === 'interaction.reserve' || message.type === 'interaction.sample'
+      ? trustedFlowAuthority(message.pageId)
+      : undefined
+    parseCollaborationClientMessage(encoded, maxMessageBytes, authority)
     current.socket.send(encoded)
   }
 
@@ -579,22 +835,26 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     const mutation = pending[0]
     const current = binding
     const machine = state.getSnapshot()
-    if (!mutation || !current || current.socket.readyState !== openState || machine.lifecycle !== 'live' || !roomEnvelope) return
+    if (!mutation || mutation.quarantinedFlowBinding || !current || current.socket.readyState !== openState || machine.lifecycle !== 'live' || !roomEnvelope || mutation.replayScopeId !== currentReplayScopeId) return
     if (mutation.sentSocketEpoch === current.epoch) return
     mutation.baseSequence ??= cached.serverSequence
     const message: CollaborationClientMessage = {
       type: 'operation.submit',
-      operation: { mutationId: mutation.id, baseSequence: mutation.baseSequence, command: mutation.command },
+      operation: {
+        mutationId: mutation.id,
+        baseSequence: mutation.baseSequence,
+        command: mutation.command,
+        ...(mutation.flowBinding ? { flowBinding: mutation.flowBinding } : {}),
+      },
     }
     send(message)
     mutation.sentSocketEpoch = current.epoch
   }
 
-  const storedCheckpoint = (document: TDocument, snapshotId: string, serverSequence: DurableSequence): StoredCollaborationCheckpoint => Object.freeze({
-    document,
-    snapshotId,
-    serverSequence,
-  })
+  const storedCheckpoint = (document: TDocument, snapshotId: string, serverSequence: DurableSequence): StoredCollaborationCheckpoint => {
+    if (!currentReplayScopeId) throw new Error('Collaboration replay scope is unavailable.')
+    return Object.freeze({ document, snapshotId, serverSequence, replayScopeId: currentReplayScopeId })
+  }
 
   const persistCheckpoint = (document: TDocument, snapshotId: string, serverSequence: DurableSequence): Promise<void> | null => {
     if (!durableStore || !durableScope) return null
@@ -633,17 +893,28 @@ export function createCollaborationClient<TDocument extends object>(options: Col
 
   let connect: () => void
 
-  const scheduleReconnect = (message: string) => {
+  const scheduleReconnect = (message: string, preAdmissionFailure = false) => {
     if (stopped || disposed || reconnectTimer !== null) return
     disposeAssembler()
     cancelPresence()
     publishParticipants([])
     roomEnvelope = null
+    currentReplayScopeId = null
     for (const mutation of pending) mutation.sentSocketEpoch = null
+    if (preAdmissionFailure && cached.reconnectAttempt + 1 >= maxPreAdmissionFailures) {
+      terminal('connection-failed', new Error('Collaboration could not be reached. Try again.'))
+      return
+    }
     const dirty = pending.length > 0
     const lifecycle = state.getSnapshot().lifecycle
     if (lifecycle === 'live' || lifecycle === 'read-only') transitionIfAllowed(dirty ? 'offline-dirty' : 'offline-clean')
-    else if (lifecycle === 'streaming' || lifecycle === 'applying' || lifecycle === 'replaying' || lifecycle === 'admission-queued') transitionIfAllowed(dirty ? 'offline-dirty' : 'offline-clean')
+    else if (lifecycle === 'authorizing' || lifecycle === 'streaming' || lifecycle === 'applying' || lifecycle === 'replaying' || lifecycle === 'admission-queued') transitionIfAllowed(dirty ? 'offline-dirty' : 'offline-clean')
+    const disconnectedLifecycle = state.getSnapshot().lifecycle
+    if (!isVisible() && !dirty && disconnectedLifecycle === 'offline-clean') transitionIfAllowed('parked')
+    if (!isOnline() || !isVisible()) {
+      publishState({ error: message })
+      return
+    }
     if (state.getSnapshot().lifecycle === 'offline-clean' || state.getSnapshot().lifecycle === 'offline-dirty' || state.getSnapshot().lifecycle === 'draining' || state.getSnapshot().lifecycle === 'parked') transitionIfAllowed('reconnecting')
     else if (isValidClientLifecycleTransition(state.getSnapshot().lifecycle, 'closing')) {
       state.transition('closing')
@@ -654,14 +925,140 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     publishState({ reconnectAttempt: attempt, error: message })
     reconnectTimer = schedule(() => {
       reconnectTimer = null
-      if (!stopped && !disposed) connect()
+      if (stopped || disposed) return
+      if (!isOnline() || !isVisible()) {
+        scheduleReconnect(message)
+        return
+      }
+      connect()
     }, reconnectDelay(attempt - 1))
+  }
+
+  const armHeartbeat = (socket: CollaborationWebSocket, epoch: number, expectedSessionEpoch: number, delayMs = heartbeatIntervalMs) => {
+    clearHeartbeat()
+    heartbeatTimer = schedule(() => {
+      heartbeatTimer = null
+      if (!binding || binding.socket !== socket || binding.epoch !== epoch || sessionEpoch !== expectedSessionEpoch || stopped || disposed) return
+      if (!isOnline() || !isVisible()) return
+      try { socket.send('ping') }
+      catch {
+        detach(true, reconnectRequired, 'Heartbeat send failed')
+        scheduleReconnect('Collaboration heartbeat failed.')
+        return
+      }
+      heartbeatTimeoutTimer = schedule(() => {
+        heartbeatTimeoutTimer = null
+        if (!binding || binding.socket !== socket || binding.epoch !== epoch || sessionEpoch !== expectedSessionEpoch || stopped || disposed) return
+        detach(true, reconnectRequired, 'Heartbeat timeout')
+        scheduleReconnect('Collaboration heartbeat timed out.')
+      }, heartbeatTimeoutMs)
+    }, delayMs)
   }
 
   const protocolFailure = (error: unknown, code = policyViolation) => {
     const failure = error instanceof Error ? error : new Error('Invalid collaboration message.')
+    const preAdmissionFailure = binding !== null && admittedSocketEpoch !== binding.epoch
     detach(true, code, failure.message.slice(0, 123))
+    scheduleReconnect(failure.message, preAdmissionFailure)
+  }
+
+  const flowTransportFailure = (error: unknown): Error => {
+    const failure = error instanceof Error ? error : new Error('Collaboration interaction could not be sent.')
+    detach(true, internalError, 'Interaction send failed')
     scheduleReconnect(failure.message)
+    return failure
+  }
+
+  const sendFlow = (message: Extract<CollaborationClientMessage, { type: `interaction.${string}` }>) => {
+    try { send(message); return null } catch (error) { return flowTransportFailure(error) }
+  }
+
+  const createFlowWaiter = (action: FlowResultWaiter['action'], generation: number, reservationGeneration: number): Promise<InteractionResultMessage> => {
+    return new Promise((resolve, reject) => {
+      flowWaiters.add(Object.freeze({ action, localClaimGeneration: generation, reservationGeneration, resolve, reject }))
+    })
+  }
+
+  const takeFlowWaiter = (result: InteractionResultMessage): FlowResultWaiter | null => {
+    const waiter = [...flowWaiters].find(candidate => candidate.action === result.action
+      && candidate.localClaimGeneration === result.localClaimGeneration
+      && (candidate.action === 'acquire' || candidate.action === 'release' || candidate.reservationGeneration === result.reservationGeneration)) ?? null
+    if (waiter) flowWaiters.delete(waiter)
+    return waiter
+  }
+
+  const sendPendingRelease = (claim: MutableFlowClaim): Error | null => {
+    const pendingRelease = claim.pendingRelease
+    if (!pendingRelease || !claim.leaseId) return null
+    return sendFlow({
+      type: 'interaction.release',
+      pageId: claim.claim.pageId,
+      leaseId: claim.leaseId,
+      interactionId: claim.claim.interactionId,
+      localClaimGeneration: claim.claim.localClaimGeneration,
+      reservationGeneration: claim.reservationGeneration,
+      terminalSampleSequence: pendingRelease.terminalSampleSequence,
+      reason: pendingRelease.reason,
+    })
+  }
+
+  const claimForBinding = (bindingValue: FlowDragTerminalBinding): MutableFlowClaim | null => {
+    const claim = flowClaims.get(bindingValue.localClaimGeneration) ?? null
+    if (!claim || claim.leaseId !== bindingValue.leaseId || claim.claim.interactionId !== bindingValue.interactionId
+      || claim.reservationGeneration !== bindingValue.reservationGeneration
+      || claim.latestAcceptedPresentation?.identity.sampleSequence !== bindingValue.terminalSampleSequence
+      || !sameFlowLane(claim.currentTargetLane, bindingValue.targetLane)) return null
+    const source = claim.latestAcceptedPresentation.original.sourceRelationship
+    return sameFlowLane({ parentId: source.parentId, slot: source.slot }, bindingValue.sourceLane) ? claim : null
+  }
+
+  const reconcileReplayScope = (
+    replayScopeId: string,
+    expectedSessionEpoch: number,
+    expectedSocketEpoch: number,
+    expectedScope: CollaborationStoreScope | null,
+  ): boolean | Promise<boolean> => {
+    const mismatched = pending.filter(mutation => mutation.replayScopeId !== replayScopeId)
+    const checkpointMismatched = stagedCheckpoint !== null && stagedCheckpoint.checkpoint.replayScopeId !== replayScopeId
+    const visibleCheckpointMismatched = visibleReplayScopeId !== null && visibleReplayScopeId !== replayScopeId
+    const matchedCheckpoint = stagedCheckpoint?.checkpoint.replayScopeId === replayScopeId ? stagedCheckpoint : null
+    const assignmentIsCurrent = () => sessionEpoch === expectedSessionEpoch
+      && !stopped
+      && !disposed
+      && binding?.epoch === expectedSocketEpoch
+      && currentReplayScopeId === replayScopeId
+      && durableScope === expectedScope
+    const retain = () => {
+      if (!assignmentIsCurrent()) return false
+      for (const mutation of mismatched) {
+        const index = pending.indexOf(mutation)
+        if (index >= 0) pending.splice(index, 1)
+        recoverableMutationIds.add(mutation.id)
+        if (!mutation.settled) mutation.reject(new Error('This change belongs to an earlier access grant and requires recovery.'))
+        mutation.settled = true
+      }
+      if (visibleCheckpointMismatched) {
+        visibleReplayScopeId = null
+        publish({ document: null, snapshotId: null, serverSequence: '0', lastOperation: null })
+      }
+      if (matchedCheckpoint) {
+        visibleReplayScopeId = replayScopeId
+        publish({
+          document: matchedCheckpoint.document,
+          snapshotId: matchedCheckpoint.checkpoint.snapshotId,
+          serverSequence: matchedCheckpoint.checkpoint.serverSequence,
+          lastOperation: null,
+        })
+      }
+      stagedCheckpoint = null
+      publishPending()
+      return true
+    }
+    const requiresDurableReconciliation = mismatched.length > 0 || checkpointMismatched || visibleCheckpointMismatched
+    if (!requiresDurableReconciliation) return retain()
+    if (!durableStore || !expectedScope) return retain()
+    const store = durableStore
+    return persist(() => store.reconcileReplayScope(expectedScope, replayScopeId)).then(retain)
   }
 
   const receive = (message: CollaborationServerMessage, expectedSessionEpoch: number): void | Promise<void> => {
@@ -686,18 +1083,129 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     if (message.type === 'room.assigned') {
       if (state.getSnapshot().lifecycle === 'authorizing') state.acceptAdmissionQueued({ requestId, socketEpoch: current.epoch })
       roomEnvelope = state.assignRoom({ requestId: message.requestId, socketEpoch: current.epoch, envelope: message.envelope, role: message.role })
-      publishState({ error: null })
-      if (cached.reconnectAttempt > 0 || pending.length > 0 || cached.snapshotId) {
-        send({
-          type: 'room.resume',
-          requestId,
-          afterSequence: cached.serverSequence,
-          pendingMutationIds: pending.map(item => item.id),
+      admittedSocketEpoch = current.epoch
+      currentReplayScopeId = message.replayScopeId
+      const finish = () => {
+        if (sessionEpoch !== expectedSessionEpoch || stopped || disposed || binding?.epoch !== current.epoch || currentReplayScopeId !== message.replayScopeId) return
+        publishState({ error: null })
+        if (cached.reconnectAttempt > 0 || pending.length > 0 || cached.snapshotId) {
+          send({
+            type: 'room.resume',
+            requestId: message.requestId,
+            afterSequence: cached.serverSequence,
+            pendingMutationIds: pending.map(item => item.id),
+          })
+        }
+      }
+      const reconciliation = reconcileReplayScope(message.replayScopeId, expectedSessionEpoch, current.epoch, durableScope)
+      if (reconciliation instanceof Promise) {
+        return reconciliation.then(applied => { if (applied) finish() }, error => {
+          if (sessionEpoch !== expectedSessionEpoch || stopped || disposed || binding?.epoch !== current.epoch) return
+          terminal('connection-failed', error instanceof Error ? error : new Error('Collaboration cache could not be reconciled.'))
         })
       }
+      if (reconciliation) finish()
       return
     }
     assertCurrent(message)
+    if (message.type === 'interaction.result') {
+      const claim = flowClaims.get(message.localClaimGeneration)
+      if (!claim || claim.claim.pageId !== message.pageId || claim.claim.interactionId !== message.interactionId) return
+      if (message.action === 'acquire' || message.action === 'reserve') {
+        if (message.sampleSequence !== claim.requestedPresentation.identity.sampleSequence) return
+      } else if (!claim.pendingRelease || message.sampleSequence !== claim.pendingRelease.terminalSampleSequence) return
+      if (message.action !== 'acquire') {
+        if (claim.leaseId !== message.leaseId || claim.reservationGeneration !== message.reservationGeneration) return
+      } else if (claim.leaseId !== null && message.leaseId !== claim.leaseId) return
+      const waiter = takeFlowWaiter(message)
+      if (!waiter) return
+      const result = frozenJsonCopy(message)
+      if (message.action === 'acquire') {
+        if (message.status === 'denied' || message.leaseId === null) {
+          flowClaims.delete(message.localClaimGeneration)
+          const releaseWaiters = [...flowWaiters].filter(candidate => candidate.action === 'release' && candidate.localClaimGeneration === message.localClaimGeneration)
+          for (const releaseWaiter of releaseWaiters) {
+            flowWaiters.delete(releaseWaiter)
+            releaseWaiter.reject(new Error(`Interaction acquisition was denied: ${message.denialCode ?? 'unknown'}.`))
+          }
+        } else {
+          claim.leaseId = message.leaseId
+          claim.reservationGeneration = message.reservationGeneration
+          claim.currentTargetLane = claim.requestedPresentation.target
+            ? frozenJsonCopy({ parentId: claim.requestedPresentation.target.parentId, slot: claim.requestedPresentation.target.slot })
+            : null
+          claim.latestAcceptedPresentation = claim.requestedPresentation
+        }
+      } else if (message.action === 'reserve') {
+        if (message.status !== 'denied') {
+          claim.currentTargetLane = claim.requestedTargetLane
+          claim.latestAcceptedPresentation = claim.requestedPresentation
+        }
+      } else if (message.status === 'released' || message.status === 'retained') {
+        flowClaims.delete(message.localClaimGeneration)
+      } else {
+        claim.pendingRelease = null
+      }
+      waiter.resolve(result)
+      for (const listener of flowResultListeners) listener(result)
+      if (message.action === 'acquire' && message.status !== 'denied') sendPendingRelease(claim)
+      return
+    }
+    if (message.type === 'interaction.roster') {
+      remoteFlows.clear()
+      const interactions: InteractionRosterEntry[] = []
+      for (const item of message.interactions) {
+        if (item.clientId === clientId) continue
+        const copied = frozenJsonCopy(item)
+        remoteFlows.set(copied.leaseId, copied)
+        interactions.push(copied)
+        emitRemoteFlow(Object.freeze({ type: 'sample', source: 'roster', sample: copied }))
+      }
+      publish({ remoteInteractions: Object.freeze(interactions) })
+      return
+    }
+    if (message.type === 'interaction.sample') {
+      if (message.clientId === clientId) return
+      const currentRemote = remoteFlows.get(message.leaseId)
+      if (currentRemote) {
+        if (message.pageId !== currentRemote.pageId || message.clientId !== currentRemote.clientId
+          || message.subjectId !== currentRemote.subjectId || message.presenceId !== currentRemote.presenceId
+          || message.presentation.identity.interactionId !== currentRemote.presentation.identity.interactionId
+          || message.presentation.original.documentNodeId !== currentRemote.presentation.original.documentNodeId
+          || message.localClaimGeneration < currentRemote.localClaimGeneration
+          || message.localClaimGeneration === currentRemote.localClaimGeneration && message.reservationGeneration < currentRemote.reservationGeneration
+          || message.localClaimGeneration === currentRemote.localClaimGeneration && message.reservationGeneration === currentRemote.reservationGeneration
+            && message.presentation.identity.sampleSequence <= currentRemote.presentation.identity.sampleSequence) return
+      }
+      const copied = frozenJsonCopy(message)
+      const entry: InteractionRosterEntry = Object.freeze({
+        pageId: copied.pageId,
+        presenceId: copied.presenceId,
+        subjectId: copied.subjectId,
+        clientId: copied.clientId,
+        leaseId: copied.leaseId,
+        localClaimGeneration: copied.localClaimGeneration,
+        reservationGeneration: copied.reservationGeneration,
+        presentation: copied.presentation,
+      })
+      remoteFlows.set(entry.leaseId, entry)
+      publish({ remoteInteractions: Object.freeze([...remoteFlows.values()]) })
+      emitRemoteFlow(Object.freeze({ type: 'sample', source: 'live', sample: copied }))
+      return
+    }
+    if (message.type === 'interaction.released') {
+      const currentRemote = remoteFlows.get(message.leaseId)
+      if (!currentRemote || message.clientId !== currentRemote.clientId || message.subjectId !== currentRemote.subjectId
+        || message.presenceId !== currentRemote.presenceId || message.pageId !== currentRemote.pageId
+        || message.interactionId !== currentRemote.presentation.identity.interactionId
+        || message.localClaimGeneration !== currentRemote.localClaimGeneration
+        || message.reservationGeneration !== currentRemote.reservationGeneration
+        || message.terminalSampleSequence < currentRemote.presentation.identity.sampleSequence) return
+      remoteFlows.delete(message.leaseId)
+      publish({ remoteInteractions: Object.freeze([...remoteFlows.values()]) })
+      emitRemoteFlow(Object.freeze({ type: 'released', release: frozenJsonCopy(message) }))
+      return
+    }
     if (message.type === 'load.phase') {
       if (message.phase === 'stream') {
         const lifecycle = state.getSnapshot().lifecycle
@@ -738,6 +1246,7 @@ export function createCollaborationClient<TDocument extends object>(options: Col
       stagedSnapshot = null
       const commit = () => {
         if (sessionEpoch !== expectedSessionEpoch || stopped || disposed) return
+        visibleReplayScopeId = currentReplayScopeId
         publishState({
           document: staged.document,
           snapshotId: staged.snapshotId,
@@ -752,6 +1261,7 @@ export function createCollaborationClient<TDocument extends object>(options: Col
         }
         if (state.getSnapshot().lifecycle === 'read-only' && pending.length > 0) retainPendingAsRecoverable(new Error('This file is read only.'))
         else sendNextMutation()
+        armHeartbeat(current.socket, current.epoch, expectedSessionEpoch)
       }
       const persistence = persistCheckpoint(staged.document, staged.snapshotId, staged.baseSequence)
       if (persistence) void persistence.catch(reportCacheError)
@@ -827,6 +1337,7 @@ export function createCollaborationClient<TDocument extends object>(options: Col
         if (sessionEpoch !== expectedSessionEpoch || stopped || disposed) return
         if (message.status === 'applied') publish({ document, serverSequence: committedSequence, lastOperation })
         pending.shift()
+        for (const claim of flowClaims.values()) claim.boundMutationIds.delete(mutation.id)
         recoverableMutationIds.delete(mutation.id)
         publishPending()
         if (!mutation.settled) mutation.resolve(Object.freeze({ mutationId: mutation.id, sequence: message.sequence, status: message.status }))
@@ -893,10 +1404,14 @@ export function createCollaborationClient<TDocument extends object>(options: Col
       state.transition('authorizing')
     }
     publishState({ error: null })
+    if (!isOnline() || !isVisible()) {
+      scheduleReconnect(!isOnline() ? 'Collaboration is offline.' : 'Collaboration paused while hidden.')
+      return
+    }
     let socket: CollaborationWebSocket
-    try { socket = socketFactory(websocketUrl(origin, cached.fileId, clientId), syncWebSocketProtocol) }
+    try { socket = socketFactory(websocketUrl(origin, cached.fileId, clientId), collaborationWebSocketProtocol) }
     catch (error) {
-      scheduleReconnect(error instanceof Error ? error.message : 'Collaboration connection failed.')
+      scheduleReconnect(error instanceof Error ? error.message : 'Collaboration connection failed.', true)
       return
     }
     const epoch = socketEpoch
@@ -920,9 +1435,22 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     const message = (event: MessageEvent<unknown>) => {
       if (!binding || binding.epoch !== epoch || sessionEpoch !== activeSessionEpoch) return
       if (typeof event.data !== 'string') { protocolFailure(new Error('Binary collaboration messages are not supported.'), unsupportedData); return }
+      if (event.data === 'pong') {
+        if (heartbeatTimeoutTimer !== null) cancel(heartbeatTimeoutTimer)
+        heartbeatTimeoutTimer = null
+        armHeartbeat(socket, epoch, activeSessionEpoch)
+        return
+      }
+      if (event.data === 'ping') {
+        try { socket.send('pong') } catch (error) { protocolFailure(error) }
+        return
+      }
       if (new TextEncoder().encode(event.data).byteLength > maxMessageBytes) { protocolFailure(new Error('Collaboration message exceeds the byte limit.'), messageTooLarge); return }
       let parsed: CollaborationServerMessage
-      try { parsed = parseCollaborationServerMessage(event.data, maxMessageBytes) }
+      try {
+        const decoded: unknown = JSON.parse(event.data)
+        parsed = parseServerFrame(event.data, decoded)
+      }
       catch (error) { protocolFailure(error); return }
       if (durableScope) {
         socketReceiveChain = socketReceiveChain
@@ -944,8 +1472,12 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     }
     const close = (event: CloseEvent) => {
       if (!binding || binding.epoch !== epoch || sessionEpoch !== activeSessionEpoch) return
-      detach(false)
-      if (!stopped && !disposed) scheduleReconnect(event.reason || 'Collaboration disconnected.')
+      const admitted = admittedSocketEpoch === epoch
+      detach(false, normalClosure, event.reason || 'Collaboration disconnected.')
+      if (!stopped && !disposed) {
+        const message = event.reason || 'Collaboration disconnected.'
+        scheduleReconnect(message, !admitted)
+      }
     }
     const error = () => {
       if (!binding || binding.epoch !== epoch || sessionEpoch !== activeSessionEpoch) return
@@ -958,12 +1490,68 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     socket.addEventListener('error', error)
   }
 
+  const disconnectForLifecycle = (message: string) => {
+    cancelReconnect()
+    clearHeartbeat()
+    if (binding?.socket.readyState === openState && roomEnvelope) {
+      try { send({ type: 'room.leave' }) } catch (error) { reportError(error, 'room.leave') }
+    }
+    detach(true)
+    scheduleReconnect(message)
+  }
+
+  const resumeConnection = () => {
+    if (stopped || disposed || binding || !isOnline() || !isVisible()) return
+    cancelReconnect()
+    const lifecycle = state.getSnapshot().lifecycle
+    if (lifecycle === 'offline-clean' || lifecycle === 'offline-dirty' || lifecycle === 'draining' || lifecycle === 'parked') transitionIfAllowed('reconnecting')
+    connect()
+  }
+
+  const online = () => { resumeConnection() }
+
+  const offline = () => {
+    if (stopped || disposed) return
+    disconnectForLifecycle('Collaboration is offline.')
+  }
+
+  const visibilityChanged = () => {
+    if (stopped || disposed) return
+    if (!isVisible()) {
+      disconnectForLifecycle('Collaboration paused while hidden.')
+      return
+    }
+    if (binding) {
+      armHeartbeat(binding.socket, binding.epoch, sessionEpoch, 0)
+      return
+    }
+    resumeConnection()
+  }
+
+  const attachLifecycle = () => {
+    if (!lifecycleTarget || lifecycleListening) return
+    lifecycleTarget.addEventListener('online', online)
+    lifecycleTarget.addEventListener('offline', offline)
+    lifecycleTarget.addEventListener('visibilitychange', visibilityChanged)
+    lifecycleListening = true
+  }
+
+  const detachLifecycle = () => {
+    if (!lifecycleTarget || !lifecycleListening) return
+    lifecycleTarget.removeEventListener('online', online)
+    lifecycleTarget.removeEventListener('offline', offline)
+    lifecycleTarget.removeEventListener('visibilitychange', visibilityChanged)
+    lifecycleListening = false
+  }
+
   const stop = () => {
     const lifecycle = state.getSnapshot().lifecycle
     if (stopped && (lifecycle === 'cold' || lifecycle === 'closed')) return
     sessionEpoch += 1
     stopped = true
     cancelReconnect()
+    clearHeartbeat()
+    detachLifecycle()
     disposeAssembler()
     cancelPresence()
     if (binding?.socket.readyState === openState && roomEnvelope) {
@@ -971,6 +1559,9 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     }
     detach(true)
     roomEnvelope = null
+    currentReplayScopeId = null
+    visibleReplayScopeId = null
+    stagedCheckpoint = null
     publishParticipants([])
     releaseAllPending(new Error('Collaboration client stopped.'))
     transitionIfAllowed('closing')
@@ -1000,11 +1591,15 @@ export function createCollaborationClient<TDocument extends object>(options: Col
       stopped = false
       presenceSequence = 0
       localPresence = emptyPresence
+      currentReplayScopeId = null
+      visibleReplayScopeId = null
+      stagedCheckpoint = null
       pending.splice(0)
       recoverableMutationIds = new Set()
       durableScope = nextScope
       durableStore = nextScope ? options.durableStore ?? createIndexedDbCollaborationStore() : null
-      publish({ fileId, document: null, snapshotId: null, serverSequence: '0', lastOperation: null, participants: Object.freeze([]), pendingMutationIds: Object.freeze([]), recoverableMutationIds: Object.freeze([]), reconnectAttempt: 0, error: null })
+      attachLifecycle()
+      publish({ fileId, document: null, snapshotId: null, serverSequence: '0', lastOperation: null, participants: Object.freeze([]), remoteInteractions: Object.freeze([]), pendingMutationIds: Object.freeze([]), recoverableMutationIds: Object.freeze([]), reconnectAttempt: 0, error: null })
       if (!durableStore || !durableScope) {
         connect()
         return Promise.resolve()
@@ -1025,6 +1620,9 @@ export function createCollaborationClient<TDocument extends object>(options: Col
           pending.push({
             id: item.mutationId,
             command: decodeSemanticCommandFromPersistence(item.command),
+            replayScopeId: item.replayScopeId!,
+            flowBinding: item.flowBinding,
+            quarantinedFlowBinding: item.flowBinding !== null,
             baseSequence: item.baseSequence,
             sentSocketEpoch: null,
             resolve: () => undefined,
@@ -1033,10 +1631,10 @@ export function createCollaborationClient<TDocument extends object>(options: Col
             settled: true,
           })
         }
+        stagedCheckpoint = hydrated.room.checkpoint && hydrated.document
+          ? Object.freeze({ checkpoint: hydrated.room.checkpoint, document: hydrated.document })
+          : null
         publish({
-          document: hydrated.document,
-          snapshotId: hydrated.room.checkpoint?.snapshotId ?? null,
-          serverSequence: hydrated.room.checkpoint?.serverSequence ?? '0',
           pendingMutationIds: Object.freeze(pending.map(item => item.id)),
           recoverableMutationIds: Object.freeze([...recoverableMutationIds]),
         })
@@ -1045,6 +1643,7 @@ export function createCollaborationClient<TDocument extends object>(options: Col
         const failure = error instanceof Error ? error : new Error('Collaboration cache could not be loaded.')
         if (sessionEpoch === activeSessionEpoch && durableScope === scope) {
           stopped = true
+          detachLifecycle()
           durableScope = null
           durableStore = null
           publish({ error: failure.message })
@@ -1055,34 +1654,128 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     updatePresence(patch: PresencePatch, options: Readonly<{ immediate?: boolean }> = {}): void {
       if (disposed) throw new Error('Collaboration client is disposed.')
       if (state.getSnapshot().mode !== 'editable' || state.getSnapshot().lifecycle !== 'live' || !roomEnvelope) throw new Error('This file is read only.')
+      if (options.immediate === true) throw new Error('Presence updates are frame limited.')
       const nextPresence = mergePresenceState(localPresence, patch)
-      const immediate = options.immediate === true
-      if (immediate && !isImmediateInteractionPatch(patch)) throw new Error('Only interaction presence can bypass the frame limit.')
-      const data = immediate ? patch : mergePresencePatch(pendingPresence, patch)
+      const data = mergePresencePatch(pendingPresence, patch)
       const candidate = {
         type: 'presence.update' as const,
         sequence: presenceSequence + 1,
         data,
       }
       parseCollaborationClientMessage(JSON.stringify(candidate), maxMessageBytes)
-      if (immediate) {
-        try {
-          send({ type: 'presence.update', sequence: candidate.sequence, data })
-        } catch (error) {
-          localPresence = mergePresenceState(localPresence, { interaction: null })
-          protocolFailure(error, internalError)
-          throw error
-        }
-        presenceSequence = candidate.sequence
-        localPresence = nextPresence
-        if (pendingPresence && Object.hasOwn(patch, 'pageId')) pendingPresence = mergePresencePatch(pendingPresence, { pageId: patch.pageId ?? null })
-      } else {
-        localPresence = nextPresence
-        const authoritativeInteraction = cached.participants.find(participant => participant.clientId === clientId)?.data.interaction ?? null
-        updateLocalParticipant(Object.freeze({ ...localPresence, interaction: authoritativeInteraction }))
-        pendingPresence = data
-        schedulePresence()
+      localPresence = nextPresence
+      updateLocalParticipant(localPresence)
+      pendingPresence = data
+      schedulePresence()
+    },
+    getFlowClaims(): readonly CollaborationFlowClaimSnapshot[] {
+      return Object.freeze([...flowClaims.values()].map(flowClaimSnapshot))
+    },
+    subscribeInteractionResults(listener: (result: InteractionResultMessage) => void) {
+      if (disposed) throw new Error('Collaboration client is disposed.')
+      flowResultListeners.add(listener)
+      return () => flowResultListeners.delete(listener)
+    },
+    subscribeRemoteFlow(listener: (event: CollaborationRemoteFlowEvent) => void) {
+      if (disposed) throw new Error('Collaboration client is disposed.')
+      remoteFlowListeners.add(listener)
+      return () => remoteFlowListeners.delete(listener)
+    },
+    acquireInteraction(input: Readonly<{ presentation: FlowDragPresentation; leaseId?: FlowDragServerLeaseId }>): CollaborationFlowRequest {
+      if (disposed) throw new Error('Collaboration client is disposed.')
+      if (state.getSnapshot().mode !== 'editable' || state.getSnapshot().lifecycle !== 'live' || !roomEnvelope) throw new Error('This file is read only.')
+      if (localClaimGeneration >= 2_147_483_647) throw new Error('Interaction claim generation is exhausted.')
+      const presentation = frozenJsonCopy(input.presentation)
+      const pageId = presentation.fence.pageId
+      const interactionId = presentation.identity.interactionId
+      const sourceNodeId = presentation.original.documentNodeId
+      if (input.leaseId) {
+        const compatible = [...flowClaims.values()].some(candidate => candidate.leaseId === input.leaseId
+          && candidate.claim.pageId === pageId && candidate.claim.interactionId === interactionId && candidate.claim.sourceNodeId === sourceNodeId)
+        if (!compatible) throw new Error('The interaction lease is not confirmed for this source.')
       }
+      localClaimGeneration += 1
+      const claimValue: CollaborationFlowClaim = Object.freeze({ pageId, interactionId, sourceNodeId, localClaimGeneration })
+      const claim: MutableFlowClaim = {
+        claim: claimValue,
+        leaseId: input.leaseId ?? null,
+        reservationGeneration: 1,
+        currentTargetLane: null,
+        latestAcceptedPresentation: null,
+        sampleSequence: presentation.identity.sampleSequence,
+        requestedPresentation: presentation,
+        requestedTargetLane: null,
+        pendingRelease: null,
+        boundMutationIds: new Set(),
+      }
+      flowClaims.set(localClaimGeneration, claim)
+      const result = createFlowWaiter('acquire', localClaimGeneration, 1)
+      sendFlow({ type: 'interaction.acquire', pageId, localClaimGeneration, ...(input.leaseId ? { leaseId: input.leaseId } : {}), presentation })
+      return Object.freeze({ claim: claimValue, result })
+    },
+    reserveInteraction(input: Readonly<{ claim: CollaborationFlowClaim; targetLane: FlowDragLane; presentation: FlowDragPresentation }>): Promise<InteractionResultMessage> {
+      const claim = flowClaims.get(input.claim.localClaimGeneration)
+      if (!claim || claim.claim !== input.claim || !claim.leaseId) return Promise.reject(new Error('Interaction lease is not confirmed.'))
+      if (claim.pendingRelease) return Promise.reject(new Error('Interaction release is pending.'))
+      if ([...flowWaiters].some(waiter => waiter.action === 'reserve' && waiter.localClaimGeneration === claim.claim.localClaimGeneration)) {
+        return Promise.reject(new Error('Interaction reservation is already pending.'))
+      }
+      if (claim.reservationGeneration >= 2_147_483_647) return Promise.reject(new Error('Interaction reservation generation is exhausted.'))
+      const presentation = frozenJsonCopy(input.presentation)
+      const presentationTarget = presentation.target ? { parentId: presentation.target.parentId, slot: presentation.target.slot } : null
+      if (presentation.fence.pageId !== claim.claim.pageId || presentation.identity.interactionId !== claim.claim.interactionId
+        || presentation.original.documentNodeId !== claim.claim.sourceNodeId || presentation.identity.sampleSequence <= claim.sampleSequence
+        || !sameFlowLane(input.targetLane, presentationTarget)) {
+        return Promise.reject(new Error('Interaction reservation does not match the active claim.'))
+      }
+      claim.reservationGeneration += 1
+      claim.requestedTargetLane = frozenJsonCopy(input.targetLane)
+      claim.requestedPresentation = presentation
+      claim.sampleSequence = presentation.identity.sampleSequence
+      const result = createFlowWaiter('reserve', claim.claim.localClaimGeneration, claim.reservationGeneration)
+      sendFlow({ type: 'interaction.reserve', pageId: claim.claim.pageId, leaseId: claim.leaseId, localClaimGeneration: claim.claim.localClaimGeneration,
+        reservationGeneration: claim.reservationGeneration, targetLane: claim.requestedTargetLane, presentation })
+      return result
+    },
+    sampleInteraction(input: Readonly<{ claim: CollaborationFlowClaim; presentation: FlowDragPresentation }>): void {
+      const claim = flowClaims.get(input.claim.localClaimGeneration)
+      if (!claim || claim.claim !== input.claim || !claim.leaseId) throw new Error('Interaction lease is not confirmed.')
+      if (claim.pendingRelease) throw new Error('Interaction release is pending.')
+      const presentation = frozenJsonCopy(input.presentation)
+      const presentationTarget = presentation.target ? { parentId: presentation.target.parentId, slot: presentation.target.slot } : null
+      if (presentation.fence.pageId !== claim.claim.pageId || presentation.identity.interactionId !== claim.claim.interactionId
+        || presentation.original.documentNodeId !== claim.claim.sourceNodeId || presentation.identity.sampleSequence <= claim.sampleSequence
+        || !sameFlowLane(claim.currentTargetLane, presentationTarget)) {
+        throw new Error('Interaction sample does not match the active claim.')
+      }
+      const failure = sendFlow({ type: 'interaction.sample', pageId: claim.claim.pageId, leaseId: claim.leaseId, localClaimGeneration: claim.claim.localClaimGeneration,
+        reservationGeneration: claim.reservationGeneration, presentation })
+      if (failure) throw failure
+      claim.requestedPresentation = presentation
+      claim.latestAcceptedPresentation = presentation
+      claim.sampleSequence = presentation.identity.sampleSequence
+    },
+    releaseInteraction(input: Readonly<{ claim: CollaborationFlowClaim; terminalSampleSequence: number; reason: 'committed' | 'cancelled' | 'failed' | 'disconnecting' }>): Promise<InteractionResultMessage> {
+      const claim = flowClaims.get(input.claim.localClaimGeneration)
+      if (!claim || claim.claim !== input.claim) return Promise.reject(new Error('Interaction claim is unavailable.'))
+      if (claim.pendingRelease) return Promise.reject(new Error('Interaction release is already pending.'))
+      if (!Number.isSafeInteger(input.terminalSampleSequence) || input.terminalSampleSequence < 0
+        || claim.latestAcceptedPresentation && input.terminalSampleSequence < claim.latestAcceptedPresentation.identity.sampleSequence) {
+        return Promise.reject(new Error('Interaction terminal sequence is stale.'))
+      }
+      claim.pendingRelease = Object.freeze({ terminalSampleSequence: input.terminalSampleSequence, reason: input.reason })
+      const result = createFlowWaiter('release', claim.claim.localClaimGeneration, claim.reservationGeneration)
+      sendPendingRelease(claim)
+      return result
+    },
+    rebindInteractionMutation(mutationId: string, flowBinding: FlowDragTerminalBinding): void {
+      const mutation = pending.find(candidate => candidate.id === mutationId)
+      const claim = claimForBinding(flowBinding)
+      if (!mutation || !mutation.quarantinedFlowBinding || !claim) throw new Error('The interaction-bound mutation cannot be rebound.')
+      mutation.flowBinding = frozenJsonCopy(flowBinding)
+      mutation.quarantinedFlowBinding = false
+      claim.boundMutationIds.add(mutation.id)
+      sendNextMutation()
     },
     submit(input: CollaborationMutationInput): Promise<CollaborationMutationReceipt> {
       if (disposed) return Promise.reject(new Error('Collaboration client is disposed.'))
@@ -1092,18 +1785,54 @@ export function createCollaborationClient<TDocument extends object>(options: Col
       if (id.length < 8) return Promise.reject(new Error('Invalid mutation id.'))
       if (usedMutationIds.has(id)) return Promise.reject(new Error('Mutation id was already used.'))
       if (pending.length >= maxPendingMutations) return Promise.reject(new Error('Too many pending collaboration changes.'))
-      const candidate: CollaborationClientMessage = { type: 'operation.submit', operation: { mutationId: id, baseSequence: maximumDurableSequence, command: validCommand } }
+      const flowBinding = input.flowBinding ? frozenJsonCopy(input.flowBinding) : null
+      const flowClaim = flowBinding ? claimForBinding(flowBinding) : null
+      if (flowBinding && !flowClaim) return Promise.reject(new Error('The interaction binding is not authoritative.'))
+      const candidate: CollaborationClientMessage = { type: 'operation.submit', operation: {
+        mutationId: id,
+        baseSequence: maximumDurableSequence,
+        command: validCommand,
+        ...(flowBinding ? { flowBinding } : {}),
+      } }
       const encoded = encodeCollaborationMessage(candidate)
       if (new TextEncoder().encode(encoded).byteLength > maxMessageBytes) return Promise.reject(new CollaborationMessageTooLargeError())
       parseCollaborationClientMessage(encoded, maxMessageBytes)
       if (!durableStore || !durableScope) return Promise.reject(new Error('Collaboration storage is required before editing.'))
+      if (!currentReplayScopeId) return Promise.reject(new Error('Collaboration replay scope is unavailable.'))
       usedMutationIds.add(id)
       const activeSessionEpoch = sessionEpoch
+      const submittedFlowTransportGeneration = flowTransportGeneration
+      const replayScopeId = currentReplayScopeId
+      let committedStatus: 'pending' | 'recoverable' = 'pending'
+      const resolveCommittedStatus = () => {
+        committedStatus = explicitRecoverySessionEpochs.has(activeSessionEpoch) ? 'recoverable' : 'pending'
+        return committedStatus
+      }
       const register = () => {
-        if (stopped || disposed || sessionEpoch !== activeSessionEpoch) return Promise.reject(new Error('Collaboration client stopped after the change was saved for recovery.'))
+        if (stopped || disposed || sessionEpoch !== activeSessionEpoch) {
+          const failure = new Error('Collaboration client stopped after the change was saved for recovery.')
+          if (committedStatus === 'recoverable' && durableScope === scope) {
+            recoverableMutationIds.add(id)
+            publishPending()
+          }
+          return Promise.reject(failure)
+        }
         return new Promise<CollaborationMutationReceipt>((resolve, reject) => {
-          const mutation: PendingMutation<TDocument> = { id, command: validCommand, baseSequence: null, sentSocketEpoch: null, resolve, reject, validateResult: options.validateDocument, settled: false }
+          const mutation: PendingMutation<TDocument> = {
+            id,
+            command: validCommand,
+            replayScopeId,
+            flowBinding,
+            quarantinedFlowBinding: flowBinding !== null && submittedFlowTransportGeneration !== flowTransportGeneration,
+            baseSequence: null,
+            sentSocketEpoch: null,
+            resolve,
+            reject,
+            validateResult: options.validateDocument,
+            settled: false,
+          }
           pending.push(mutation)
+          if (!mutation.quarantinedFlowBinding) flowClaim?.boundMutationIds.add(id)
           publishPending()
           try { sendNextMutation() } catch (error) {
             if (error instanceof CollaborationMessageTooLargeError) {
@@ -1125,7 +1854,9 @@ export function createCollaborationClient<TDocument extends object>(options: Col
         baseSequence: null,
         command: encodeSemanticCommandForPersistence(validCommand),
         status: 'pending',
-      }))).then(register, error => {
+        replayScopeId,
+        flowBinding,
+      }), resolveCommittedStatus)).then(register, error => {
         usedMutationIds.delete(id)
         throw error
       })
@@ -1137,6 +1868,8 @@ export function createCollaborationClient<TDocument extends object>(options: Col
       disposed = true
       state.dispose()
       listeners.clear()
+      flowResultListeners.clear()
+      remoteFlowListeners.clear()
       publish({ disposed: true })
     },
     purgeAccount(accountId: string): Promise<void> {

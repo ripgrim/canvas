@@ -1,4 +1,4 @@
-import type { DurableSequence, PersistedSemanticCommand } from '@canvas/sync-protocol'
+import type { DurableSequence, FlowDragTerminalBinding, PersistedSemanticCommand } from '@canvas/sync-protocol'
 
 const databaseName = 'canvas-collaboration'
 const databaseVersion = 1
@@ -20,6 +20,7 @@ export type StoredCollaborationCheckpoint = Readonly<{
   snapshotId: string
   serverSequence: DurableSequence
   document: unknown
+  replayScopeId: string
 }>
 
 export type StoredCollaborationMutation = Readonly<{
@@ -27,6 +28,8 @@ export type StoredCollaborationMutation = Readonly<{
   baseSequence: DurableSequence | null
   command: PersistedSemanticCommand
   status: 'pending' | 'recoverable'
+  replayScopeId: string | null
+  flowBinding: FlowDragTerminalBinding | null
 }>
 
 export type StoredCollaborationRoom = Readonly<{
@@ -53,10 +56,16 @@ export type CollaborationStoreDriver = Readonly<{
 export type CollaborationDurableStore = Readonly<{
   load(scope: CollaborationStoreScope): Promise<unknown | null>
   repair(scope: CollaborationStoreScope, room: StoredCollaborationRoom | null): Promise<void>
-  enqueue(scope: CollaborationStoreScope, mutation: StoredCollaborationMutation): Promise<void>
+  enqueue(
+    scope: CollaborationStoreScope,
+    mutation: StoredCollaborationMutation,
+    resolveStatus?: () => StoredCollaborationMutation['status'],
+  ): Promise<void>
   checkpoint(scope: CollaborationStoreScope, checkpoint: StoredCollaborationCheckpoint): Promise<void>
   acknowledge(scope: CollaborationStoreScope, mutationId: string, checkpoint: StoredCollaborationCheckpoint): Promise<void>
   markRecoverable(scope: CollaborationStoreScope, mutationId: string): Promise<void>
+  markAllRecoverable(scope: CollaborationStoreScope, options?: Readonly<{ clearCheckpoint?: boolean }>): Promise<void>
+  reconcileReplayScope(scope: CollaborationStoreScope, replayScopeId: string): Promise<void>
   clearCheckpoint(scope: CollaborationStoreScope): Promise<void>
   purgeAccount(accountId: string): Promise<void>
 }>
@@ -76,10 +85,20 @@ function emptyRoom(scope: CollaborationStoreScope): StoredCollaborationRoom {
   return Object.freeze({ scope: Object.freeze({ ...scope }), checkpoint: null, pending: Object.freeze([]), updatedAt: Date.now() })
 }
 
+function sameScope(left: unknown, right: CollaborationStoreScope): left is CollaborationStoreScope {
+  if (typeof left !== 'object' || left === null || Array.isArray(left)) return false
+  const scope = left as Partial<CollaborationStoreScope>
+  return scope.accountId === right.accountId
+    && scope.clientId === right.clientId
+    && scope.fileId === right.fileId
+    && scope.documentSchemaVersion === right.documentSchemaVersion
+    && scope.protocolEpoch === right.protocolEpoch
+}
+
 function roomOrEmpty(value: unknown, scope: CollaborationStoreScope): StoredCollaborationRoom {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return emptyRoom(scope)
   const record = value as Partial<StoredCollaborationRoom>
-  if (JSON.stringify(record.scope) !== JSON.stringify(scope) || !Array.isArray(record.pending)) return emptyRoom(scope)
+  if (!sameScope(record.scope, scope) || !Array.isArray(record.pending)) return emptyRoom(scope)
   return record as StoredCollaborationRoom
 }
 
@@ -123,10 +142,12 @@ export function createCollaborationDurableStore(driver: CollaborationStoreDriver
   return Object.freeze({
     load(scope) { return driver.read(scopeKey(scope)) },
     repair(scope, room) { return update(scope, () => room) },
-    enqueue(scope, mutation) {
+    enqueue(scope, mutation, resolveStatus) {
       return update(scope, room => {
         if (room.pending.some(item => item.mutationId === mutation.mutationId)) throw new Error('Mutation id was already used.')
-        return Object.freeze({ ...room, pending: Object.freeze([...room.pending, mutation]), updatedAt: Date.now() })
+        const status = resolveStatus?.() ?? mutation.status
+        const committedMutation = status === mutation.status ? mutation : Object.freeze({ ...mutation, status })
+        return Object.freeze({ ...room, pending: Object.freeze([...room.pending, committedMutation]), updatedAt: Date.now() })
       })
     },
     checkpoint(scope, checkpoint) {
@@ -145,6 +166,24 @@ export function createCollaborationDurableStore(driver: CollaborationStoreDriver
       return update(scope, room => Object.freeze({
         ...room,
         pending: Object.freeze(room.pending.map(item => item.mutationId === mutationId ? Object.freeze({ ...item, status: 'recoverable' as const }) : item)),
+        updatedAt: Date.now(),
+      }))
+    },
+    markAllRecoverable(scope, options) {
+      return update(scope, room => Object.freeze({
+        ...room,
+        checkpoint: options?.clearCheckpoint === true ? null : room.checkpoint,
+        pending: Object.freeze(room.pending.map(item => item.status === 'recoverable' ? item : Object.freeze({ ...item, status: 'recoverable' as const }))),
+        updatedAt: Date.now(),
+      }))
+    },
+    reconcileReplayScope(scope, replayScopeId) {
+      return update(scope, room => Object.freeze({
+        ...room,
+        checkpoint: room.checkpoint?.replayScopeId === replayScopeId ? room.checkpoint : null,
+        pending: Object.freeze(room.pending.map(item => item.status === 'recoverable' || item.replayScopeId === replayScopeId
+          ? item
+          : Object.freeze({ ...item, status: 'recoverable' as const }))),
         updatedAt: Date.now(),
       }))
     },

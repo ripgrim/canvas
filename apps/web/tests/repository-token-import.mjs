@@ -35,7 +35,7 @@ async function ensureServer() {
 }
 
 const file = {
-  schemaVersion: 7, fileId, revision: 0,
+  schemaVersion: 9, fileId, revision: 0,
   pages: [{ id: 'page-1', name: 'Tokens', rootNodeId: 'root-1' }],
   nodes: { 'root-1': { id: 'root-1', type: 'root' } }, relationships: {}, theme: { tokens: {} },
 }

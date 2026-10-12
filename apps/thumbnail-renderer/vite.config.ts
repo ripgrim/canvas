@@ -11,6 +11,7 @@ const appRoot = fileURLToPath(new URL('.', import.meta.url))
 const requireFromRenderer = createRequire(import.meta.url)
 const previewRuntimeRoot = fileURLToPath(new URL('../../packages/preview-runtime/dist/', import.meta.url))
 const repoEngineRoot = fileURLToPath(new URL('../../packages/repo-engine/dist/', import.meta.url))
+const syncProtocolRoot = fileURLToPath(new URL('../../packages/sync-protocol/dist/', import.meta.url))
 const viteRuntimeRoot = dirname(requireFromRenderer.resolve('vite/package.json'))
 const requireFromReactPlugin = createRequire(requireFromRenderer.resolve('@vitejs/plugin-react'))
 const reactRefreshRuntimeRoot = dirname(requireFromReactPlugin.resolve('react-refresh/package.json'))
@@ -27,7 +28,7 @@ export default defineConfig({
     plugins: [
       sourceBindingPlugin(registry.components.map(component => ({ componentId: component.componentId, exportName: component.exportName, entryPath: component.absolutePath })), runtimeModule),
       verifiedRegistryPlugin(registry),
-      verifiedModuleBoundaryPlugin(registry, [appRoot, previewRuntimeRoot, repoEngineRoot, viteRuntimeRoot, reactRefreshRuntimeRoot], ['/thumbnail-renderer', '/@vite/client', '/@react-refresh']),
+      verifiedModuleBoundaryPlugin(registry, [appRoot, previewRuntimeRoot, repoEngineRoot, syncProtocolRoot, viteRuntimeRoot, reactRefreshRuntimeRoot], ['/thumbnail-renderer', '/@vite/client', '/@react-refresh']),
       react(),
     ],
     server: { host: '127.0.0.1', port: 4323, strictPort: true },

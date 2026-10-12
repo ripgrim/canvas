@@ -7,9 +7,9 @@ import {
   encodeCollaborationMessage,
   maxSnapshotChunkBytes,
 } from '@canvas/sync-protocol'
-import type { CollaborationClientMessage, CollaborationServerMessage, PresenceState, SemanticFileCommand, ServerRoomEnvelope } from '@canvas/sync-protocol'
+import type { CollaborationClientMessage, CollaborationServerMessage, FlowDragPresentation, FlowDragSlot, FlowDragTopologyAuthority, PresenceState, SemanticFileCommand, ServerRoomEnvelope } from '@canvas/sync-protocol'
 import { createCollaborationClient } from '../src/collaboration-client.js'
-import type { CollaborationSocketEventMap, CollaborationWebSocket } from '../src/collaboration-client.js'
+import type { CollaborationClientLifecycleTarget, CollaborationSocketEventMap, CollaborationWebSocket } from '../src/collaboration-client.js'
 import { createCollaborationDurableStore } from '../src/collaboration-store.js'
 import type { CollaborationDurableStore, CollaborationStoreDriver, StoredCollaborationRoom } from '../src/collaboration-store.js'
 
@@ -17,10 +17,90 @@ const fileId = '11111111-1111-4111-8111-111111111111'
 const generationId = '22222222-2222-4222-8222-222222222222'
 const secondGenerationId = '33333333-3333-4333-8333-333333333333'
 const secondFileId = '44444444-4444-4444-8444-444444444444'
+const replayScopeId = 'a'.repeat(64)
+const leaseId = '55555555-5555-4555-8555-555555555555'
+const secondLeaseId = '66666666-6666-4666-8666-666666666666'
+const peerInteractionId = (serverLeaseId: string) => `lease:${serverLeaseId}`
 
 type Document = { title: string }
 
 const noPresence: PresenceState = Object.freeze({ pageId: null, focused: false, selection: null, camera: null, cursor: null })
+
+const flowGeometry = (x: number, y: number) => ({
+  coordinateSpace: 'world' as const,
+  quad: [{ x, y }, { x: x + 100, y }, { x: x + 100, y: y + 80 }, { x, y: y + 80 }] as const,
+  aabb: { x, y, width: 100, height: 80 },
+  semanticSize: { width: 100, height: 80 },
+})
+
+function flowPresentation(input: Readonly<{
+  interactionId?: string
+  sequence?: number
+  gestureGeneration?: number
+  sourceNodeId?: string
+  sourceParentId?: string
+  sourceSlot?: FlowDragSlot
+  targetParentId?: string | null
+  terminal?: boolean
+}> = {}): FlowDragPresentation {
+  const interactionId = input.interactionId ?? 'flow-interaction'
+  const gestureGeneration = input.gestureGeneration ?? 1
+  const sequence = input.sequence ?? 1
+  const sourceNodeId = input.sourceNodeId ?? 'source-node'
+  const sourceParentId = input.sourceParentId ?? 'source-frame'
+  const sourceSlot = input.sourceSlot ?? { presence: 'absent' as const }
+  const source = flowGeometry(0, 0)
+  const current = flowGeometry(10, 20)
+  const relationship = { parentId: sourceParentId, orderKey: 'V', slot: sourceSlot }
+  const targetParentId = input.targetParentId === undefined ? 'target-frame' : input.targetParentId
+  return Object.freeze({
+    kind: 'flow-drag', coordinateSpace: 'world', identity: { interactionId, gestureGeneration, sampleSequence: sequence },
+    fence: { fileId, fileRevision: 0, measurementRevision: 1, documentRevision: 0, layoutGeneration: 1, pageId: 'page-1', pageRootId: 'root-1' },
+    retention: input.terminal
+      ? { kind: 'terminal-retained', gestureGeneration, sampleSequence: sequence, terminalReason: 'pointer-up', terminalSampleSequence: sequence, holdUntil: 'authoritative-geometry' }
+      : { kind: 'active', gestureGeneration, sampleSequence: sequence },
+    pointer: { downWorld: { x: 0, y: 0 }, currentWorld: { x: 10, y: 20 } },
+    original: {
+      documentNodeId: sourceNodeId, kind: 'rectangle', name: 'Source node', sourceRelationship: relationship, sourceIndex: 0,
+      mode: 'flow', source, current, sourceOffsetParentPose: null,
+      dom: { treatment: 'drag-dimmed', opacity: 0.6, opacityPriority: 'important', zIndex: null },
+      namePresentation: { visible: true, anchor: 'source', pose: source },
+    },
+    movingVisual: { kind: 'fill-ghost', documentNodeId: null, geometry: current, fill: { kind: 'fill-only', color: 'oklch(0.67 0.17 258)', alpha: 0.15 }, hitTesting: 'none', a11y: 'hidden' },
+    supportClone: null,
+    target: targetParentId === null ? null : {
+      parentId: targetParentId, slot: { presence: 'absent' }, rawIndex: 0, semanticIndex: 0, line: 0,
+      parentOutline: targetParentId === sourceParentId ? null : {
+        coordinateSpace: 'world', quad: [{ x: 400, y: 0 }, { x: 700, y: 0 }, { x: 700, y: 200 }, { x: 400, y: 200 }],
+        aabb: { x: 400, y: 0, width: 300, height: 200 }, color: 'oklch(0.67 0.17 258)', widthCssPx: 2,
+      },
+      insertionGuide: null,
+    },
+    hud: { showDimensions: false, showSelectionOutline: false, showResizeHandles: false, showRotationHandles: false, interactiveHandleLayer: false },
+    mobileQuickActions: { mounted: true, hidden: true, inert: true, transition: { property: 'opacity', durationMs: 150, source: 'wonder' } },
+  }) as FlowDragPresentation
+}
+
+const trustedFlowAuthority: FlowDragTopologyAuthority = Object.freeze({
+  fileId,
+  fileRevision: 0,
+  pageId: 'page-1',
+  pageRootId: 'root-1',
+  source(nodeId) {
+    if (nodeId !== 'source-node' && nodeId !== 'alternate-source') return null
+    return Object.freeze({
+      kind: 'rectangle' as const,
+      relationship: Object.freeze({ parentId: 'source-frame', orderKey: 'V', slot: Object.freeze({ presence: 'absent' as const }) }),
+      sourceIndex: 0,
+    })
+  },
+  acceptsTarget(target) {
+    return target.sourceNodeId === 'source-node' || target.sourceNodeId === 'alternate-source'
+      ? target.targetLane.parentId === 'target-frame' && target.targetLane.slot.presence === 'absent'
+        && target.rawIndex === 0 && target.semanticIndex === 0 && target.line === 0
+      : false
+  },
+})
 
 function participant(clientId: string, subjectId: string, sequence: number | null = null, data = noPresence, issuedPresenceId?: string) {
   const digest = createHash('sha256').update(`${clientId}:${subjectId}`).digest('hex')
@@ -56,6 +136,28 @@ class MockSocket implements CollaborationWebSocket {
   listenerCount(): number { return [...this.listeners.values()].reduce((count, values) => count + values.size, 0) }
   private emit<K extends keyof CollaborationSocketEventMap>(type: K, event: CollaborationSocketEventMap[K]): void {
     for (const listener of this.listeners.get(type) ?? []) listener(event as never)
+  }
+}
+
+class MockLifecycleTarget implements CollaborationClientLifecycleTarget {
+  readonly listeners = new Map<'online' | 'offline' | 'visibilitychange', Set<() => void>>()
+
+  addEventListener(type: 'online' | 'offline' | 'visibilitychange', listener: () => void): void {
+    const current = this.listeners.get(type) ?? new Set()
+    current.add(listener)
+    this.listeners.set(type, current)
+  }
+  removeEventListener(type: 'online' | 'offline' | 'visibilitychange', listener: () => void): void {
+    this.listeners.get(type)?.delete(listener)
+  }
+  emit(type: 'online' | 'offline' | 'visibilitychange'): void {
+    for (const listener of this.listeners.get(type) ?? []) listener()
+  }
+  snapshot(type: 'online' | 'offline' | 'visibilitychange'): readonly (() => void)[] {
+    return [...(this.listeners.get(type) ?? [])]
+  }
+  listenerCount(): number {
+    return [...this.listeners.values()].reduce((count, listeners) => count + listeners.size, 0)
   }
 }
 
@@ -134,6 +236,14 @@ function createHarness(input: Readonly<{
   reportError?: (error: unknown, operation: 'room.leave') => void
   durableStore?: CollaborationDurableStore
   cache?: false | Readonly<{ accountId: string; documentSchemaVersion: number }>
+  heartbeatIntervalMs?: number
+  heartbeatTimeoutMs?: number
+  maxPreAdmissionFailures?: number
+  socketFactoryFailures?: number
+  failSocketSendOnCreate?: boolean
+  lifecycleTarget?: CollaborationClientLifecycleTarget | null
+  isOnline?: () => boolean
+  isVisible?: () => boolean
 }> = {}) {
   const sockets: MockSocket[] = []
   const appliedCommands: SemanticFileCommand[] = []
@@ -141,6 +251,7 @@ function createHarness(input: Readonly<{
   const protocols: string[] = []
   const timers: Array<Readonly<{ callback: () => void; delay: number; token: ReturnType<typeof setTimeout> }>> = []
   const cancelled = new Set<ReturnType<typeof setTimeout>>()
+  let socketFactoryCalls = 0
   const client = createCollaborationClient<Document>({
     syncOrigin: 'ws://127.0.0.1:4321',
     buildId: 'build-1',
@@ -150,19 +261,29 @@ function createHarness(input: Readonly<{
       appliedCommands.push(command)
       return applyCommand(document, command)
     },
+    resolveFlowAuthority(_document, pageId) { return pageId === 'page-1' ? trustedFlowAuthority : null },
     createId: ids(...(input.ids ?? ['request-0001', 'request-0002'])),
     createWebSocket(url, protocol) {
+      socketFactoryCalls += 1
       urls.push(url)
       protocols.push(protocol)
+      if (socketFactoryCalls <= (input.socketFactoryFailures ?? 0)) throw new Error('socket factory failed')
       const socket = new MockSocket()
+      if (input.failSocketSendOnCreate === true) socket.failSend = new Error('room.open send failed')
       sockets.push(socket)
       return socket
     },
     reconnectDelaysMs: [0],
     random: () => 0.5,
+    ...(input.heartbeatIntervalMs === undefined ? {} : { heartbeatIntervalMs: input.heartbeatIntervalMs }),
+    ...(input.heartbeatTimeoutMs === undefined ? {} : { heartbeatTimeoutMs: input.heartbeatTimeoutMs }),
+    ...(input.maxPreAdmissionFailures === undefined ? {} : { maxPreAdmissionFailures: input.maxPreAdmissionFailures }),
+    ...(input.lifecycleTarget === undefined ? { lifecycleTarget: null } : { lifecycleTarget: input.lifecycleTarget }),
+    ...(input.isOnline === undefined ? {} : { isOnline: input.isOnline }),
+    ...(input.isVisible === undefined ? {} : { isVisible: input.isVisible }),
     setTimer(callback, delay) {
       const token = Object.freeze({}) as ReturnType<typeof setTimeout>
-      timers.push({ callback, delay, token })
+      if (delay !== 15_000) timers.push({ callback, delay, token })
       return token
     },
     clearTimer(token) { cancelled.add(token) },
@@ -171,12 +292,12 @@ function createHarness(input: Readonly<{
     ...(input.durableStore === undefined ? {} : { durableStore: input.durableStore }),
   })
 
-  function openAssigned(index = 0, generation = generationId, fence = '9') {
+  function openAssigned(index = 0, generation = generationId, fence = '9', assignedReplayScopeId = replayScopeId) {
     const socket = sockets[index]!
     socket.open()
     const open = JSON.parse(socket.sent[0]!) as CollaborationClientMessage
     if (open.type !== 'room.open') throw new Error('Expected room.open.')
-    socket.server({ type: 'room.assigned', envelope: envelope(generation, fence), requestId: open.requestId, role: input.role ?? 'owner' })
+    socket.server({ type: 'room.assigned', envelope: envelope(generation, fence), requestId: open.requestId, role: input.role ?? 'owner', replayScopeId: assignedReplayScopeId })
     return { socket, requestId: open.requestId }
   }
 
@@ -204,7 +325,7 @@ function createHarness(input: Readonly<{
   return { client, sockets, urls, protocols, timers, cancelled, appliedCommands, openAssigned, streamDocument, started }
 }
 
-describe('protocol epoch 2 collaboration client transport', () => {
+describe('protocol epoch 4 collaboration client transport', () => {
   it('ERROR-VISIBILITY-001 reports a failed leave frame while still completing local shutdown', () => {
     const reportError = vi.fn()
     const harness = createHarness({ reportError })
@@ -220,11 +341,11 @@ describe('protocol epoch 2 collaboration client transport', () => {
   it('opens the scoped public route and atomically publishes a verified snapshot', () => {
     const harness = createHarness()
     expect(harness.urls).toEqual([`ws://127.0.0.1:4321/sync/${fileId}?tabId=tab-1`])
-    expect(harness.protocols).toEqual(['canvas-sync-v2'])
+    expect(harness.protocols).toEqual(['canvas-sync-v4'])
 
     const { socket, requestId } = harness.openAssigned()
     expect(JSON.parse(socket.sent[0]!)).toEqual({
-      type: 'room.open', protocolEpoch: 2, schemaVersion: 1, requestId: 'request-0001', fileId, clientId: 'tab-1', buildId: 'build-1',
+      type: 'room.open', protocolEpoch: collaborationProtocolEpoch, schemaVersion: 1, requestId: 'request-0001', fileId, clientId: 'tab-1', buildId: 'build-1',
     })
     harness.streamDocument(socket, requestId, { title: 'Before' })
 
@@ -454,81 +575,18 @@ describe('protocol epoch 2 collaboration client transport', () => {
     })
     harness.client.updatePresence({ pageId: 'page-2' })
     expect(harness.client.getSnapshot().participants.find(value => value.clientId === 'tab-1')?.data).toMatchObject({
-      pageId: 'page-2', selection: null, camera: null, cursor: null, interaction: null,
+      pageId: 'page-2', selection: null, camera: null, cursor: null,
     })
     harness.timers.at(-1)!.callback()
     expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
       type: 'presence.update',
-      data: { pageId: 'page-2', selection: null, camera: null, cursor: null, interaction: null },
+      data: { pageId: 'page-2', selection: null, camera: null, cursor: null },
     })
 
     harness.client.updatePresence({ pageId: null })
     expect(harness.client.getSnapshot().participants.find(value => value.clientId === 'tab-1')?.data.pageId).toBeNull()
     harness.timers.at(-1)!.callback()
     expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ type: 'presence.update', data: { pageId: null } })
-  })
-
-  it('streams every gesture transform immediately while cursor-only awareness stays frame limited', () => {
-    const harness = createHarness()
-    const { socket, requestId } = harness.openAssigned()
-    harness.streamDocument(socket, requestId, { title: 'Before' })
-    socket.server({ type: 'presence.roster', envelope: envelope(), participants: [participant('tab-1', 'user-local'), participant('tab-2', 'user-remote')] })
-    harness.timers.at(-1)!.callback()
-    const before = socket.sent.length
-    const base = { interactionId: 'gesture-0001', pageId: 'page-1', kind: 'move' as const, nodeIds: ['node-1'] }
-    harness.client.updatePresence({ pageId: 'page-1', interaction: { ...base, transforms: [{ nodeId: 'node-1', dx: 1, dy: 2 }] } }, { immediate: true })
-    harness.client.updatePresence({ interaction: { ...base, transforms: [{ nodeId: 'node-1', dx: 3, dy: 4 }] } }, { immediate: true })
-    const frames = socket.sent.slice(before).map(value => JSON.parse(value) as CollaborationClientMessage)
-    expect(frames).toHaveLength(2)
-    expect(frames.map(frame => frame.type === 'presence.update' ? frame.data.interaction?.transforms[0] : null)).toEqual([
-      { nodeId: 'node-1', dx: 1, dy: 2 },
-      { nodeId: 'node-1', dx: 3, dy: 4 },
-    ])
-  })
-
-  it('sends interaction frames in single-player mode and waits for the authoritative echo', () => {
-    const harness = createHarness()
-    const { socket, requestId } = harness.openAssigned()
-    harness.streamDocument(socket, requestId, { title: 'Before' })
-    const local = participant('tab-1', 'user-local')
-    socket.server({ type: 'presence.roster', envelope: envelope(), participants: [local] })
-    const before = socket.sent.length
-    const interaction = { interactionId: 'gesture-solo-0001', pageId: 'page-1', kind: 'move' as const, nodeIds: ['node-1'], transforms: [{ nodeId: 'node-1', dx: 2, dy: 3 }] }
-
-    harness.client.updatePresence({ pageId: 'page-1', interaction }, { immediate: true })
-
-    expect(socket.sent.slice(before).map(value => JSON.parse(value))).toEqual([expect.objectContaining({
-      type: 'presence.update', sequence: 1, data: { pageId: 'page-1', interaction },
-    })])
-    expect(harness.client.getSnapshot().participants.find(value => value.clientId === 'tab-1')?.data.interaction).toBeUndefined()
-
-    socket.server({
-      type: 'presence.changed',
-      envelope: envelope(),
-      participant: { ...local, sequence: 1, data: { ...local.data, pageId: 'page-1', interaction } },
-    })
-    expect(harness.client.getSnapshot().participants.find(value => value.clientId === 'tab-1')?.data.interaction).toEqual(interaction)
-  })
-
-  it('CLOUD-SYNC-PRESENCE-001 keeps queued cursor traffic frame limited while interactions stream immediately', () => {
-    const harness = createHarness()
-    const { socket, requestId } = harness.openAssigned()
-    harness.streamDocument(socket, requestId, { title: 'Before' })
-    socket.server({ type: 'presence.roster', envelope: envelope(), participants: [participant('tab-1', 'user-local'), participant('tab-2', 'user-remote')] })
-    harness.timers.at(-1)!.callback()
-    const before = socket.sent.length
-    harness.client.updatePresence({ pageId: 'page-1', cursor: { pageId: 'page-1', x: 1, y: 2 } })
-    const cursorTimer = harness.timers.at(-1)!
-    const interaction = { interactionId: 'gesture-0002', pageId: 'page-1', kind: 'move' as const, nodeIds: ['node-1'], transforms: [{ nodeId: 'node-1', dx: 4, dy: 5 }] }
-
-    harness.client.updatePresence({ interaction }, { immediate: true })
-
-    const immediateFrames = socket.sent.slice(before).map(value => JSON.parse(value) as CollaborationClientMessage)
-    expect(immediateFrames).toHaveLength(1)
-    expect(immediateFrames[0]).toMatchObject({ type: 'presence.update', data: { interaction } })
-    expect(immediateFrames[0]).not.toMatchObject({ data: { cursor: expect.anything() } })
-    cursorTimer.callback()
-    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ type: 'presence.update', data: { pageId: 'page-1', cursor: { x: 1, y: 2 } } })
   })
 
   it('CLOUD-SYNC-PRESENCE-001 refuses to bypass the frame limit for cursor traffic', () => {
@@ -538,35 +596,355 @@ describe('protocol epoch 2 collaboration client transport', () => {
     socket.server({ type: 'presence.roster', envelope: envelope(), participants: [participant('tab-1', 'user-local'), participant('tab-2', 'user-remote')] })
     harness.timers.at(-1)!.callback()
 
-    expect(() => harness.client.updatePresence({ cursor: { pageId: 'page-1', x: 1, y: 2 } }, { immediate: true })).toThrow('Only interaction presence')
+    expect(() => harness.client.updatePresence({ cursor: { pageId: 'page-1', x: 1, y: 2 } }, { immediate: true })).toThrow('frame limited')
   })
 
-  it('CLOUD-SYNC-GESTURE-001 tears down a failed release and does not replay the stale interaction after reconnect', () => {
+  it('CLOUD-SYNC-CLIENT-001-C3A resolves explicit acquire denial and a release queued before grant', async () => {
+    const deniedHarness = createHarness()
+    const deniedRoom = deniedHarness.openAssigned()
+    deniedHarness.streamDocument(deniedRoom.socket, deniedRoom.requestId, { title: 'Before' })
+    const denied = deniedHarness.client.acquireInteraction({ presentation: flowPresentation() })
+    deniedRoom.socket.server({
+      type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'denied', interactionId: denied.claim.interactionId,
+      leaseId: null, localClaimGeneration: denied.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: 'overlap',
+    })
+    await expect(denied.result).resolves.toMatchObject({ status: 'denied', denialCode: 'overlap' })
+    expect(deniedHarness.client.getFlowClaims()).toEqual([])
+
     const harness = createHarness()
-    const { socket, requestId } = harness.openAssigned()
-    harness.streamDocument(socket, requestId, { title: 'Before' })
-    const local = participant('tab-1', 'user-local')
-    socket.server({ type: 'presence.roster', envelope: envelope(), participants: [local] })
-    const interaction = { interactionId: 'gesture-failed-send', pageId: 'page-1', kind: 'move' as const, nodeIds: ['node-1'], transforms: [] }
-    harness.client.updatePresence({ pageId: 'page-1', interaction }, { immediate: true })
-    socket.failSend = new Error('send failed')
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    const request = harness.client.acquireInteraction({ presentation: flowPresentation({ interactionId: 'queued-release' }) })
+    const release = harness.client.releaseInteraction({ claim: request.claim, terminalSampleSequence: 1, reason: 'cancelled' })
+    expect(room.socket.sent.map(value => JSON.parse(value).type).filter(type => type.startsWith('interaction.'))).toEqual(['interaction.acquire'])
+    room.socket.server({
+      type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: request.claim.interactionId,
+      leaseId, localClaimGeneration: request.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null,
+    })
+    await expect(request.result).resolves.toMatchObject({ status: 'granted', leaseId })
+    expect(JSON.parse(room.socket.sent.at(-1)!)).toMatchObject({ type: 'interaction.release', leaseId, localClaimGeneration: request.claim.localClaimGeneration })
+    room.socket.server({
+      type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'release', status: 'released', interactionId: request.claim.interactionId,
+      leaseId, localClaimGeneration: request.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null,
+    })
+    await expect(release).resolves.toMatchObject({ action: 'release', status: 'released' })
+  })
 
-    expect(() => harness.client.updatePresence({ interaction: null }, { immediate: true })).toThrow('send failed')
-    expect(socket.closes.at(-1)?.code).toBe(4011)
-    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'reconnecting', participants: [] })
+  it('CLOUD-SYNC-PRESENCE-001-C3A streams samples separately without flushing queued cursor awareness', async () => {
+    const harness = createHarness()
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    room.socket.server({ type: 'presence.roster', envelope: envelope(), participants: [participant('tab-1', 'user-local'), participant('tab-2', 'user-remote')] })
+    harness.client.updatePresence({ pageId: 'page-1', cursor: { pageId: 'page-1', x: 9, y: 10 } })
+    const cursorTimer = harness.timers.at(-1)!
+    const request = harness.client.acquireInteraction({ presentation: flowPresentation() })
+    const acquireFrame = JSON.parse(room.socket.sent.at(-1)!)
+    expect(acquireFrame).toMatchObject({ type: 'interaction.acquire' })
+    expect(acquireFrame).not.toHaveProperty('data.cursor')
+    room.socket.server({
+      type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: request.claim.interactionId,
+      leaseId, localClaimGeneration: request.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null,
+    })
+    await request.result
+    harness.client.sampleInteraction({ claim: request.claim, presentation: flowPresentation({ sequence: 2 }) })
+    expect(JSON.parse(room.socket.sent.at(-1)!)).toMatchObject({ type: 'interaction.sample', presentation: { identity: { sampleSequence: 2 } } })
+    cursorTimer.callback()
+    expect(JSON.parse(room.socket.sent.at(-1)!)).toMatchObject({ type: 'presence.update', data: { cursor: { x: 9, y: 10 } } })
+  })
 
+  it('PAPER-FLEX-007-C3A advances reservations only from an exact explicit server result', async () => {
+    const harness = createHarness()
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    const acquire = harness.client.acquireInteraction({ presentation: flowPresentation() })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: acquire.claim.interactionId,
+      leaseId, localClaimGeneration: acquire.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    await acquire.result
+    const reserve = harness.client.reserveInteraction({ claim: acquire.claim, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } }, presentation: flowPresentation({ sequence: 2 }) })
+    expect(JSON.parse(room.socket.sent.at(-1)!)).toMatchObject({ type: 'interaction.reserve', reservationGeneration: 2, targetLane: { parentId: 'target-frame' } })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'reserve', status: 'granted', interactionId: acquire.claim.interactionId,
+      leaseId: secondLeaseId, localClaimGeneration: acquire.claim.localClaimGeneration, reservationGeneration: 2, sampleSequence: 2, denialCode: null })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'reserve', status: 'granted', interactionId: acquire.claim.interactionId,
+      leaseId, localClaimGeneration: acquire.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 2, denialCode: null })
+    expect(harness.client.getFlowClaims()[0]).toMatchObject({ reservationGeneration: 2, sampleSequence: 2, latestAcceptedPresentation: { identity: { sampleSequence: 1 } } })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'reserve', status: 'retained', interactionId: acquire.claim.interactionId,
+      leaseId, localClaimGeneration: acquire.claim.localClaimGeneration, reservationGeneration: 2, sampleSequence: 2, denialCode: null })
+    await expect(reserve).resolves.toMatchObject({ action: 'reserve', status: 'retained', reservationGeneration: 2 })
+    expect(harness.client.getFlowClaims()[0]).toMatchObject({ currentTargetLane: { parentId: 'target-frame' }, latestAcceptedPresentation: { identity: { sampleSequence: 2 } } })
+  })
+
+  it('PAPER-FLEX-007-C3A rejects an overlapping reservation without stranding the active waiter', async () => {
+    const harness = createHarness()
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    const acquire = harness.client.acquireInteraction({ presentation: flowPresentation() })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: acquire.claim.interactionId,
+      leaseId, localClaimGeneration: acquire.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    await acquire.result
+    const first = harness.client.reserveInteraction({ claim: acquire.claim, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } }, presentation: flowPresentation({ sequence: 2 }) })
+    await expect(harness.client.reserveInteraction({ claim: acquire.claim, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } }, presentation: flowPresentation({ sequence: 3 }) })).rejects.toThrow('already pending')
+    expect(room.socket.sent.map(value => JSON.parse(value)).filter(value => value.type === 'interaction.reserve')).toHaveLength(1)
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'reserve', status: 'granted', interactionId: acquire.claim.interactionId,
+      leaseId, localClaimGeneration: acquire.claim.localClaimGeneration, reservationGeneration: 2, sampleSequence: 2, denialCode: null })
+    await expect(first).resolves.toMatchObject({ action: 'reserve', status: 'granted', reservationGeneration: 2 })
+  })
+
+  it('PAPER-FLEX-007-C3A hydrates remote leases and emits each accepted peer sample without owner echo', async () => {
+    const events: unknown[] = []
+    const harness = createHarness()
+    const unsubscribe = harness.client.subscribeRemoteFlow(event => events.push(event))
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    const remotePresentation = flowPresentation({ interactionId: peerInteractionId(leaseId) })
+    room.socket.server({
+      type: 'interaction.roster', envelope: envelope(), interactions: [{ pageId: 'page-1', presenceId: 'remote-presence', subjectId: 'remote-user', clientId: 'tab-2', leaseId,
+        localClaimGeneration: 1, reservationGeneration: 1, presentation: remotePresentation }],
+    })
+    expect(harness.client.getSnapshot().remoteInteractions).toHaveLength(1)
+    expect(events).toHaveLength(1)
+    room.socket.server({
+      type: 'interaction.sample', envelope: envelope(), pageId: 'page-1', presenceId: 'remote-presence', subjectId: 'remote-user', clientId: 'tab-2', leaseId,
+      localClaimGeneration: 1, reservationGeneration: 1, presentation: flowPresentation({ interactionId: peerInteractionId(leaseId), sequence: 2 }),
+    })
+    room.socket.server({
+      type: 'interaction.sample', envelope: envelope(), pageId: 'page-1', presenceId: 'local-presence', subjectId: 'local-user', clientId: 'tab-1', leaseId: secondLeaseId,
+      localClaimGeneration: 1, reservationGeneration: 1, presentation: flowPresentation({ interactionId: peerInteractionId(secondLeaseId), sequence: 2 }),
+    })
+    expect(events).toHaveLength(2)
+    expect(events.at(-1)).toMatchObject({ type: 'sample', source: 'live', sample: { presentation: { identity: { sampleSequence: 2 } } } })
+    unsubscribe()
+  })
+
+  it('PAPER-FLEX-007-C3A fails closed when a peer lease changes its interaction or source identity', () => {
+    const events: unknown[] = []
+    const harness = createHarness()
+    harness.client.subscribeRemoteFlow(event => events.push(event))
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    room.socket.server({
+      type: 'interaction.roster', envelope: envelope(), interactions: [{ pageId: 'page-1', presenceId: 'remote-presence', subjectId: 'remote-user', clientId: 'tab-2', leaseId,
+        localClaimGeneration: 1, reservationGeneration: 1, presentation: flowPresentation({ interactionId: peerInteractionId(leaseId) }) }],
+    })
+    room.socket.server({
+      type: 'interaction.sample', envelope: envelope(), pageId: 'page-1', presenceId: 'remote-presence', subjectId: 'remote-user', clientId: 'tab-2', leaseId,
+      localClaimGeneration: 1, reservationGeneration: 1, presentation: flowPresentation({ interactionId: peerInteractionId(leaseId), sourceNodeId: 'alternate-source', sequence: 2 }),
+    })
+    room.socket.server({
+      type: 'interaction.sample', envelope: envelope(), pageId: 'page-1', presenceId: 'remote-presence', subjectId: 'remote-user', clientId: 'tab-2', leaseId,
+      localClaimGeneration: 1, reservationGeneration: 1, presentation: flowPresentation({ interactionId: peerInteractionId(secondLeaseId), sequence: 3 }),
+    })
+    expect(events).toHaveLength(1)
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'reconnecting', remoteInteractions: [] })
+    expect(room.socket.closes.at(-1)?.code).toBe(4008)
+  })
+
+  it('CLOUD-SYNC-CLIENT-001-C3A rejects flow topology that is not authorized by the current document', async () => {
+    const harness = createHarness()
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    const valid = flowPresentation()
+    const forged = {
+      ...valid,
+      original: { ...valid.original, sourceRelationship: { ...valid.original.sourceRelationship, parentId: 'forged-parent' } },
+    } as FlowDragPresentation
+    const request = harness.client.acquireInteraction({ presentation: forged })
+    await expect(request.result).rejects.toThrow('Interaction send failed')
+    expect(room.socket.closes.at(-1)?.code).toBe(4011)
+  })
+
+  it('CLOUD-SYNC-GESTURE-001-C3A closes with 4011 when release transport fails and clears ephemeral flow state', async () => {
+    const harness = createHarness()
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    const request = harness.client.acquireInteraction({ presentation: flowPresentation() })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: request.claim.interactionId,
+      leaseId, localClaimGeneration: request.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    await request.result
+    room.socket.failSend = new Error('release failed')
+    const release = harness.client.releaseInteraction({ claim: request.claim, terminalSampleSequence: 1, reason: 'cancelled' })
+    await expect(release).rejects.toThrow('Interaction send failed')
+    expect(room.socket.closes.at(-1)?.code).toBe(4011)
+    expect(harness.client.getFlowClaims()).toEqual([])
+    expect(harness.client.getSnapshot().remoteInteractions).toEqual([])
+  })
+
+  it('CLOUD-SYNC-GESTURE-001-C3A ignores stale results and keeps newer claims when an older claim release is denied', async () => {
+    const harness = createHarness()
+    const results: unknown[] = []
+    harness.client.subscribeInteractionResults(result => results.push(result))
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    const first = harness.client.acquireInteraction({ presentation: flowPresentation({ interactionId: 'multi-claim' }) })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'wrong-page', action: 'acquire', status: 'granted', interactionId: first.claim.interactionId,
+      leaseId, localClaimGeneration: first.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: first.claim.interactionId,
+      leaseId, localClaimGeneration: first.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 2, denialCode: null })
+    expect(results).toEqual([])
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: first.claim.interactionId,
+      leaseId, localClaimGeneration: first.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    await first.result
+
+    const second = harness.client.acquireInteraction({ leaseId, presentation: flowPresentation({ interactionId: 'multi-claim', sequence: 2 }) })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: second.claim.interactionId,
+      leaseId, localClaimGeneration: second.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 2, denialCode: null })
+    await second.result
+    const releaseFirst = harness.client.releaseInteraction({ claim: first.claim, terminalSampleSequence: 1, reason: 'cancelled' })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'release', status: 'denied', interactionId: first.claim.interactionId,
+      leaseId, localClaimGeneration: first.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: 'stale_generation' })
+    await expect(releaseFirst).resolves.toMatchObject({ status: 'denied', denialCode: 'stale_generation' })
+    expect(harness.client.getFlowClaims().map(value => value.claim.localClaimGeneration)).toContain(second.claim.localClaimGeneration)
+  })
+
+  it('CLOUD-SYNC-GESTURE-001-C3A a successful release settles only its exact local claim generation', async () => {
+    const harness = createHarness()
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    const first = harness.client.acquireInteraction({ presentation: flowPresentation({ interactionId: 'multi-release' }) })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: first.claim.interactionId,
+      leaseId, localClaimGeneration: first.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    await first.result
+    const second = harness.client.acquireInteraction({ leaseId, presentation: flowPresentation({ interactionId: 'multi-release', sequence: 2 }) })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'retained', interactionId: second.claim.interactionId,
+      leaseId, localClaimGeneration: second.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 2, denialCode: null })
+    await second.result
+    const release = harness.client.releaseInteraction({ claim: first.claim, terminalSampleSequence: 1, reason: 'cancelled' })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'release', status: 'released', interactionId: first.claim.interactionId,
+      leaseId, localClaimGeneration: first.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    await release
+    expect(harness.client.getFlowClaims().map(value => value.claim.localClaimGeneration)).toEqual([second.claim.localClaimGeneration])
+  })
+
+  it('CLOUD-SYNC-CLIENT-001-C3A rejects flow waiters and ignores callbacks from the old socket after reconnect', async () => {
+    const harness = createHarness()
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    const oldMessage = [...room.socket.listeners.get('message')!][0]!
+    const request = harness.client.acquireInteraction({ presentation: flowPresentation({ interactionId: 'old-socket' }) })
+    room.socket.serverClose(1006, 'lost')
+    await expect(request.result).rejects.toThrow('lost')
     harness.timers.at(-1)!.callback()
     const second = harness.openAssigned(1, secondGenerationId, '10')
     harness.streamDocument(second.socket, second.requestId, { title: 'Before' }, '0', envelope(secondGenerationId, '10'))
-    second.socket.server({
-      type: 'presence.roster',
-      envelope: envelope(secondGenerationId, '10'),
-      participants: [participant('tab-1', 'user-local'), participant('tab-2', 'user-remote')],
-    })
+    ;(oldMessage as unknown as (event: MessageEvent<unknown>) => void)({ data: JSON.stringify({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: request.claim.interactionId,
+      leaseId, localClaimGeneration: request.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null }) } as MessageEvent<unknown>)
+    expect(harness.client.getFlowClaims()).toEqual([])
+  })
+
+  it('CLOUD-SYNC-CLIENT-001-C3A settles failed acquire and reserve sends and tears down a failed sample send', async () => {
+    const acquireHarness = createHarness()
+    const acquireRoom = acquireHarness.openAssigned()
+    acquireHarness.streamDocument(acquireRoom.socket, acquireRoom.requestId, { title: 'Before' })
+    acquireRoom.socket.failSend = new Error('acquire failed')
+    const acquire = acquireHarness.client.acquireInteraction({ presentation: flowPresentation() })
+    await expect(acquire.result).rejects.toThrow('Interaction send failed')
+    expect(acquireRoom.socket.closes.at(-1)?.code).toBe(4011)
+
+    const reserveHarness = createHarness()
+    const reserveRoom = reserveHarness.openAssigned()
+    reserveHarness.streamDocument(reserveRoom.socket, reserveRoom.requestId, { title: 'Before' })
+    const reserveAcquire = reserveHarness.client.acquireInteraction({ presentation: flowPresentation() })
+    reserveRoom.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: reserveAcquire.claim.interactionId,
+      leaseId, localClaimGeneration: reserveAcquire.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    await reserveAcquire.result
+    reserveRoom.socket.failSend = new Error('reserve failed')
+    const reserve = reserveHarness.client.reserveInteraction({ claim: reserveAcquire.claim, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } }, presentation: flowPresentation({ sequence: 2 }) })
+    await expect(reserve).rejects.toThrow('Interaction send failed')
+    expect(reserveRoom.socket.closes.at(-1)?.code).toBe(4011)
+
+    const sampleHarness = createHarness()
+    const sampleRoom = sampleHarness.openAssigned()
+    sampleHarness.streamDocument(sampleRoom.socket, sampleRoom.requestId, { title: 'Before' })
+    const sampleAcquire = sampleHarness.client.acquireInteraction({ presentation: flowPresentation() })
+    sampleRoom.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: sampleAcquire.claim.interactionId,
+      leaseId, localClaimGeneration: sampleAcquire.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    await sampleAcquire.result
+    sampleRoom.socket.failSend = new Error('sample failed')
+    expect(() => sampleHarness.client.sampleInteraction({ claim: sampleAcquire.claim, presentation: flowPresentation({ sequence: 2 }) })).toThrow('sample failed')
+    expect(sampleRoom.socket.closes.at(-1)?.code).toBe(4011)
+  })
+
+  it('CLOUD-SYNC-REPLAY-001-C3A quarantines an interaction-bound mutation across reconnect until an exact fresh binding is supplied', async () => {
+    const memory = createMemoryDurableStore()
+    const harness = createHarness({ durableStore: memory.store, cache: { accountId: 'account-1', documentSchemaVersion: 9 } })
+    await harness.started
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
+    await vi.waitFor(() => expect(harness.client.getSnapshot().lifecycle).toBe('live'))
+    const acquire = harness.client.acquireInteraction({ presentation: flowPresentation({ interactionId: 'bound-flow' }) })
+    room.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: acquire.claim.interactionId,
+      leaseId, localClaimGeneration: acquire.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    await acquire.result
+    harness.client.sampleInteraction({ claim: acquire.claim, presentation: flowPresentation({ interactionId: 'bound-flow', sequence: 2, terminal: true }) })
+    const firstBinding = {
+      leaseId, interactionId: acquire.claim.interactionId, localClaimGeneration: acquire.claim.localClaimGeneration, reservationGeneration: 1,
+      terminalSampleSequence: 2, presentationDigest: 'b'.repeat(64),
+      sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' as const } },
+      targetLane: { parentId: 'target-frame', slot: { presence: 'absent' as const } },
+    }
+    const submission = harness.client.submit({ mutationId: 'bound-mutation-0001', command: { type: 'node.rename', nodeId: 'node-1', name: 'After' }, flowBinding: firstBinding })
+    void submission.catch(() => undefined)
+    await vi.waitFor(() => expect(room.socket.sent.map(value => JSON.parse(value)).some(value => value.type === 'operation.submit' && value.operation.flowBinding?.leaseId === leaseId)).toBe(true))
+    room.socket.serverClose(1006, 'reconnect')
     harness.timers.at(-1)!.callback()
-    const fullState = JSON.parse(second.socket.sent.at(-1)!) as CollaborationClientMessage
-    expect(fullState).toMatchObject({ type: 'presence.update', data: { interaction: null } })
-    expect(fullState).not.toMatchObject({ data: { interaction: { interactionId: 'gesture-failed-send' } } })
+    const next = harness.openAssigned(1, secondGenerationId, '10')
+    harness.streamDocument(next.socket, next.requestId, { title: 'Before' }, '0', envelope(secondGenerationId, '10'))
+    await vi.waitFor(() => expect(harness.client.getSnapshot().lifecycle).toBe('live'))
+    expect(next.socket.sent.map(value => JSON.parse(value)).filter(value => value.type === 'operation.submit')).toEqual([])
+
+    const fresh = harness.client.acquireInteraction({ presentation: flowPresentation({ interactionId: 'bound-flow', gestureGeneration: 2, sequence: 3 }) })
+    next.socket.server({ type: 'interaction.result', envelope: envelope(secondGenerationId, '10'), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: fresh.claim.interactionId,
+      leaseId: secondLeaseId, localClaimGeneration: fresh.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 3, denialCode: null })
+    await fresh.result
+    harness.client.sampleInteraction({ claim: fresh.claim, presentation: flowPresentation({ interactionId: 'bound-flow', gestureGeneration: 2, sequence: 4, terminal: true }) })
+    harness.client.rebindInteractionMutation('bound-mutation-0001', {
+      ...firstBinding, leaseId: secondLeaseId, localClaimGeneration: fresh.claim.localClaimGeneration, terminalSampleSequence: 4,
+    })
+    expect(JSON.parse(next.socket.sent.at(-1)!)).toMatchObject({ type: 'operation.submit', operation: { mutationId: 'bound-mutation-0001', flowBinding: { leaseId: secondLeaseId } } })
+  })
+
+  it('CLOUD-SYNC-REPLAY-001-C3A persists an interaction binding and quarantines it after process restart', async () => {
+    const memory = createMemoryDurableStore()
+    const cache = { accountId: 'account-1', documentSchemaVersion: 9 }
+    const first = createHarness({ durableStore: memory.store, cache })
+    await first.started
+    const firstRoom = first.openAssigned()
+    first.streamDocument(firstRoom.socket, firstRoom.requestId, { title: 'Before' })
+    await vi.waitFor(() => expect(first.client.getSnapshot().lifecycle).toBe('live'))
+    const acquire = first.client.acquireInteraction({ presentation: flowPresentation({ interactionId: 'restart-flow' }) })
+    firstRoom.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: acquire.claim.interactionId,
+      leaseId, localClaimGeneration: acquire.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    await acquire.result
+    first.client.sampleInteraction({ claim: acquire.claim, presentation: flowPresentation({ interactionId: 'restart-flow', sequence: 2, terminal: true }) })
+    const binding = {
+      leaseId, interactionId: acquire.claim.interactionId, localClaimGeneration: acquire.claim.localClaimGeneration, reservationGeneration: 1,
+      terminalSampleSequence: 2, presentationDigest: 'c'.repeat(64),
+      sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' as const } },
+      targetLane: { parentId: 'target-frame', slot: { presence: 'absent' as const } },
+    }
+    const submitted = first.client.submit({ mutationId: 'bound-restart-0001', command: { type: 'node.rename', nodeId: 'node-1', name: 'After' }, flowBinding: binding })
+    void submitted.catch(() => undefined)
+    const scope = { accountId: cache.accountId, clientId: 'tab-1', fileId, documentSchemaVersion: cache.documentSchemaVersion, protocolEpoch: collaborationProtocolEpoch }
+    await vi.waitFor(async () => expect(await memory.store.load(scope)).toMatchObject({
+      pending: [{ mutationId: 'bound-restart-0001', flowBinding: { leaseId, interactionId: 'restart-flow' } }],
+    }))
+    first.client.stop()
+
+    const restarted = createHarness({ durableStore: memory.store, cache })
+    await restarted.started
+    const restartedRoom = restarted.openAssigned()
+    restarted.streamDocument(restartedRoom.socket, restartedRoom.requestId, { title: 'Before' })
+    await vi.waitFor(() => expect(restarted.client.getSnapshot()).toMatchObject({ lifecycle: 'live', pendingMutationIds: ['bound-restart-0001'] }))
+    expect(restartedRoom.socket.sent.map(value => JSON.parse(value)).filter(value => value.type === 'operation.submit')).toEqual([])
+
+    const fresh = restarted.client.acquireInteraction({ presentation: flowPresentation({ interactionId: 'restart-flow', gestureGeneration: 2, sequence: 3 }) })
+    restartedRoom.socket.server({ type: 'interaction.result', envelope: envelope(), pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: fresh.claim.interactionId,
+      leaseId: secondLeaseId, localClaimGeneration: fresh.claim.localClaimGeneration, reservationGeneration: 1, sampleSequence: 3, denialCode: null })
+    await fresh.result
+    restarted.client.sampleInteraction({ claim: fresh.claim, presentation: flowPresentation({ interactionId: 'restart-flow', gestureGeneration: 2, sequence: 4, terminal: true }) })
+    restarted.client.rebindInteractionMutation('bound-restart-0001', {
+      ...binding, leaseId: secondLeaseId, localClaimGeneration: fresh.claim.localClaimGeneration, terminalSampleSequence: 4,
+    })
+    expect(JSON.parse(restartedRoom.socket.sent.at(-1)!)).toMatchObject({ type: 'operation.submit', operation: { mutationId: 'bound-restart-0001', flowBinding: { leaseId: secondLeaseId } } })
   })
 
   it('does not remove a reconnected participant when an old session leave arrives late', () => {
@@ -957,10 +1335,10 @@ describe('protocol epoch 2 collaboration client transport', () => {
     let enqueueAttempts = 0
     const durableStore: CollaborationDurableStore = {
       ...memory.store,
-      async enqueue(scope, mutation) {
+      async enqueue(scope, mutation, resolveStatus) {
         enqueueAttempts += 1
         if (enqueueAttempts === 1) throw new Error('storage unavailable')
-        await memory.store.enqueue(scope, mutation)
+        await memory.store.enqueue(scope, mutation, resolveStatus)
       },
     }
     const harness = createHarness({ durableStore, cache: { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion } })
@@ -984,7 +1362,7 @@ describe('protocol epoch 2 collaboration client transport', () => {
     const durableStore: CollaborationDurableStore = {
       load: async () => ({
         scope,
-        checkpoint: { snapshotId: 'projection:7', serverSequence: '7', document: { title: 42 } },
+        checkpoint: { snapshotId: 'projection:7', serverSequence: '7', document: { title: 42 }, replayScopeId },
         pending: [{ mutationId: 'mutation-forged', baseSequence: null, command: { operationType: 'node.rename', operationPayload: { nodeId: 'node-1', name: 'Leaked' } }, status: 'pending' }],
         updatedAt: Date.now(),
       }),
@@ -993,6 +1371,8 @@ describe('protocol epoch 2 collaboration client transport', () => {
       checkpoint: async () => undefined,
       acknowledge: async () => undefined,
       markRecoverable: async () => undefined,
+      markAllRecoverable: async () => undefined,
+      reconcileReplayScope: async () => undefined,
       clearCheckpoint: async () => undefined,
       purgeAccount: async () => undefined,
     }
@@ -1011,12 +1391,13 @@ describe('protocol epoch 2 collaboration client transport', () => {
     const durableStore: CollaborationDurableStore = {
       load: async () => ({
         scope: { accountId: 'current-account', clientId: 'tab-1', fileId, documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch },
-        checkpoint: { snapshotId: 'projection:7', serverSequence: '7', document: '{not valid document bytes' },
+        checkpoint: { snapshotId: 'projection:7', serverSequence: '7', document: '{not valid document bytes', replayScopeId },
         pending: [{
           mutationId: 'mutation-valid-0001',
           baseSequence: null,
           command: { operationType: 'node.rename', operationPayload: { nodeId: 'node-1', name: 'Recovered' } },
           status: 'pending',
+          replayScopeId,
         }],
         updatedAt: Date.now(),
       }),
@@ -1025,6 +1406,8 @@ describe('protocol epoch 2 collaboration client transport', () => {
       checkpoint: async () => undefined,
       acknowledge: async () => undefined,
       markRecoverable: async () => undefined,
+      markAllRecoverable: async () => undefined,
+      reconcileReplayScope: async () => undefined,
       clearCheckpoint: async () => undefined,
       purgeAccount: async () => undefined,
     }
@@ -1040,16 +1423,204 @@ describe('protocol epoch 2 collaboration client transport', () => {
     expect(repair).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ checkpoint: null, pending: [expect.objectContaining({ mutationId: 'mutation-valid-0001' })] }))
   })
 
+  it('CLOUD-SYNC-CACHE-001 never publishes a legacy unscoped checkpoint before authorization', async () => {
+    const repair = vi.fn(async () => undefined)
+    const durableStore: CollaborationDurableStore = {
+      load: async () => ({
+        scope: { accountId: 'current-account', clientId: 'tab-1', fileId, documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch },
+        checkpoint: { snapshotId: 'projection:7', serverSequence: '7', document: { title: 'Private' } },
+        pending: [],
+        updatedAt: Date.now(),
+      }),
+      repair,
+      enqueue: async () => undefined,
+      checkpoint: async () => undefined,
+      acknowledge: async () => undefined,
+      markRecoverable: async () => undefined,
+      markAllRecoverable: async () => undefined,
+      reconcileReplayScope: async () => undefined,
+      clearCheckpoint: async () => undefined,
+      purgeAccount: async () => undefined,
+    }
+    const harness = createHarness({ durableStore, cache: { accountId: 'current-account', documentSchemaVersion: collaborationDocumentSchemaVersion } })
+    const observed: Array<Document | null> = []
+    const unsubscribe = harness.client.subscribe(() => observed.push(harness.client.getSnapshot().document))
+
+    await harness.started
+
+    expect(observed).not.toContainEqual({ title: 'Private' })
+    expect(harness.client.getSnapshot()).toMatchObject({ document: null, snapshotId: null, serverSequence: '0' })
+    expect(repair).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ checkpoint: null }))
+    unsubscribe()
+  })
+
+  it('CLOUD-SYNC-CACHE-001 publishes a scoped checkpoint only after a matching verified room assignment', async () => {
+    const memory = createMemoryDurableStore()
+    const scope = { accountId: 'account-a', clientId: 'tab-1', fileId, documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch }
+    await memory.store.checkpoint(scope, { snapshotId: 'projection:7', serverSequence: '7', document: { title: 'Private' }, replayScopeId })
+    const harness = createHarness({ durableStore: memory.store, cache: { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion } })
+    const observed: Array<Document | null> = []
+    const unsubscribe = harness.client.subscribe(() => observed.push(harness.client.getSnapshot().document))
+
+    await harness.started
+    expect(harness.client.getSnapshot()).toMatchObject({ document: null, snapshotId: null, serverSequence: '0' })
+    expect(observed).not.toContainEqual({ title: 'Private' })
+
+    harness.openAssigned()
+    await vi.waitFor(() => expect(harness.client.getSnapshot()).toMatchObject({ document: { title: 'Private' }, snapshotId: 'projection:7', serverSequence: '7' }))
+    unsubscribe()
+  })
+
+  it('CLOUD-SYNC-CACHE-001 does not write durable state when the assigned scope already matches', async () => {
+    const memory = createMemoryDurableStore()
+    const scope = { accountId: 'account-a', clientId: 'tab-1', fileId, documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch }
+    await memory.store.checkpoint(scope, { snapshotId: 'projection:7', serverSequence: '7', document: { title: 'Private' }, replayScopeId })
+    const reconcileReplayScope = vi.fn(async () => { throw new Error('read-only storage') })
+    const harness = createHarness({ durableStore: { ...memory.store, reconcileReplayScope }, cache: { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion } })
+    await harness.started
+
+    harness.openAssigned()
+
+    await vi.waitFor(() => expect(harness.client.getSnapshot()).toMatchObject({ document: { title: 'Private' }, snapshotId: 'projection:7', serverSequence: '7' }))
+    expect(reconcileReplayScope).not.toHaveBeenCalled()
+  })
+
+  it('CLOUD-SYNC-CACHE-001 atomically discards a checkpoint from an earlier access grant before resume', async () => {
+    const memory = createMemoryDurableStore()
+    const scope = { accountId: 'account-a', clientId: 'tab-1', fileId, documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch }
+    await memory.store.checkpoint(scope, { snapshotId: 'projection:7', serverSequence: '7', document: { title: 'Private' }, replayScopeId })
+    const harness = createHarness({ durableStore: memory.store, cache: { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion } })
+    const observed: Array<Document | null> = []
+    const unsubscribe = harness.client.subscribe(() => observed.push(harness.client.getSnapshot().document))
+
+    await harness.started
+    const { socket } = harness.openAssigned(0, generationId, '9', 'b'.repeat(64))
+
+    await vi.waitFor(async () => {
+      expect(harness.client.getSnapshot()).toMatchObject({ document: null, snapshotId: null, serverSequence: '0' })
+      await expect(memory.store.load(scope)).resolves.toMatchObject({ checkpoint: null })
+      expect(socket.sent.map(value => JSON.parse(value) as CollaborationClientMessage).filter(message => message.type === 'room.resume')).toEqual([])
+    })
+    expect(observed).not.toContainEqual({ title: 'Private' })
+    unsubscribe()
+  })
+
+  it('CLOUD-SYNC-CACHE-001 removes an in-memory checkpoint when reconnect authorization changes scope', async () => {
+    const memory = createMemoryDurableStore()
+    const scope = { accountId: 'account-a', clientId: 'tab-1', fileId, documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch }
+    const harness = createHarness({ durableStore: memory.store, cache: { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion } })
+    await harness.started
+    const first = harness.openAssigned()
+    harness.streamDocument(first.socket, first.requestId, { title: 'Private' }, '7')
+    await vi.waitFor(async () => {
+      expect(harness.client.getSnapshot().document).toEqual({ title: 'Private' })
+      await expect(memory.store.load(scope)).resolves.toMatchObject({ checkpoint: { replayScopeId } })
+    })
+
+    first.socket.serverClose()
+    await vi.waitFor(() => expect(harness.client.getSnapshot().lifecycle).toBe('reconnecting'))
+    harness.timers.at(-1)!.callback()
+    await vi.waitFor(() => expect(harness.sockets).toHaveLength(2))
+    harness.openAssigned(1, secondGenerationId, '10', 'b'.repeat(64))
+
+    await vi.waitFor(async () => {
+      expect(harness.client.getSnapshot()).toMatchObject({ document: null, snapshotId: null, serverSequence: '0' })
+      await expect(memory.store.load(scope)).resolves.toMatchObject({ checkpoint: null })
+    })
+  })
+
+  it('CLOUD-SYNC-CACHE-001 makes a failed required scope reconciliation terminal instead of reconnecting forever', async () => {
+    const memory = createMemoryDurableStore()
+    const scope = { accountId: 'account-a', clientId: 'tab-1', fileId, documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch }
+    await memory.store.checkpoint(scope, { snapshotId: 'projection:7', serverSequence: '7', document: { title: 'Private' }, replayScopeId })
+    const harness = createHarness({
+      durableStore: { ...memory.store, reconcileReplayScope: async () => { throw new Error('cache write failed') } },
+      cache: { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion },
+    })
+    await harness.started
+
+    harness.openAssigned(0, generationId, '9', 'b'.repeat(64))
+
+    await vi.waitFor(() => expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'connection-failed', document: null, error: 'cache write failed' }))
+    expect(harness.timers).toEqual([])
+  })
+
+  it('CLOUD-SYNC-CACHE-001 fences a delayed file A scope reconciliation from file B', async () => {
+    const memory = createMemoryDurableStore()
+    const cache = { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion }
+    const firstScope = { ...cache, clientId: 'tab-1', fileId, protocolEpoch: collaborationProtocolEpoch }
+    await memory.store.checkpoint(firstScope, { snapshotId: 'projection:7', serverSequence: '7', document: { title: 'Private A' }, replayScopeId })
+    const reconciliationStarted = deferred()
+    const releaseReconciliation = deferred()
+    const durableStore: CollaborationDurableStore = {
+      ...memory.store,
+      async reconcileReplayScope(scope, assignedReplayScopeId) {
+        reconciliationStarted.resolve()
+        await releaseReconciliation.promise
+        await memory.store.reconcileReplayScope(scope, assignedReplayScopeId)
+      },
+    }
+    const harness = createHarness({ durableStore, cache })
+    await harness.started
+    harness.openAssigned(0, generationId, '9', 'b'.repeat(64))
+    await reconciliationStarted.promise
+
+    harness.client.stop()
+    const restarted = harness.client.start({ fileId: secondFileId, cache })
+    releaseReconciliation.resolve()
+    await restarted
+
+    await vi.waitFor(() => expect(harness.client.getSnapshot()).toMatchObject({ fileId: secondFileId, document: null, snapshotId: null, serverSequence: '0' }))
+    expect(harness.sockets[1]!.sent).toEqual([])
+  })
+
+  it('CLOUD-SYNC-REPLAY-001 quarantines legacy unscoped queued work before any room can replay it', async () => {
+    const repair = vi.fn(async () => undefined)
+    const durableStore: CollaborationDurableStore = {
+      load: async () => ({
+        scope: { accountId: 'current-account', clientId: 'tab-1', fileId, documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch },
+        checkpoint: null,
+        pending: [{
+          mutationId: 'mutation-legacy-unscoped',
+          baseSequence: null,
+          command: { operationType: 'node.rename', operationPayload: { nodeId: 'node-1', name: 'Legacy' } },
+          status: 'pending',
+        }],
+        updatedAt: Date.now(),
+      }),
+      repair,
+      enqueue: async () => undefined,
+      checkpoint: async () => undefined,
+      acknowledge: async () => undefined,
+      markRecoverable: async () => undefined,
+      markAllRecoverable: async () => undefined,
+      reconcileReplayScope: async () => undefined,
+      clearCheckpoint: async () => undefined,
+      purgeAccount: async () => undefined,
+    }
+    const harness = createHarness({ durableStore, cache: { accountId: 'current-account', documentSchemaVersion: collaborationDocumentSchemaVersion } })
+    await harness.started
+
+    expect(harness.client.getSnapshot()).toMatchObject({ pendingMutationIds: [], recoverableMutationIds: ['mutation-legacy-unscoped'] })
+    expect(repair).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      pending: [expect.objectContaining({ mutationId: 'mutation-legacy-unscoped', status: 'recoverable', replayScopeId: null })],
+    }))
+    const room = harness.openAssigned()
+    harness.streamDocument(room.socket, room.requestId, { title: 'Current' })
+    await vi.waitFor(() => expect(harness.client.getSnapshot().lifecycle).toBe('live'))
+    expect(room.socket.sent.map(value => JSON.parse(value) as CollaborationClientMessage).filter(message => message.type === 'operation.submit')).toEqual([])
+  })
+
   it('CLOUD-SYNC-CACHE-001 keeps a delayed file A mutation out of file B after switching rooms', async () => {
     const memory = createMemoryDurableStore()
     const enqueueStarted = deferred()
     const releaseEnqueue = deferred()
     const durableStore: CollaborationDurableStore = {
       ...memory.store,
-      async enqueue(scope, mutation) {
+      async enqueue(scope, mutation, resolveStatus) {
         enqueueStarted.resolve()
         await releaseEnqueue.promise
-        await memory.store.enqueue(scope, mutation)
+        await memory.store.enqueue(scope, mutation, resolveStatus)
       },
     }
     const cache = { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion }
@@ -1071,7 +1642,7 @@ describe('protocol epoch 2 collaboration client transport', () => {
     expect(harness.client.getSnapshot()).toMatchObject({ fileId: secondFileId, document: null, pendingMutationIds: [] })
     expect(socket.sent.map(value => JSON.parse(value) as CollaborationClientMessage).filter(value => value.type === 'operation.submit')).toHaveLength(0)
     expect(harness.sockets[1]!.sent.map(value => JSON.parse(value) as CollaborationClientMessage).filter(value => value.type === 'operation.submit')).toHaveLength(0)
-    await expect(memory.store.load({ accountId: 'account-a', clientId: 'tab-1', fileId, documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch })).resolves.toMatchObject({ pending: [{ mutationId: 'mutation-file-a' }] })
+    await expect(memory.store.load({ accountId: 'account-a', clientId: 'tab-1', fileId, documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch })).resolves.toMatchObject({ pending: [{ mutationId: 'mutation-file-a', status: 'pending' }] })
     await expect(memory.store.load({ accountId: 'account-a', clientId: 'tab-1', fileId: secondFileId, documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch })).resolves.toBeNull()
   })
 
@@ -1125,6 +1696,54 @@ describe('protocol epoch 2 collaboration client transport', () => {
     })
   })
 
+  it('CLOUD-SYNC-REPLAY-001 marks an enqueue that finishes after revocation as recoverable', async () => {
+    const memory = createMemoryDurableStore()
+    const enqueueStarted = deferred()
+    const releaseEnqueue = deferred()
+    const durableStore: CollaborationDurableStore = {
+      ...memory.store,
+      async enqueue(scope, mutation, resolveStatus) {
+        enqueueStarted.resolve()
+        await releaseEnqueue.promise
+        await memory.store.enqueue(scope, mutation, resolveStatus)
+      },
+    }
+    const cache = { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion }
+    const harness = createHarness({ durableStore, cache })
+    await harness.started
+    const { socket, requestId } = harness.openAssigned()
+    harness.streamDocument(socket, requestId, { title: 'Private' })
+    await vi.waitFor(() => expect(harness.client.getSnapshot().lifecycle).toBe('live'))
+
+    const save = harness.client.submit({ mutationId: 'mutation-revoked-race', command: { type: 'node.rename', nodeId: 'node-1', name: 'Unsaved' } })
+    await enqueueStarted.promise
+    socket.server({ type: 'room.error', envelope: envelope(), code: 'access_revoked', message: 'Access was removed.', retry: 'none' })
+    await vi.waitFor(() => expect(harness.client.getSnapshot().lifecycle).toBe('access-revoked'))
+    harness.client.stop()
+    const restarted = harness.client.start({ fileId, cache })
+    releaseEnqueue.resolve()
+
+    await expect(save).rejects.toThrow('stopped after the change was saved for recovery')
+    await restarted
+    expect(harness.client.getSnapshot()).toMatchObject({ pendingMutationIds: [], recoverableMutationIds: ['mutation-revoked-race'] })
+    await vi.waitFor(async () => {
+      await expect(memory.store.load({
+        accountId: 'account-a', clientId: 'tab-1', fileId,
+        documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch,
+      })).resolves.toMatchObject({ checkpoint: null, pending: [{ mutationId: 'mutation-revoked-race', status: 'recoverable' }] })
+    })
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-001 removes lifecycle listeners when durable hydration fails', async () => {
+    const lifecycle = new MockLifecycleTarget()
+    const memory = createMemoryDurableStore()
+    const durableStore: CollaborationDurableStore = { ...memory.store, load: async () => { throw new Error('cache failed') } }
+    const harness = createHarness({ lifecycleTarget: lifecycle, durableStore, cache: { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion } })
+
+    await expect(harness.started).rejects.toThrow('cache failed')
+    expect(lifecycle.listenerCount()).toBe(0)
+  })
+
   it('CLOUD-SYNC-REPLAY-001 retains durable work across stop and replays it in original order after restart', async () => {
     const memory = createMemoryDurableStore()
     const cache = { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion }
@@ -1158,11 +1777,12 @@ describe('protocol epoch 2 collaboration client transport', () => {
     const second = createHarness({ durableStore: memory.store, cache, ids: ['request-restart-0001'] })
     await second.started
     expect(second.client.getSnapshot()).toMatchObject({
-      document: { title: 'Before' },
-      snapshotId: 'projection:0',
+      document: null,
+      snapshotId: null,
       pendingMutationIds: ['durable-mutation-0001', 'durable-mutation-0002'],
     })
     const secondRoom = second.openAssigned()
+    await vi.waitFor(() => expect(second.client.getSnapshot()).toMatchObject({ document: { title: 'Before' }, snapshotId: 'projection:0' }))
     await vi.waitFor(() => expect(secondRoom.socket.sent.some(value => (JSON.parse(value) as CollaborationClientMessage).type === 'room.resume')).toBe(true))
     second.streamDocument(secondRoom.socket, secondRoom.requestId, { title: 'Before' })
     await vi.waitFor(() => {
@@ -1186,7 +1806,7 @@ describe('protocol epoch 2 collaboration client transport', () => {
     const open = JSON.parse(socket.sent[0]!) as CollaborationClientMessage
     if (open.type !== 'room.open') throw new Error('Expected room.open.')
 
-    socket.server({ type: 'request.error', protocolEpoch: 2, schemaVersion: 1, requestId: open.requestId, code: 'incompatible_build', message: 'Update required.', retry: 'refresh' })
+    socket.server({ type: 'request.error', protocolEpoch: collaborationProtocolEpoch, schemaVersion: 1, requestId: open.requestId, code: 'incompatible_build', message: 'Update required.', retry: 'refresh' })
 
     expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'incompatible-build', error: 'Update required.' })
     expect(harness.timers).toHaveLength(0)
@@ -1201,7 +1821,7 @@ describe('protocol epoch 2 collaboration client transport', () => {
     if (firstOpen.type !== 'room.open') throw new Error('Expected room.open.')
 
     firstSocket.server({
-      type: 'request.error', protocolEpoch: 2, schemaVersion: 1, requestId: firstOpen.requestId,
+      type: 'request.error', protocolEpoch: collaborationProtocolEpoch, schemaVersion: 1, requestId: firstOpen.requestId,
       code: 'capacity_refused', message: 'This room is full.', retry: 'retry', retryAfterMs: 250,
     })
     expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'capacity-refused', error: 'This room is full.' })
@@ -1211,6 +1831,273 @@ describe('protocol epoch 2 collaboration client transport', () => {
     await harness.client.start({ fileId, cache: false })
     expect(harness.sockets).toHaveLength(2)
     expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'authorizing', error: null })
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-002 reconnects after a missing raw pong and ignores stale heartbeat callbacks', () => {
+    const harness = createHarness({ heartbeatIntervalMs: 100, heartbeatTimeoutMs: 25 })
+    const { socket, requestId } = harness.openAssigned()
+    expect(harness.timers.filter(timer => timer.delay === 100)).toHaveLength(0)
+    harness.streamDocument(socket, requestId, { title: 'Before' })
+    const firstHeartbeat = harness.timers.find(timer => timer.delay === 100)!
+
+    firstHeartbeat.callback()
+    expect(socket.sent.at(-1)).toBe('ping')
+    const firstTimeout = harness.timers.find(timer => timer.delay === 25)!
+    socket.serverData('pong')
+    expect(harness.cancelled).toContain(firstTimeout.token)
+
+    const secondHeartbeat = harness.timers.filter(timer => timer.delay === 100).at(-1)!
+    secondHeartbeat.callback()
+    const secondTimeout = harness.timers.filter(timer => timer.delay === 25).at(-1)!
+    secondTimeout.callback()
+
+    expect(socket.closes.at(-1)).toMatchObject({ code: 4012, reason: 'Heartbeat timeout' })
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'reconnecting', reconnectAttempt: 1 })
+    expect(harness.timers.at(-1)?.delay).toBe(0)
+    const sentAfterTimeout = socket.sent.length
+    firstHeartbeat.callback()
+    expect(socket.sent).toHaveLength(sentAfterTimeout)
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-002 resumes clients that start offline or hidden without reopening authorizing', async () => {
+    const offlineLifecycle = new MockLifecycleTarget()
+    let online = false
+    const offline = createHarness({ lifecycleTarget: offlineLifecycle, isOnline: () => online })
+    await offline.started
+    expect(offline.sockets).toHaveLength(0)
+    expect(offline.client.getSnapshot()).toMatchObject({ lifecycle: 'offline-clean', error: 'Collaboration is offline.' })
+
+    online = true
+    offlineLifecycle.emit('online')
+    expect(offline.sockets).toHaveLength(1)
+    expect(offline.client.getSnapshot().lifecycle).toBe('authorizing')
+
+    const hiddenLifecycle = new MockLifecycleTarget()
+    let visible = false
+    const hidden = createHarness({ lifecycleTarget: hiddenLifecycle, isVisible: () => visible })
+    await hidden.started
+    expect(hidden.sockets).toHaveLength(0)
+    expect(hidden.client.getSnapshot()).toMatchObject({ lifecycle: 'parked', error: 'Collaboration paused while hidden.' })
+
+    visible = true
+    hiddenLifecycle.emit('visibilitychange')
+    expect(hidden.sockets).toHaveLength(1)
+    expect(hidden.client.getSnapshot().lifecycle).toBe('authorizing')
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-001 stops capped pre-admission failures as an honest connection failure', () => {
+    const lifecycle = new MockLifecycleTarget()
+    const harness = createHarness({ lifecycleTarget: lifecycle, maxPreAdmissionFailures: 2, ids: ['request-0001', 'request-0002'] })
+    harness.sockets[0]!.serverClose(1006)
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'reconnecting', reconnectAttempt: 1 })
+    harness.timers.at(-1)!.callback()
+    expect(harness.sockets).toHaveLength(2)
+
+    harness.sockets[1]!.serverClose(1006)
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'connection-failed', error: 'Collaboration could not be reached. Try again.' })
+    expect(lifecycle.listenerCount()).toBe(0)
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-001 caps socket factory failures before admission', () => {
+    const harness = createHarness({ maxPreAdmissionFailures: 2, socketFactoryFailures: 2, ids: ['request-0001', 'request-0002'] })
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'reconnecting', reconnectAttempt: 1 })
+    harness.timers.at(-1)!.callback()
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'connection-failed', error: 'Collaboration could not be reached. Try again.' })
+    expect(harness.sockets).toHaveLength(0)
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-001 caps room.open send failures before admission', () => {
+    const harness = createHarness({ maxPreAdmissionFailures: 2, failSocketSendOnCreate: true, ids: ['request-0001', 'request-0002'] })
+    harness.sockets[0]!.open()
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'reconnecting', reconnectAttempt: 1 })
+    harness.timers.at(-1)!.callback()
+    harness.sockets[1]!.open()
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'connection-failed', error: 'Collaboration could not be reached. Try again.' })
+  })
+
+  it('CLOUD-SYNC-REPLAY-001 leaves durable edits pending after connection attempts are exhausted', async () => {
+    const memory = createMemoryDurableStore()
+    const cache = { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion }
+    const scope = { ...cache, accountId: 'account-a', clientId: 'tab-1', fileId, protocolEpoch: collaborationProtocolEpoch }
+    await memory.store.enqueue(scope, {
+      mutationId: 'mutation-network-retry', baseSequence: null,
+      command: { operationType: 'node.rename', operationPayload: { nodeId: 'node-1', name: 'Unsaved' } }, status: 'pending',
+      replayScopeId,
+      flowBinding: null,
+    })
+    const harness = createHarness({ durableStore: memory.store, cache, maxPreAdmissionFailures: 2, socketFactoryFailures: 2, ids: ['request-0001', 'request-0002'] })
+    await harness.started
+    harness.timers.at(-1)!.callback()
+    expect(harness.client.getSnapshot().lifecycle).toBe('connection-failed')
+    await expect(memory.store.load(scope)).resolves.toMatchObject({ pending: [{ mutationId: 'mutation-network-retry', status: 'pending' }] })
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-002 quarantines an old access grant before resume or replay', async () => {
+    const memory = createMemoryDurableStore()
+    const cache = { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion }
+    const scope = { ...cache, clientId: 'tab-1', fileId, protocolEpoch: collaborationProtocolEpoch }
+    await memory.store.enqueue(scope, {
+      mutationId: 'mutation-old-access', baseSequence: null,
+      command: { operationType: 'node.rename', operationPayload: { nodeId: 'node-1', name: 'Old grant' } },
+      status: 'pending', replayScopeId, flowBinding: null,
+    })
+    const harness = createHarness({ durableStore: memory.store, cache })
+    await harness.started
+    expect(harness.client.getSnapshot().pendingMutationIds).toEqual(['mutation-old-access'])
+    await expect(memory.store.load(scope)).resolves.toMatchObject({ pending: [{ mutationId: 'mutation-old-access', status: 'pending', replayScopeId }] })
+    const room = harness.openAssigned(0, generationId, '9', 'b'.repeat(64))
+    await vi.waitFor(() => expect(harness.client.getSnapshot()).toMatchObject({ pendingMutationIds: [], recoverableMutationIds: ['mutation-old-access'] }))
+    expect(room.socket.sent.map(value => JSON.parse(value) as CollaborationClientMessage).filter(message => message.type === 'room.resume' || message.type === 'operation.submit')).toHaveLength(0)
+    await expect(memory.store.load(scope)).resolves.toMatchObject({ pending: [{ mutationId: 'mutation-old-access', status: 'recoverable', replayScopeId }] })
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-002 survives teardown after pending status resolves but before its transaction commits', async () => {
+    const memory = createMemoryDurableStore()
+    const cache = { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion }
+    const statusResolved = deferred()
+    const commitPending = deferred()
+    const processGone = deferred()
+    const firstStore: CollaborationDurableStore = {
+      ...memory.store,
+      async enqueue(scope, mutation, resolveStatus) {
+        const staged = Object.freeze({ ...mutation, status: resolveStatus?.() ?? mutation.status })
+        statusResolved.resolve()
+        await commitPending.promise
+        await memory.store.enqueue(scope, staged)
+      },
+      async markAllRecoverable() { await processGone.promise },
+    }
+    const first = createHarness({ durableStore: firstStore, cache })
+    await first.started
+    const firstRoom = first.openAssigned()
+    first.streamDocument(firstRoom.socket, firstRoom.requestId, { title: 'Before' })
+    await vi.waitFor(() => expect(first.client.getSnapshot().lifecycle).toBe('live'))
+
+    const save = first.client.submit({ mutationId: 'mutation-commit-gap', command: { type: 'node.rename', nodeId: 'node-1', name: 'Old grant' } })
+    await statusResolved.promise
+    firstRoom.socket.server({ type: 'room.error', envelope: envelope(), code: 'access_revoked', message: 'Access was removed.', retry: 'none' })
+    first.client.dispose()
+    commitPending.resolve()
+    await expect(save).rejects.toThrow('stopped after the change was saved for recovery')
+
+    const scope = { ...cache, clientId: 'tab-1', fileId, protocolEpoch: collaborationProtocolEpoch }
+    await expect(memory.store.load(scope)).resolves.toMatchObject({ pending: [{ mutationId: 'mutation-commit-gap', status: 'pending', replayScopeId }] })
+
+    const second = createHarness({ durableStore: memory.store, cache, ids: ['request-second-context'] })
+    await second.started
+    const secondRoom = second.openAssigned(0, generationId, '10', 'b'.repeat(64))
+    await vi.waitFor(() => expect(second.client.getSnapshot()).toMatchObject({ pendingMutationIds: [], recoverableMutationIds: ['mutation-commit-gap'] }))
+    const replayFrames = secondRoom.socket.sent.map(value => JSON.parse(value) as CollaborationClientMessage).filter(message => message.type === 'room.resume' || message.type === 'operation.submit')
+    expect(replayFrames).toEqual([])
+  })
+
+  it.each([
+    ['incompatible_build', 'incompatible-build'],
+    ['capacity_refused', 'capacity-refused'],
+  ] as const)('CLOUD-SYNC-LIFECYCLE-001 enters terminal %s state after assignment', (code, lifecycle) => {
+    const harness = createHarness()
+    const { socket, requestId } = harness.openAssigned()
+    harness.streamDocument(socket, requestId, { title: 'Before' })
+    socket.server({
+      type: 'room.error', envelope: envelope(), code, message: 'Terminal room failure.',
+      retry: code === 'incompatible_build' ? 'refresh' : 'reconnect',
+      ...(code === 'capacity_refused' ? { retryAfterMs: 250 } : {}),
+    })
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle, error: 'Terminal room failure.' })
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-002 CLOUD-SYNC-CLIENT-001 CLOUD-SYNC-REPLAY-001 parks hidden clients, waits offline, and replays durable mutation ids in order after resume', async () => {
+    const lifecycle = new MockLifecycleTarget()
+    const memory = createMemoryDurableStore()
+    let online = true
+    let visible = true
+    const harness = createHarness({
+      durableStore: memory.store,
+      cache: { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion },
+      heartbeatIntervalMs: 100,
+      heartbeatTimeoutMs: 25,
+      lifecycleTarget: lifecycle,
+      isOnline: () => online,
+      isVisible: () => visible,
+    })
+    await harness.started
+    const firstRoom = harness.openAssigned()
+    harness.streamDocument(firstRoom.socket, firstRoom.requestId, { title: 'Before' })
+    await vi.waitFor(() => expect(harness.client.getSnapshot().lifecycle).toBe('live'))
+    const staleHeartbeat = harness.timers.filter(timer => timer.delay === 100).at(-1)!
+
+    const firstReceipt = harness.client.submit({ mutationId: 'lifecycle-mutation-0001', command: { type: 'node.rename', nodeId: 'node-1', name: 'First' } })
+    const secondReceipt = harness.client.submit({ mutationId: 'lifecycle-mutation-0002', command: { type: 'node.rename', nodeId: 'node-1', name: 'Second' } })
+    await vi.waitFor(() => expect(harness.client.getSnapshot().pendingMutationIds).toEqual(['lifecycle-mutation-0001', 'lifecycle-mutation-0002']))
+    await vi.waitFor(async () => {
+      await expect(memory.store.load({
+        accountId: 'account-a', clientId: 'tab-1', fileId,
+        documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch,
+      })).resolves.toMatchObject({ pending: [{ mutationId: 'lifecycle-mutation-0001' }, { mutationId: 'lifecycle-mutation-0002' }] })
+    })
+
+    online = false
+    lifecycle.emit('offline')
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'offline-dirty', pendingMutationIds: ['lifecycle-mutation-0001', 'lifecycle-mutation-0002'] })
+    expect(harness.sockets).toHaveLength(1)
+    const sentWhileOffline = firstRoom.socket.sent.length
+    staleHeartbeat.callback()
+    expect(firstRoom.socket.sent).toHaveLength(sentWhileOffline)
+    expect(harness.timers.filter(timer => timer.delay === 0 && !harness.cancelled.has(timer.token))).toHaveLength(0)
+
+    online = true
+    lifecycle.emit('online')
+    expect(harness.sockets).toHaveLength(2)
+    const secondRoom = harness.openAssigned(1)
+    harness.streamDocument(secondRoom.socket, secondRoom.requestId, { title: 'Before' })
+    await vi.waitFor(() => {
+      const submissions = secondRoom.socket.sent.filter(frame => frame.startsWith('{')).map(frame => JSON.parse(frame) as CollaborationClientMessage).filter(message => message.type === 'operation.submit')
+      expect(submissions).toEqual([expect.objectContaining({ operation: expect.objectContaining({ mutationId: 'lifecycle-mutation-0001', baseSequence: '0' }) })])
+    })
+    secondRoom.socket.server({ type: 'operation.ack', envelope: envelope(), mutationId: 'lifecycle-mutation-0001', sequence: '1', status: 'applied' })
+    await vi.waitFor(() => {
+      const submissions = secondRoom.socket.sent.filter(frame => frame.startsWith('{')).map(frame => JSON.parse(frame) as CollaborationClientMessage).filter(message => message.type === 'operation.submit')
+      expect(submissions.at(-1)).toMatchObject({ operation: { mutationId: 'lifecycle-mutation-0002', baseSequence: '1' } })
+    })
+    secondRoom.socket.server({ type: 'operation.ack', envelope: envelope(), mutationId: 'lifecycle-mutation-0002', sequence: '2', status: 'applied' })
+    await expect(firstReceipt).resolves.toMatchObject({ mutationId: 'lifecycle-mutation-0001', sequence: '1' })
+    await expect(secondReceipt).resolves.toMatchObject({ mutationId: 'lifecycle-mutation-0002', sequence: '2' })
+
+    const hiddenHeartbeat = harness.timers.filter(timer => timer.delay === 100).at(-1)!
+    visible = false
+    lifecycle.emit('visibilitychange')
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'parked', pendingMutationIds: [] })
+    const sentWhileHidden = secondRoom.socket.sent.length
+    hiddenHeartbeat.callback()
+    expect(secondRoom.socket.sent).toHaveLength(sentWhileHidden)
+    expect(harness.sockets).toHaveLength(2)
+
+    visible = true
+    lifecycle.emit('visibilitychange')
+    expect(harness.sockets).toHaveLength(3)
+    expect(harness.client.getSnapshot().lifecycle).toBe('authorizing')
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-001 disposal removes lifecycle listeners and makes queued callbacks inert', () => {
+    const lifecycle = new MockLifecycleTarget()
+    const harness = createHarness({ lifecycleTarget: lifecycle, heartbeatIntervalMs: 100, heartbeatTimeoutMs: 25 })
+    const socket = harness.sockets[0]!
+    const staleOnline = lifecycle.snapshot('online')[0]!
+    const staleVisibility = lifecycle.snapshot('visibilitychange')[0]!
+    socket.serverClose(1006, 'Network lost')
+    const reconnect = harness.timers.find(timer => timer.delay === 0)!
+
+    harness.client.dispose()
+    const socketsAfterDispose = harness.sockets.length
+    reconnect.callback()
+    staleOnline()
+    staleVisibility()
+
+    expect(lifecycle.listenerCount()).toBe(0)
+    expect(socket.listenerCount()).toBe(0)
+    expect(harness.cancelled).toContain(reconnect.token)
+    expect(harness.sockets).toHaveLength(socketsAfterDispose)
+    expect(harness.client.getSnapshot()).toMatchObject({ disposed: true, lifecycle: 'closed' })
   })
 
   it('removes socket listeners, cancels reconnect timers, and closes on dispose', () => {

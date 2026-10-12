@@ -2,6 +2,22 @@
 
 These tests define release evidence. A result is valid only when it uses real fixtures and observable boundaries. Mock-only demonstrations, skipped tests, and assertions derived from production logic do not pass.
 
+## Paper parity program
+
+The detailed behavior matrix and evidence inventory live in `docs/research/paper-parity-integration.md`. These IDs are release gates, not implementation milestones.
+
+### PAPER-TEXT-001 through PAPER-TEXT-008
+
+Verify the stored text model and migration, preview CSS, legacy visual preservation, creation, direct editing, keyboard behavior, resize modifiers and sizing modes, inspector fidelity, semantic undo, and live two-client publication. Use independently authored expected CSS and geometry. Negative controls must reject text-only fields on non-text nodes, malformed typography, stale semantic commits, and read-only edits. Capture screenshots of editing, selection, and every inspector state in light and dark modes.
+
+### PAPER-FLEX-001 through PAPER-FLEX-008
+
+Verify Add flex, Wrap in flex, Remove flex, inference, absolute-child preservation, flow and absolute transitions, the Paper-order inspector, alignment matrix keyboard behavior, gaps, padding, baseline modes, reorder, duplicate, modifier drops, rotated resize, one semantic undo, and live two-client convergence. Negative controls must catch world-geometry drift, an absolute child entering flow, direction changes that preserve wrapping, a final commit that differs from the final live state, and more than one undo entry for one gesture.
+
+### PAPER-CLIP-001 through PAPER-CLIP-008
+
+Verify MIME precedence, versioned internal payloads, editable-target bypass, SVG sanitization, image conversion and limits, same-file and cross-file insertion, asset and token reconciliation, placement, Paste on top, Paste to replace, partial multi-image success, one semantic batch, one undo entry, and live two-client convergence. Negative controls must reject scripts, event handlers, external SVG references, over-limit payloads, invalid tree relationships, private asset fields, unauthorized cut or replace, and a paste that commits before every required asset is verified.
+
 ## Evidence rules
 
 - Record fixture revision, platform, tool versions, and relevant hashes.
@@ -399,21 +415,21 @@ Negative control: expose a document or arbitrary fetch method through the contro
 
 ### CLOUD-SYNC-STATE-001: Client collaboration state machine
 
-Drive the client through `cold`, `opening`, `authorizing`, `hydrating-local`, `admission-queued`, `streaming`, `applying`, `live`, `read-only`, `offline-clean`, `offline-dirty`, `reconnecting`, `replaying`, `access-revoked`, `incompatible-build`, `capacity-refused`, `draining`, `parked`, `closing`, and `closed`. Verify only documented transitions occur, streamed state publishes atomically, terminal states do not reconnect, and visible copy stays limited to `Opening file…`, `Connecting…`, `Offline`, `Reconnecting…`, `Saving changes…`, `Read only`, `Access removed`, `Update required`, and `File is busy`.
+Drive the client through `cold`, `opening`, `authorizing`, `hydrating-local`, `admission-queued`, `streaming`, `applying`, `live`, `read-only`, `offline-clean`, `offline-dirty`, `reconnecting`, `replaying`, `access-revoked`, `incompatible-build`, `capacity-refused`, `connection-failed`, `draining`, `parked`, `closing`, and `closed`. Verify only documented transitions occur, streamed state publishes atomically, terminal states do not reconnect, and visible copy stays limited to `Opening file…`, `Connecting…`, `Offline`, `Reconnecting…`, `Saving changes…`, `Read only`, `Access removed`, `Update required`, `File is busy`, and `Connection failed`.
 
 Negative control: force an undocumented transition from `access-revoked` to `replaying` and verify no operation reaches the transport.
 
 ### CLOUD-SYNC-CACHE-001: Account-scoped local cache
 
-Persist the last validated checkpoint, sequence, and pending semantic operations in IndexedDB under account, file, document schema, and protocol epoch. Verify an authorized session can hydrate it, a corrupt entry falls back to the server without changing the visible document, and sign-out, account change, revocation, schema change, and protocol change prevent disclosure. Desktop cache credentials remain in Electron main and never cross preload.
+Persist the last validated checkpoint, sequence, and pending semantic operations in IndexedDB under account, file, document schema, and protocol epoch. Bind every checkpoint to the server-derived replay-scope digest for its verified subject, file, role, and access epoch. Stage cached document bytes invisibly until `room.assigned` confirms the exact replay scope. A matching assignment may publish the checkpoint; a mismatch must atomically clear the durable checkpoint, clear any in-memory checkpoint from the earlier scope, quarantine mismatched pending work, and only then decide whether a resume frame is needed. Verify an authorized session can hydrate it, a corrupt entry falls back to the server without changing the visible document, and sign-out, account change, role change, revocation, schema change, and protocol change prevent disclosure. Desktop cache credentials remain in Electron main and never cross preload.
 
-Negative controls: remove the account segment from the cache key and verify the cross-account fixture detects private content. Replace one cached checkpoint byte and verify validation rejects it.
+Negative controls: remove the account segment from the cache key and verify the cross-account fixture detects private content. Replace one cached checkpoint byte and verify validation rejects it. Seed a legacy checkpoint without a replay scope and verify it is repaired away without ever publishing. Seed a valid checkpoint under one scope, reopen under a different server-assigned scope, and verify neither startup nor reconnect exposes its document before the durable record is cleared.
 
 ### CLOUD-SYNC-REPLAY-001: Durable offline replay
 
-Persist each local operation before transmission. Disconnect with multiple queued operations, reload the page, reconnect through authorization and admission, apply remote catch-up, and replay the original mutation ids in order. Verify acknowledged operations leave the queue, a lost acknowledgement remains idempotent, and revoked access preserves unsent work for explicit recovery without transmitting it.
+Persist each local operation before transmission together with the server-derived replay-scope digest for its verified subject, file, role, and access epoch. Disconnect with multiple queued operations, reload the page, reconnect through authorization and admission, apply remote catch-up, and replay the original mutation ids in order only after the new room assignment confirms the same replay scope. Verify acknowledged operations leave the queue, a lost acknowledgement remains idempotent, revoked or changed access preserves unsent work for explicit recovery without transmitting it, and legacy unscoped rows are quarantined before resume.
 
-Negative control: delete a queued operation before its acknowledgement and terminate the client; the reopened fixture must detect the missing edit.
+Negative controls: delete a queued operation before its acknowledgement and terminate the client; the reopened fixture must detect the missing edit. Pause durable enqueue after it selects `pending` but before transaction commit, revoke access, destroy the original client, let the stale transaction commit, and verify a separately created client quarantines the row when the server assigns a different replay scope without sending the operation.
 
 ### CLOUD-SYNC-CONTAINER-001: Regional authoritative room
 
@@ -503,15 +519,15 @@ Negative controls: request the same private and nonexistent file while signed ou
 
 ### CLOUD-SYNC-LIFECYCLE-001: Sync disposal
 
-Verify retry delays are bounded, capacity retries stop, terminal authorization and compatibility failures do not reconnect, file switches close the prior room, sign-out stops sync, and page, HMR, and workspace disposal remove sockets, timers, IndexedDB subscriptions, awareness, and owned services.
+Verify retry delays are bounded and repeated pre-upgrade close, socket-construction, and room-open-send failures stop in an honest connection-failed state. Capacity retries stop. Terminal authorization and compatibility failures before or after assignment do not reconnect. Authority-neutral connection and capacity failures leave durable edits pending for automatic replay. File switches close the prior room, sign-out stops sync, and page, HMR, failed cache hydration, and workspace disposal remove sockets, timers, lifecycle listeners, IndexedDB subscriptions, awareness, and owned services.
 
-Negative control: retain one reconnect timer after disposal and verify the resource-budget assertion fails.
+Negative controls: retain one reconnect timer after disposal and verify the resource-budget assertion fails. Deliver a terminal room error after sync readiness and verify a stopped client cannot remain visibly live.
 
 ### CLOUD-SYNC-LIFECYCLE-002: Hibernating connection liveness
 
-Verify transport pings receive the platform response where supported, a missing pong closes the stale socket, reconnect continues with capped jitter, stale socket callbacks cannot mutate the current generation, and offline or hidden clients do not spin a reconnect loop. Park a hidden idle client only after its local queue is durable. Returning online or visible resumes through authorization and admission from the last acknowledged sequence.
+Verify transport pings begin only after sync readiness and receive the platform response where supported, a missing pong closes the stale socket, reconnect continues with capped jitter, stale socket callbacks cannot mutate the current generation, and clients that start or become offline or hidden do not spin a reconnect loop. Park a hidden idle client only after its local queue is durable. Returning online or visible resumes through authorization and admission from the last acknowledged sequence. If access is revoked while a mutation is still entering durable storage, resolve its status inside the durable enqueue transaction and atomically clear the revoked checkpoint and classify all queued mutations where the process remains alive. If teardown happens between the status choice and transaction commit, the separately persisted server replay scope must still prevent that row from replaying under the changed access grant and reclassify it as explicitly recoverable before room resume.
 
-Negative control: let a callback from the prior generation publish after reconnect and verify generation isolation fails the test.
+Negative controls: let a callback from the prior generation publish after reconnect and verify generation isolation fails the test. Start the client offline and verify it never remains stranded in authorizing. Delay initial snapshot delivery past one heartbeat interval and verify the client does not kill the healthy admission.
 
 ### OBS-SYNC-001: Collaboration telemetry and visible failures
 

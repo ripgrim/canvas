@@ -21,6 +21,7 @@ export function createAppearanceLayer(ownerDocument) {
   const states = new Map()
   let editorDocument = null
   let active = false
+  let externalOverlayPaused = false
   // Shorthands expand differently per engine, so the controlled longhands are read back from a detached element.
   const controlledLonghands = declarations => {
     scratch.removeAttribute('style')
@@ -60,7 +61,7 @@ export function createAppearanceLayer(ownerDocument) {
     states.set(element, next)
   }
   const apply = () => {
-    if (!active) return
+    if (!active || externalOverlayPaused) return
     const roots = new Map()
     for (const element of ownerDocument.querySelectorAll('[data-preview-instance]')) {
       const id = element.getAttribute('data-preview-instance')
@@ -84,6 +85,7 @@ export function createAppearanceLayer(ownerDocument) {
     for (const [element, state] of states) restore(element, state)
     states.clear()
     active = false
+    externalOverlayPaused = false
     editorDocument = null
   }
   return {
@@ -94,6 +96,8 @@ export function createAppearanceLayer(ownerDocument) {
     },
     update: document => { editorDocument = document; apply() },
     apply,
+    pauseExternalOverlay: () => { externalOverlayPaused = true },
+    resumeExternalOverlay: () => { if (!externalOverlayPaused) return; externalOverlayPaused = false; apply() },
     stop,
     dispose: stop,
   }

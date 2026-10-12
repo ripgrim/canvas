@@ -1,14 +1,15 @@
 import { validateHostedFileDocument } from '@canvas/cloud-document'
 import { canonicalCollaborationJson } from '@canvas/database/collaboration'
+import { fileSchemaVersion } from '@canvas/repo-engine/file-document'
 import type { CollaborationLegacyDocumentMigrationResult, CollaborationLegacyDocumentValidationResult, CollaborationPayload } from '@canvas/database/collaboration'
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-/** The live-room cutover only upgrades the asset-free schema 6 predecessor. */
+/** The live-room cutover upgrades schemas 7 and 8 directly and schema 6 only after inline assets are absent. */
 export function migrateLegacyCollaborationDocument(document: CollaborationPayload, targetSchemaVersion: number): CollaborationLegacyDocumentMigrationResult {
-  if (document.schemaVersion !== 6 || targetSchemaVersion !== 7) return Object.freeze({ status: 'unsupported', reason: 'schema-version' })
-  if (Object.hasOwn(document, 'assets')) {
+  if (![6, 7, 8].includes(Number(document.schemaVersion)) || targetSchemaVersion !== fileSchemaVersion) return Object.freeze({ status: 'unsupported', reason: 'schema-version' })
+  if (document.schemaVersion === 6 && Object.hasOwn(document, 'assets')) {
     if (!record(document.assets)) return Object.freeze({ status: 'unsupported', reason: 'document-invalid' })
     if (Object.keys(document.assets).length > 0) return Object.freeze({ status: 'unsupported', reason: 'asset-externalization' })
   }

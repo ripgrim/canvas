@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ancestorsOf, applyFileCommand, childrenOf, createBlankFile, descendantsOf, frameAt, legacyPageDocument, nodeAppearance, pageNodes,
-  pageOfNode, projectAppearance, resolveColorValue, resolveToken, tokenReferences, validateFileDocument, worldPosition, worldRect,
+  legacyTextProperties, pageOfNode, projectAppearance, resolveColorValue, resolveToken, tokenReferences, validateFileDocument, worldPosition, worldRect,
 } from '../src/file-document.js'
 import type { Appearance, ColorToken, ColorValue, ComponentNode, FileCommand, FileDocument, FileNode, FileTheme, ImageAssetReference, Paint, PrimitiveNode, PrimitiveStyles, Stroke } from '../src/file-document.js'
 import type { Color } from '../src/color.js'
@@ -21,7 +21,7 @@ const gradient = (id: string, angle: number, stops: [string, number, ColorValue]
 const stroke = (color: ColorValue, width = 1): Stroke => ({ color, width, style: 'solid' })
 const frame = (id: string, left: number, top: number, width = 100, height = 100): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { left, top, width, height } })
 const rect = (id: string, left: number, top: number, fills: Paint[] = []): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { left, top, width: 10, height: 10 }, ...(fills.length ? { appearance: { fills } } : {}) })
-const text = (id: string, value: string): PrimitiveNode => ({ id, type: 'text', name: id, styles: { left: 0, top: 0, width: 80, height: 20 }, text: value })
+const text = (id: string, value: string): PrimitiveNode => ({ id, type: 'text', name: id, styles: { left: 0, top: 0, width: 80, height: 20 }, text: value, ...legacyTextProperties() })
 const pixel = (id = 'img'): ImageAssetReference => ({ id, name: 'Pixel', mime: 'image/png', extension: 'png', bytes: 3, width: 1, height: 1, sha256: 'a'.repeat(64) })
 const appearanceOf = (file: FileDocument, nodeId: string) => nodeAppearance(file.nodes[nodeId])
 /** The exact error message, so a broader message with the same prefix cannot satisfy the assertion. */
@@ -36,7 +36,7 @@ const aliasToken = (id: string, orderKey: string, target: string): ColorToken =>
  * (5,7) world (125,87 10x10). label sits on the root after outer.
  */
 const fixture = (): FileDocument => ({
-  schemaVersion: 7,
+  schemaVersion: 9,
   fileId: 'file-1',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -64,7 +64,7 @@ describe('file validation', () => {
   it('accepts a blank file and returns a detached copy', () => {
     const blank = createBlankFile('file-1', 'page-1', 'root-1')
     const validated = validateFileDocument(blank, [])
-    expect(validated).toEqual({ schemaVersion: 7, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes: { 'root-1': { id: 'root-1', type: 'root' } }, relationships: {}, theme: { tokens: {} } })
+    expect(validated).toEqual({ schemaVersion: 9, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes: { 'root-1': { id: 'root-1', type: 'root' } }, relationships: {}, theme: { tokens: {} } })
     expect(validated).not.toBe(blank)
   })
 
@@ -249,6 +249,32 @@ describe('node commands', () => {
     expect(atIndex.revision).toBe(4)
     const atKey = run(withRow(), { type: 'node.insert', node: rect('e', 0, 0), placement: { parentId: 'root-1', orderKey: 'U' } })
     expect(childrenOf(atKey, 'root-1')).toEqual(['e', 'a', 'b', 'c'])
+  })
+
+  it('adopts a newly inserted primitive into a Flex parent flow', () => {
+    let file = createBlankFile('file-1', 'page-1', 'root-1')
+    const flex = {
+      ...frame('flex', 0, 0),
+      layout: {
+        item: { position: { mode: 'freeform' as const } },
+        container: { display: 'flex' as const, flex: { direction: 'row' as const, wrap: 'nowrap' as const, justify: 'center' as const, align: 'center' as const } },
+      },
+    }
+    file = run(file, { type: 'node.insert', node: flex, placement: { parentId: 'root-1' } })
+
+    const next = run(file, { type: 'node.insert', node: frame('child', 12, 18), placement: { parentId: 'flex' } })
+
+    const child = next.nodes.child
+    if (!child || child.type === 'root') throw new Error('Expected inserted child')
+    expect(child.layout).toEqual({ item: { position: { mode: 'flow' } } })
+  })
+
+  it('keeps a newly inserted root primitive freeform', () => {
+    const next = run(createBlankFile('file-1', 'page-1', 'root-1'), { type: 'node.insert', node: frame('child', 12, 18), placement: { parentId: 'root-1' } })
+
+    const child = next.nodes.child
+    if (!child || child.type === 'root') throw new Error('Expected inserted child')
+    expect(child.layout).toBeUndefined()
   })
 
   it.each([

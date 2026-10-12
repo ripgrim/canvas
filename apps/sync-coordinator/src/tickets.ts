@@ -4,6 +4,8 @@ import type { VerifiedRoomTicketClaims } from "@canvas/sync-protocol"
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 const maximumAdmissionLifetimeMs = 15_000
+const maximumAdmissionTokenLength = 4_096
+const requestIdentity = /^[A-Za-z0-9:._-]{1,128}$/
 const base64Url = (bytes: Uint8Array): string => {
   let binary = ""
   for (const byte of bytes) binary += String.fromCharCode(byte)
@@ -28,6 +30,7 @@ export type AdmissionClaims = Omit<VerifiedRoomTicketClaims, "expiresAtUnixMs" |
 export type InternalAdmissionEnvelope = Readonly<{ admissionId: string; roomName: string; origin: string; clientId: string; requestId: string; claims: AdmissionClaims; issuedAtUnixMs: number; expiresAtUnixMs: number }>
 
 export async function openInternalAdmission(token: string, secret: Uint8Array, nowUnixMs: number): Promise<InternalAdmissionEnvelope | null> {
+  if (token.length > maximumAdmissionTokenLength) return null
   const parts = token.split(".")
   if (parts.length !== 2) return null
   const payload = decode(parts[0]!)
@@ -39,7 +42,8 @@ export async function openInternalAdmission(token: string, secret: Uint8Array, n
   const envelope = value as Record<string, unknown>
   if (Object.keys(envelope).sort().join(",") !== "admissionId,claims,clientId,expiresAtUnixMs,issuedAtUnixMs,origin,requestId,roomName") return null
   if (typeof envelope.admissionId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(envelope.admissionId)
-    || typeof envelope.roomName !== "string" || typeof envelope.origin !== "string" || typeof envelope.clientId !== "string" || typeof envelope.requestId !== "string") return null
+    || typeof envelope.roomName !== "string" || typeof envelope.origin !== "string" || typeof envelope.clientId !== "string"
+    || typeof envelope.requestId !== "string" || !requestIdentity.test(envelope.requestId)) return null
   if (!Number.isSafeInteger(envelope.issuedAtUnixMs) || !Number.isSafeInteger(envelope.expiresAtUnixMs)
     || (envelope.issuedAtUnixMs as number) > nowUnixMs + 5_000
     || (envelope.expiresAtUnixMs as number) <= nowUnixMs

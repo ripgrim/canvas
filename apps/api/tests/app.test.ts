@@ -33,7 +33,7 @@ const signed = (user: 'alpha' | 'beta', method = 'GET', body?: object): RequestI
 })
 const body = async (response: Response) => response.json() as Promise<Record<string, any>>
 const fileDocument = (fileId: string, revision = 0): Record<string, any> => ({
-  schemaVersion: 7,
+  schemaVersion: 9,
   fileId,
   revision,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -154,7 +154,7 @@ describe('hosted control-plane API', () => {
 
     const initial = await body(await app(request(`/api/files/${file.id}/document`, signed('alpha'))))
     expect(Object.keys(initial).sort()).toEqual(['document', 'fileId', 'revision'])
-    expect(initial).toMatchObject({ fileId: file.id, revision: 0, document: { schemaVersion: 7, fileId: file.id, revision: 0, pages: [{ name: 'Page 1' }], theme: { tokens: {} } } })
+    expect(initial).toMatchObject({ fileId: file.id, revision: 0, document: { schemaVersion: 9, fileId: file.id, revision: 0, pages: [{ name: 'Page 1' }], theme: { tokens: {} } } })
     const nextDocument = fileDocument(file.id)
     nextDocument.pages.push({ id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' })
     nextDocument.nodes['root-2'] = { id: 'root-2', type: 'root' }
@@ -189,7 +189,7 @@ describe('hosted control-plane API', () => {
     const response = await app(request(`/api/files/${file.id}/document`, signed('alpha')))
 
     expect(response.status).toBe(200)
-    expect(await body(response)).toMatchObject({ fileId: file.id, revision: 1, document: { schemaVersion: 7, fileId: file.id, revision: 1 } })
+    expect(await body(response)).toMatchObject({ fileId: file.id, revision: 1, document: { schemaVersion: 9, fileId: file.id, revision: 1 } })
   })
 
   it('rejects legacy saves after collaboration becomes authoritative', async () => {
@@ -388,7 +388,7 @@ describe('hosted control-plane API', () => {
     expect(source.status).toBe(200)
     const sourceBody = await body(source)
     expect(Object.keys(sourceBody).sort()).toEqual(['document', 'fileId', 'pageId', 'registryFingerprint', 'revision'])
-    expect(sourceBody).toMatchObject({ fileId: file.id, revision: 0, registryFingerprint, document: { schemaVersion: 7, fileId: file.id, revision: 0 } })
+    expect(sourceBody).toMatchObject({ fileId: file.id, revision: 0, registryFingerprint, document: { schemaVersion: 9, fileId: file.id, revision: 0 } })
     expect(sourceBody.pageId).toBe(sourceBody.document.pages[0].id)
 
     const serviceCall = (path: string, payload: object, token = thumbnailServiceToken) => app(request(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Canvas-Thumbnail-Service-Token': token }, body: JSON.stringify(payload) }))

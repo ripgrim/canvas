@@ -1,101 +1,187 @@
-/**
- * Freeform-to-Flex inference from measured child rectangles (the observed Wonder `flex-params-calculator` rules):
- * direction from center spread, lines by 50% cross-axis overlap, gaps voted in 4 px buckets, alignment by least
- * squared error, padding from the smaller opposing inset, and a reproducibility verdict that rejects wrapping.
- */
-import type { CrossAlignment, FlexDirection, MainDistribution } from './layout.js'
+import type { PositionMode } from './layout.js'
 
-export type Rect = { x: number; y: number; width: number; height: number }
-export type FlexInferenceInput = { container: Rect; children: readonly ({ id: string } & Rect)[] }
+export type Point = { x: number; y: number }
+export type Size = { width: number; height: number }
+export type Rect = Point & Size
+export type FlexAnalysisKind = 'direct-add' | 'wrap'
+export type FlexAnalysisChild = {
+  id: string
+  /** Measured world-axis-aligned border box. Used only for direction and cross alignment. */
+  worldAabb: Rect
+  /** Authored coordinates in the parent's local coordinate system. Used only for stable spatial ordering. */
+  authoredPosition: Point
+  /** Authored dimensions before rotation. Used for gaps and synthetic layout. */
+  authoredSize: Size
+  /** Border-box center transformed into the parent's local padding-box coordinate system. */
+  parentLocalCenter: Point
+  sourcePosition: PositionMode
+}
+export type FlexInferenceInput = {
+  /** Authored container size. Used only for the empty-container direction default. */
+  containerSize: Size
+  /** Children in tree order. Equal authored main-axis positions retain this order. */
+  children: readonly FlexAnalysisChild[]
+  /** Rounded only by the analyzer; the caller derives this from the selection union in the parent padding box. */
+  directAddLeadingInset: Point
+  kind: FlexAnalysisKind
+  isRoot: boolean
+}
+export type PaperFlexDirection = 'row' | 'column'
+export type PaperCrossAlignment = 'start' | 'center' | 'end'
+export type FlexChildPlan = FlexAnalysisChild & {
+  treeIndex: number
+  synthetic: Rect
+  position: 'flow' | 'absolute'
+}
 export type FlexInference = {
-  direction: FlexDirection
+  direction: PaperFlexDirection
   wrap: 'nowrap'
   gap: number
-  justify: MainDistribution
-  align: CrossAlignment
-  padding: { x: number; y: number }
-  /** Child ids in visual order (line by line, main-axis start ascending). */
+  justify: 'start'
+  align: PaperCrossAlignment
+  padding: Point
   order: string[]
-  lines: number
-  reproducible: boolean
-  reasons: string[]
+  worldBounds: Rect | null
+  synthetic: {
+    container: Rect
+    children: FlexChildPlan[]
+  }
 }
-const bucket = 4
-const tolerance = 2
-const round4 = (value: number) => Math.round(value / bucket) * bucket
 
-export function inferFlexLayout(input: FlexInferenceInput): FlexInference | null {
-  const children = input.children.filter(child => child.width > 0 && child.height > 0)
-  if (!children.length) return null
-  const centersX = children.map(child => child.x + child.width / 2), centersY = children.map(child => child.y + child.height / 2)
-  const spreadX = Math.max(...centersX) - Math.min(...centersX), spreadY = Math.max(...centersY) - Math.min(...centersY)
-  const direction: FlexDirection = spreadX >= spreadY ? 'row' : 'column'
+const round = (value: number) => Math.round(value)
+const edge = (rect: Rect, axis: keyof Point) => rect[axis] + (axis === 'x' ? rect.width : rect.height)
+const center = (rect: Rect, axis: keyof Point) => rect[axis] + (axis === 'x' ? rect.width : rect.height) / 2
+
+function union(rects: readonly Rect[]): Rect {
+  const left = Math.min(...rects.map(rect => rect.x))
+  const top = Math.min(...rects.map(rect => rect.y))
+  const right = Math.max(...rects.map(rect => rect.x + rect.width))
+  const bottom = Math.max(...rects.map(rect => rect.y + rect.height))
+  return { x: left, y: top, width: right - left, height: bottom - top }
+}
+
+function range(values: readonly number[]): number {
+  return Math.max(...values) - Math.min(...values)
+}
+
+function directionOf(children: readonly FlexAnalysisChild[], bounds: Rect | null, containerSize: Size): PaperFlexDirection {
+  if (children.length === 0) return containerSize.width > containerSize.height ? 'row' : 'column'
+  if (children.length === 1) return children[0]!.authoredSize.width > children[0]!.authoredSize.height ? 'column' : 'row'
+  const world = children.map(child => child.worldAabb)
+  const xSpread = range(world.map(rect => center(rect, 'x')))
+  const ySpread = range(world.map(rect => center(rect, 'y')))
+  const normalizedX = bounds!.width > 0 ? xSpread / bounds!.width : 0
+  const normalizedY = bounds!.height > 0 ? ySpread / bounds!.height : 0
+  return normalizedX < normalizedY ? 'column' : 'row'
+}
+
+function alignmentOf(children: readonly FlexAnalysisChild[], direction: PaperFlexDirection): PaperCrossAlignment {
+  if (children.length === 0) return direction === 'row' ? 'center' : 'start'
+  if (children.length === 1) return children[0]!.authoredSize.width > children[0]!.authoredSize.height ? 'start' : 'center'
+  const axis = direction === 'row' ? 'y' : 'x'
+  const world = children.map(child => child.worldAabb)
+  const candidates: readonly [PaperCrossAlignment, number][] = [
+    ['start', range(world.map(rect => rect[axis]))],
+    ['end', range(world.map(rect => edge(rect, axis)))],
+    ['center', range(world.map(rect => center(rect, axis)))],
+  ]
+  return candidates.reduce((best, candidate) => candidate[1] < best[1] ? candidate : best)[0]
+}
+
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((left, right) => left - right)
+  const middle = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2
+}
+
+function childGap(previous: FlexAnalysisChild, current: FlexAnalysisChild, axis: keyof Point): number {
+  const size = axis === 'x' ? 'width' : 'height'
+  const previousEnd = previous.parentLocalCenter[axis] + previous.authoredSize[size] / 2
+  const currentStart = current.parentLocalCenter[axis] - current.authoredSize[size] / 2
+  return currentStart - previousEnd
+}
+
+function syntheticLayout(
+  ordered: readonly { child: FlexAnalysisChild; treeIndex: number }[],
+  direction: PaperFlexDirection,
+  align: PaperCrossAlignment,
+  gap: number,
+  padding: Point,
+  kind: FlexAnalysisKind,
+): FlexInference['synthetic'] {
   const row = direction === 'row'
-  const main = (rect: Rect) => row ? { start: rect.x, size: rect.width } : { start: rect.y, size: rect.height }
-  const cross = (rect: Rect) => row ? { start: rect.y, size: rect.height } : { start: rect.x, size: rect.width }
-
-  // Lines: sorted by cross start, an item joins the current line when it overlaps the line's first item by at least
-  // half of the smaller cross size.
-  const byCross = [...children].sort((left, right) => cross(left).start - cross(right).start || main(left).start - main(right).start)
-  const lines: (typeof children)[] = []
-  for (const child of byCross) {
-    const line = lines[lines.length - 1]
-    const head = line?.[0]
-    if (head) {
-      const a = cross(head), b = cross(child)
-      const overlap = Math.min(a.start + a.size, b.start + b.size) - Math.max(a.start, b.start)
-      if (overlap >= 0.5 * Math.min(a.size, b.size)) { line.push(child); continue }
+  const mainPadding = row ? padding.x : padding.y
+  const crossPadding = row ? padding.y : padding.x
+  const mainSize = ordered.reduce((sum, entry) => sum + (row ? entry.child.authoredSize.width : entry.child.authoredSize.height), 0)
+    + gap * Math.max(0, ordered.length - 1)
+    + mainPadding * 2
+  const largestCross = ordered.length === 0
+    ? 0
+    : Math.max(...ordered.map(entry => row ? entry.child.authoredSize.height : entry.child.authoredSize.width))
+  const crossSize = largestCross + crossPadding * 2
+  const roundedMainSize = round(mainSize)
+  const roundedCrossSize = round(crossSize)
+  let cursor = mainPadding
+  const children = ordered.map(({ child, treeIndex }) => {
+    const childMain = row ? child.authoredSize.width : child.authoredSize.height
+    const childCross = row ? child.authoredSize.height : child.authoredSize.width
+    const cross = align === 'start'
+      ? crossPadding
+      : align === 'end'
+        ? roundedCrossSize - crossPadding - childCross
+        : (roundedCrossSize - childCross) / 2
+    const synthetic = row
+      ? { x: round(cursor), y: round(cross), width: round(child.authoredSize.width), height: round(child.authoredSize.height) }
+      : { x: round(cross), y: round(cursor), width: round(child.authoredSize.width), height: round(child.authoredSize.height) }
+    cursor += childMain + gap
+    return {
+      ...child,
+      treeIndex,
+      synthetic,
+      position: kind === 'wrap' ? 'flow' as const : child.sourcePosition === 'absolute' ? 'absolute' as const : 'flow' as const,
     }
-    lines.push([child])
+  })
+  return {
+    container: row
+      ? { x: 0, y: 0, width: roundedMainSize, height: roundedCrossSize }
+      : { x: 0, y: 0, width: roundedCrossSize, height: roundedMainSize },
+    children,
   }
-  for (const line of lines) line.sort((left, right) => main(left).start - main(right).start)
-  const order = lines.flatMap(line => line.map(child => child.id))
-  const reasons: string[] = []
-  if (lines.length > 1) reasons.push('Children wrap onto more than one line')
+}
 
-  // Gap: raw adjacent gaps along the main axis; under 2 px is zero; otherwise the most common 4 px bucket wins and
-  // the raw values inside that bucket are averaged.
-  const rawGaps: number[] = []
-  for (const line of lines) for (let index = 1; index < line.length; index++) { const previous = main(line[index - 1]!), current = main(line[index]!); rawGaps.push(current.start - (previous.start + previous.size)) }
-  let gap = 0
-  if (rawGaps.length) {
-    const votes = new Map<number, number[]>()
-    for (const raw of rawGaps) { const key = raw < tolerance ? 0 : Math.round(raw / bucket); (votes.get(key) ?? votes.set(key, []).get(key)!).push(raw) }
-    const winner = [...votes.entries()].sort((left, right) => right[1].length - left[1].length || left[0] - right[0])[0]!
-    gap = winner[0] === 0 ? 0 : Math.round(winner[1].reduce((sum, raw) => sum + raw, 0) / winner[1].length)
-    if (rawGaps.some(raw => Math.abs(Math.max(0, raw) - gap) > tolerance)) reasons.push('Adjacent gaps differ by more than 2 px')
+/** Pure Paper Add/Wrap analysis over distinct measured, authored, and parent-local geometry sources. */
+export function inferFlexLayout(input: FlexInferenceInput): FlexInference {
+  const worldBounds = input.children.length > 0 ? union(input.children.map(child => child.worldAabb)) : null
+  const direction = directionOf(input.children, worldBounds, input.containerSize)
+  const align = alignmentOf(input.children, direction)
+  const padding = input.children.length === 0
+    ? input.isRoot || input.kind === 'wrap' ? { x: 0, y: 0 } : { x: 16, y: 16 }
+    : input.isRoot || input.kind === 'wrap'
+      ? { x: 0, y: 0 }
+      : {
+          x: Math.max(0, round(input.directAddLeadingInset.x)),
+          y: Math.max(0, round(input.directAddLeadingInset.y)),
+        }
+  const axis = direction === 'row' ? 'x' : 'y'
+  const ordered = input.children
+    .map((child, treeIndex) => ({ child, treeIndex }))
+    .sort((left, right) => left.child.authoredPosition[axis] - right.child.authoredPosition[axis] || left.treeIndex - right.treeIndex)
+  const adjacentGaps = ordered.slice(1).map((entry, index) => childGap(ordered[index]!.child, entry.child, axis))
+  const gap = input.children.length === 0
+    ? 16
+    : input.children.length === 1
+      ? direction === 'row' ? padding.x : padding.y
+      : Math.max(0, round(median(adjacentGaps)))
+  const synthetic = syntheticLayout(ordered, direction, align, gap, padding, input.kind)
+  return {
+    direction,
+    wrap: 'nowrap',
+    gap,
+    justify: 'start',
+    align,
+    padding,
+    order: ordered.map(entry => entry.child.id),
+    worldBounds,
+    synthetic,
   }
-
-  // Padding: the smaller opposing inset per axis, bucketed to 4 px, never negative.
-  const minX = Math.min(...children.map(child => child.x)), maxX = Math.max(...children.map(child => child.x + child.width))
-  const minY = Math.min(...children.map(child => child.y)), maxY = Math.max(...children.map(child => child.y + child.height))
-  const insetX = Math.max(0, Math.min(minX - input.container.x, input.container.x + input.container.width - maxX))
-  const insetY = Math.max(0, Math.min(minY - input.container.y, input.container.y + input.container.height - maxY))
-  const padding = { x: round4(insetX), y: round4(insetY) }
-
-  // Main alignment: compare the content extent against start/center/end positions inside the padded box.
-  const innerStart = row ? input.container.x + padding.x : input.container.y + padding.y
-  const innerSize = (row ? input.container.width - 2 * padding.x : input.container.height - 2 * padding.y)
-  const contentStart = row ? minX : minY, contentEnd = row ? maxX : maxY
-  const contentSize = contentEnd - contentStart
-  const candidates: [MainDistribution, number][] = [['start', innerStart], ['center', innerStart + (innerSize - contentSize) / 2], ['end', innerStart + innerSize - contentSize]]
-  const scored = candidates.map(([name, expected]) => [name, (contentStart - expected) ** 2] as const).sort((left, right) => left[1] - right[1] || candidates.findIndex(c => c[0] === left[0]) - candidates.findIndex(c => c[0] === right[0]))
-  const justify = scored[0]![0]
-
-  // Cross alignment: stretch when every item fills the inner cross size; otherwise least normalized error of start/center/end.
-  const crossInnerStart = row ? input.container.y + padding.y : input.container.x + padding.x
-  const crossInnerSize = row ? input.container.height - 2 * padding.y : input.container.width - 2 * padding.x
-  const stretched = children.every(child => Math.abs(cross(child).size - crossInnerSize) <= tolerance && Math.abs(cross(child).start - crossInnerStart) <= tolerance)
-  let align: CrossAlignment = 'start'
-  let crossError = 0
-  if (stretched) align = 'stretch'
-  else {
-    const options: [CrossAlignment, (child: Rect) => number][] = [['start', () => crossInnerStart], ['center', child => crossInnerStart + (crossInnerSize - cross(child).size) / 2], ['end', child => crossInnerStart + crossInnerSize - cross(child).size]]
-    const errors = options.map(([name, expected]) => [name, children.reduce((sum, child) => sum + Math.abs(cross(child).start - expected(child)), 0) / children.length] as const)
-    const best = errors.sort((left, right) => left[1] - right[1] || options.findIndex(o => o[0] === left[0]) - options.findIndex(o => o[0] === right[0]))[0]!
-    align = best[0]; crossError = best[1]
-  }
-  if (crossError > tolerance) reasons.push('Cross-axis alignment differs by more than 2 px')
-
-  return { direction, wrap: 'nowrap', gap, justify, align, padding, order, lines: lines.length, reproducible: reasons.length === 0, reasons }
 }

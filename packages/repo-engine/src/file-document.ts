@@ -7,17 +7,20 @@ import type { Atom } from './types.js'
 import { fields, forbiddenKeys, getNodeSlots, record, validId, validName, validateProps } from './document.js'
 import type { DocumentValue, EditorDocument } from './document.js'
 import { legacyLayout, validateLayout } from './layout.js'
-import type { NodeLayout } from './layout.js'
+import type { DisplayMode, NodeLayout, PositionMode } from './layout.js'
 import { isNodeThemeMode } from './node-theme.js'
 import type { NodeThemeMode } from './node-theme.js'
+import { textStyleMatchesSizing, validateTextSizing, validateTextStyle } from './text.js'
+import type { TextSizing, TextStyle } from './text.js'
 import { isColor } from './color.js'
 import type { Color } from './color.js'
 import { compareOrder, isOrderKey, orderKeyBetween, orderKeySequence } from './order-keys.js'
 import { appearanceColors, assetReferences, blendModes, borderSides, canonicalAppearance, defaultFillColor, isColorValue, mapAppearanceColors, validateAppearance, validateBorders, validateImageAssetReference, validateOutline, validatePaint, validateStroke } from './appearance.js'
 import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAssetReference, Outline, Paint, Stroke } from './appearance.js'
 export * from './appearance.js'
+export * from './text.js'
 
-export const fileSchemaVersion = 7 as const
+export const fileSchemaVersion = 9 as const
 export type PrimitiveKind = 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'
 export const primitiveKinds: readonly PrimitiveKind[] = ['frame', 'rectangle', 'shape', 'shader', 'text']
 export type PrimitiveStyles = { left: number; top: number; width: number; height: number; rotation?: number; flipX?: boolean; flipY?: boolean; overflow?: 'clip' | 'visible' }
@@ -26,7 +29,7 @@ export type RootNode = { id: string; type: 'root' }
  * `themeMode` is the stored per-node theme choice (schema v5). Migration and insertion write it explicitly; a node
  * without the field (hand-built or pre-migration data) reads as `inherit` through `nodeThemeMode`.
  */
-export type PrimitiveNode = { id: string; type: PrimitiveKind; name: string; styles: PrimitiveStyles; appearance?: Appearance; text?: string; themeMode?: NodeThemeMode; isLocked?: boolean }
+export type PrimitiveNode = { id: string; type: PrimitiveKind; name: string; styles: PrimitiveStyles; layout?: NodeLayout; appearance?: Appearance; text?: string; textStyle?: TextStyle; textSizing?: TextSizing; themeMode?: NodeThemeMode; isLocked?: boolean }
 export type ComponentNode = { id: string; type: 'component'; name?: string; componentId: string; exportName: string; props: Record<string, DocumentValue>; layout?: NodeLayout; appearance?: Appearance; themeMode?: NodeThemeMode; isLocked?: boolean }
 export type FileNode = RootNode | PrimitiveNode | ComponentNode
 /** Parent plus sibling order; `slot` names the component slot when the parent is a component instance. */
@@ -54,6 +57,18 @@ export type FileDocument = {
 export type SourcePalette = Record<string, Color>
 export type FileValidationOptions = { allowUnavailableBindings?: boolean }
 export type Rect = { x: number; y: number; width: number; height: number }
+
+/** The stored placement intent, including the absence defaults that keep v8 canvas geometry unchanged. */
+export function nodePositionMode(node: FileNode): PositionMode | null {
+  if (node.type === 'root') return null
+  return node.layout?.item.position.mode ?? (node.type === 'component' ? 'flow' : 'freeform')
+}
+
+/** The child-layout context supplied by a parent. Page roots and source components retain their legacy flow host. */
+export function nodeChildDisplay(node: FileNode): DisplayMode | null {
+  if (node.type === 'root' || node.type === 'component') return node.type === 'component' ? node.layout?.container?.display ?? 'block' : 'block'
+  return node.type === 'frame' ? node.layout?.container?.display ?? 'freeform' : null
+}
 
 /** Invisible layout host for component roots that still flow (legacy composition behaviour). Never rendered as a frame. */
 export const flowHost = { width: 400, height: 520, direction: 'column' as const, gap: 16, padding: 24, clip: false }
@@ -99,6 +114,46 @@ export function acceptsChild(parent: FileNode, child: FileNode, slot: string | u
   return false
 }
 
+function validatePrimitiveLayoutAuthority(node: PrimitiveNode, layout: NodeLayout): void {
+  const mode = layout.item.position.mode
+  if (layout.item.transform) throw invalid('Primitive layout cannot override its transform')
+  if (node.type === 'text' && (layout.item.width || layout.item.height)) throw invalid('Text layout cannot override text sizing')
+  if (node.type !== 'text' && (layout.item.width?.value.kind === 'px' || layout.item.height?.value.kind === 'px')) throw invalid('Fixed primitive sizing belongs in node styles')
+  if (layout.container && node.type !== 'frame') throw invalid('Only frames can carry a layout container')
+  if (layout.container?.overflow !== undefined) throw invalid('Frame layout cannot override clipping')
+  if (mode === 'freeform' && Object.keys(layout.item).some(key => !['position', 'width', 'height'].includes(key))) throw invalid('Freeform primitive layout can carry only semantic axis sizing')
+  if (mode === 'freeform' && node.type !== 'text') {
+    const lengths = [layout.item.width, layout.item.height].flatMap(axis => axis ? [axis.value, axis.min, axis.max] : []).filter(value => value !== undefined)
+    const intrinsic = lengths.some(length => length.kind === 'intrinsic' || length.kind === 'auto')
+    const display = layout.container?.display
+    if (intrinsic && (node.type !== 'frame' || (display !== 'block' && display !== 'flex' && display !== 'grid'))) throw invalid('Intrinsic primitive sizing needs an explicit Frame container')
+  }
+}
+
+type PrimitiveAxis = 'width' | 'height'
+
+const axisUsesPercentage = (layout: NodeLayout, axis: PrimitiveAxis): boolean => {
+  const size = layout.item[axis]
+  return Boolean(size && [size.value, size.min, size.max].some(length => length?.kind === 'percent'))
+}
+
+/** A percentage chain is definite only when it terminates at a Frame's fixed fallback axis. */
+function hasDefiniteFrameAxis(file: FileDocument, nodeId: string, axis: PrimitiveAxis): boolean {
+  const visited = new Set<string>()
+  let currentId: string | undefined = nodeId
+  for (let depth = 0; currentId && depth <= limits.depth; depth += 1) {
+    if (visited.has(currentId)) return false
+    visited.add(currentId)
+    const node = file.nodes[currentId]
+    if (!node || node.type !== 'frame') return false
+    const value = node.layout?.item[axis]?.value
+    if (value === undefined) return true
+    if (value.kind !== 'percent') return false
+    currentId = file.relationships[currentId]?.parentId
+  }
+  return false
+}
+
 export function validateFileDocument(input: unknown, atoms: Atom[], options: FileValidationOptions = {}): FileDocument {
   if (!record(input)) throw invalid('Invalid design file')
   fields(input, ['schemaVersion', 'fileId', 'revision', 'pages', 'nodes', 'relationships', 'theme', ...(own(input, 'assets') ? ['assets'] : [])], 'design file')
@@ -133,13 +188,14 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
       continue
     }
     if (!(primitiveKinds as readonly string[]).includes(node.type as string)) throw invalid('Unsupported node type')
-    fields(node, ['id', 'type', 'name', 'styles', ...(own(node, 'appearance') ? ['appearance'] : []), ...(own(node, 'text') ? ['text'] : []), ...(own(node, 'themeMode') ? ['themeMode'] : []), ...(own(node, 'isLocked') ? ['isLocked'] : [])], 'node')
+    fields(node, ['id', 'type', 'name', 'styles', ...(own(node, 'layout') ? ['layout'] : []), ...(own(node, 'appearance') ? ['appearance'] : []), ...(own(node, 'text') ? ['text'] : []), ...(own(node, 'textStyle') ? ['textStyle'] : []), ...(own(node, 'textSizing') ? ['textSizing'] : []), ...(own(node, 'themeMode') ? ['themeMode'] : []), ...(own(node, 'isLocked') ? ['isLocked'] : [])], 'node')
     if (own(node, 'themeMode') && !isNodeThemeMode(node.themeMode)) throw invalid('Invalid node theme mode')
     if (own(node, 'isLocked') && typeof node.isLocked !== 'boolean') throw invalid('Invalid node lock')
     if (!validName(node.name)) throw invalid('Invalid node name')
     if (!validateStyles(node.styles, node.type)) throw invalid('Invalid node geometry')
+    if (own(node, 'layout') && !validateLayout(node.layout)) throw invalid('Invalid primitive layout')
     if (own(node, 'appearance')) validateAppearance(node.appearance, node.type)
-    if (node.type === 'text' ? typeof node.text !== 'string' || node.text.length > 10_000 : own(node, 'text')) throw invalid('Invalid node text')
+    if (node.type === 'text' ? typeof node.text !== 'string' || node.text.length > 10_000 || !validateTextStyle(node.textStyle) || !validateTextSizing(node.textSizing) || !textStyleMatchesSizing(node.textStyle, node.textSizing) : own(node, 'text') || own(node, 'textStyle') || own(node, 'textSizing')) throw invalid('Invalid node text')
   }
 
   for (const [tokenId, token] of Object.entries(file.theme.tokens)) {
@@ -190,6 +246,37 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
     const parent = file.nodes[relationship.parentId]
     if (!parent) throw invalid('A node parent is missing')
     if (!acceptsChild(parent, file.nodes[nodeId]!, relationship.slot, atoms)) throw invalid('A node cannot live under that parent')
+  }
+  for (const [nodeId, relationship] of Object.entries(file.relationships)) {
+    const node = file.nodes[nodeId]!
+    if (node.type === 'root') continue
+    const layout = node.layout
+    const mode = nodePositionMode(node)!
+    const parent = file.nodes[relationship.parentId]!
+    const parentDisplay = nodeChildDisplay(parent)
+    if (node.type === 'component' && mode === 'freeform') throw invalid('Components cannot use freeform layout')
+    if (node.type !== 'component' && layout) {
+      validatePrimitiveLayoutAuthority(node, layout)
+      if (mode === 'freeform' && node.type !== 'text') {
+        for (const axis of ['width', 'height'] as const) {
+          if (!axisUsesPercentage(layout, axis)) continue
+          if (parent.type === 'root') throw invalid('Root primitives cannot use percentage sizing')
+          if (!hasDefiniteFrameAxis(file, relationship.parentId, axis)) throw invalid('Percentage sizing needs a definite parent Frame axis')
+        }
+      }
+    }
+    if (mode === 'freeform' && node.type !== 'component' && parent.type !== 'root' && parentDisplay !== 'freeform') throw invalid('Freeform nodes need a freeform parent')
+    if (mode === 'flow' && node.type !== 'component' && parent.type === 'root') throw invalid('Primitive flow nodes cannot live on a page root')
+    if (mode === 'flow' && parentDisplay !== 'block' && parentDisplay !== 'flex' && parentDisplay !== 'grid') throw invalid('Flow nodes need a flow layout parent')
+    if (layout?.item.flex && parentDisplay !== 'flex') throw invalid('Flex item properties need a flex parent')
+    if (layout?.item.grid && parentDisplay !== 'grid') throw invalid('Grid item properties need a grid parent')
+  }
+  // Fill and Relative need a real layout parent. Page roots are freeform workspaces, so accepting them here would make
+  // the stored intent render as a different fixed size. Frame children retain the intent for the flex integration lane.
+  for (const [nodeId, relationship] of Object.entries(file.relationships)) {
+    const node = file.nodes[nodeId]
+    if (node?.type !== 'text' || file.nodes[relationship.parentId]?.type !== 'root') continue
+    if (node.textSizing?.width.mode === 'fill' || node.textSizing?.width.mode === 'relative' || node.textSizing?.height.mode === 'fill' || node.textSizing?.height.mode === 'relative') throw invalid('Root text cannot use parent-relative sizing')
   }
   // Every node reaches a page root without cycles.
   const reach = new Map<string, string>()
@@ -393,6 +480,36 @@ export type PrimitiveStylePatch = {
   flipY?: boolean | null
   overflow?: PrimitiveStyles['overflow'] | null
 }
+/** Full numeric fallback box used when Wrap must change a primitive's fixed size, including text geometry. */
+export type NodePrimitiveSize = Pick<PrimitiveStyles, 'width' | 'height'>
+/** Full text authority used when Wrap must change a text node's typography or sizing intent. */
+export type NodeTextProperties = { textStyle: TextStyle; textSizing: TextSizing }
+/** Complete fallback geometry controlled by a resize presentation. Optional primitive style fields remain untouched. */
+export type NodeResizePrimitiveGeometry = Pick<PrimitiveStyles, 'left' | 'top' | 'width' | 'height'>
+/** Exact checked state for every authority one resize presentation owns. Omitted authorities remain untouched. */
+export type NodeResizeState = {
+  nodeId: string
+  relationship: NodeRelationship
+  primitiveGeometry?: NodeResizePrimitiveGeometry
+  layout?: NodeLayout | null
+  textProperties?: NodeTextProperties
+  appearance?: Appearance | null
+}
+export type NodeResizePresentationEntry = { expected: NodeResizeState; source: NodeResizeState }
+/** One child admitted to a Paper Wrap transaction. Optional targets are omitted only when sizing stays unchanged. */
+export type NodeWrapChild = { nodeId: string; targetLayout: NodeLayout; targetPrimitiveSize?: NodePrimitiveSize; targetTextProperties?: NodeTextProperties }
+/** One independently placed wrapper. Every child starts under `parentId` in the source snapshot. */
+export type NodeWrapGroup = { wrapper: PrimitiveNode & { type: 'frame' }; parentId: string; children: NodeWrapChild[] }
+/** Exact source state captured by Wrap history. `null` means the node originally had no stored layout. */
+export type NodeUnwrapChild = { nodeId: string; relationship: NodeRelationship; layout: NodeLayout | null; restorePrimitiveSize?: NodePrimitiveSize; restoreTextProperties?: NodeTextProperties }
+/** The closed semantic inverse of one Wrap group. */
+export type NodeUnwrapGroup = { wrapperId: string; children: NodeUnwrapChild[] }
+/** Complete state for one node authority touched by removing Flex. Omitted sizing authorities stay unchanged. */
+export type NodeFlexState = { nodeId: string; relationship: NodeRelationship; layout: NodeLayout | null; primitiveSize?: NodePrimitiveSize; textProperties?: NodeTextProperties }
+/** One Flex parent and all of its direct flow children, in source order. Empty Flex parents carry no children. */
+export type NodeRemoveFlexGroup = { parent: NodeFlexState; children: NodeFlexState[] }
+/** Checked history inverse: the current removed state must equal `expected` before `source` can be restored. */
+export type NodeRestoreFlexGroup = { expected: NodeRemoveFlexGroup; source: NodeRemoveFlexGroup }
 export type FileCommand =
   | { type: 'page.create'; page: FilePage; index?: number }
   | { type: 'page.rename'; pageId: string; name: string }
@@ -407,6 +524,8 @@ export type FileCommand =
   /** Partial geometry update; `null` removes an optional stored style such as `rotation`. */
   | { type: 'node.setStyles'; nodeId: string; styles: PrimitiveStylePatch }
   | { type: 'node.setText'; nodeId: string; text: string }
+  /** Replaces all typography and sizing intent together so truncation can never observe an invalid intermediate state. */
+  | { type: 'node.setTextProperties'; nodeId: string; textStyle: TextStyle; textSizing: TextSizing }
   /** Replaces the whole appearance record (null clears it). Used by gesture commits; narrower commands below are preferred. */
   | { type: 'node.setAppearance'; nodeId: string; appearance: Appearance | null }
   | { type: 'node.setBlending'; nodeId: string; visible?: boolean; opacity?: number; blendMode?: BlendMode }
@@ -429,6 +548,18 @@ export type FileCommand =
   | { type: 'node.setThemeMode'; nodeId: string; themeMode: NodeThemeMode | null }
   | { type: 'node.reparent'; nodeId: string; placement: NodePlacement; preserveWorldPosition?: boolean }
   | { type: 'node.reorder'; nodeId: string; index: number }
+  /** History-only checked replacement of one exact parent/order relationship. */
+  | { type: 'node.restoreRelationship'; nodeId: string; expected: NodeRelationship; source: NodeRelationship }
+  /** Atomically checks and replaces every document authority projected by one resize gesture. */
+  | { type: 'node.resizePresentation'; entries: NodeResizePresentationEntry[] }
+  /** Wraps one or more disjoint primitive selections in non-clipping flex frames as one semantic operation. */
+  | { type: 'node.wrap'; groups: NodeWrapGroup[] }
+  /** Restores the exact pre-Wrap relationships and layouts before deleting the generated wrappers. */
+  | { type: 'node.unwrap'; groups: NodeUnwrapGroup[] }
+  /** Replaces Flex with a planner-supplied freeform parent and absolute direct children. */
+  | { type: 'node.removeFlex'; groups: NodeRemoveFlexGroup[] }
+  /** Restores an exact pre-remove Flex state after checking that the removed state is still current. */
+  | { type: 'node.restoreFlex'; groups: NodeRestoreFlexGroup[] }
   | { type: 'node.delete'; nodeIds: string[] }
   /** Copies a subtree beside its source; `ids` maps every copied node id to a new identity. */
   | { type: 'node.duplicate'; nodeId: string; ids: Record<string, string>; offset?: { x: number; y: number } }
@@ -480,6 +611,129 @@ function commandPlacement(value: unknown): value is NodePlacement {
     && (!own(value, 'index') || commandIndex(value.index))
 }
 
+function commandRelationship(value: unknown): value is NodeRelationship {
+  return record(value) && commandFields(value, ['parentId', 'orderKey'], ['slot'])
+    && validId(value.parentId) && isOrderKey(value.orderKey) && (!own(value, 'slot') || validId(value.slot))
+}
+
+function commandPrimitiveSize(value: unknown): value is NodePrimitiveSize {
+  return record(value) && commandFields(value, ['width', 'height'])
+    && finite(value.width, 1, limits.coordinate) && finite(value.height, 1, limits.coordinate)
+}
+
+function commandTextProperties(value: unknown): value is NodeTextProperties {
+  return record(value) && commandFields(value, ['textStyle', 'textSizing'])
+    && validateTextStyle(value.textStyle) && validateTextSizing(value.textSizing) && textStyleMatchesSizing(value.textStyle, value.textSizing)
+}
+
+function commandResizePrimitiveGeometry(value: unknown): value is NodeResizePrimitiveGeometry {
+  return record(value) && commandFields(value, ['left', 'top', 'width', 'height'])
+    && commandFinite(value.left) && commandFinite(value.top)
+    && finite(value.width, 1, limits.coordinate) && finite(value.height, 1, limits.coordinate)
+}
+
+const resizeAuthorityKeys = ['primitiveGeometry', 'layout', 'textProperties', 'appearance'] as const
+
+function commandResizeState(value: unknown): value is NodeResizeState {
+  if (!record(value) || !commandFields(value, ['nodeId', 'relationship'], resizeAuthorityKeys) || !validId(value.nodeId) || !commandRelationship(value.relationship)) return false
+  if (!resizeAuthorityKeys.some(key => own(value, key))) return false
+  if (own(value, 'primitiveGeometry') && !commandResizePrimitiveGeometry(value.primitiveGeometry)) return false
+  if (own(value, 'layout') && value.layout !== null && !validateLayout(value.layout)) return false
+  if (own(value, 'textProperties') && !commandTextProperties(value.textProperties)) return false
+  if (own(value, 'appearance') && value.appearance !== null && !commandAppearance(value.appearance)) return false
+  return true
+}
+
+function sameRelationship(left: NodeRelationship, right: NodeRelationship): boolean {
+  return left.parentId === right.parentId && left.orderKey === right.orderKey
+    && own(left, 'slot') === own(right, 'slot') && left.slot === right.slot
+}
+
+function commandResizeEntry(value: unknown): value is NodeResizePresentationEntry {
+  if (!record(value) || !commandFields(value, ['expected', 'source']) || !commandResizeState(value.expected) || !commandResizeState(value.source)) return false
+  const expected = value.expected
+  const source = value.source
+  if (expected.nodeId !== source.nodeId || !sameRelationship(expected.relationship, source.relationship)) return false
+  return resizeAuthorityKeys.every(key => own(expected, key) === own(source, key))
+}
+
+function commandResizeEntries(value: unknown): value is NodeResizePresentationEntry[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > limits.nodes) return false
+  const nodeIds = new Set<string>()
+  for (const entry of value) {
+    if (!commandResizeEntry(entry) || nodeIds.has(entry.expected.nodeId)) return false
+    nodeIds.add(entry.expected.nodeId)
+  }
+  return true
+}
+
+function commandWrapChild(value: unknown): value is NodeWrapChild {
+  if (!record(value) || !commandFields(value, ['nodeId', 'targetLayout'], ['targetPrimitiveSize', 'targetTextProperties']) || !validId(value.nodeId) || !validateLayout(value.targetLayout)) return false
+  if (own(value, 'targetPrimitiveSize') && !commandPrimitiveSize(value.targetPrimitiveSize)) return false
+  if (own(value, 'targetTextProperties') && !commandTextProperties(value.targetTextProperties)) return false
+  return true
+}
+
+function commandUnwrapChild(value: unknown): value is NodeUnwrapChild {
+  if (!record(value) || !commandFields(value, ['nodeId', 'relationship', 'layout'], ['restorePrimitiveSize', 'restoreTextProperties']) || !validId(value.nodeId) || !commandRelationship(value.relationship) || value.layout !== null && !validateLayout(value.layout)) return false
+  if (own(value, 'restorePrimitiveSize') && !commandPrimitiveSize(value.restorePrimitiveSize)) return false
+  if (own(value, 'restoreTextProperties') && !commandTextProperties(value.restoreTextProperties)) return false
+  return true
+}
+
+function commandWrapGroup(value: unknown): value is NodeWrapGroup {
+  if (!record(value) || !commandFields(value, ['wrapper', 'parentId', 'children']) || !validId(value.parentId)) return false
+  if (!commandNode(value.wrapper) || value.wrapper.type !== 'frame' || value.wrapper.styles.overflow !== 'visible' || !Array.isArray(value.children) || value.children.length < 1 || value.children.length > limits.nodes) return false
+  return value.children.every(commandWrapChild)
+}
+
+function commandUnwrapGroup(value: unknown): value is NodeUnwrapGroup {
+  if (!record(value) || !commandFields(value, ['wrapperId', 'children']) || !validId(value.wrapperId) || !Array.isArray(value.children) || value.children.length < 1 || value.children.length > limits.nodes) return false
+  return value.children.every(commandUnwrapChild)
+}
+
+function commandFlexState(value: unknown): value is NodeFlexState {
+  if (!record(value) || !commandFields(value, ['nodeId', 'relationship', 'layout'], ['primitiveSize', 'textProperties']) || !validId(value.nodeId) || !commandRelationship(value.relationship) || value.layout !== null && !validateLayout(value.layout)) return false
+  if (own(value, 'primitiveSize') && !commandPrimitiveSize(value.primitiveSize)) return false
+  if (own(value, 'textProperties') && !commandTextProperties(value.textProperties)) return false
+  return true
+}
+
+function commandRemoveFlexGroup(value: unknown): value is NodeRemoveFlexGroup {
+  return record(value) && commandFields(value, ['parent', 'children']) && commandFlexState(value.parent)
+    && Array.isArray(value.children) && value.children.length <= limits.nodes && value.children.every(commandFlexState)
+}
+
+function commandRestoreFlexGroup(value: unknown): value is NodeRestoreFlexGroup {
+  return record(value) && commandFields(value, ['expected', 'source']) && commandRemoveFlexGroup(value.expected) && commandRemoveFlexGroup(value.source)
+}
+
+function commandGroupChildCount(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length < 1 || value.length > limits.nodes) return false
+  let total = 0
+  for (const group of value) {
+    if (!record(group) || !Array.isArray(group.children) || group.children.length < 1 || group.children.length > limits.nodes) return false
+    total += group.children.length
+    if (total > limits.nodes) return false
+  }
+  return true
+}
+
+function commandFlexGroupChildCount(value: unknown, restore: boolean): boolean {
+  if (!Array.isArray(value) || value.length < 1 || value.length > limits.nodes) return false
+  let total = 0
+  for (const group of value) {
+    if (!record(group)) return false
+    const candidate = restore ? group.expected : group
+    const source = restore ? group.source : undefined
+    if (!record(candidate) || !Array.isArray(candidate.children) || candidate.children.length > limits.nodes) return false
+    if (restore && (!record(source) || !Array.isArray(source.children) || source.children.length !== candidate.children.length)) return false
+    total += candidate.children.length
+    if (total > limits.nodes) return false
+  }
+  return true
+}
+
 function commandProps(value: unknown): value is Record<string, DocumentValue> {
   return record(value) && Object.keys(value).length <= 100 && Object.entries(value).every(([key, item]) => commandPropName(key) && commandPropValue(item))
 }
@@ -513,9 +767,11 @@ function commandNode(value: unknown): value is FileNode {
     return (!own(value, 'themeMode') || isNodeThemeMode(value.themeMode)) && (!own(value, 'isLocked') || typeof value.isLocked === 'boolean')
   }
   if (!(primitiveKinds as readonly unknown[]).includes(value.type)) return false
-  if (!commandFields(value, ['id', 'type', 'name', 'styles'], ['appearance', 'text', 'themeMode', 'isLocked']) || !validName(value.name) || !validateStyles(value.styles, value.type as PrimitiveKind)) return false
+  const required = value.type === 'text' ? ['id', 'type', 'name', 'styles', 'text', 'textStyle', 'textSizing'] : ['id', 'type', 'name', 'styles']
+  if (!commandFields(value, required, ['layout', 'appearance', 'themeMode', 'isLocked']) || !validName(value.name) || !validateStyles(value.styles, value.type as PrimitiveKind)) return false
+  if (own(value, 'layout') && !validateLayout(value.layout)) return false
   if (own(value, 'appearance')) validateAppearance(value.appearance, value.type as PrimitiveKind)
-  if (value.type === 'text' ? typeof value.text !== 'string' || value.text.length > 10_000 : own(value, 'text')) return false
+  if (value.type === 'text' ? typeof value.text !== 'string' || value.text.length > 10_000 || !validateTextStyle(value.textStyle) || !validateTextSizing(value.textSizing) || !textStyleMatchesSizing(value.textStyle, value.textSizing) : own(value, 'text') || own(value, 'textStyle') || own(value, 'textSizing')) return false
   return (!own(value, 'themeMode') || isNodeThemeMode(value.themeMode)) && (!own(value, 'isLocked') || typeof value.isLocked === 'boolean')
 }
 
@@ -554,6 +810,8 @@ function validateCommandShape(value: unknown, limitsValue: Required<FileCommandV
       return validateStyles(geometry, own(styles, 'overflow') ? 'frame' : 'rectangle')
     }
     case 'node.setText': return commandFields(value, ['type', 'nodeId', 'text']) && validId(value.nodeId) && typeof value.text === 'string' && value.text.length <= 10_000
+    case 'node.setTextProperties': return commandFields(value, ['type', 'nodeId', 'textStyle', 'textSizing']) && validId(value.nodeId)
+      && validateTextStyle(value.textStyle) && validateTextSizing(value.textSizing) && textStyleMatchesSizing(value.textStyle, value.textSizing)
     case 'node.setAppearance': return commandFields(value, ['type', 'nodeId', 'appearance']) && validId(value.nodeId) && (value.appearance === null || commandAppearance(value.appearance))
     case 'node.setBlending': return commandFields(value, ['type', 'nodeId'], ['visible', 'opacity', 'blendMode']) && validId(value.nodeId)
       && ['visible', 'opacity', 'blendMode'].some(key => own(value, key))
@@ -577,6 +835,12 @@ function validateCommandShape(value: unknown, limitsValue: Required<FileCommandV
     case 'node.setThemeMode': return commandFields(value, ['type', 'nodeId', 'themeMode']) && validId(value.nodeId) && (value.themeMode === null || isNodeThemeMode(value.themeMode))
     case 'node.reparent': return commandFields(value, ['type', 'nodeId', 'placement'], ['preserveWorldPosition']) && validId(value.nodeId) && commandPlacement(value.placement) && (!own(value, 'preserveWorldPosition') || typeof value.preserveWorldPosition === 'boolean')
     case 'node.reorder': return commandFields(value, ['type', 'nodeId', 'index']) && validId(value.nodeId) && commandIndex(value.index)
+    case 'node.restoreRelationship': return commandFields(value, ['type', 'nodeId', 'expected', 'source']) && validId(value.nodeId) && commandRelationship(value.expected) && commandRelationship(value.source)
+    case 'node.resizePresentation': return commandFields(value, ['type', 'entries']) && commandResizeEntries(value.entries)
+    case 'node.wrap': return commandFields(value, ['type', 'groups']) && Array.isArray(value.groups) && value.groups.length > 0 && value.groups.length <= limits.nodes && commandGroupChildCount(value.groups) && value.groups.every(commandWrapGroup)
+    case 'node.unwrap': return commandFields(value, ['type', 'groups']) && Array.isArray(value.groups) && value.groups.length > 0 && value.groups.length <= limits.nodes && commandGroupChildCount(value.groups) && value.groups.every(commandUnwrapGroup)
+    case 'node.removeFlex': return commandFields(value, ['type', 'groups']) && commandFlexGroupChildCount(value.groups, false) && (value.groups as unknown[]).every(commandRemoveFlexGroup)
+    case 'node.restoreFlex': return commandFields(value, ['type', 'groups']) && commandFlexGroupChildCount(value.groups, true) && (value.groups as unknown[]).every(commandRestoreFlexGroup)
     case 'node.delete': return commandFields(value, ['type', 'nodeIds']) && commandIds(value.nodeIds)
     case 'node.duplicate': return commandFields(value, ['type', 'nodeId', 'ids'], ['offset']) && validId(value.nodeId) && commandStringMap(value.ids)
       && (!own(value, 'offset') || record(value.offset) && commandFields(value.offset, ['x', 'y']) && commandFinite(value.offset.x) && commandFinite(value.offset.y))
@@ -596,6 +860,10 @@ function validateCommandShape(value: unknown, limitsValue: Required<FileCommandV
 export function validateFileCommand(value: unknown, validationLimits: FileCommandValidationLimits = {}): FileCommand {
   const resolved = { ...commandDefaults, ...validationLimits }
   if (!Number.isSafeInteger(resolved.maxBatchCommands) || resolved.maxBatchCommands < 1 || !Number.isSafeInteger(resolved.maxDepth) || resolved.maxDepth < 1 || !Number.isSafeInteger(resolved.maxBytes) || resolved.maxBytes < 1) throw invalid('Invalid file command limits')
+  if (record(value) && (value.type === 'node.wrap' || value.type === 'node.unwrap') && !commandGroupChildCount(value.groups)) throw invalid('Invalid file command')
+  if (record(value) && value.type === 'node.removeFlex' && !commandFlexGroupChildCount(value.groups, false)) throw invalid('Invalid file command')
+  if (record(value) && value.type === 'node.restoreFlex' && !commandFlexGroupChildCount(value.groups, true)) throw invalid('Invalid file command')
+  if (record(value) && value.type === 'node.resizePresentation' && (!Array.isArray(value.entries) || value.entries.length < 1 || value.entries.length > limits.nodes)) throw invalid('Invalid file command')
   if (!commandJson(value, 0, resolved.maxDepth)) throw invalid('Invalid file command')
   const encoded = JSON.stringify(value)
   if (new TextEncoder().encode(encoded).byteLength > resolved.maxBytes || !validateCommandShape(value, resolved, 0, { remaining: resolved.maxBatchCommands })) throw invalid('Invalid file command')
@@ -717,6 +985,369 @@ function token(file: FileDocument, tokenId: string): ColorToken {
 }
 const orderedTokens = (theme: FileTheme) => Object.values(theme.tokens).sort(compareOrder)
 
+type WrapPlan = {
+  group: NodeWrapGroup
+  groupIndex: number
+  anchorIndex: number
+  wrapperOrderKey?: string
+}
+
+function wrapPlans(file: FileDocument, command: Extract<FileCommand, { type: 'node.wrap' }>): WrapPlan[] {
+  if (!Array.isArray(command.groups) || command.groups.length < 1 || command.groups.length > limits.nodes) throw invalid('Select nodes to wrap')
+  if (!commandGroupChildCount(command.groups)) throw invalid('Wrap exceeds the supported node limit')
+  if (Object.keys(file.nodes).length + command.groups.length > limits.nodes) throw invalid('Design file exceeds the supported node limit')
+  const wrapperIds = new Set<string>()
+  const selectedIds = new Set<string>()
+  const plans: WrapPlan[] = []
+
+  for (const [groupIndex, group] of command.groups.entries()) {
+    if (!commandWrapGroup(group)) throw invalid('Invalid Wrap group')
+    const wrapper = group.wrapper
+    if (own(file.nodes, wrapper.id) || wrapperIds.has(wrapper.id) || selectedIds.has(wrapper.id)) throw invalid('Wrap needs unique new wrapper identities')
+    wrapperIds.add(wrapper.id)
+    const parent = file.nodes[group.parentId]
+    if (!parent || parent.type === 'component' || (parent.type !== 'root' && parent.type !== 'frame')) throw invalid('Wrap needs a page or frame parent')
+    const container = wrapper.layout?.container
+    if (!wrapper.layout || container?.display !== 'flex' || wrapper.styles.overflow !== 'visible' || container.overflow !== undefined) throw invalid('Wrap needs a non-clipping flex frame')
+    validatePrimitiveLayoutAuthority(wrapper, wrapper.layout)
+
+    const siblings = childrenOf(file, group.parentId)
+    const modes: PositionMode[] = []
+    for (const child of group.children) {
+      if (selectedIds.has(child.nodeId) || wrapperIds.has(child.nodeId)) throw invalid('Wrap selections cannot overlap')
+      selectedIds.add(child.nodeId)
+      const node = file.nodes[child.nodeId]
+      const relationship = file.relationships[child.nodeId]
+      if (!node || node.type === 'root' || node.type === 'component') throw invalid('Wrap accepts primitive nodes only')
+      if (!relationship || relationship.parentId !== group.parentId || relationship.slot !== undefined || !siblings.includes(child.nodeId)) throw invalid('Wrap children must be unslotted siblings')
+      if (child.targetLayout.item.position.mode !== 'flow') throw invalid('Wrapped children must enter flow')
+      validatePrimitiveLayoutAuthority(node, child.targetLayout)
+      if (node.type !== 'text' && child.targetTextProperties) throw invalid('Primitive Wrap sizing must use primitive dimensions')
+      modes.push(node.layout?.item.position.mode ?? 'freeform')
+    }
+    const allAbsolute = modes.every(mode => mode === 'absolute')
+    const hasFlow = modes.some(mode => mode === 'flow')
+    const eligible = group.children.filter((_, index) => !hasFlow || modes[index] !== 'absolute')
+    const anchorIndex = Math.max(...eligible.map(child => siblings.indexOf(child.nodeId)))
+    const parentDisplay = nodeChildDisplay(parent)
+    const expectedMode: PositionMode = allAbsolute ? 'absolute' : parent.type === 'root' || parentDisplay === 'freeform' ? 'freeform' : 'flow'
+    if (wrapper.layout.item.position.mode !== expectedMode) throw invalid('Wrapper placement does not match its source siblings')
+    plans.push({ group, groupIndex, anchorIndex })
+  }
+
+  for (const nodeId of selectedIds) {
+    if (descendantsOf(file, nodeId).some(descendant => selectedIds.has(descendant))) throw invalid('Wrap selections cannot contain one another')
+  }
+
+  const byParent = new Map<string, WrapPlan[]>()
+  for (const plan of plans) {
+    const current = byParent.get(plan.group.parentId) ?? []
+    current.push(plan)
+    byParent.set(plan.group.parentId, current)
+  }
+  for (const [parentId, parentPlans] of byParent) {
+    const siblings = childrenOf(file, parentId)
+    const wrappersAt = new Map<number, WrapPlan[]>()
+    for (const plan of parentPlans) {
+      const current = wrappersAt.get(plan.anchorIndex) ?? []
+      current.push(plan)
+      wrappersAt.set(plan.anchorIndex, current)
+    }
+    const sequence: Array<{ id: string; plan?: WrapPlan }> = []
+    for (const [index, nodeId] of siblings.entries()) {
+      if (!selectedIds.has(nodeId)) sequence.push({ id: nodeId })
+      for (const plan of (wrappersAt.get(index) ?? []).sort((left, right) => left.groupIndex - right.groupIndex)) sequence.push({ id: plan.group.wrapper.id, plan })
+    }
+    const assigned = new Map<string, string>()
+    for (const [index, entry] of sequence.entries()) {
+      if (!entry.plan) continue
+      const previous = sequence[index - 1]
+      const before = previous ? assigned.get(previous.id) ?? file.relationships[previous.id]!.orderKey : null
+      const following = sequence.slice(index + 1).find(candidate => !candidate.plan)
+      const after = following ? file.relationships[following.id]!.orderKey : null
+      const orderKey = before !== null && after !== null && before >= after ? orderKeyBetween(before, null) : orderKeyBetween(before, after)
+      entry.plan.wrapperOrderKey = orderKey
+      assigned.set(entry.id, orderKey)
+    }
+  }
+  return plans
+}
+
+function applyWrap(file: FileDocument, command: Extract<FileCommand, { type: 'node.wrap' }>): FileDocument {
+  const plans = wrapPlans(file, command)
+  for (const plan of plans) {
+    const { wrapper, children } = plan.group
+    if (!plan.wrapperOrderKey) throw invalid('Wrap could not place its wrapper')
+    file.nodes[wrapper.id] = { ...structuredClone(wrapper), themeMode: wrapper.themeMode ?? 'inherit' }
+    file.relationships[wrapper.id] = { parentId: plan.group.parentId, orderKey: plan.wrapperOrderKey }
+    const childOrder = orderKeySequence(children.length)
+    for (const [index, child] of children.entries()) {
+      const node = primitive(file, child.nodeId)
+      node.layout = structuredClone(child.targetLayout)
+      if (child.targetPrimitiveSize) node.styles = { ...node.styles, ...structuredClone(child.targetPrimitiveSize) }
+      if (child.targetTextProperties) {
+        if (node.type !== 'text') throw invalid('Primitive Wrap sizing must use primitive dimensions')
+        node.textStyle = structuredClone(child.targetTextProperties.textStyle)
+        node.textSizing = structuredClone(child.targetTextProperties.textSizing)
+      }
+      file.relationships[child.nodeId] = { parentId: wrapper.id, orderKey: childOrder[index]! }
+    }
+  }
+  indexes.delete(file)
+  return file
+}
+
+function applyUnwrap(file: FileDocument, command: Extract<FileCommand, { type: 'node.unwrap' }>, atoms: Atom[]): FileDocument {
+  if (!Array.isArray(command.groups) || command.groups.length < 1 || command.groups.length > limits.nodes) throw invalid('Select wrappers to unwrap')
+  if (!commandGroupChildCount(command.groups)) throw invalid('Unwrap exceeds the supported node limit')
+  const wrapperIds = new Set<string>()
+  const childIds = new Set<string>()
+  for (const group of command.groups) {
+    if (!commandUnwrapGroup(group) || wrapperIds.has(group.wrapperId)) throw invalid('Unwrap groups cannot overlap')
+    wrapperIds.add(group.wrapperId)
+  }
+  for (const group of command.groups) {
+    const wrapper = file.nodes[group.wrapperId]
+    const wrapperRelationship = file.relationships[group.wrapperId]
+    if (!wrapper || wrapper.type !== 'frame' || wrapper.layout?.container?.display !== 'flex' || !wrapperRelationship || wrapperRelationship.slot !== undefined) throw invalid('Select a generated flex wrapper')
+    const actualChildren = childrenOf(file, group.wrapperId)
+    const generatedOrder = orderKeySequence(group.children.length)
+    if (actualChildren.length !== group.children.length || group.children.some((child, index) => actualChildren[index] !== child.nodeId || file.relationships[child.nodeId]?.orderKey !== generatedOrder[index])) throw invalid('Unwrap must restore the exact generated wrapper children')
+    const restoredParents = new Set<string>()
+    for (const child of group.children) {
+      if (childIds.has(child.nodeId) || wrapperIds.has(child.nodeId)) throw invalid('Unwrap groups cannot overlap')
+      childIds.add(child.nodeId)
+      const node = file.nodes[child.nodeId]
+      const current = file.relationships[child.nodeId]
+      const parent = file.nodes[child.relationship.parentId]
+      if (!node || node.type === 'root' || node.type === 'component' || !current || current.parentId !== group.wrapperId || current.slot !== undefined) throw invalid('Unwrap accepts direct primitive wrapper children only')
+      if (child.layout) validatePrimitiveLayoutAuthority(node, child.layout)
+      if (node.type !== 'text' && child.restoreTextProperties) throw invalid('Primitive Unwrap sizing must use primitive dimensions')
+      if (!parent || wrapperIds.has(parent.id) || child.relationship.parentId !== wrapperRelationship.parentId || child.relationship.slot !== undefined || child.relationship.parentId === child.nodeId || descendantsOf(file, child.nodeId).includes(child.relationship.parentId)) throw invalid('Unwrap restore topology is invalid')
+      if (!acceptsChild(parent, node, child.relationship.slot, atoms)) throw invalid('A restored child cannot live under that parent')
+      restoredParents.add(child.relationship.parentId)
+    }
+    if (restoredParents.size !== 1) throw invalid('A Wrap group restores one sibling set')
+  }
+  if ([...wrapperIds].some(wrapperId => childIds.has(wrapperId))) throw invalid('Unwrap groups cannot contain one another')
+
+  for (const group of command.groups) {
+    for (const child of group.children) {
+      const node = primitive(file, child.nodeId)
+      if (child.layout === null) delete node.layout
+      else node.layout = structuredClone(child.layout)
+      if (child.restorePrimitiveSize) node.styles = { ...node.styles, ...structuredClone(child.restorePrimitiveSize) }
+      if (child.restoreTextProperties) {
+        if (node.type !== 'text') throw invalid('Primitive Unwrap sizing must use primitive dimensions')
+        node.textStyle = structuredClone(child.restoreTextProperties.textStyle)
+        node.textSizing = structuredClone(child.restoreTextProperties.textSizing)
+      }
+      file.relationships[child.nodeId] = structuredClone(child.relationship)
+    }
+  }
+  for (const group of command.groups) {
+    delete file.relationships[group.wrapperId]
+    delete file.nodes[group.wrapperId]
+  }
+  indexes.delete(file)
+  return file
+}
+
+const sameFlexValue = (left: unknown, right: unknown): boolean => {
+  if (left === right) return true
+  if (Array.isArray(left) || Array.isArray(right)) return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => sameFlexValue(item, right[index]))
+  if (!record(left) || !record(right)) return false
+  const leftKeys = Object.keys(left).sort(), rightKeys = Object.keys(right).sort()
+  return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index] && sameFlexValue(left[key], right[key]))
+}
+
+function validateFlexStateAuthority(node: FileNode, state: NodeFlexState): void {
+  if (node.type === 'root' || state.nodeId !== node.id) throw invalid('Remove Flex references an invalid node')
+  if (state.layout && !validateLayout(state.layout)) throw invalid('Remove Flex carries an invalid layout')
+  if (node.type === 'component') {
+    if (state.primitiveSize || state.textProperties) throw invalid('Component Remove Flex state cannot carry primitive or text sizing')
+    return
+  }
+  if (state.layout) validatePrimitiveLayoutAuthority(node, state.layout)
+  if (state.textProperties && node.type !== 'text') throw invalid('Only text Remove Flex state can carry text properties')
+}
+
+function writeFlexState(file: FileDocument, state: NodeFlexState): void {
+  const node = file.nodes[state.nodeId]
+  if (!node || node.type === 'root') throw invalid('Remove Flex references a missing node')
+  if (state.layout === null) delete node.layout
+  else node.layout = structuredClone(state.layout)
+  if (state.primitiveSize) {
+    if (node.type === 'component') throw invalid('Component Remove Flex state cannot carry primitive sizing')
+    node.styles = { ...node.styles, ...structuredClone(state.primitiveSize) }
+  }
+  if (state.textProperties) {
+    if (node.type !== 'text') throw invalid('Only text Remove Flex state can carry text properties')
+    node.textStyle = structuredClone(state.textProperties.textStyle)
+    node.textSizing = structuredClone(state.textProperties.textSizing)
+  }
+  file.relationships[state.nodeId] = structuredClone(state.relationship)
+}
+
+function flexStateMatches(file: FileDocument, state: NodeFlexState): boolean {
+  const node = file.nodes[state.nodeId]
+  if (!node || node.type === 'root' || !sameFlexValue(file.relationships[state.nodeId], state.relationship) || !sameFlexValue(node.layout ?? null, state.layout)) return false
+  if (state.primitiveSize && (node.type === 'component' || node.styles.width !== state.primitiveSize.width || node.styles.height !== state.primitiveSize.height)) return false
+  if (state.textProperties && (node.type !== 'text' || !sameFlexValue(node.textStyle, state.textProperties.textStyle) || !sameFlexValue(node.textSizing, state.textProperties.textSizing))) return false
+  return true
+}
+
+function removeFlexCandidate(file: FileDocument, command: Extract<FileCommand, { type: 'node.removeFlex' }>, atoms: Atom[]): FileDocument {
+  if (!commandFlexGroupChildCount(command.groups, false)) throw invalid('Remove Flex exceeds the supported node limit')
+  const parentIds = new Set<string>(), childIds = new Set<string>()
+  for (const group of command.groups) {
+    if (!commandRemoveFlexGroup(group) || parentIds.has(group.parent.nodeId)) throw invalid('Remove Flex groups cannot overlap')
+    parentIds.add(group.parent.nodeId)
+    for (const child of group.children) {
+      if (childIds.has(child.nodeId)) throw invalid('Remove Flex groups cannot overlap')
+      childIds.add(child.nodeId)
+    }
+  }
+  if ([...parentIds].some(parentId => childIds.has(parentId) || ancestorsOf(file, parentId).some(ancestor => parentIds.has(ancestor)))) throw invalid('Remove Flex groups cannot contain one another')
+
+  for (const group of command.groups) {
+    const parent = file.nodes[group.parent.nodeId]
+    const currentParentRelationship = file.relationships[group.parent.nodeId]
+    if (!parent || (parent.type !== 'frame' && parent.type !== 'component') || parent.layout?.container?.display !== 'flex' || !currentParentRelationship) throw invalid('Select a Frame or Component Flex parent')
+    validateFlexStateAuthority(parent, group.parent)
+    const parentLayout = group.parent.layout
+    if (!parentLayout || parentLayout.container?.display !== 'freeform' || parentLayout.item.flex || parentLayout.item.grid) throw invalid('Remove Flex needs a freeform parent target')
+    if (!sameFlexValue(group.parent.relationship, currentParentRelationship)) throw invalid('Remove Flex cannot move its parent')
+    if (!sameFlexValue(parentLayout.spacing, parent.layout.spacing) || parentLayout.container.overflow !== parent.layout.container.overflow) throw invalid('Remove Flex must preserve parent spacing and overflow')
+
+    const actualChildren = childrenOf(file, parent.id).filter(nodeId => nodePositionMode(file.nodes[nodeId]!) === 'flow')
+    if (actualChildren.length !== group.children.length || group.children.some((child, index) => child.nodeId !== actualChildren[index])) throw invalid('Remove Flex must include every direct flow child in source order')
+    for (const child of group.children) {
+      const node = file.nodes[child.nodeId]
+      const currentRelationship = file.relationships[child.nodeId]
+      if (!node || node.type === 'root' || !currentRelationship || currentRelationship.parentId !== parent.id) throw invalid('Remove Flex accepts direct flow children only')
+      validateFlexStateAuthority(node, child)
+      if (!acceptsChild(parent, node, child.relationship.slot, atoms) || !sameFlexValue(child.relationship, currentRelationship)) throw invalid('Remove Flex must preserve each child relationship and order')
+      const position = child.layout?.item.position
+      if (!child.layout || position?.mode !== 'absolute' || position.left?.kind !== 'px' || position.top?.kind !== 'px' || !Number.isFinite(position.left.value) || !Number.isFinite(position.top.value) || child.layout.item.flex || child.layout.item.grid) throw invalid('Remove Flex children need absolute pixel leading insets')
+    }
+  }
+
+  const candidate = structuredClone(file)
+  for (const group of command.groups) {
+    writeFlexState(candidate, group.parent)
+    for (const child of group.children) writeFlexState(candidate, child)
+  }
+  indexes.delete(candidate)
+  return validateFileDocument(candidate, atoms, { allowUnavailableBindings: true })
+}
+
+function applyRemoveFlex(file: FileDocument, command: Extract<FileCommand, { type: 'node.removeFlex' }>, atoms: Atom[]): FileDocument {
+  return removeFlexCandidate(file, command, atoms)
+}
+
+function applyRestoreFlex(file: FileDocument, command: Extract<FileCommand, { type: 'node.restoreFlex' }>, atoms: Atom[]): FileDocument {
+  if (!commandFlexGroupChildCount(command.groups, true)) throw invalid('Restore Flex exceeds the supported node limit')
+  for (const group of command.groups) {
+    if (!commandRestoreFlexGroup(group) || group.expected.parent.nodeId !== group.source.parent.nodeId || group.expected.children.some((child, index) => child.nodeId !== group.source.children[index]?.nodeId)) throw invalid('Restore Flex state is incomplete')
+    const expectedStates = [group.expected.parent, ...group.expected.children]
+    const sourceStates = [group.source.parent, ...group.source.children]
+    for (const [index, expected] of expectedStates.entries()) {
+      const source = sourceStates[index]!
+      if (own(expected, 'primitiveSize') !== own(source, 'primitiveSize') || own(expected, 'textProperties') !== own(source, 'textProperties')) throw invalid('Restore Flex sizing authority is incomplete')
+      if (!flexStateMatches(file, expected)) throw invalid('Restore Flex expected state does not match the file')
+    }
+  }
+
+  const candidate = structuredClone(file)
+  for (const group of command.groups) {
+    writeFlexState(candidate, group.source.parent)
+    for (const child of group.source.children) writeFlexState(candidate, child)
+  }
+  indexes.delete(candidate)
+  const restored = validateFileDocument(candidate, atoms, { allowUnavailableBindings: true })
+  const replay = removeFlexCandidate(restored, { type: 'node.removeFlex', groups: command.groups.map(group => group.expected) }, atoms)
+  if (!sameFlexValue(replay, file)) throw invalid('Restore Flex does not reconstruct the current removed state')
+  return restored
+}
+
+function sameResizeValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true
+  if (Array.isArray(left) || Array.isArray(right)) return Array.isArray(left) && Array.isArray(right)
+    && left.length === right.length && left.every((value, index) => sameResizeValue(value, right[index]))
+  if (!record(left) || !record(right)) return false
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  return leftKeys.length === rightKeys.length && leftKeys.every(key => own(right, key) && sameResizeValue(left[key], right[key]))
+}
+
+function resizeStateMatches(file: FileDocument, state: NodeResizeState): boolean {
+  const node = file.nodes[state.nodeId]
+  const relationship = file.relationships[state.nodeId]
+  if (!node || node.type === 'root' || !relationship || !sameRelationship(relationship, state.relationship)) return false
+  if (state.primitiveGeometry && (node.type === 'component'
+    || node.styles.left !== state.primitiveGeometry.left || node.styles.top !== state.primitiveGeometry.top
+    || node.styles.width !== state.primitiveGeometry.width || node.styles.height !== state.primitiveGeometry.height)) return false
+  if (own(state, 'layout') && !sameResizeValue(own(node, 'layout') ? node.layout : null, state.layout)) return false
+  if (state.textProperties && (node.type !== 'text'
+    || !sameResizeValue(node.textStyle, state.textProperties.textStyle)
+    || !sameResizeValue(node.textSizing, state.textProperties.textSizing))) return false
+  if (own(state, 'appearance') && !sameResizeValue(own(node, 'appearance') ? node.appearance : null, state.appearance)) return false
+  return true
+}
+
+function validateResizeStateForNode(node: Exclude<FileNode, RootNode>, state: NodeResizeState): void {
+  if (state.primitiveGeometry && node.type === 'component') throw invalid('Resize presentation geometry needs a primitive node')
+  if (state.textProperties && node.type !== 'text') throw invalid('Resize presentation text properties need a text node')
+  if (own(state, 'layout') && state.layout !== null && !validateLayout(state.layout)) throw invalid('Resize presentation carries an invalid layout')
+  if (state.textProperties && (!validateTextStyle(state.textProperties.textStyle) || !validateTextSizing(state.textProperties.textSizing)
+    || !textStyleMatchesSizing(state.textProperties.textStyle, state.textProperties.textSizing))) throw invalid('Resize presentation carries invalid text properties')
+  if (own(state, 'appearance') && state.appearance !== null) validateAppearance(state.appearance, node.type)
+}
+
+function writeResizeState(file: FileDocument, state: NodeResizeState): void {
+  const node = file.nodes[state.nodeId]
+  if (!node || node.type === 'root') throw invalid('Resize presentation references a missing node')
+  if (state.primitiveGeometry) {
+    if (node.type === 'component') throw invalid('Resize presentation geometry needs a primitive node')
+    node.styles = { ...node.styles, ...structuredClone(state.primitiveGeometry) }
+  }
+  if (own(state, 'layout')) {
+    const layout = state.layout
+    if (layout === null || layout === undefined) delete node.layout
+    else node.layout = structuredClone(layout)
+  }
+  if (state.textProperties) {
+    if (node.type !== 'text') throw invalid('Resize presentation text properties need a text node')
+    node.textStyle = structuredClone(state.textProperties.textStyle)
+    node.textSizing = structuredClone(state.textProperties.textSizing)
+  }
+  if (own(state, 'appearance')) {
+    const appearance = state.appearance
+    if (appearance === null || appearance === undefined) delete node.appearance
+    else node.appearance = structuredClone(appearance)
+  }
+}
+
+function preflightResizePresentation(file: FileDocument, command: Extract<FileCommand, { type: 'node.resizePresentation' }>): void {
+  if (!commandResizeEntries(command.entries)) throw invalid('Resize presentation state is invalid')
+  for (const entry of command.entries) {
+    const node = file.nodes[entry.expected.nodeId]
+    if (!node || node.type === 'root') throw invalid('Resize presentation references a missing node')
+    validateResizeStateForNode(node, entry.expected)
+    validateResizeStateForNode(node, entry.source)
+    if (!resizeStateMatches(file, entry.expected)) throw invalid('Resize presentation expected state does not match the file')
+  }
+}
+
+function applyResizePresentation(file: FileDocument, command: Extract<FileCommand, { type: 'node.resizePresentation' }>, atoms: Atom[]): FileDocument {
+  preflightResizePresentation(file, command)
+  const candidate = structuredClone(file)
+  for (const entry of command.entries) writeResizeState(candidate, entry.source)
+  indexes.delete(candidate)
+  return validateFileDocument(candidate, atoms, { allowUnavailableBindings: true })
+}
+
 function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDocument {
   // Commands mutate `file` in place, so a cached index from an earlier batch step would be stale.
   indexes.delete(file)
@@ -790,6 +1421,13 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       // New nodes always carry an explicit stored mode so the canonical v5 form is written, not inferred.
       file.nodes[command.node.id] = { ...structuredClone(command.node), themeMode: command.node.themeMode ?? 'inherit' }
       file.relationships[command.node.id] = placeRelationship(file, command.node.id, command.placement, atoms)
+      const inserted = file.nodes[command.node.id]!
+      const parent = file.nodes[file.relationships[command.node.id]!.parentId]!
+      // Paper adopts a newly drawn primitive into a Flex parent's flow. Callers provide geometry, not a second
+      // layout command, so insertion remains one atomic history step from every creation surface.
+      if (inserted.type !== 'root' && inserted.type !== 'component' && nodePositionMode(inserted) === 'freeform' && nodeChildDisplay(parent) === 'flex') {
+        inserted.layout = { ...(inserted.layout ?? {}), item: { ...(inserted.layout?.item ?? {}), position: { mode: 'flow' } } }
+      }
       return file
     }
     case 'node.rename': {
@@ -819,6 +1457,15 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       const node = primitive(file, command.nodeId)
       if (node.type !== 'text' || typeof command.text !== 'string') throw invalid('Only text nodes carry text')
       node.text = command.text
+      return file
+    }
+    case 'node.setTextProperties': {
+      const node = primitive(file, command.nodeId)
+      const textStyle: unknown = structuredClone(command.textStyle)
+      const textSizing: unknown = structuredClone(command.textSizing)
+      if (node.type !== 'text' || !validateTextStyle(textStyle) || !validateTextSizing(textSizing) || !textStyleMatchesSizing(textStyle, textSizing)) throw invalid('Only text nodes carry valid text properties')
+      node.textStyle = textStyle
+      node.textSizing = textSizing
       return file
     }
     case 'node.setAppearance': {
@@ -943,9 +1590,10 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       return file
     }
     case 'node.setLayout': {
-      const node = component(file, command.nodeId)
+      const node = file.nodes[command.nodeId]
+      if (!node || node.type === 'root') throw invalid('Select a design node')
       if (command.layout === null) delete node.layout
-      else { if (!validateLayout(command.layout)) throw invalid('Invalid component layout'); node.layout = structuredClone(command.layout) }
+      else { if (!validateLayout(command.layout)) throw invalid(node.type === 'component' ? 'Invalid component layout' : 'Invalid primitive layout'); node.layout = structuredClone(command.layout) }
       return file
     }
     case 'node.setThemeMode': {
@@ -987,6 +1635,24 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       file.relationships[command.nodeId] = { ...relationship, orderKey: before !== null && after !== null && before >= after ? orderKeyBetween(before, null) : orderKeyBetween(before, after) }
       return file
     }
+    case 'node.restoreRelationship': {
+      const node = file.nodes[command.nodeId]
+      const current = file.relationships[command.nodeId]
+      const same = (left: NodeRelationship, right: NodeRelationship) => left.parentId === right.parentId
+        && left.orderKey === right.orderKey
+        && own(left, 'slot') === own(right, 'slot')
+        && left.slot === right.slot
+      if (!node || node.type === 'root' || !current || !same(current, command.expected)) throw invalid('History relationship is stale')
+      const parent = file.nodes[command.source.parentId]
+      if (!parent || command.source.parentId === command.nodeId || descendantsOf(file, command.nodeId).includes(command.source.parentId) || !acceptsChild(parent, node, command.source.slot, atoms)) throw invalid('History relationship is invalid')
+      file.relationships[command.nodeId] = structuredClone(command.source)
+      return file
+    }
+    case 'node.resizePresentation': return applyResizePresentation(file, command, atoms)
+    case 'node.wrap': return applyWrap(file, command)
+    case 'node.unwrap': return applyUnwrap(file, command, atoms)
+    case 'node.removeFlex': return applyRemoveFlex(file, command, atoms)
+    case 'node.restoreFlex': return applyRestoreFlex(file, command, atoms)
     case 'node.delete': {
       if (!Array.isArray(command.nodeIds) || !command.nodeIds.length) throw invalid('Select a node')
       for (const id of command.nodeIds) { const node = file.nodes[id]; if (!node || node.type === 'root') throw invalid('Select an existing node') }
@@ -1118,6 +1784,12 @@ const restoreDeletedNodes = (before: FileDocument, after: FileDocument): FileCom
   })
 
 function canonicalHistoryRedo(before: FileDocument, after: FileDocument, command: Exclude<FileCommand, { type: 'batch' }>): FileCommand {
+  if (command.type === 'node.reorder') {
+    const expected = before.relationships[command.nodeId]
+    const source = after.relationships[command.nodeId]
+    if (!expected || !source) throw invalid('History references a missing node')
+    return { type: 'node.restoreRelationship', nodeId: command.nodeId, expected: structuredClone(expected), source: structuredClone(source) }
+  }
   if (command.type !== 'node.fill.add' || command.paint) return structuredClone(command)
   const beforeIds = new Set((nodeAppearance(before.nodes[command.nodeId])?.fills ?? []).map(paint => paint.id))
   const paint = (nodeAppearance(after.nodes[command.nodeId])?.fills ?? []).find(candidate => !beforeIds.has(candidate.id))
@@ -1159,6 +1831,11 @@ function inverseHistoryLeaf(before: FileDocument, after: FileDocument, command: 
       if (!node || node.type !== 'text') throw invalid('History references a missing text node')
       return { type: 'node.setText', nodeId: command.nodeId, text: node.text ?? '' }
     }
+    case 'node.setTextProperties': {
+      const node = before.nodes[command.nodeId]
+      if (!node || node.type !== 'text' || !node.textStyle || !node.textSizing) throw invalid('History references a missing text node')
+      return { type: 'node.setTextProperties', nodeId: command.nodeId, textStyle: structuredClone(node.textStyle), textSizing: structuredClone(node.textSizing) }
+    }
     case 'node.setAppearance':
     case 'node.setBlending':
     case 'node.fill.add':
@@ -1191,8 +1868,8 @@ function inverseHistoryLeaf(before: FileDocument, after: FileDocument, command: 
     }
     case 'node.setLayout': {
       const node = before.nodes[command.nodeId]
-      if (!node || node.type !== 'component') throw invalid('History references a missing component')
-      return { type: 'node.setLayout', nodeId: command.nodeId, layout: structuredClone(node.layout ?? null) }
+      if (!node || node.type === 'root') throw invalid('History references a missing node')
+      return { type: 'node.setLayout', nodeId: command.nodeId, layout: own(node, 'layout') ? structuredClone(node.layout!) : null }
     }
     case 'node.setThemeMode': {
       const node = before.nodes[command.nodeId]
@@ -1201,10 +1878,80 @@ function inverseHistoryLeaf(before: FileDocument, after: FileDocument, command: 
     }
     case 'node.reparent': return { type: 'node.reparent', nodeId: command.nodeId, placement: historyPlacement(before, command.nodeId), ...(command.preserveWorldPosition ? { preserveWorldPosition: true } : {}) }
     case 'node.reorder': {
-      const relationship = before.relationships[command.nodeId]
-      if (!relationship) throw invalid('History references a missing node')
-      return { type: 'node.reorder', nodeId: command.nodeId, index: childrenOf(before, relationship.parentId, relationship.slot).indexOf(command.nodeId) }
+      const expected = after.relationships[command.nodeId]
+      const source = before.relationships[command.nodeId]
+      if (!expected || !source) throw invalid('History references a missing node')
+      return { type: 'node.restoreRelationship', nodeId: command.nodeId, expected: structuredClone(expected), source: structuredClone(source) }
     }
+    case 'node.restoreRelationship': return { type: 'node.restoreRelationship', nodeId: command.nodeId, expected: structuredClone(command.source), source: structuredClone(command.expected) }
+    case 'node.resizePresentation': return {
+      type: 'node.resizePresentation',
+      entries: command.entries.map(entry => ({ expected: structuredClone(entry.source), source: structuredClone(entry.expected) })),
+    }
+    case 'node.wrap': return {
+      type: 'node.unwrap',
+      groups: command.groups.map(group => ({
+        wrapperId: group.wrapper.id,
+        children: group.children.map(child => {
+          const node = before.nodes[child.nodeId]
+          const relationship = before.relationships[child.nodeId]
+          if (!node || node.type === 'root' || node.type === 'component' || !relationship) throw invalid('History references a missing Wrap child')
+          return {
+            nodeId: child.nodeId,
+            relationship: structuredClone(relationship),
+            layout: own(node, 'layout') ? structuredClone(node.layout!) : null,
+            ...(child.targetPrimitiveSize ? { restorePrimitiveSize: { width: node.styles.width, height: node.styles.height } } : {}),
+            ...(child.targetTextProperties && node.type === 'text' ? { restoreTextProperties: { textStyle: structuredClone(node.textStyle!), textSizing: structuredClone(node.textSizing!) } } : {}),
+          }
+        }),
+      })),
+    }
+    case 'node.unwrap': return {
+      type: 'node.wrap',
+      groups: command.groups.map(group => {
+        const wrapper = before.nodes[group.wrapperId]
+        const relationship = before.relationships[group.wrapperId]
+        if (!wrapper || wrapper.type !== 'frame' || !relationship || relationship.slot !== undefined) throw invalid('History references a missing Wrap frame')
+        return {
+          wrapper: structuredClone(wrapper) as PrimitiveNode & { type: 'frame' },
+          parentId: relationship.parentId,
+          children: childrenOf(before, group.wrapperId).map(nodeId => {
+            const child = before.nodes[nodeId]
+            if (!child || child.type === 'root' || child.type === 'component' || !child.layout) throw invalid('History references a missing Wrap child layout')
+            const restored = group.children.find(candidate => candidate.nodeId === nodeId)
+            if (!restored) throw invalid('History references a missing Unwrap child')
+            return {
+              nodeId,
+              targetLayout: structuredClone(child.layout),
+              ...(restored.restorePrimitiveSize ? { targetPrimitiveSize: { width: child.styles.width, height: child.styles.height } } : {}),
+              ...(restored.restoreTextProperties && child.type === 'text' ? { targetTextProperties: { textStyle: structuredClone(child.textStyle!), textSizing: structuredClone(child.textSizing!) } } : {}),
+            }
+          }),
+        }
+      }),
+    }
+    case 'node.removeFlex': return {
+      type: 'node.restoreFlex',
+      groups: command.groups.map(group => {
+        const capture = (target: NodeFlexState): NodeFlexState => {
+          const node = before.nodes[target.nodeId]
+          const relationship = before.relationships[target.nodeId]
+          if (!node || node.type === 'root' || !relationship) throw invalid('History references a missing Remove Flex node')
+          return {
+            nodeId: target.nodeId,
+            relationship: structuredClone(relationship),
+            layout: own(node, 'layout') ? structuredClone(node.layout!) : null,
+            ...(target.primitiveSize && node.type !== 'component' ? { primitiveSize: { width: node.styles.width, height: node.styles.height } } : {}),
+            ...(target.textProperties && node.type === 'text' ? { textProperties: { textStyle: structuredClone(node.textStyle!), textSizing: structuredClone(node.textSizing!) } } : {}),
+          }
+        }
+        return {
+          expected: structuredClone(group),
+          source: { parent: capture(group.parent), children: group.children.map(capture) },
+        }
+      }),
+    }
+    case 'node.restoreFlex': return { type: 'node.removeFlex', groups: command.groups.map(group => structuredClone(group.expected)) }
     case 'node.delete': return historyBatch(restoreDeletedNodes(before, after))
     case 'node.duplicate': return { type: 'node.delete', nodeIds: [command.ids[command.nodeId]!] }
     case 'token.create': return { type: 'token.delete', tokenIds: [command.token.id] }
@@ -1231,21 +1978,25 @@ function inverseHistoryLeaf(before: FileDocument, after: FileDocument, command: 
 export function applyFileCommandWithHistory(input: FileDocument, command: FileCommand, atoms: Atom[], options: FileValidationOptions = {}): FileCommandHistory {
   const leaves: Exclude<FileCommand, { type: 'batch' }>[] = []
   const flatten = (candidate: FileCommand) => { if (candidate.type === 'batch') candidate.commands.forEach(flatten); else leaves.push(candidate) }
-  flatten(validateFileCommand(command))
+  const validatedCommand = validateFileCommand(command)
+  // This aggregate can check every stale authority directly. Reject it before the generic history path clones a large file.
+  if (validatedCommand.type === 'node.resizePresentation') preflightResizePresentation(input, validatedCommand)
+  flatten(validatedCommand)
   const baseRevision = input.revision
   let working = validateFileDocument(input, atoms, options)
   const undo: FileCommand[] = []
   const redo: FileCommand[] = []
   for (const leaf of leaves) {
-    working = { ...working, revision: baseRevision }
-    const next = applyFileCommand(working, leaf, atoms, options)
-    const canonical = canonicalHistoryRedo(working, next, leaf)
-    undo.unshift(inverseHistoryLeaf(working, next, canonical as Exclude<FileCommand, { type: 'batch' }>))
+    const before = structuredClone(working)
+    const next = apply(working, leaf, atoms)
+    const canonical = canonicalHistoryRedo(before, next, leaf)
+    undo.unshift(inverseHistoryLeaf(before, next, canonical as Exclude<FileCommand, { type: 'batch' }>))
     redo.push(canonical)
     working = next
   }
-  const file = applyFileCommand(input, command, atoms, options)
-  if (historyJson(working) !== historyJson(file)) throw invalid('History projection did not match the command')
+  working.revision = baseRevision
+  bump(working)
+  const file = validateFileDocument(working, atoms, options)
   return Object.freeze({ file, undo: historyBatch(undo), redo: historyBatch(redo) })
 }
 

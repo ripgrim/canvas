@@ -8,16 +8,21 @@ function signed(secret: Buffer, value: unknown): string {
   return Buffer.concat([payload, createHmac('sha256', secret).update(payload).digest()]).toString('base64url')
 }
 
+function tampered(token: string): string {
+  const index = Math.floor(token.length / 2)
+  const replacement = token[index] === 'A' ? 'B' : 'A'
+  return `${token.slice(0, index)}${replacement}${token.slice(index + 1)}`
+}
+
 describe('room capability verification', () => {
   it('checks signature, room scope, expiry, role, and durable access epoch', async () => {
     const secret = Buffer.alloc(32, 7)
     const verifier = new HmacRoomTicketVerifier(secret, { async resolve() { return { role: 'owner', accessEpoch: 1n } } })
     const token = signed(secret, claims())
     const context = { token, fileId, generationId, clientId, connectionNonce, nowUnixMs: Date.now() }
-    const replacement = token.endsWith('A') ? 'B' : 'A'
     await expect(verifier.verify(context)).resolves.toMatchObject({ claims: { fileId, generationId, role: 'owner', buildId: 'test-build' } })
     await expect(verifier.isCurrent(claims(), Date.now())).resolves.toBe(true)
-    await expect(verifier.verify({ ...context, token: `${token.slice(0, -1)}${replacement}` })).resolves.toBeNull()
+    await expect(verifier.verify({ ...context, token: tampered(token) })).resolves.toBeNull()
     await expect(verifier.verify({ ...context, generationId: 'aa7d739c-7eae-4552-b2af-928312531c7e' })).resolves.toBeNull()
     const revoked = new HmacRoomTicketVerifier(secret, { async resolve() { return { role: 'owner', accessEpoch: 2n } } })
     await expect(revoked.verify(context)).resolves.toBeNull()

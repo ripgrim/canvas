@@ -3,10 +3,14 @@ import { acceptPreviewCommand, acceptPreviewEvent, isPreviewDocument } from '../
 import { canvasElementStyle, hostOrigin } from '../src/scene-styles.mjs'
 
 const source = {} as Window
-const envelope = { channel: 'design-editor-preview', version: 3, generation: 3 }
+const envelope = { channel: 'design-editor-preview', version: 8, generation: 3 }
 const solid = (color: string) => ({ fills: [{ type: 'solid', color }] })
 const gradient = { fills: [{ type: 'gradient', shape: 'linear', angle: 135, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'srgb', stops: [{ color: 'oklch(0.62 0.19 259.8)', position: 0 }, { color: '#000000', position: 1 }] }] }
-const document = { version: 1, revision: 0, rootIds: [], nodes: {}, frame: { width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [{ id: 'frame', kind: 'frame', name: 'Frame', x: -213, y: -276, width: 438, height: 560, rotation: 0, appearance: solid('#ffffff'), parentId: null }, { id: 'text', kind: 'text', name: 'Text', x: 12, y: 13.5, width: 200, height: 21, rotation: 0, appearance: solid('#64748b'), text: 'you@example.com', parentId: 'frame' }, { id: 'glow', kind: 'shader', name: 'Glow', x: 40, y: 80, width: 120, height: 120, rotation: 15, appearance: gradient, parentId: 'frame' }] } }
+const legacyTextProperties = {
+  textStyle: { fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false },
+  textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+}
+const document = { version: 2, revision: 0, rootIds: [], nodes: {}, frame: { width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [{ id: 'frame', kind: 'frame', name: 'Frame', x: -213, y: -276, width: 438, height: 560, rotation: 0, appearance: solid('#ffffff'), parentId: null }, { id: 'text', kind: 'text', name: 'Text', x: 12, y: 13.5, width: 200, height: 21, rotation: 0, appearance: solid('#64748b'), text: 'you@example.com', ...legacyTextProperties, parentId: 'frame' }, { id: 'glow', kind: 'shader', name: 'Glow', x: 40, y: 80, width: 120, height: 120, rotation: 15, appearance: gradient, parentId: 'frame' }] } }
 const withElement = (index: number, patch: Record<string, unknown>) => ({ ...document, canvas: { elements: document.canvas.elements.map((element, position) => position === index ? { ...element, ...patch } : element) } })
 
 describe('scene protocol', () => {
@@ -38,10 +42,83 @@ describe('scene protocol', () => {
     expect(isPreviewDocument(withElement(0, { parentId: '' }))).toBe(false)
   })
 
+  it('PAPER-FLEX-001/002 accepts projected primitive layout and fails closed on competing or hostile authorities', () => {
+    const frameLayout = { mode: 'freeform', declarations: { display: 'flex', 'flex-direction': 'row', 'flex-wrap': 'wrap', 'justify-content': 'flex-start', 'align-items': 'center', 'column-gap': '8px', 'row-gap': '10px', 'padding-left': '12px' } }
+    const flowText = { mode: 'flow', declarations: { 'margin-left': '4px' } }
+    const absolute = { mode: 'absolute', declarations: { position: 'absolute', left: '25%', top: '7px' } }
+    expect(isPreviewDocument(withElement(0, { layout: frameLayout }))).toBe(true)
+    expect(isPreviewDocument(withElement(1, { layout: flowText }))).toBe(true)
+    expect(isPreviewDocument(withElement(2, { layout: absolute }))).toBe(true)
+
+    for (const layout of [
+      { ...frameLayout, extra: true },
+      { mode: 'flow', declarations: { position: 'absolute' } },
+      { mode: 'absolute', declarations: { left: '7px' } },
+      { mode: 'absolute', declarations: { position: 'absolute', transform: 'rotate(15deg)' } },
+      { mode: 'freeform', declarations: { overflow: 'hidden' } },
+      { mode: 'flow', declarations: { width: 'calc(100% - 2px)' } },
+    ]) expect(isPreviewDocument(withElement(0, { layout }))).toBe(false)
+    expect(isPreviewDocument(withElement(2, { layout: { mode: 'flow', declarations: { display: 'flex' } } }))).toBe(false)
+    expect(isPreviewDocument(withElement(1, { layout: { mode: 'flow', declarations: { width: '120px' } } }))).toBe(false)
+    expect(isPreviewDocument({ ...document, version: 1 })).toBe(false)
+  })
+
+  it('PAPER-FLEX-003 admits only contextual freeform primitive sizing authorities', () => {
+    const semanticFields = {
+      width: '42%', height: '50%', 'min-width': '12px', 'min-height': '13px', 'max-width': '80%', 'max-height': '90%',
+    }
+    for (const [name, value] of Object.entries(semanticFields)) {
+      expect(isPreviewDocument(withElement(2, { layout: { mode: 'freeform', declarations: { [name]: value } } }))).toBe(true)
+    }
+
+    for (const value of ['fit-content', 'min-content', 'max-content', 'auto']) {
+      expect(isPreviewDocument(withElement(0, { layout: { mode: 'freeform', declarations: { display: 'flex', width: value, height: value } } }))).toBe(true)
+      for (const kind of ['rectangle', 'shape', 'shader']) {
+        for (const name of Object.keys(semanticFields)) {
+          expect(isPreviewDocument(withElement(2, { kind, layout: { mode: 'freeform', declarations: { [name]: value } } }))).toBe(false)
+        }
+      }
+    }
+
+    for (const name of Object.keys(semanticFields)) {
+      for (const mode of ['freeform', 'flow', 'absolute'] as const) {
+        const declarations = mode === 'absolute' ? { position: 'absolute', left: '0px', [name]: '42%' } : { [name]: '42%' }
+        expect(isPreviewDocument(withElement(0, { layout: { mode, declarations } }))).toBe(false)
+      }
+    }
+    expect(isPreviewDocument(withElement(2, { layout: { mode: 'freeform', declarations: { width: '120px' } } }))).toBe(false)
+    expect(isPreviewDocument(withElement(2, { layout: { mode: 'freeform', declarations: { height: '80px' } } }))).toBe(false)
+
+    for (const kind of ['rectangle', 'shape', 'shader'] as const) {
+      for (const name of ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'] as const) {
+        expect(isPreviewDocument(withElement(2, { kind, layout: { mode: 'freeform', declarations: { [name]: '4px' } } }))).toBe(false)
+      }
+      for (const name of ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'] as const) {
+        expect(isPreviewDocument(withElement(2, { kind, layout: { mode: 'freeform', declarations: { [name]: '4px' } } }))).toBe(false)
+      }
+    }
+    for (const name of ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'] as const) {
+      expect(isPreviewDocument(withElement(0, { layout: { mode: 'freeform', declarations: { [name]: '4px' } } }))).toBe(false)
+    }
+    for (const name of ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'] as const) {
+      expect(isPreviewDocument(withElement(2, { kind: 'frame', layout: { mode: 'freeform', declarations: { [name]: '4px' } } }))).toBe(true)
+    }
+
+    for (const declarations of [
+      { left: '1px' }, { right: '1px' }, { top: '1px' }, { bottom: '1px' }, { 'z-index': '1' },
+      { 'flex-grow': '1' }, { 'flex-shrink': '0' }, { 'flex-basis': 'auto' }, { 'grid-column-start': '1' },
+      { transform: 'scale(1)' }, { overflow: 'hidden' }, { 'aspect-ratio': '1' },
+    ]) expect(isPreviewDocument(withElement(2, { layout: { mode: 'freeform', declarations } }))).toBe(false)
+
+    for (const name of Object.keys(semanticFields)) {
+      expect(isPreviewDocument(withElement(1, { layout: { mode: 'freeform', declarations: { [name]: semanticFields[name as keyof typeof semanticFields] } } }))).toBe(false)
+    }
+  })
+
   it('accepts selection of primitive ids, geometry with its measuring camera, and forwarded wheel input', () => {
     const selection = { ...envelope, type: 'set-selection', nodeIds: ['frame'], color: '#e864ff', renderChrome: false }
     expect(acceptPreviewCommand({ origin: 'https://editor.test', source, data: selection }, 'https://editor.test', source, 3, document as never)).toEqual(selection)
-    const geometry = { ...envelope, type: 'geometry', items: [], root: null, camera: { x: 0, y: 0, zoom: 2, width: 800, height: 600 } }
+    const geometry = { ...envelope, type: 'geometry', items: [], root: null, documentRevision: document.revision, layoutGeneration: 0, measurementRevision: 1, camera: { x: 0, y: 0, zoom: 2, width: 800, height: 600 } }
     expect(acceptPreviewEvent({ origin: 'https://preview.test', source, data: geometry }, 'https://preview.test', source, 3)).toEqual(geometry)
     expect(acceptPreviewEvent({ origin: 'https://preview.test', source, data: { ...geometry, camera: { zoom: 2 } } }, 'https://preview.test', source, 3)).toBeNull()
     const wheel = { ...envelope, type: 'wheel', wheel: { deltaX: 0, deltaY: -53, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 410, clientY: 220 } }
@@ -63,5 +140,30 @@ describe('scene protocol', () => {
     expect(canvasElementStyle({ ...document.canvas.elements[2], kind: 'shape' })).toMatchObject({ backgroundImage: 'linear-gradient(135deg, oklch(0.62 0.19 259.8) 0%, #000000 100%)', borderRadius: '50%' })
     expect(canvasElementStyle({ ...document.canvas.elements[2], kind: 'rectangle', appearance: undefined, rotation: 0 })).toMatchObject({ backgroundColor: 'transparent', transform: undefined })
     expect(canvasElementStyle({ ...document.canvas.elements[2], kind: 'rectangle', appearance: undefined }).backgroundImage).toBeUndefined()
+  })
+
+  it('PAPER-FLEX-001 keeps legacy freeform absolute and projects flow, flex, and absolute DOM styles independently', () => {
+    const frame = document.canvas.elements[0]!
+    const legacy = canvasElementStyle(frame)
+    expect(legacy).toMatchObject({ position: 'absolute', left: '-213px', top: '-276px', width: '438px', height: '560px' })
+
+    const flex = canvasElementStyle({ ...frame, layout: { mode: 'freeform', declarations: { display: 'flex', 'flex-direction': 'row', 'flex-wrap': 'wrap', 'column-gap': '8px', 'row-gap': '10px', 'padding-left': '12px' } } })
+    expect(flex).toMatchObject({ position: 'absolute', left: '-213px', top: '-276px', display: 'flex', flexDirection: 'row', flexWrap: 'wrap', columnGap: '8px', rowGap: '10px', paddingLeft: '12px' })
+
+    const flow = canvasElementStyle({ ...frame, layout: { mode: 'flow', declarations: { width: '120px', 'flex-grow': '1' } } })
+    expect(flow).toMatchObject({ position: 'relative', left: undefined, top: undefined, width: '120px', flexGrow: '1' })
+
+    const absolute = canvasElementStyle({ ...document.canvas.elements[2]!, layout: { mode: 'absolute', declarations: { position: 'absolute', left: '25%', top: '7px' } } })
+    expect(absolute).toMatchObject({ position: 'absolute', left: '25%', top: '7px', transform: 'rotate(15deg)' })
+  })
+
+  it('PAPER-FLEX-002 keeps far-edge absolute anchors independent from authored x and y fallbacks', () => {
+    const element = document.canvas.elements[2]!
+    const right = canvasElementStyle({ ...element, layout: { mode: 'absolute', declarations: { position: 'absolute', right: '11px', top: '7px' } } })
+    expect(right).toMatchObject({ position: 'absolute', left: undefined, right: '11px', top: '7px' })
+    const bottom = canvasElementStyle({ ...element, layout: { mode: 'absolute', declarations: { position: 'absolute', left: '13px', bottom: '17px' } } })
+    expect(bottom).toMatchObject({ position: 'absolute', left: '13px', top: undefined, bottom: '17px' })
+    const mixed = canvasElementStyle({ ...element, layout: { mode: 'absolute', declarations: { position: 'absolute', right: '9%', bottom: '21px' } } })
+    expect(mixed).toMatchObject({ position: 'absolute', left: undefined, right: '9%', top: undefined, bottom: '21px' })
   })
 })

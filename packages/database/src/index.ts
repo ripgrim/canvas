@@ -117,7 +117,7 @@ export interface ControlPlaneStore {
 
 export function emptyCanvasDocument(fileId: string, pageId: string, rootNodeId: string): Readonly<Record<string, JsonValue>> {
   return Object.freeze({
-    schemaVersion: 7,
+    schemaVersion: 9,
     fileId,
     revision: 0,
     pages: Object.freeze([Object.freeze({ id: pageId, name: 'Page 1', rootNodeId })]),

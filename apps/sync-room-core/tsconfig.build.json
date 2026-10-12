@@ -10,6 +10,7 @@
       "@canvas/database/collaboration": ["../../packages/database/dist/collaboration.d.ts"],
       "@canvas/database/postgres": ["../../packages/database/dist/postgres.d.ts"],
       "@canvas/repo-engine/file-document": ["../../packages/repo-engine/dist/file-document.d.ts"],
+      "@canvas/sync-protocol/flow": ["../../packages/sync-protocol/dist/flow.d.ts"],
       "@canvas/sync-protocol": ["../../packages/sync-protocol/dist/index.d.ts"]
     }
   },

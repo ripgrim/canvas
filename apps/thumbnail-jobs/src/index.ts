@@ -97,16 +97,29 @@ export function createPlaywrightThumbnailCapturePort(options: Readonly<{
           serviceWorkers: 'block',
         })
         const page = await context.newPage()
+        const rendererErrors: string[] = []
+        page.on('pageerror', error => rendererErrors.push(error.message))
+        page.on('console', message => { if (message.type() === 'error') rendererErrors.push(message.text()) })
+        page.on('requestfailed', failed => rendererErrors.push(`${failed.url()}: ${failed.failure()?.errorText ?? 'request failed'}`))
         await page.addInitScript(value => { window.__CANVAS_THUMBNAIL_SOURCE__ = value }, { fileId: source.fileId, revision: source.revision, pageId: source.pageId, registryFingerprint: source.registryFingerprint, file: source.document })
         const response = await page.goto(rendererUrl.toString(), { waitUntil: 'domcontentloaded', timeout: 10_000 })
         if (!response?.ok() || new URL(page.url()).origin !== rendererOrigin || new URL(page.url()).pathname !== rendererUrl.pathname) {
           throw new Error('Thumbnail renderer navigation failed.')
         }
-        await page.waitForFunction(
-          identity => window.__PAPER_THUMBNAIL_READY === true && document.documentElement.dataset.paperThumbnailFileId === identity,
-          request.fileId,
-          { timeout: 13_000 },
-        )
+        try {
+          await page.waitForFunction(
+            identity => window.__PAPER_THUMBNAIL_READY === true && document.documentElement.dataset.paperThumbnailFileId === identity,
+            request.fileId,
+            { timeout: 13_000 },
+          )
+        } catch (error) {
+          const state = await page.evaluate(() => ({
+            phase: document.documentElement.dataset.paperThumbnailPhase,
+            error: document.documentElement.dataset.paperThumbnailError,
+          }))
+          const detail = state.error ?? (rendererErrors.length > 0 ? rendererErrors.join(' | ') : 'no renderer error')
+          throw new Error(`Thumbnail renderer did not become ready (${state.phase ?? 'unknown'}): ${detail}`, { cause: error })
+        }
         const state = await page.evaluate(() => ({
           phase: document.documentElement.dataset.paperThumbnailPhase,
           error: document.documentElement.dataset.paperThumbnailError,

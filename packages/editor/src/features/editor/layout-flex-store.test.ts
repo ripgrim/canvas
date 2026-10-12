@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Atom } from './types'
-import type { ComponentNode, FileDocument } from '@canvas/repo-engine/file-document'
+import { validateFileDocument } from '@canvas/repo-engine/file-document'
+import type { ComponentNode, FileDocument, FileNode } from '@canvas/repo-engine/file-document'
 import type { FlexContainer, NodeLayout } from '@canvas/repo-engine/layout'
+import type { FlexInferenceInput } from '@canvas/repo-engine/flex-inference'
+import { snapshotPaperSizing } from '@canvas/repo-engine/paper-sizing'
 import { createDocumentStore } from './document-store'
+import { paperDirectAddGeometry, paperFlexInput } from './layout-measure'
 
 // Flex and Block commands on the document store: conversions write the container, child patches and order as one
 // revision and one undo entry; every expected record is a hand-written literal.
@@ -18,7 +22,7 @@ const flexLayout = (flex: FlexContainer, gap?: number): NodeLayout => ({ item: {
  * panel: Block with child p. frame: Freeform with absolute children f1 f2. d: a root label.
  */
 const fixture = (cardFlex: FlexContainer = { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' }): FileDocument => ({
-  schemaVersion: 7, fileId: 'file-1', revision: 0,
+  schemaVersion: 9, fileId: 'file-1', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -50,6 +54,42 @@ const revision = (store: Store) => store.getSnapshot().file!.revision
 /** Child ids of a parent sorted by their stored order keys (plain string order). */
 const orderOf = (store: Store, parentId: string) => Object.entries(store.getSnapshot().file!.relationships).filter(([, relationship]) => relationship.parentId === parentId).sort((left, right) => (left[1].orderKey < right[1].orderKey ? -1 : left[1].orderKey > right[1].orderKey ? 1 : 0)).map(([id]) => id)
 const margin12 = { margin: { top: 12, right: 0, bottom: 0, left: 0 } }
+const textStyle = { fontFamily: 'Inter', fontStyle: 'normal' as const, fontWeight: 400, fontSize: 16, lineHeight: { kind: 'px' as const, value: 10 }, letterSpacing: 0, horizontalAlign: 'left' as const, verticalAlign: 'top' as const, case: 'none' as const, wrap: 'normal' as const, keepWords: false }
+const analysisChild = (id: string, x: number, y: number, width: number, height: number) => ({ id, worldAabb: { x, y, width, height }, authoredPosition: { x, y }, authoredSize: { width, height }, parentLocalCenter: { x: x + width / 2, y: y + height / 2 }, sourcePosition: 'freeform' as const })
+const directCapture = (file: FileDocument, containerId: string, input: FlexInferenceInput) => {
+  const snapshot = (node: Exclude<FileNode, { type: 'root' }>, measured: { width: number; height: number }) => node.type === 'component'
+    ? snapshotPaperSizing({ nodeId: node.id, kind: 'component', layout: node.layout ?? null, measured })
+    : snapshotPaperSizing({ nodeId: node.id, kind: 'primitive', layout: node.layout ?? null, styles: { width: node.styles.width, height: node.styles.height }, measured })
+  const parent = file.nodes[containerId]!
+  if (parent.type === 'root') throw new Error('test container must not be root')
+  return {
+    input,
+    parentSnapshot: snapshot(parent, input.containerSize),
+    childSnapshots: Object.fromEntries(input.children.map(child => {
+      const node = file.nodes[child.id]!
+      if (node.type === 'root') throw new Error('test child must not be root')
+      return [child.id, snapshot(node, child.authoredSize)]
+    })),
+  }
+}
+
+const primitiveFixture = (width = 100, height = 100, withChildren = false): FileDocument => ({
+  schemaVersion: 9, fileId: 'primitive-file', revision: 0,
+  pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
+  nodes: {
+    'root-1': { id: 'root-1', type: 'root' },
+    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width, height } },
+    ...(withChildren ? {
+      ordinary: { id: 'ordinary', type: 'rectangle' as const, name: 'Ordinary', styles: { left: 80, top: 10, width: 40, height: 20 } },
+      pinned: { id: 'pinned', type: 'rectangle' as const, name: 'Pinned', styles: { left: 8, top: 4, width: 40, height: 20 }, layout: { item: { position: { mode: 'absolute' as const, left: px(8), right: { kind: 'percent' as const, value: 12 }, top: px(4), bottom: px(6), zIndex: 7 } } } },
+    } : {}),
+  },
+  relationships: {
+    frame: { parentId: 'root-1', orderKey: 'V' },
+    ...(withChildren ? { ordinary: { parentId: 'frame', orderKey: 'V' }, pinned: { parentId: 'frame', orderKey: 'W' } } : {}),
+  },
+  theme: { tokens: {} },
+})
 
 describe('LAY-BLOCK-001 store: Flex to Block in one revision', () => {
   it('writes the Block container, child margins and cleared flex fields in one revision; one undo restores everything', () => {
@@ -82,18 +122,141 @@ describe('LAY-BLOCK-001 store: Flex to Block in one revision', () => {
     expect(layoutOf(store, 'a')).toEqual({ item: { position: flow, flex: { grow: 1 } } })
   })
 
-  it('Freeform to Flex with measurements reorders and drops insets in the same revision; the preview reports without writing', () => {
+  it('Freeform to Flex consumes the Paper analysis once, preserves explicit absolute children and writes one revision', () => {
     const store = loaded()
     // f2 sits left of f1 (x 10 vs 100) in a 300 x 60 frame, both 50 x 40 at y 10: a row, order f2 f1, gap 100 - 60 = 40.
-    const measured = { frame: { container: { x: 0, y: 0, width: 300, height: 60 }, children: { f1: { x: 100, y: 10, width: 50, height: 40 }, f2: { x: 10, y: 10, width: 50, height: 40 } } } }
+    const input = {
+        containerSize: { width: 300, height: 60 }, directAddLeadingInset: { x: 10, y: 10 }, kind: 'direct-add' as const, isRoot: false,
+        children: [
+          { id: 'f1', worldAabb: { x: 100, y: 10, width: 50, height: 40 }, authoredPosition: { x: 100, y: 10 }, authoredSize: { width: 50, height: 40 }, parentLocalCenter: { x: 125, y: 30 }, sourcePosition: 'absolute' as const },
+          { id: 'f2', worldAabb: { x: 10, y: 10, width: 50, height: 40 }, authoredPosition: { x: 10, y: 10 }, authoredSize: { width: 50, height: 40 }, parentLocalCenter: { x: 35, y: 30 }, sourcePosition: 'absolute' as const },
+        ],
+      }
+    const measured = { frame: { boxes: null, directAdd: directCapture(store.getSnapshot().file!, 'frame', input) } }
     const preview = store.commands.layout.displayConversion('flex', 'frame', measured.frame)
     expect(preview?.order).toEqual(['f2', 'f1'])
     expect(revision(store)).toBe(0)
     expect(store.commands.layout.setDisplay('flex', ['frame'], measured)).toBe(true)
     expect(revision(store)).toBe(1)
     expect(orderOf(store, 'frame')).toEqual(['f2', 'f1'])
-    expect(layoutOf(store, 'f1')).toEqual({ item: { position: flow } })
+    expect(layoutOf(store, 'f1')).toEqual({ item: { position: { mode: 'absolute', left: px(100), top: px(10), zIndex: 2 }, width: { value: { kind: 'auto' } }, height: { value: { kind: 'auto' } } } })
+    expect(layoutOf(store, 'f2')).toEqual({ item: { position: { mode: 'absolute', left: px(10), top: px(10) }, width: { value: { kind: 'auto' } }, height: { value: { kind: 'auto' } } } })
     expect(layoutOf(store, 'frame')!.container).toMatchObject({ display: 'flex', gap: 40, flex: { direction: 'row' } })
+  })
+})
+
+describe('PAPER-FLEX-001/002 direct Add', () => {
+  it('adds Flex to an empty primitive frame with Paper defaults in one revision and one undo', () => {
+    const file = primitiveFixture(100, 100)
+    const store = createDocumentStore(() => 'unused')
+    store.load(file, [])
+    const geometry = { nodes: {}, unsupported: {}, documentRevision: file.revision, layoutGeneration: store.getSnapshot().layoutGeneration }
+    const directAdd = paperDirectAddGeometry(file, geometry, 'frame', store.getSnapshot().layoutGeneration)
+    expect(directAdd).not.toBeNull()
+    expect(store.commands.layout.setDisplay('flex', ['frame'], { frame: { boxes: null, directAdd } })).toBe(true)
+    expect(revision(store)).toBe(1)
+    expect(layoutOf(store, 'frame')).toEqual({ item: { position: { mode: 'freeform' }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } }, container: { display: 'flex', gap: 16, flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } }, spacing: { padding: { x: 16, y: 16 } } })
+    store.undo()
+    expect(revision(store)).toBe(2)
+    expect(layoutOf(store, 'frame')).toBeUndefined()
+    expect(store.getSnapshot().canUndo).toBe(false)
+  })
+
+  it('switches a primitive Flex frame between Fit and measured Fixed in one undo step each', () => {
+    const file = primitiveFixture(100, 100)
+    const sourceFrame = file.nodes.frame!
+    if (sourceFrame.type !== 'frame') throw new Error('fixture frame is missing')
+    sourceFrame.layout = { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } } }
+    const store = createDocumentStore(() => 'unused')
+    store.load(file, [])
+
+    expect(store.commands.layout.primitiveSizing('width', 'hug', [{ id: 'frame', measuredPx: 100 }])).toBe(true)
+    expect((store.getSnapshot().file!.nodes.frame as Exclude<FileNode, { type: 'root' | 'component' }>).layout?.item.width).toEqual({ value: { kind: 'intrinsic', value: 'fit-content' } })
+    expect(revision(store)).toBe(1)
+
+    expect(store.commands.layout.primitiveSizing('width', 'fixed', [{ id: 'frame', measuredPx: 240 }])).toBe(true)
+    const fixed = store.getSnapshot().file!.nodes.frame as Exclude<FileNode, { type: 'root' | 'component' }>
+    expect(fixed.layout?.item.width).toBeUndefined()
+    expect(fixed.styles.width).toBe(240)
+    expect(revision(store)).toBe(2)
+    store.undo()
+    expect((store.getSnapshot().file!.nodes.frame as Exclude<FileNode, { type: 'root' | 'component' }>).layout?.item.width).toEqual({ value: { kind: 'intrinsic', value: 'fit-content' } })
+  })
+
+  it('uses the analyzer order for ordinary children and preserves complete absolute placement', () => {
+    const file = primitiveFixture(200, 100, true)
+    const store = createDocumentStore(() => 'unused')
+    store.load(file, [])
+    const input = {
+      containerSize: { width: 200, height: 100 }, directAddLeadingInset: { x: 8, y: 4 }, kind: 'direct-add' as const, isRoot: false,
+      children: [
+        { id: 'ordinary', worldAabb: { x: 80, y: 10, width: 40, height: 20 }, authoredPosition: { x: 80, y: 10 }, authoredSize: { width: 40, height: 20 }, parentLocalCenter: { x: 100, y: 20 }, sourcePosition: 'freeform' as const },
+        { id: 'pinned', worldAabb: { x: 8, y: 4, width: 40, height: 20 }, authoredPosition: { x: 8, y: 4 }, authoredSize: { width: 40, height: 20 }, parentLocalCenter: { x: 28, y: 14 }, sourcePosition: 'absolute' as const },
+      ],
+    }
+    expect(store.commands.layout.setDisplay('flex', ['frame'], { frame: { boxes: null, directAdd: directCapture(file, 'frame', input) } })).toBe(true)
+    expect(orderOf(store, 'frame')).toEqual(['pinned', 'ordinary'])
+    expect(layoutOf(store, 'ordinary')).toEqual({ item: { position: flow } })
+    expect(layoutOf(store, 'pinned')).toEqual({ item: { position: { mode: 'absolute', left: px(8), right: { kind: 'percent', value: 12 }, top: px(4), bottom: px(6), zIndex: 7 } } })
+    expect(revision(store)).toBe(1)
+  })
+
+  it('keeps stale or missing projection input observable and non-mutating', () => {
+    const file = primitiveFixture(200, 100, true)
+    const store = createDocumentStore(() => 'unused')
+    store.load(file, [])
+    const stale = { nodes: {}, unsupported: {}, documentRevision: file.revision - 1, layoutGeneration: store.getSnapshot().layoutGeneration }
+    const missing = { nodes: {}, unsupported: {}, documentRevision: file.revision, layoutGeneration: null }
+    for (const geometry of [stale, missing]) {
+      const flexInput = paperFlexInput(file, geometry, 'frame', 'direct-add', store.getSnapshot().layoutGeneration)
+      expect(flexInput).toBeNull()
+      const measurement = { boxes: null, flexInput }
+      expect(store.commands.layout.displayConversion('flex', 'frame', measurement)).toEqual({ layouts: {}, unsupported: 'Some children have no measured position' })
+      expect(store.commands.layout.setDisplay('flex', ['frame'], { frame: measurement })).toBe(false)
+    }
+    expect(revision(store)).toBe(0)
+    expect(store.getSnapshot().canUndo).toBe(false)
+  })
+
+  it('writes row multiline text layout, primitive fallback, and text sizing in one valid reversible batch without mutating the captured input', () => {
+    const source: FileDocument = {
+      schemaVersion: 9, fileId: 'text-add', revision: 0,
+      pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
+      nodes: {
+        'root-1': { id: 'root-1', type: 'root' },
+        frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 200, height: 100 } },
+        text: { id: 'text', type: 'text', name: 'Text', text: 'Two lines', styles: { left: 10, top: 10, width: 80, height: 40 }, textStyle, textSizing: { width: { mode: 'fit' }, height: { mode: 'fixed' } } },
+      },
+      relationships: { frame: { parentId: 'root-1', orderKey: 'V' }, text: { parentId: 'frame', orderKey: 'V' } },
+      theme: { tokens: {} },
+    }
+    const input: FlexInferenceInput = { containerSize: { width: 200, height: 100 }, directAddLeadingInset: { x: 10, y: 10 }, kind: 'direct-add', isRoot: false, children: [analysisChild('text', 10, 10, 40, 40)] }
+    const capture = {
+      input,
+      parentSnapshot: snapshotPaperSizing({ nodeId: 'frame', kind: 'primitive', layout: null, styles: { width: 200, height: 100 }, measured: { width: 200, height: 100 } }),
+      childSnapshots: {
+        text: snapshotPaperSizing({ nodeId: 'text', kind: 'text', layout: null, styles: { width: 80, height: 40 }, textStyle, textSizing: { width: { mode: 'fit' }, height: { mode: 'fixed' } }, measured: { width: 40, height: 40 }, resolvedLineHeight: 10, editable: true }),
+      },
+    }
+    const beforeCapture = JSON.stringify(capture)
+    const beforeFile = structuredClone(source)
+    const store = createDocumentStore(() => 'unused')
+    store.load(source, [])
+    expect(store.commands.layout.setDisplay('flex', ['frame'], { frame: { boxes: null, directAdd: capture } })).toBe(true)
+    expect(JSON.stringify(capture)).toBe(beforeCapture)
+    expect(revision(store)).toBe(1)
+    expect(store.getSnapshot().canUndo).toBe(true)
+    expect(store.getSnapshot().file?.nodes.text).toEqual({
+      id: 'text', type: 'text', name: 'Text', text: 'Two lines',
+      styles: { left: 10, top: 10, width: 40, height: 40 },
+      layout: { item: { position: flow } },
+      textStyle,
+      textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+    })
+    expect(() => validateFileDocument(store.getSnapshot().file, [])).not.toThrow()
+    expect(store.undo()).toBe(true)
+    expect(store.getSnapshot().file).toEqual({ ...beforeFile, revision: 2 })
+    expect(store.getSnapshot().canUndo).toBe(false)
   })
 })
 

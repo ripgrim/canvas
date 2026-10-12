@@ -8,7 +8,7 @@ const atoms: Atom[] = [{ componentId: 'button', name: 'Button', exportName: 'But
 
 function file(revision: number, text = 'Sign in'): FileDocument {
   return {
-    schemaVersion: 7, fileId: 'file-a', revision,
+    schemaVersion: 9, fileId: 'file-a', revision,
     pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
     nodes: {
       'root-1': { id: 'root-1', type: 'root' },

@@ -21,11 +21,13 @@ async function verifiedAdmission(request: Request, env: SyncCoordinatorEnv, nowU
   const route = parseSyncRoute(request.url)
   const handshake = validateWebSocketHandshake(request)
   const origin = request.headers.get("Origin")
+  const requestId = request.headers.get(requestIdHeader)
   const expectedRoom = request.headers.get(roomHeader)
   const token = request.headers.get(admissionHeader)
-  if (!route || !handshake || !origin || !configuration.allowedOrigins.has(origin) || !expectedRoom || !token) return null
+  if (!route || !handshake || !origin || !configuration.allowedOrigins.has(origin) || !requestId || !expectedRoom || !token) return null
   const admission = await openInternalAdmission(token, configuration.coordinatorSecret, nowUnixMs)
-  if (!admission || admission.origin !== origin || admission.clientId !== route.clientId || admission.claims.fileId !== route.fileId || admission.roomName !== expectedRoom
+  if (!admission || admission.origin !== origin || admission.clientId !== route.clientId || admission.requestId !== requestId
+    || admission.claims.fileId !== route.fileId || admission.roomName !== expectedRoom
     || scopedRoomName(route.fileId, admission.claims.generationId) !== expectedRoom) return null
   return { configuration, route, handshake, admission, expectedRoom, token }
 }
@@ -38,7 +40,12 @@ export async function handleCoordinatorRequest(request: Request, env: SyncCoordi
     [admissionHeader]: verified.token, [roomHeader]: verified.expectedRoom, [requestIdHeader]: verified.admission.requestId,
   })
   if (verified.handshake.protocol) headers.set("Sec-WebSocket-Protocol", verified.handshake.protocol)
-  return env.SYNC_ROOMS.get(env.SYNC_ROOMS.idFromName(verified.expectedRoom)).fetch(new Request(request.url, { method: "GET", headers }))
+  try {
+    const response = await env.SYNC_ROOMS.get(env.SYNC_ROOMS.idFromName(verified.expectedRoom)).fetch(new Request(request.url, { method: "GET", headers }))
+    return response.status === 101 ? response : runtimeRejection(response.status)
+  } catch {
+    return runtimeRejection(503)
+  }
 }
 
 export type RuntimeFetch = (request: Request) => Promise<Response>
@@ -54,7 +61,9 @@ export async function proxyRoomUpgrade(input: Readonly<{ request: Request; env: 
   const headers = new Headers({ "Authorization": `Bearer ${roomTicket}`, "Connection": "Upgrade", "Origin": verified.admission.origin, "Upgrade": "websocket", "Sec-WebSocket-Key": input.request.headers.get("Sec-WebSocket-Key")!, "Sec-WebSocket-Version": "13", [requestIdHeader]: verified.admission.requestId })
   if (verified.handshake.protocol) headers.set("Sec-WebSocket-Protocol", verified.handshake.protocol)
   const runtimeFetch = input.runtimeFetch ?? (request => fetch(request))
-  const response = await runtimeFetch(new Request(runtimeUrl, { method: "GET", headers }))
+  let response: Response
+  try { response = await runtimeFetch(new Request(runtimeUrl, { method: "GET", headers })) }
+  catch { return runtimeRejection(503) }
   if (response.status !== 101) console.warn(JSON.stringify({ event: "room_runtime_rejected", status: response.status, requestId: verified.admission.requestId }))
   return response.status === 101 ? response : runtimeRejection(response.status)
 }

@@ -116,13 +116,13 @@ describe('cloud api client', () => {
       const input = init?.body ? JSON.parse(String(init.body)) : null
       calls.push({ url: String(url), method, body: input })
       if (String(url).endsWith('/share')) return response({ share: { fileId: file.id, access: input?.access ?? 'private', updatedAt: file.updatedAt } })
-      return response({ file: { id: file.id, name: file.name, headRevision: 0, updatedAt: file.updatedAt }, fileId: file.id, revision: 0, document: { schemaVersion: 7 } })
+      return response({ file: { id: file.id, name: file.name, headRevision: 0, updatedAt: file.updatedAt }, fileId: file.id, revision: 0, document: { schemaVersion: 9 } })
     })
     const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value as { schemaVersion: number } })
 
     expect(await client.getFileShare(file.id)).toMatchObject({ access: 'private' })
     expect(await client.setFileShare(file.id, 'view')).toMatchObject({ access: 'view' })
-    expect(await client.openSharedFile(file.id)).toMatchObject({ file: { id: file.id, name: file.name }, fileId: file.id, revision: 0, document: { schemaVersion: 7 } })
+    expect(await client.openSharedFile(file.id)).toMatchObject({ file: { id: file.id, name: file.name }, fileId: file.id, revision: 0, document: { schemaVersion: 9 } })
     expect(calls).toEqual([
       { url: `https://api.canvas.test/api/files/${file.id}/share`, method: 'GET', body: null },
       { url: `https://api.canvas.test/api/files/${file.id}/share`, method: 'PUT', body: { access: 'view' } },

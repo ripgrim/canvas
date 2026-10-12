@@ -1,4 +1,4 @@
-import { childrenOf, nodeIsLocked, pageRoot, worldRect } from '@canvas/repo-engine/file-document'
+import { childrenOf, nodeIsLocked, nodePositionMode, pageRoot, worldRect } from '@canvas/repo-engine/file-document'
 import type { FileDocument, PrimitiveKind } from '@canvas/repo-engine/file-document'
 import { legacyLayout } from '@canvas/repo-engine/layout'
 import { pointInRect, rectsIntersect } from './canvas-math'
@@ -6,8 +6,8 @@ import type { Point, Rect } from './canvas-math'
 import type { MeasuredNode } from './scene-geometry'
 
 /**
- * One coherent scene for the open page: component instances (measured in the preview) and primitive nodes (geometry
- * derived from the file) share identity, hierarchy, z-order, and world rectangles for hit testing, the layer tree, and the HUD.
+ * One coherent scene for the open page: component instances and intrinsic text use measured preview geometry while
+ * fixed primitive geometry comes from the file. Every node shares identity, hierarchy, z-order, and world rectangles.
  * The page root is structural and never appears in the scene; its direct children have `parentId: null`.
  */
 export type SceneNode = {
@@ -29,6 +29,32 @@ export type SceneNode = {
 export type Scene = { nodes: SceneNode[]; byId: Map<string, SceneNode> }
 const emptyScene: Scene = { nodes: [], byId: new Map() }
 
+function primitiveRect(file: FileDocument, id: string, measurement: MeasuredNode | undefined, layoutGeneration: number | null): Rect | null {
+  const authored = worldRect(file, id)!
+  const node = file.nodes[id]
+  if (!node || node.type === 'root' || node.type === 'component') return null
+  const mode = nodePositionMode(node)
+  const currentMeasurement = measurement?.canvasKind === node.type && measurement.documentRevision === file.revision && measurement.layoutGeneration === layoutGeneration ? measurement : undefined
+  const browserSized = node.layout?.item.width !== undefined
+    || node.layout?.item.height !== undefined
+    || node.layout?.item.aspectRatio !== undefined
+  // Browser layout owns semantic flow, explicit absolute layout, and any non-pixel sizing mode. Stored x/y/width/height
+  // cannot stand in for flex/grid distribution, intrinsic sizing, percentages, insets, padding, or aspect-ratio sizing.
+  if (mode === 'flow' || mode === 'absolute' || browserSized) return currentMeasurement?.rect ?? null
+  if (node.type !== 'text' || !node.textStyle || !node.textSizing || !currentMeasurement?.offset) return authored
+  const widthFits = node.textSizing.width.mode === 'fit'
+  const heightFits = node.textSizing.height.mode === 'fit'
+  if (!widthFits && !heightFits) return authored
+  const width = widthFits ? currentMeasurement.offset.width : authored.width
+  const height = heightFits ? currentMeasurement.offset.height : authored.height
+  const x = widthFits && node.textStyle.horizontalAlign === 'center'
+    ? authored.x + (authored.width - width) / 2
+    : widthFits && node.textStyle.horizontalAlign === 'right'
+      ? authored.x + authored.width - width
+      : authored.x
+  return { x, y: authored.y, width, height }
+}
+
 export function displayName(file: FileDocument, id: string): string {
   const node = file.nodes[id]
   if (!node || node.type === 'root') return id
@@ -37,7 +63,7 @@ export function displayName(file: FileDocument, id: string): string {
   return node.name
 }
 
-export function buildScene(file: FileDocument | null, pageId: string | null, measured: Record<string, MeasuredNode>): Scene {
+export function buildScene(file: FileDocument | null, pageId: string | null, measured: Record<string, MeasuredNode>, layoutGeneration: number | null = null): Scene {
   if (!file || !pageId) return emptyScene
   const root = pageRoot(file, pageId)
   if (!root) return emptyScene
@@ -47,10 +73,14 @@ export function buildScene(file: FileDocument | null, pageId: string | null, mea
     const node = file.nodes[id]
     if (!node || node.type === 'root') return
     if (node.type === 'component') {
-      const rect = measured[id]?.componentId === node.componentId ? measured[id]!.rect : null
+      const measurement = measured[id]
+      const generationMatches = measurement?.layoutGeneration === layoutGeneration || layoutGeneration === null && measurement?.layoutGeneration === undefined
+      const rect = measurement?.componentId === node.componentId && generationMatches ? measurement.rect : null
       if (rect) nodes.push({ id, kind: 'component', name: displayName(file, id), parentId, rect, rotation: node.layout?.item.transform?.rotate ?? 0, clip: false, depth, order: order++, flow: parentId !== null && legacyLayout(node.layout).mode !== 'absolute', locked: nodeIsLocked(file, id) })
     } else {
-      nodes.push({ id, kind: node.type, name: displayName(file, id), parentId, rect: worldRect(file, id)!, rotation: node.styles.rotation ?? 0, clip: node.type === 'frame' && node.styles.overflow !== 'visible', depth, order: order++, flow: false, locked: nodeIsLocked(file, id) })
+      const rect = primitiveRect(file, id, measured[id], layoutGeneration)
+      if (rect) nodes.push({ id, kind: node.type, name: displayName(file, id), parentId, rect, rotation: node.styles.rotation ?? 0, clip: node.type === 'frame' && node.styles.overflow !== 'visible', depth, order: order++, flow: nodePositionMode(node) === 'flow', locked: nodeIsLocked(file, id) })
+      else return
     }
     for (const child of childrenOf(file, id)) visit(child, id, depth + 1)
   }

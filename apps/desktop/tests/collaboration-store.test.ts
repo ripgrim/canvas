@@ -12,13 +12,15 @@ const scope = (accountId: string): CollaborationStoreScope => ({
   clientId: 'desktop-test',
   fileId: '11111111-2222-4333-8444-555555555555',
   documentSchemaVersion: 6,
-  protocolEpoch: 2,
+  protocolEpoch: 3,
 })
 const mutation = (mutationId: string) => ({
   mutationId,
   baseSequence: null,
   command: encodeSemanticCommandForPersistence({ type: 'node.rename', nodeId: 'frame', name: mutationId }),
   status: 'pending' as const,
+  replayScopeId: 'a'.repeat(64),
+  flowBinding: null,
 })
 
 afterEach(async () => {

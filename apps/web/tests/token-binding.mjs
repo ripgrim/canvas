@@ -30,6 +30,10 @@ const hex = value => ({ kind: 'hex', hex: value })
 const literal = value => ({ kind: 'literal', color: hex(value) })
 const token = tokenId => ({ kind: 'token', tokenId })
 const alias = tokenId => ({ kind: 'alias', tokenId })
+const legacyTextProperties = () => ({
+  textStyle: { fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false },
+  textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+})
 const box = (id, name, left, top, appearance, extra = {}) => ({ id, type: 'rectangle', name, styles: { left, top, width: 80, height: 60 }, appearance, ...extra })
 // A 66-link alias chain exceeds the engine's resolution depth, so `chain-1` cannot resolve even though every link exists.
 const chainTokens = Object.fromEntries(Array.from({ length: 66 }, (_, index) => {
@@ -37,7 +41,7 @@ const chainTokens = Object.fromEntries(Array.from({ length: 66 }, (_, index) => 
   return [id, { id, type: 'color', name: `Chain ${index + 1}`, orderKey: `y${index + 1}k`, value: index === 65 ? literal('#123456') : alias(`chain-${index + 2}`) }]
 }))
 const file = {
-  schemaVersion: 7, fileId, revision: 1,
+  schemaVersion: 9, fileId, revision: 1,
   pages: [{ id: 'page-1', name: 'Tokens', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -53,7 +57,7 @@ const file = {
     'rect-gradient': box('rect-gradient', 'Gradient box', 520, 140, { fills: [{ id: 'gradient-fill', type: 'gradient', shape: 'linear', angle: 90, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'oklab', stops: [{ id: 'stop-a', position: 0, color: token('accent') }, { id: 'stop-b', position: 1, color: literal('#ffffff') }] }] }),
     'rect-scrim': box('rect-scrim', 'Scrim box', 620, 140, { fills: [{ id: 'scrim-fill', type: 'solid', color: token('scrim') }] }),
     'rect-deep': box('rect-deep', 'Deep box', 720, 140, { fills: [{ id: 'deep-fill', type: 'solid', color: token('chain-1') }] }),
-    'text-accent': { id: 'text-accent', type: 'text', name: 'Accent text', text: 'Bound text', styles: { left: 520, top: 240, width: 160, height: 24 }, appearance: { fills: [{ id: 'text-fill', type: 'solid', color: token('accent') }] } },
+    'text-accent': { id: 'text-accent', type: 'text', name: 'Accent text', text: 'Bound text', styles: { left: 520, top: 240, width: 160, height: 24 }, appearance: { fills: [{ id: 'text-fill', type: 'solid', color: token('accent') }] }, ...legacyTextProperties() },
   },
   relationships: {
     'card-light': { parentId: 'root-1', orderKey: 'V' },

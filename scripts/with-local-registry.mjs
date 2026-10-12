@@ -8,7 +8,7 @@ const pnpm = process.env.npm_execpath
 if (!pnpm) throw new Error('Run this command through pnpm.')
 if (!process.argv[2]) throw new Error('A pnpm command is required after with-local-registry.mjs.')
 
-for (const packageName of ['@canvas/scanner', '@canvas/preview-runtime']) {
+for (const packageName of ['@canvas/scanner', '@canvas/sync-protocol...', '@canvas/preview-runtime']) {
   const result = spawnSync(process.execPath, [pnpm, '--filter', packageName, 'build'], { cwd: root, env: process.env, stdio: 'inherit' })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`Building ${packageName} failed.`)

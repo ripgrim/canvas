@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Atom } from './types'
 import type { Appearance, FileDocument, Paint, Stroke } from '@canvas/repo-engine/file-document'
 import type { ImageAssetReference } from '@canvas/repo-engine/appearance'
-import { childrenOf, nodeAppearance, nodeIsLocked, worldPosition } from '@canvas/repo-engine/file-document'
+import { childrenOf, legacyTextProperties, nodeAppearance, nodeIsLocked, worldPosition } from '@canvas/repo-engine/file-document'
 import { componentDefaultProps, componentInsertionPoint, createDocumentStore } from './document-store'
 import type { Scene } from './canvas-scene'
 import type { EditorPersistenceIntent } from '../../capabilities'
@@ -21,7 +21,7 @@ const label = (id: string, text: string) => ({ id, type: 'component' as const, c
  * and one in `footer`. Page 2: other (0,0 80x80). Every primitive has one solid fill named `<id>-fill`.
  */
 const fixture = (): FileDocument => ({
-  schemaVersion: 7, fileId: 'file-1', revision: 0,
+  schemaVersion: 9, fileId: 'file-1', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -233,7 +233,7 @@ describe('AT-CAN primitive canvas commands', () => {
     // Fill id first, then the two stops in order.
     expect(fillsOf(store, 'new-3')).toEqual([{ id: 'new-4', type: 'gradient', shape: 'linear', angle: 135, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'srgb', stops: [{ id: 'new-5', position: 0, color: hex('#685fff') }, { id: 'new-6', position: 1, color: hex('#202124') }] }])
     store.commands.insertCanvas('text', { x: 0, y: 0 })
-    expect(file(store).nodes['new-7']).toMatchObject({ type: 'text', text: 'Text', appearance: { fills: [{ id: 'new-8', type: 'solid', color: hex('#202124') }] } })
+    expect(file(store).nodes['new-7']).toMatchObject({ type: 'text', text: 'Text', ...legacyTextProperties(), appearance: { fills: [{ id: 'new-8', type: 'solid', color: hex('#202124') }] } })
   })
 
   it('commits a move into a nested frame keeping the world position, and back out to the page', () => {
@@ -268,32 +268,9 @@ describe('AT-CAN primitive canvas commands', () => {
     expect(store.commands.reparent('card', 'outer')).toBe(false)
   })
 
-  it('commits a resize in world geometry as parent-local styles', () => {
+  it('retires the unfenced world-space resize command path', () => {
     const store = loaded()
-    expect(store.commands.commitResize('box', { x: 10.4, y: 20.6, width: 70.5, height: 0.3 }).committed).toBe(true)
-    expect(styles(store, 'box')).toEqual({ left: 10, top: 21, width: 71, height: 1 })
-    // outer sits at world (100, 50).
-    expect(store.commands.commitResize('inner', { x: 130, y: 90, width: 50, height: 60 }).committed).toBe(true)
-    expect(styles(store, 'inner')).toEqual({ left: 30, top: 40, width: 50, height: 60, overflow: 'clip' })
-  })
-
-  it('AT-CAN-006 holds direct freeform children in world space during a Mod resize and undoes once', () => {
-    const store = loaded()
-    expect(worldPosition(file(store), 'inner')).toEqual({ x: 120, y: 80 })
-    expect(store.commands.commitResize('outer', { x: 80, y: 40, width: 440, height: 320 }, undefined, true, { x: 100, y: 50, width: 400, height: 300 }).committed).toBe(true)
-    expect(styles(store, 'outer')).toMatchObject({ left: 80, top: 40, width: 440, height: 320 })
-    expect(styles(store, 'inner')).toMatchObject({ left: 40, top: 40 })
-    expect(worldPosition(file(store), 'inner')).toEqual({ x: 120, y: 80 })
-    expect(store.getHistory().past).toHaveLength(1)
-    store.undo()
-    expect(styles(store, 'outer')).toMatchObject({ left: 100, top: 50, width: 400, height: 300 })
-    expect(styles(store, 'inner')).toMatchObject({ left: 20, top: 30 })
-  })
-
-  it('AT-CAN-006 scales freeform descendants during an unmodified frame resize', () => {
-    const store = loaded()
-    expect(store.commands.commitResize('outer', { x: 100, y: 50, width: 800, height: 600 }, undefined, false, { x: 100, y: 50, width: 400, height: 300 }).committed).toBe(true)
-    expect(styles(store, 'inner')).toMatchObject({ left: 40, top: 60, width: 400, height: 200 })
+    expect('commitResize' in store.commands).toBe(false)
   })
 
   it('duplicates a primitive 20 units to the right with a new id while the source keeps its own', () => {

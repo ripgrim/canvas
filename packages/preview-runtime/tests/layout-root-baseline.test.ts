@@ -5,7 +5,7 @@ import { chromium, type Browser, type Frame, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createPreviewRuntime } from '../src/index.js'
 import { fixtureRegistry } from './fixture-registry.js'
-// Protocol v3: every document node carries its effective theme; the plain light fallback is not explicit.
+// Protocol v4: every document node carries its effective theme; the plain light fallback is not explicit.
 const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false } as const
 
 // LAY-ROOT-001 baseline. `applyLayout` and `originalLayout` live inside `startPreview` and are not exported, so this
@@ -28,7 +28,7 @@ const nodes = (buttonAppearance?: object) => ({
   'label-1': { id: 'label-1', componentId: 'atom-label', exportName: 'Label', theme: lightTheme, props: { children: 'Email', htmlFor: 'baseline-email' }, children: {} },
   'button-1': { id: 'button-1', componentId: 'atom-button', exportName: 'Button', theme: lightTheme, props: { children: 'Go', type: 'button' }, children: {}, ...(buttonAppearance ? { appearance: buttonAppearance } : {}) },
 })
-const previewDocument = (revision: number, buttonAppearance?: object) => ({ version: 1, revision, rootIds: ['card-1', 'button-1'], nodes: nodes(buttonAppearance), frame: frameSize })
+const previewDocument = (revision: number, buttonAppearance?: object) => ({ version: 2, revision, rootIds: ['card-1', 'button-1'], nodes: nodes(buttonAppearance), frame: frameSize })
 const layoutItems = [
   { nodeId: 'button-1', mode: 'absolute', x: 40, y: 60, order: 0, width: 200, height: 44 },
   { nodeId: 'input-1', mode: 'absolute', x: 5, y: 6, order: 0, width: 120 },
@@ -110,11 +110,11 @@ beforeAll(async () => {
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
   send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 3, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
     await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
 
-  await send({ type: 'set-document', document: previewDocument(1) })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument(1) })
   await waitFor(observe, value => value.roots.length === 4)
   await frame.evaluate(styles => {
     const roots = new Map<string, Element>()
@@ -127,8 +127,8 @@ beforeAll(async () => {
   }, authored)
   observations.baseline = await observe()
 
-  await send({ type: 'set-document', document: previewDocument(2, { opacity: 0.5, fills: [{ type: 'solid', color: '#ff00ff' }] }) })
-  await send({ type: 'set-layout', items: layoutItems, layoutGeneration: 0 })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument(2, { opacity: 0.5, fills: [{ type: 'solid', color: '#ff00ff' }] }) })
+  await send({ type: 'set-layout', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', items: layoutItems, layoutGeneration: 0 })
   observations.applied = await waitFor(observe, value => byId(value)['button-1']?.computed.width === '200px' && byId(value)['button-1']?.computed.opacity === '0.5' && byId(value)['input-1']?.computed.position === 'absolute')
 
   await send({ type: 'set-transient-move', items: [{ nodeId: 'button-1', dx: 18, dy: -7 }] })
@@ -141,19 +141,19 @@ beforeAll(async () => {
   await send({ type: 'set-transient-move', items: [{ nodeId: 'button-1', dx: 31, dy: 12 }] })
   await waitFor(observe, value => byId(value)['button-1']?.declarations.find(([name]) => name === 'translate')?.[1] === '34px 16px')
 
-  await send({ type: 'set-document', document: previewDocument(3) })
-  await send({ type: 'set-layout', items: [], layoutGeneration: 0 })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument(3) })
+  await send({ type: 'set-layout', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', items: [], layoutGeneration: 0 })
   observations.restored = await waitFor(observe, value => byId(value)['button-1']?.computed.width === '150px' && byId(value)['button-1']?.computed.opacity === '0.9' && byId(value)['input-1']?.computed.position === 'static')
 
   const canvasDocument = (revision: number, width: number) => ({
     ...previewDocument(revision),
     canvas: { elements: [{ id: 'canvas-frame', kind: 'frame', name: 'Frame', x: 0, y: 0, width, height: 80, rotation: 0, appearance: { fills: [{ type: 'solid', color: '#ff0000' }] }, parentId: null }] },
   })
-  await send({ type: 'set-document', document: canvasDocument(4, 100) })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: canvasDocument(4, 100) })
   await frame.waitForSelector('[data-preview-canvas="canvas-frame"]')
   await send({ type: 'set-transient-move', items: [{ nodeId: 'canvas-frame', dx: 0, dy: 0, width: 140, height: 120 }] })
   await waitFor(() => frame.locator('[data-preview-canvas="canvas-frame"]').evaluate(element => getComputedStyle(element).width), width => width === '140px')
-  await send({ type: 'set-document', document: canvasDocument(5, 180) })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: canvasDocument(5, 180) })
   observations.committedCanvasSize = await waitFor(
     () => frame.locator('[data-preview-canvas="canvas-frame"]').evaluate(element => ({ inline: (element as HTMLElement).style.width, computed: getComputedStyle(element).width })),
     size => size.computed === '180px',

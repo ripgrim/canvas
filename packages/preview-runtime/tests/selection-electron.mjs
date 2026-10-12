@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { deflateSync } from 'node:zlib'
-// Protocol v3: every document node carries its effective theme; the plain light fallback is not explicit.
+// Protocol v4: every document node carries its effective theme; the plain light fallback is not explicit.
 const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false }
 
 // A 2x1 PNG, red then green, built here so the expected pixels are known independently of the runtime.
@@ -13,6 +13,7 @@ const chunk = (type, data) => { const body = Buffer.concat([Buffer.from(type, 'a
 const pngHeader = Buffer.alloc(13); pngHeader.writeUInt32BE(2, 0); pngHeader.writeUInt32BE(1, 4); pngHeader[8] = 8; pngHeader[9] = 2
 const swatchPng = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', pngHeader), chunk('IDAT', deflateSync(Buffer.from([0, 255, 0, 0, 0, 255, 0]))), chunk('IEND', Buffer.alloc(0))]).toString('base64')
 const linear = (angle, interpolation, stops) => ({ type: 'gradient', shape: 'linear', angle, center: { x: 0.5, y: 0.5 }, length: 1, interpolation, stops })
+const legacyTextProperties = { textStyle: { fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false }, textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } } }
 const close = (actual, expected) => actual.every((value, index) => Math.abs(value - expected[index]) <= 3)
 
 const editorUrl = app.commandLine.getSwitchValue('selection-editor-url')
@@ -43,7 +44,7 @@ try {
   process.stderr.write('selection phase: preview DOM ready\n')
   const generation = Number(generationText)
   const send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 3, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
     await window.webContents.executeJavaScript(`document.querySelector('iframe').contentWindow.postMessage(${JSON.stringify(command)},${JSON.stringify(new URL(previewUrl).origin)})`)
   }
   const observe = () => frame.executeJavaScript(`(() => {
@@ -54,7 +55,7 @@ try {
   await new Promise(resolve => setTimeout(resolve, 40))
   assert.equal((await observe()).count, 0)
   const document = {
-    version: 1, revision: 1, rootIds: ['card-1', 'button-1'], nodes: {
+    version: 2, revision: 1, rootIds: ['card-1', 'button-1'], nodes: {
       'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: { heading: 'Sign in' }, children: { children: ['input-1'] } },
       'input-1': { id: 'input-1', componentId: 'atom-input', exportName: 'Input', theme: lightTheme, props: { id: 'native-email', type: 'email' }, children: {} },
       'button-1': { id: 'button-1', componentId: 'atom-button', exportName: 'Button', theme: lightTheme, props: { children: 'Go', type: 'button' }, children: {} },
@@ -62,8 +63,8 @@ try {
     canvas: { elements: [
       { id: 'hero', kind: 'frame', name: 'Hero', x: 2000, y: 2000, width: 320, height: 200, rotation: 0, appearance: { fills: [linear(135, 'srgb', [{ color: '#9b4dff', position: 0 }, { color: '#000000', position: 1 }])] }, parentId: null, clip: false },
       { id: 'hero-glow', kind: 'shader', name: 'Glow', x: 16, y: 24, width: 80, height: 80, rotation: 0, appearance: { fills: [linear(90, 'srgb', [{ color: 'oklch(0.7 0.1 120)', position: 0 }, { color: '#ffffff', position: 0.5 }])] }, parentId: 'hero' },
-      { id: 'hero-title', kind: 'text', name: 'Title', x: 16, y: 120, width: 200, height: 20, rotation: 0, appearance: { fills: [linear(90, 'oklab', [{ color: '#ff0000', position: 0 }, { color: '#0000ff', position: 1 }])] }, text: 'Welcome', parentId: 'hero' },
-      { id: 'hero-caption', kind: 'text', name: 'Caption', x: 16, y: 150, width: 200, height: 20, rotation: 0, appearance: { fills: [{ type: 'solid', color: '#64748b' }] }, text: 'Caption', parentId: 'hero' },
+      { id: 'hero-title', kind: 'text', name: 'Title', x: 16, y: 120, width: 200, height: 20, rotation: 0, appearance: { fills: [linear(90, 'oklab', [{ color: '#ff0000', position: 0 }, { color: '#0000ff', position: 1 }])] }, text: 'Welcome', ...legacyTextProperties, parentId: 'hero' },
+      { id: 'hero-caption', kind: 'text', name: 'Caption', x: 16, y: 150, width: 200, height: 20, rotation: 0, appearance: { fills: [{ type: 'solid', color: '#64748b' }] }, text: 'Caption', ...legacyTextProperties, parentId: 'hero' },
       { id: 'panel', kind: 'rectangle', name: 'Panel', x: 320, y: -300, width: 60, height: 40, rotation: 0, appearance: { fills: [{ type: 'solid', color: '#0000ff' }, { type: 'solid', color: '#ff000080' }] }, parentId: null },
       { id: 'photo', kind: 'rectangle', name: 'Photo', x: 320, y: -240, width: 40, height: 20, rotation: 0, appearance: { fills: [{ type: 'image', assetId: 'swatch', fit: 'stretch' }] }, parentId: null },
     ] },
@@ -73,7 +74,7 @@ try {
     const read = id => { const node = document.querySelector('[data-preview-canvas="' + id + '"]'); const style = node && getComputedStyle(node); return node && { kind: node.dataset.previewKind, parent: node.parentElement?.dataset.previewCanvas ?? null, backgroundColor: style.backgroundColor, backgroundImage: style.backgroundImage, backgroundClip: style.backgroundClip, backgroundSize: style.backgroundSize, backgroundRepeat: style.backgroundRepeat, color: style.color, overflow: style.overflow, text: node.textContent } }
     return { hero: read('hero'), glow: read('hero-glow'), title: read('hero-title'), caption: read('hero-caption'), panel: read('panel'), photo: read('photo') }
   })()`)
-  await send({ type: 'set-document', document, theme: { attribute: null, colorScheme: 'light' } })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document, theme: { attribute: null, colorScheme: 'light' } })
   await waitFor(observe, value => value.tag === 'INPUT')
   const canvas = await waitFor(observeCanvas, value => Boolean(value.hero))
   assert.equal(canvas.hero.kind, 'frame')
@@ -165,7 +166,7 @@ try {
   assert.equal(await frame.executeJavaScript('window.nativeInputWasTrusted'), true)
   document.revision = 2
   document.frame.width = 640
-  await send({ type: 'set-document', document, theme: { attribute: 'dark', colorScheme: 'dark' } })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document, theme: { attribute: 'dark', colorScheme: 'dark' } })
   const resized = await waitFor(observe, value => value.width > selected.width)
   assert.equal(resized.width, selected.width + 160)
   assert.equal(resized.count, 1)
@@ -190,12 +191,12 @@ try {
   assert.ok(close(await sample('photo', 0.9, 0.5), [0, 255, 0]))
   const reordered = structuredClone(document)
   reordered.canvas.elements.find(element => element.id === 'panel').appearance.fills.reverse()
-  await send({ type: 'set-document', document: reordered })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: reordered })
   assert.ok(close(await waitFor(() => sample('panel', 0.5, 0.5), value => close(value, [0, 0, 255])), [0, 0, 255]))
   const reorderedPanel = (await observeCanvas()).panel
   assert.equal(reorderedPanel.backgroundColor, 'rgba(255, 0, 0, 0.5)')
   assert.equal(reorderedPanel.backgroundImage, 'linear-gradient(rgb(0, 0, 255), rgb(0, 0, 255))')
-  await send({ type: 'set-document', document })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document })
   await waitFor(() => sample('panel', 0.5, 0.5), value => close(value, [128, 0, 127]))
 
   // Component appearance is an inline layer on the existing root: no wrapper, same element, prior inline styles restored.
@@ -214,7 +215,7 @@ try {
   assert.equal(original.opacity, '1')
   assert.match(original.attribute, /background/)
   document.nodes['button-1'].appearance = { opacity: 0.5, blendMode: 'multiply', fills: [{ type: 'solid', color: '#ff00ff' }, { type: 'solid', color: '#00ff0080' }], outline: { color: '#0000ff', width: 2, style: 'dotted', offset: 4 }, borders: { left: { color: '#00ff00', width: 5, style: 'dashed' } } }
-  await send({ type: 'set-document', document })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document })
   const overridden = await waitFor(observeButton, value => value?.opacity === '0.5')
   assert.equal(overridden.same, true)
   assert.equal(overridden.host, true)
@@ -228,13 +229,13 @@ try {
   assert.equal(overridden.outlineOffset, '4px')
   assert.equal(overridden.mixBlendMode, 'multiply')
   // Layout and appearance are separate layers: a layout update keeps the override.
-  await send({ type: 'set-layout', layoutGeneration: 0, items: [{ nodeId: 'button-1', mode: 'flow', x: 0, y: 0, order: 1, width: 200 }] })
+  await send({ type: 'set-layout', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', layoutGeneration: 0, items: [{ nodeId: 'button-1', mode: 'flow', x: 0, y: 0, order: 1, width: 200 }] })
   const laidOut = await waitFor(observeButton, value => value?.width === 200)
   assert.equal(laidOut.backgroundImage, overridden.backgroundImage)
   assert.equal(laidOut.left, overridden.left)
   // Removing the override while layout is active restores each controlled property.
   delete document.nodes['button-1'].appearance
-  await send({ type: 'set-document', document })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document })
   const partly = await waitFor(observeButton, value => value?.opacity === '1')
   assert.equal(partly.backgroundColor, 'rgb(18, 52, 86)')
   assert.equal(partly.backgroundImage, 'none')
@@ -243,30 +244,30 @@ try {
   assert.equal(partly.outline.split(' ')[1], 'none')
   assert.equal(partly.mixBlendMode, 'normal')
   assert.equal(partly.width, 200)
-  await send({ type: 'set-layout', items: [], layoutGeneration: 0 })
+  await send({ type: 'set-layout', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', items: [], layoutGeneration: 0 })
   const unlaid = await waitFor(observeButton, value => value?.width !== 200)
   assert.equal(unlaid.attribute, original.attribute)
   // Visibility override and its removal restore the inline style byte for byte.
   document.nodes['button-1'].appearance = { visible: false, opacity: 0.25, fills: [{ type: 'image', assetId: 'swatch', fit: 'cover' }] }
-  await send({ type: 'set-document', document })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document })
   const hidden = await waitFor(observeButton, value => value?.visibility === 'hidden')
   assert.equal(hidden.opacity, '0.25')
   assert.equal(hidden.backgroundImage, `url("data:image/png;base64,${swatchPng}")`)
   assert.equal(hidden.backgroundColor, 'rgba(0, 0, 0, 0)')
   delete document.nodes['button-1'].appearance
-  await send({ type: 'set-document', document })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document })
   const restored = await waitFor(observeButton, value => value?.visibility === 'visible')
   assert.equal(restored.attribute, original.attribute)
   assert.equal(restored.same, true)
   // When the component rewrites a controlled property, the override is reapplied and the new value is what restores.
   document.nodes['button-1'].appearance = { fills: [{ type: 'solid', color: '#ff00ff' }] }
-  await send({ type: 'set-document', document })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document })
   await waitFor(observeButton, value => value?.backgroundColor === 'rgb(255, 0, 255)')
   await frame.executeJavaScript(`window.appearanceButton.style.background = 'rgb(9, 9, 9)'`)
   const reapplied = await waitFor(observeButton, value => value?.backgroundColor === 'rgb(255, 0, 255)')
   assert.equal(reapplied.backgroundImage, 'none')
   delete document.nodes['button-1'].appearance
-  await send({ type: 'set-document', document })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document })
   const drifted = await waitFor(observeButton, value => value?.backgroundColor === 'rgb(9, 9, 9)')
   assert.equal(drifted.backgroundImage, 'none')
   assert.equal(drifted.top, '3px solid rgb(1, 2, 3)')
@@ -274,16 +275,16 @@ try {
   const hostile = structuredClone(document)
   hostile.revision = 3
   hostile.canvas.elements[0].appearance = { fills: [{ type: 'solid', color: 'url(https://attacker.example/x.png)' }] }
-  await send({ type: 'set-document', document: hostile })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: hostile })
   const missingAsset = structuredClone(document)
   missingAsset.canvas.elements[0].appearance = { fills: [{ type: 'image', assetId: 'not-in-map', fit: 'cover' }] }
-  await send({ type: 'set-document', document: missingAsset })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: missingAsset })
   await new Promise(resolve => setTimeout(resolve, 40))
   assert.equal((await observeCanvas()).hero.backgroundImage, 'linear-gradient(135deg, rgb(155, 77, 255) 0%, rgb(0, 0, 0) 100%)')
   document.revision = 3
   document.nodes['card-1'].children.children = []
   delete document.nodes['input-1']
-  await send({ type: 'set-document', document })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document })
   await waitFor(observe, value => value.tag === undefined)
   assert.equal((await observe()).count, 0)
   await send({ type: 'dispose' })

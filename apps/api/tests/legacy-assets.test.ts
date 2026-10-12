@@ -112,7 +112,7 @@ describe('legacy hosted asset migration', () => {
     expect(upload).toHaveBeenCalledTimes(1)
     expect(await store.getFileDocumentForCapture(file.id)).toMatchObject({
       revision: 1,
-      document: { schemaVersion: 7, revision: 1, assets: { photo: { sha256: 'a'.repeat(64) } } },
+      document: { schemaVersion: 9, revision: 1, assets: { photo: { sha256: 'a'.repeat(64) } } },
     })
     expect((await store.getFile('owner', file.id))?.headRevision).toBe(1)
   })

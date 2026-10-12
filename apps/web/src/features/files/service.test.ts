@@ -96,7 +96,7 @@ describe('browser file service', () => {
     expect(opened.name).toBe('Untitled 1')
     expect(opened.legacyView).toBeUndefined()
     expect(opened.file).toEqual({
-      schemaVersion: 7, fileId: 'id-1', revision: 0,
+      schemaVersion: 9, fileId: 'id-1', revision: 0,
       pages: [{ id: 'id-2', name: 'Page 1', rootNodeId: 'id-3' }],
       nodes: { 'id-3': { id: 'id-3', type: 'root' } }, relationships: {}, theme: { tokens: {} },
     })
@@ -112,7 +112,7 @@ describe('browser file service', () => {
     const stored = JSON.parse(storage.contents.get(browserFileKey('id-1'))!)
     expect(stored.schemaVersion).toBe(1)
     // The content record keeps its own storage version; the design file inside is written at the current schema.
-    expect(stored.file.schemaVersion).toBe(7)
+    expect(stored.file.schemaVersion).toBe(9)
     expect(stored.file.nodes.box.appearance).toEqual({ fills: [{ id: 'box-fill', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#abcdef' } } }] })
     expect(stored.file.revision).toBe(2)
     expect(stored.file.nodes.box.styles).toEqual({ left: 1, top: 2, width: 30, height: 40 })
@@ -209,14 +209,14 @@ describe('browser file service', () => {
     await expect(service(futureIndex).list()).rejects.toThrow('unsupported format')
 
     const index = JSON.stringify({ schemaVersion: 1, files: { a: { id: 'a', name: 'A', createdAt: 1, updatedAt: 1 }, b: { id: 'b', name: 'B', createdAt: 1, updatedAt: 1 } } })
-    const missing = memoryStorage({ [browserFilesIndexKey]: index, [browserFileKey('b')]: JSON.stringify({ schemaVersion: 7, file: {} }) })
+    const missing = memoryStorage({ [browserFilesIndexKey]: index, [browserFileKey('b')]: JSON.stringify({ schemaVersion: 9, file: {} }) })
     await expect(service(missing).open('a')).rejects.toThrow('local file contents are missing')
     await expect(service(missing).open('b')).rejects.toThrow('The local file uses an unsupported format')
     await expect(service(missing).open('c')).rejects.toThrow('The local file no longer exists')
     expect(missing.writes).toEqual([])
   })
 
-  it('upgrades a legacy schema 6 record without assets in memory and writes schema 7 only on save', async () => {
+  it('upgrades a legacy schema 6 record without assets in memory and writes the current schema only on save', async () => {
     const legacy = {
       schemaVersion: 6, fileId: 'legacy-six', revision: 2,
       pages: [{ id: 'legacy-page', name: 'Page 1', rootNodeId: 'legacy-root' }],
@@ -229,18 +229,44 @@ describe('browser file service', () => {
     const files = service(storage)
 
     const opened = await files.open('legacy-six')
-    expect(opened.file.schemaVersion).toBe(7)
+    expect(opened.file.schemaVersion).toBe(9)
     expect(storage.writes).toEqual([])
     expect(storage.contents.get(browserFileKey('legacy-six'))).toBe(recordBytes)
 
     await files.save('legacy-six', opened.file, 2)
-    expect(JSON.parse(storage.contents.get(browserFileKey('legacy-six'))!).file).toMatchObject({ schemaVersion: 7, revision: 3 })
+    expect(JSON.parse(storage.contents.get(browserFileKey('legacy-six'))!).file).toMatchObject({ schemaVersion: 9, revision: 3 })
 
     // Negative control: embedded v6 bytes need the separate externalization pipeline and are never relabeled as references.
     const embedded = { ...legacy, assets: { photo: { id: 'photo', name: 'photo.png', mime: 'image/png', width: 1, height: 1, bytes: 4, data: 'AAAA' } } }
     const blocked = memoryStorage({ [browserFilesIndexKey]: index, [browserFileKey('legacy-six')]: JSON.stringify({ schemaVersion: 1, file: embedded }) })
     await expect(service(blocked).open('legacy-six')).rejects.toThrow('The local file is invalid')
     expect(blocked.writes).toEqual([])
+  })
+
+  it('PAPER-FLEX-001 upgrades schema 8 in memory without materializing primitive layout', async () => {
+    const legacy = {
+      schemaVersion: 8, fileId: 'legacy-eight', revision: 4,
+      pages: [{ id: 'legacy-page', name: 'Page 1', rootNodeId: 'legacy-root' }],
+      nodes: {
+        'legacy-root': { id: 'legacy-root', type: 'root' },
+        frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 12, top: 20, width: 160, height: 90 } },
+      },
+      relationships: { frame: { parentId: 'legacy-root', orderKey: 'V' } },
+      theme: { tokens: {} },
+    }
+    const index = JSON.stringify({ schemaVersion: 1, files: { 'legacy-eight': { id: 'legacy-eight', name: 'Legacy eight', createdAt: 1, updatedAt: 1 } } })
+    const recordBytes = JSON.stringify({ schemaVersion: 1, file: legacy })
+    const storage = memoryStorage({ [browserFilesIndexKey]: index, [browserFileKey('legacy-eight')]: recordBytes })
+    const files = service(storage)
+
+    const opened = await files.open('legacy-eight')
+    expect(opened.file.schemaVersion).toBe(9)
+    expect(opened.file.nodes.frame).not.toHaveProperty('layout')
+    expect(storage.writes).toEqual([])
+    expect(storage.contents.get(browserFileKey('legacy-eight'))).toBe(recordBytes)
+
+    await files.save('legacy-eight', opened.file, 4)
+    expect(JSON.parse(storage.contents.get(browserFileKey('legacy-eight'))!).file).toMatchObject({ schemaVersion: 9, revision: 5 })
   })
 
   it('opens a stored version 2 file by upgrading it in memory and rewrites the record only on save', async () => {
@@ -272,7 +298,7 @@ describe('browser file service', () => {
 
     const files = service(storage)
     const opened = await files.open('old-file')
-    expect(opened.file.schemaVersion).toBe(7)
+    expect(opened.file.schemaVersion).toBe(9)
     expect(opened.file.revision).toBe(4)
     expect(opened.file.nodes.panel).toEqual({ id: 'panel', type: 'frame', name: 'Panel', styles: { left: 0, top: 0, width: 200, height: 100, overflow: 'clip' }, appearance: { fills: upgradedPanel }, themeMode: 'inherit' })
     // An empty version 2 fill list leaves no appearance record at all.
@@ -285,7 +311,7 @@ describe('browser file service', () => {
     expect(saved.file.revision).toBe(5)
     const stored = JSON.parse(storage.contents.get(browserFileKey('old-file'))!)
     expect(stored.schemaVersion).toBe(1)
-    expect(stored.file.schemaVersion).toBe(7)
+    expect(stored.file.schemaVersion).toBe(9)
     expect(stored.file.nodes.panel).not.toHaveProperty('fills')
     expect(stored.file.nodes.panel.appearance.fills.map((paint: { id: string }) => paint.id)).toEqual(['panel:fill:3', 'panel:fill:2', 'panel:fill:1'])
     expect(stored.file.nodes.bare).not.toHaveProperty('fills')
@@ -326,7 +352,7 @@ describe('browser file service', () => {
 
     const files = service(storage)
     const opened = await files.open('v3-file')
-    expect(opened.file.schemaVersion).toBe(7)
+    expect(opened.file.schemaVersion).toBe(9)
     expect(opened.file.revision).toBe(2)
     expect(opened.file.nodes.placed).toEqual({ id: 'placed', type: 'component', componentId: 'sample-button', exportName: 'Button', props: { children: 'Placed' }, layout: placedLayout, themeMode: 'inherit' })
     expect(opened.file.nodes.sized).toMatchObject({ layout: sizedLayout })
@@ -340,7 +366,7 @@ describe('browser file service', () => {
     expect(saved.file.revision).toBe(3)
     expect(storage.writes).toContain(browserFileKey('v3-file'))
     const stored = JSON.parse(storage.contents.get(browserFileKey('v3-file'))!)
-    expect(stored.file.schemaVersion).toBe(7)
+    expect(stored.file.schemaVersion).toBe(9)
     expect(stored.file.nodes.placed.layout).toEqual(placedLayout)
     expect(stored.file.nodes.sized.layout).toEqual(sizedLayout)
     expect(stored.file.nodes.flowing.layout).toEqual(flowingLayout)
@@ -378,7 +404,7 @@ describe('browser file service', () => {
     expect(Object.keys(alpha.file.theme.tokens).sort()).toEqual(['legacy:accent', 'legacy:accent:page-alpha-2'])
     expect(alpha.file.theme.tokens['legacy:accent']?.value).toEqual({ kind: 'literal', color: { kind: 'hex', hex: '#ff0000' } })
     expect(alpha.file.theme.tokens['legacy:accent:page-alpha-2']?.value).toEqual({ kind: 'literal', color: { kind: 'hex', hex: '#0000ff' } })
-    expect(alpha.file.schemaVersion).toBe(7)
+    expect(alpha.file.schemaVersion).toBe(9)
     expect(alpha.file.nodes['alpha-frame']).toMatchObject({ appearance: { fills: [{ id: 'alpha-frame:fill:1', type: 'solid', color: { kind: 'token', tokenId: 'legacy:accent' } }] } })
     expect(alpha.file.nodes['alpha-rect']).toMatchObject({ appearance: { fills: [{ id: 'alpha-rect:fill:1', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#00ff00' } } }] } })
     expect(alpha.file.nodes['alpha-frame']).not.toHaveProperty('fills')

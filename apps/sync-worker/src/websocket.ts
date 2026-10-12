@@ -1,4 +1,6 @@
-export const syncWebSocketProtocol = "canvas-sync-v2"
+import { collaborationWebSocketProtocol as syncWebSocketProtocol } from '@canvas/sync-protocol'
+
+export { syncWebSocketProtocol }
 
 export type ValidWebSocketHandshake = Readonly<{ protocol: typeof syncWebSocketProtocol }>
 
@@ -11,19 +13,19 @@ function validWebSocketKey(value: string | null): boolean {
   try { return atob(value).length === 16 } catch { return false }
 }
 
-function selectedProtocol(value: string | null): typeof syncWebSocketProtocol | false {
-  if (value === null) return false
-  const protocols = value.split(",").map(protocol => protocol.trim()).filter(Boolean)
-  return protocols.length === 1 && protocols[0] === syncWebSocketProtocol ? syncWebSocketProtocol : false
+export function parseWebSocketProtocols(value: string | null): typeof syncWebSocketProtocol | null {
+  if (value === null) return null
+  const protocols = value.split(",")
+  return protocols.length === 1 && protocols[0] === syncWebSocketProtocol ? syncWebSocketProtocol : null
 }
 
 export function validateWebSocketHandshake(request: Request): ValidWebSocketHandshake | null {
-  const protocol = selectedProtocol(request.headers.get("Sec-WebSocket-Protocol"))
+  const protocol = parseWebSocketProtocols(request.headers.get("Sec-WebSocket-Protocol"))
   if (request.method !== "GET"
     || request.headers.get("Upgrade")?.trim().toLowerCase() !== "websocket"
     || !connectionHasUpgrade(request.headers.get("Connection"))
     || request.headers.get("Sec-WebSocket-Version")?.trim() !== "13"
     || !validWebSocketKey(request.headers.get("Sec-WebSocket-Key"))
-    || protocol === false) return null
+    || protocol === null) return null
   return Object.freeze({ protocol })
 }

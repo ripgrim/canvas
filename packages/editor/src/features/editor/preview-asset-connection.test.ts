@@ -5,9 +5,10 @@ import { isPreviewDocument } from '@canvas/preview-runtime/protocol'
 import { createPreviewConnection } from './preview-service'
 import { documentStore } from './document-store'
 import { editorStore } from './store'
+import { sceneGeometry } from './scene-geometry'
 
 const file = (): FileDocument => ({
-  schemaVersion: 7,
+  schemaVersion: 9,
   fileId: 'file-preview-assets',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -34,8 +35,10 @@ const cleanups: (() => void)[] = []
 function harness() {
   let asset: ResolvedAsset = null
   let nextFrame = 0
+  let messageListener: ((event: MessageEvent) => void) | null = null
   const frames = new Map<number, FrameRequestCallback>()
-  vi.stubGlobal('window', { document: { querySelector: () => null }, addEventListener: vi.fn(), removeEventListener: vi.fn() })
+  const target = { postMessage: vi.fn() }
+  vi.stubGlobal('window', { document: { querySelector: () => null }, addEventListener: vi.fn((type: string, listener: (event: MessageEvent) => void) => { if (type === 'message') messageListener = listener }), removeEventListener: vi.fn() })
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { const id = ++nextFrame; frames.set(id, callback); return id })
   vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames.delete(id) })
   const flushAllFrames = () => {
@@ -49,7 +52,6 @@ function harness() {
   const document = file()
   documentStore.load(document, [], { replace: true })
   editorStore.set({ snapshot: snapshot(document), previewReady: false, previewThemeId: 'default', runtimeInstanceIds: null, compositionPreview: true, error: null })
-  const target = { postMessage: vi.fn() }
   const connection = createPreviewConnection({ resolveAsset: () => asset })
   connection.start()
   connection.connect(target as unknown as Window)
@@ -58,7 +60,7 @@ function harness() {
   editorStore.set({ previewReady: true })
   const cleanup = () => { connection.stop(); setSpy.mockRestore(); vi.unstubAllGlobals() }
   cleanups.push(cleanup)
-  return { frames, flushAllFrames, setAsset: (next: ResolvedAsset) => { asset = next }, target, setSpy }
+  return { connection, frames, flushAllFrames, setAsset: (next: ResolvedAsset) => { asset = next }, target, setSpy, deliver: (data: unknown) => messageListener?.({ data, origin: 'https://preview.test', source: target } as unknown as MessageEvent) }
 }
 
 afterEach(() => {
@@ -100,6 +102,9 @@ describe('FILE-ASSET-001 and ERROR-VISIBILITY-001 preview connection hydration',
     const documents = target.postMessage.mock.calls.map(([command]) => command).filter(command => command.type === 'set-document')
     expect(documents).toHaveLength(1)
     expect(isPreviewDocument(documents[0]!.document)).toBe(true)
+    expect(documents[0]!.flowDragTerminalPolicy).toBe('preserve-matching-committed-handoff')
+    const layouts = target.postMessage.mock.calls.map(([command]) => command).filter(command => command.type === 'set-layout')
+    expect(layouts.at(-1)?.flowDragTerminalPolicy).toBe('preserve-matching-committed-handoff')
     expect(documents[0]!.document.assets).toEqual({ 'photo-asset': { mime: 'image/png', data: 'AAAA' } })
     expect(editorStore.getSnapshot().error).toBeNull()
     expect(setSpy.mock.calls.filter(([patch]) => patch.error === null)).toHaveLength(1)
@@ -117,5 +122,39 @@ describe('FILE-ASSET-001 and ERROR-VISIBILITY-001 preview connection hydration',
 
     expect(editorStore.getSnapshot().error).toBe('A newer save failure must remain visible.')
     expect(target.postMessage.mock.calls.filter(([command]) => command.type === 'set-document')).toHaveLength(1)
+  })
+
+  it('stores the exact accepted runtime measurement token and does not advance it for a rejected geometry event', () => {
+    const { deliver, flushAllFrames, setAsset } = harness()
+    setAsset({ mime: 'image/png', data: 'AAAA' })
+    flushAllFrames()
+    const before = sceneGeometry.getSnapshot().revision
+    deliver({
+      channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 1, layoutGeneration: 0, measurementRevision: 40, root: null, items: [],
+    })
+    expect(sceneGeometry.getSnapshot().revision).toBe(before)
+    const acceptedPayload = {
+      channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 41, root: null,
+      camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 },
+      items: [{ instanceId: 'photo', source: 'canvas', canvasKind: 'rectangle', bounds: { x: 400, y: 300, width: 80, height: 60 }, worldAabb: { x: 400, y: 300, width: 80, height: 60 }, offset: { x: 0, y: 0, width: 80, height: 60, origin: { x: 40, y: 30 } }, offsetParentNodeId: null, directChild: true }],
+    }
+    deliver(acceptedPayload)
+    expect(sceneGeometry.getSnapshot()).toMatchObject({ documentRevision: 0, layoutGeneration: 0, revision: 41, nodes: { photo: { worldAabb: { x: 0, y: 0, width: 80, height: 60 }, offsetParentNodeId: null } } })
+  })
+
+  it('makes geometry unavailable on disconnect and accepts a reset runtime token from a replacement generation', () => {
+    const { connection, deliver, flushAllFrames, setAsset, target } = harness()
+    setAsset({ mime: 'image/png', data: 'AAAA' })
+    flushAllFrames()
+    deliver({ channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 73, root: null, items: [] })
+    expect(sceneGeometry.getSnapshot()).toMatchObject({ revision: 73, documentRevision: 0, layoutGeneration: 0 })
+    connection.disconnect()
+    expect(sceneGeometry.getSnapshot()).toMatchObject({ revision: 0, documentRevision: null, layoutGeneration: null, nodes: {} })
+
+    const current = editorStore.getSnapshot().snapshot!
+    editorStore.set({ snapshot: { ...current, preview: { ...current.preview, currentGeneration: 2, activeGeneration: 2 } } })
+    connection.connect(target as unknown as Window)
+    deliver({ channel: 'design-editor-preview', version: 8, generation: 2, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 1, root: null, items: [] })
+    expect(sceneGeometry.getSnapshot()).toMatchObject({ revision: 1, documentRevision: 0, layoutGeneration: 0, nodes: {} })
   })
 })

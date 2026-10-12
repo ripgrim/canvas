@@ -1,7 +1,7 @@
 import { resolve } from 'node:path'
 import { createPostgresCollaborationPersistence } from '@canvas/database/collaboration'
 import { createPostgresControlPlane, createPostgresPool } from '@canvas/database/postgres'
-import { defaultMaxCollaborationMessageBytes } from '@canvas/sync-protocol'
+import { collaborationProtocolEpoch, defaultMaxCollaborationMessageBytes } from '@canvas/sync-protocol'
 import { FileCheckpointStore } from './checkpoints.js'
 import { migrateLegacyCollaborationDocument, validateLegacyCollaborationDocument } from './legacy-document.js'
 import { createRoomNetworkServer } from './network.js'
@@ -43,7 +43,7 @@ const allowedOrigins = required('ALLOWED_ORIGINS').split(',').map(value => value
 const pool = createPostgresPool(required('DATABASE_URL'))
 const controlPlane = createPostgresControlPlane(pool)
 const room = new CollaborationRoomCore({
-  identity: { fileId: uuid('SYNC_ROOM_FILE_ID'), generationId: uuid('SYNC_ROOM_GENERATION_ID'), protocolEpoch: 2 },
+  identity: { fileId: uuid('SYNC_ROOM_FILE_ID'), generationId: uuid('SYNC_ROOM_GENERATION_ID'), protocolEpoch: collaborationProtocolEpoch },
   leaseDurationMs,
   leaseRenewalMs,
   drainTimeoutMs,

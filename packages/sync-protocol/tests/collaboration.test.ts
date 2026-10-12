@@ -4,9 +4,11 @@ import {
   collaborationEnvelopeSchemaVersion,
   collaborationModeForRole,
   collaborationProtocolEpoch,
+  collaborationWebSocketProtocol,
   decodeSemanticCommandFromPersistence,
   encodeCollaborationMessage,
   encodeSemanticCommandForPersistence,
+  flowDragResourceLimits,
   isValidClientLifecycleTransition,
   isValidLoadPhaseTransition,
   maxCollaborationAvatarUrlBytes,
@@ -21,14 +23,52 @@ import {
   serverMessageMatchesEnvelope,
   semanticOperationContentDigest,
   validateSemanticFileCommand,
+  validatePeerFlowDragPresentation,
+  validateFlowDragPresentationStructure,
   validateVerifiedRoomTicketClaimsShape,
 } from '../src/index.js'
+import type { FlowDragPresentation, FlowDragTopologyAuthority } from '../src/flow.js'
 
 const fileId = '11111111-1111-4111-8111-111111111111'
 const generationId = '22222222-2222-4222-8222-222222222222'
 const room = { fileId, generationId }
 const serverEnvelope = { protocolEpoch: collaborationProtocolEpoch, schemaVersion: collaborationEnvelopeSchemaVersion, room, fenceToken: '9223372036854775807' }
 const operation = { mutationId: 'mutation-0001', baseSequence: '4', command: { type: 'node.rename', nodeId: 'node-1', name: 'Card' } }
+const flowFence = { fileId: 'file-1', fileRevision: 3, measurementRevision: 8, documentRevision: 3, layoutGeneration: 5, pageId: 'page-1', pageRootId: 'page-root-1' }
+const flowSource = { coordinateSpace: 'world' as const, quad: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }] as const, aabb: { x: 0, y: 0, width: 100, height: 80 }, semanticSize: { width: 100, height: 80 } }
+const flowCurrent = { coordinateSpace: 'world' as const, quad: [{ x: 10, y: 20 }, { x: 110, y: 20 }, { x: 110, y: 100 }, { x: 10, y: 100 }] as const, aabb: { x: 10, y: 20, width: 100, height: 80 }, semanticSize: { width: 100, height: 80 } }
+const flowPresentation = (sequence = 4, withTarget = false, withSupportClone = false): FlowDragPresentation => ({
+  kind: 'flow-drag', coordinateSpace: 'world', identity: { interactionId: 'flow-drag-1', gestureGeneration: 2, sampleSequence: sequence }, fence: flowFence,
+  retention: { kind: 'active', gestureGeneration: 2, sampleSequence: sequence }, pointer: { downWorld: { x: 0, y: 0 }, currentWorld: { x: 10, y: 20 } },
+  original: {
+    documentNodeId: 'frame-1', kind: 'frame', name: 'Frame', sourceRelationship: { parentId: 'flex-1', orderKey: 'V', slot: { presence: 'absent' } }, sourceIndex: 0,
+    mode: 'flow', source: flowSource, current: flowCurrent, sourceOffsetParentPose: null,
+    dom: { treatment: 'drag-dimmed', opacity: 0.6, opacityPriority: 'important', zIndex: null }, namePresentation: { visible: true, anchor: 'source', pose: flowSource },
+  },
+  movingVisual: { kind: 'fill-ghost', documentNodeId: null, geometry: flowCurrent, fill: { kind: 'fill-only', color: 'oklch(0.67 0.17 258)', alpha: 0.15 }, hitTesting: 'none', a11y: 'hidden' },
+  supportClone: withSupportClone ? {
+    key: { kind: 'flow-support-clone', interactionId: 'flow-drag-1', gestureGeneration: 2, cloneGeneration: 1 },
+    documentNodeId: null, generation: 1,
+    sourceRelationship: { parentId: 'flex-1', orderKey: 'V', slot: { presence: 'absent' } }, sourceIndex: 0,
+    entryMode: 'flow', entry: null, world: flowSource, hiddenUntilCommit: true,
+    role: 'inert-marker', layoutParticipation: 'none', hitTesting: 'none', a11y: 'hidden',
+  } : null,
+  target: withTarget ? { parentId: 'flex-1', slot: { presence: 'absent' }, rawIndex: 1, semanticIndex: 1, line: 0, parentOutline: null, insertionGuide: null } : null,
+  hud: { showDimensions: false, showSelectionOutline: false, showResizeHandles: false, showRotationHandles: false, interactiveHandleLayer: false },
+  mobileQuickActions: { mounted: true, hidden: true, inert: true, transition: { property: 'opacity', durationMs: 150, source: 'wonder' } },
+})
+const peerFlowInteractionId = (leaseId: string): string => `lease:${leaseId}`
+const peerFlowPresentation = (leaseId: string, sequence = 4, withTarget = false, withSupportClone = false): FlowDragPresentation => {
+  const presentation = structuredClone(flowPresentation(sequence, withTarget, withSupportClone))
+  ;(presentation.identity as { interactionId: string }).interactionId = peerFlowInteractionId(leaseId)
+  if (presentation.supportClone) (presentation.supportClone.key as { interactionId: string }).interactionId = peerFlowInteractionId(leaseId)
+  return presentation
+}
+const flowAuthority: FlowDragTopologyAuthority = {
+  fileId: flowFence.fileId, fileRevision: flowFence.fileRevision, pageId: flowFence.pageId, pageRootId: flowFence.pageRootId,
+  source: nodeId => nodeId === 'frame-1' ? { kind: 'frame', relationship: { parentId: 'flex-1', orderKey: 'V', slot: { presence: 'absent' } }, sourceIndex: 0 } : null,
+  acceptsTarget: target => target.targetLane.parentId === 'flex-1' && target.targetLane.slot.presence === 'absent',
+}
 
 const compileTimeJsonPayload: CollaborationJsonObject = { nested: { values: Object.freeze(['x', 1, true, null]) } }
 // @ts-expect-error persisted collaboration JSON cannot contain functions
@@ -39,14 +79,14 @@ void compileTimeInvalidJsonPayload
 describe('CLOUD-SYNC-STATE-001 lifecycle contract', () => {
   it('defines opening, dirty reconnect, parking, and graceful close paths', () => {
     const allowed = [
-      ['cold', 'opening'], ['opening', 'authorizing'], ['authorizing', 'hydrating-local'],
+      ['cold', 'opening'], ['opening', 'authorizing'], ['authorizing', 'hydrating-local'], ['authorizing', 'offline-clean'],
       ['hydrating-local', 'admission-queued'], ['admission-queued', 'streaming'],
       ['streaming', 'applying'], ['applying', 'live'], ['live', 'offline-dirty'],
       ['offline-dirty', 'reconnecting'], ['reconnecting', 'authorizing'],
       ['applying', 'replaying'], ['replaying', 'live'],
       ['live', 'parked'], ['parked', 'reconnecting'], ['live', 'closing'], ['closing', 'closed'],
       ['closed', 'opening'], ['access-revoked', 'closing'], ['incompatible-build', 'closing'],
-      ['capacity-refused', 'closing'],
+      ['capacity-refused', 'closing'], ['connection-failed', 'closing'],
     ] as const
     for (const [from, to] of allowed) expect(isValidClientLifecycleTransition(from, to), `${from} -> ${to}`).toBe(true)
   })
@@ -70,7 +110,7 @@ describe('CLOUD-SYNC-STATE-001 lifecycle contract', () => {
 
 describe('CLOUD-SYNC-SCHEMA-001 client validation', () => {
   it('accepts an authority-free open request and session-bound semantic command', () => {
-    const open = { type: 'room.open', protocolEpoch: 2, schemaVersion: 1, requestId: 'request-1', fileId, clientId: 'client-1', buildId: 'web-2026.10.10', cachedSnapshotId: 'snapshot-1', afterSequence: '4' }
+    const open = { type: 'room.open', protocolEpoch: 4, schemaVersion: 1, requestId: 'request-1', fileId, clientId: 'client-1', buildId: 'web-2026.10.10', cachedSnapshotId: 'snapshot-1', afterSequence: '4' }
     const submit = { type: 'operation.submit', operation }
     expect(parseCollaborationClientMessage(JSON.stringify(open))).toEqual(open)
     expect(parseCollaborationClientMessage(JSON.stringify(submit))).toEqual(submit)
@@ -117,7 +157,7 @@ describe('CLOUD-SYNC-SCHEMA-001 client validation', () => {
   })
 
   it('rejects malformed commands, identifiers, and incompatible versions', () => {
-    const open = { type: 'room.open', protocolEpoch: 2, schemaVersion: 1, requestId: 'request-1', fileId, clientId: 'client-1', buildId: 'web-1' }
+    const open = { type: 'room.open', protocolEpoch: 4, schemaVersion: 1, requestId: 'request-1', fileId, clientId: 'client-1', buildId: 'web-1' }
     expect(() => parseCollaborationClientMessage(JSON.stringify({ ...open, fileId: 'file-1' }))).toThrow('Invalid room open')
     expect(() => parseCollaborationClientMessage(JSON.stringify({ ...open, protocolEpoch: 3 }))).toThrow('Unsupported collaboration protocol epoch')
     expect(() => parseCollaborationClientMessage(JSON.stringify({ ...open, schemaVersion: 2 }))).toThrow('Unsupported collaboration envelope schema')
@@ -137,7 +177,7 @@ describe('CLOUD-SYNC-SCHEMA-001 client validation', () => {
   })
 
   it('CLOUD-SYNC-DO-SEC-001 rejects all client-supplied session identity and authority after assignment', () => {
-    const open = { type: 'room.open', protocolEpoch: 2, schemaVersion: 1, requestId: 'request-1', fileId, clientId: 'client-1', buildId: 'web-1', generationId: 'chosen', fenceToken: '91', role: 'owner' }
+    const open = { type: 'room.open', protocolEpoch: 4, schemaVersion: 1, requestId: 'request-1', fileId, clientId: 'client-1', buildId: 'web-1', generationId: 'chosen', fenceToken: '91', role: 'owner' }
     expect(() => parseCollaborationClientMessage(JSON.stringify(open))).toThrow('Invalid room open')
     const forbiddenClaims = {
       clientId: 'client-2', generationId, role: 'owner', accessEpoch: '1', fenceToken: '91',
@@ -158,7 +198,7 @@ describe('CLOUD-SYNC-SCHEMA-001 client validation', () => {
       { type: 'room.resume', requestId: 'request-1', afterSequence: '9', pendingMutationIds: ['mutation-0001'] },
       { type: 'operation.submit', operation },
       { type: 'presence.update', sequence: 4, data: { focused: true } },
-      { type: 'presence.update', sequence: 5, data: { pageId: null, selection: null, camera: null, cursor: null, interaction: null } },
+      { type: 'presence.update', sequence: 5, data: { pageId: null, selection: null, camera: null, cursor: null } },
       { type: 'room.leave' },
     ] as const
     const encoded = frames.map(frame => encodeCollaborationMessage(parseCollaborationClientMessage(JSON.stringify(frame))))
@@ -204,9 +244,9 @@ describe('CLOUD-SYNC-PRESENCE-001 protocol contract', () => {
     expect(() => parseCollaborationClientMessage(JSON.stringify(update({ focused: true, avatarUrl: 'https://evil.example/avatar.png' })))).toThrow('Invalid presence update')
   })
 
-  it('accepts bounded transient interaction geometry', () => {
+  it('rejects the epoch-3 presence interaction channel', () => {
     const update = { type: 'presence.update', sequence: 4, data: { pageId: 'page-1', interaction: { interactionId: 'gesture-1', pageId: 'page-1', kind: 'resize', nodeIds: ['node-1'], transforms: [{ nodeId: 'node-1', dx: 3, dy: 4, width: 120, height: 80 }] } } }
-    expect(parseCollaborationClientMessage(JSON.stringify(update))).toEqual(update)
+    expect(() => parseCollaborationClientMessage(JSON.stringify(update))).toThrow('Invalid presence update')
   })
 
   it('rejects non-authoritative or internally inconsistent server presence', () => {
@@ -234,9 +274,236 @@ describe('CLOUD-SYNC-PRESENCE-001 protocol contract', () => {
   })
 })
 
+describe('CLOUD-SYNC-GESTURE-001-C1 epoch-4 interaction frames', () => {
+  const leaseId = '33333333-3333-4333-8333-333333333333'
+  const targetLane = { parentId: 'flex-1', slot: { presence: 'absent' as const } }
+  const peerSample = (nextLeaseId: string, presentation: FlowDragPresentation) => ({
+    type: 'interaction.sample', envelope: serverEnvelope, pageId: 'page-1', presenceId: 'presence-1', subjectId: 'user-1', clientId: 'client-1',
+    leaseId: nextLeaseId, localClaimGeneration: 1, reservationGeneration: 2, presentation,
+  })
+
+  it('cuts directly to one exact epoch and rejects v3 without negotiation', () => {
+    expect(collaborationProtocolEpoch).toBe(4)
+    expect(collaborationWebSocketProtocol).toBe('canvas-sync-v4')
+    const open = { type: 'room.open', protocolEpoch: 3, schemaVersion: 1, requestId: 'request-1', fileId, clientId: 'client-1', buildId: 'web-1' }
+    expect(() => parseCollaborationClientMessage(JSON.stringify(open))).toThrow('Unsupported collaboration protocol epoch')
+    const result = { type: 'interaction.result', envelope: { ...serverEnvelope, protocolEpoch: 3 }, pageId: 'page-1', action: 'acquire', status: 'denied', interactionId: 'flow-drag-1', leaseId: null, localClaimGeneration: 1, reservationGeneration: 1, sampleSequence: 4, denialCode: 'overlap' }
+    expect(() => parseCollaborationServerMessage(JSON.stringify(result))).toThrow('Unsupported collaboration protocol epoch')
+  })
+
+  it('accepts exact acquire, reserve, sample, and release client frames', () => {
+    const frames = [
+      { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() },
+      { type: 'interaction.reserve', pageId: 'page-1', leaseId, localClaimGeneration: 1, reservationGeneration: 2, targetLane, presentation: flowPresentation(4, true) },
+      { type: 'interaction.sample', pageId: 'page-1', leaseId, localClaimGeneration: 1, reservationGeneration: 2, presentation: flowPresentation(5, true) },
+      { type: 'interaction.release', pageId: 'page-1', leaseId, interactionId: 'flow-drag-1', localClaimGeneration: 1, reservationGeneration: 2, terminalSampleSequence: 5, reason: 'committed' },
+    ]
+    expect(frames.map(frame => parseCollaborationClientMessage(JSON.stringify(frame)))).toEqual(frames)
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C1-LIVE and CLOUD-SYNC-GESTURE-001-C1-LIVE perform exact structural parsing before RoomCore supplies topology authority', () => {
+    const acquire = { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation(4, false, true) }
+    expect(validateFlowDragPresentationStructure(acquire.presentation, { interactionId: 'flow-drag-1', gestureGeneration: 2, sequence: 4 }, flowFence)).toBe(true)
+    const parsedPresentation = JSON.parse(JSON.stringify(acquire.presentation))
+    expect(validateFlowDragPresentationStructure(parsedPresentation, { interactionId: 'flow-drag-1', gestureGeneration: 2, sequence: 4 }, flowFence)).toBe(true)
+    expect(parseCollaborationClientMessage(JSON.stringify(acquire))).toEqual(acquire)
+
+    const extra = { ...acquire, presentation: { ...flowPresentation(4, false, true), role: 'owner' } }
+    const malformed = structuredClone(acquire)
+    ;(malformed.presentation.identity as unknown as Record<string, unknown>).sampleSequence = '4'
+    const wrongLiteral = structuredClone(acquire)
+    ;(wrongLiteral.presentation.mobileQuickActions.transition as unknown as Record<string, unknown>).source = 'paper'
+    for (const frame of [extra, malformed, wrongLiteral]) {
+      expect(() => parseCollaborationClientMessage(JSON.stringify(frame))).toThrow('Invalid interaction acquire message')
+    }
+
+    expect(() => parseCollaborationClientMessage(JSON.stringify(acquire), undefined, { ...flowAuthority, source: () => null })).toThrow('Invalid interaction acquire message')
+  })
+
+  it('accepts exact authoritative result, sample, released, and roster server frames', () => {
+    const sample = {
+      type: 'interaction.sample', envelope: serverEnvelope, pageId: 'page-1', presenceId: 'presence-1', subjectId: 'user-1', clientId: 'client-1', leaseId,
+      localClaimGeneration: 1, reservationGeneration: 2, presentation: peerFlowPresentation(leaseId, 5, true),
+    }
+    const entry = { pageId: 'page-1', presenceId: 'presence-1', subjectId: 'user-1', clientId: 'client-1', leaseId, localClaimGeneration: 1, reservationGeneration: 2, presentation: peerFlowPresentation(leaseId, 5, true) }
+    const frames = [
+      { type: 'interaction.result', envelope: serverEnvelope, pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: 'flow-drag-1', leaseId, localClaimGeneration: 1, reservationGeneration: 1, sampleSequence: 4, denialCode: null },
+      sample,
+      { type: 'interaction.released', envelope: serverEnvelope, pageId: 'page-1', presenceId: 'presence-1', subjectId: 'user-1', clientId: 'client-1', interactionId: peerFlowInteractionId(leaseId), leaseId, localClaimGeneration: 1, reservationGeneration: 2, terminalSampleSequence: 5, reason: 'committed' },
+      { type: 'interaction.roster', envelope: serverEnvelope, interactions: [entry] },
+    ]
+    expect(frames.map(frame => parseCollaborationServerMessage(JSON.stringify(frame), undefined, flowAuthority))).toEqual(frames)
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C1-LEASE binds every peer sample presentation identity to its exact lease namespace', () => {
+    const otherLeaseId = '44444444-4444-4444-8444-444444444444'
+    const rootOnly = peerFlowPresentation(leaseId, 5, true, true)
+    ;(rootOnly.identity as { interactionId: string }).interactionId = peerFlowInteractionId(otherLeaseId)
+    const supportCloneOnly = peerFlowPresentation(leaseId, 5, true, true)
+    ;(supportCloneOnly.supportClone!.key as { interactionId: string }).interactionId = peerFlowInteractionId(otherLeaseId)
+    const leaseOnly = peerSample(otherLeaseId, peerFlowPresentation(leaseId, 5, true, true))
+    const structurallyValidWrongLease = peerSample(leaseId, peerFlowPresentation(otherLeaseId, 5, true, true))
+    for (const frame of [
+      peerSample(leaseId, rootOnly),
+      peerSample(leaseId, supportCloneOnly),
+      leaseOnly,
+      structurallyValidWrongLease,
+    ]) expect(() => parseCollaborationServerMessage(JSON.stringify(frame), undefined, flowAuthority)).toThrow('Invalid collaboration server message')
+
+    const valid = peerSample(leaseId, peerFlowPresentation(leaseId, 5, true, true))
+    expect(parseCollaborationServerMessage(JSON.stringify(valid), undefined, flowAuthority)).toEqual(valid)
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C1-LEASE checks lease identities through data descriptors without getters or mutation', () => {
+    const value = peerFlowPresentation(leaseId, 5, true, true)
+    const before = JSON.stringify(value)
+    expect(validatePeerFlowDragPresentation(value, leaseId)).toBe(true)
+    expect(JSON.stringify(value)).toBe(before)
+
+    let reads = 0
+    const rootAccessor = structuredClone(value)
+    Object.defineProperty(rootAccessor.identity, 'interactionId', {
+      enumerable: true,
+      get: () => { reads += 1; return peerFlowInteractionId(leaseId) },
+    })
+    expect(validatePeerFlowDragPresentation(rootAccessor, leaseId)).toBe(false)
+    expect(reads).toBe(0)
+
+    const nestedAccessor = structuredClone(value)
+    Object.defineProperty(nestedAccessor.supportClone!.key, 'interactionId', {
+      enumerable: true,
+      get: () => { reads += 1; return peerFlowInteractionId(leaseId) },
+    })
+    expect(validatePeerFlowDragPresentation(nestedAccessor, leaseId)).toBe(false)
+    expect(reads).toBe(0)
+
+    const hidden = structuredClone(value)
+    Object.defineProperty(hidden.identity, 'hidden', { enumerable: false, value: peerFlowInteractionId(leaseId) })
+    expect(validatePeerFlowDragPresentation(hidden, leaseId)).toBe(false)
+
+    const symbolic = structuredClone(value)
+    Object.defineProperty(symbolic.supportClone!.key, Symbol('interactionId'), { enumerable: true, value: peerFlowInteractionId(leaseId) })
+    expect(validatePeerFlowDragPresentation(symbolic, leaseId)).toBe(false)
+
+    const nonEnumerableIdentity = structuredClone(value)
+    Object.defineProperty(nonEnumerableIdentity.supportClone!.key, 'interactionId', {
+      enumerable: false,
+      value: peerFlowInteractionId(leaseId),
+    })
+    expect(validatePeerFlowDragPresentation(nonEnumerableIdentity, leaseId)).toBe(false)
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C1-LEASE rejects a mixed roster when any entry is not bound to its own lease', () => {
+    const otherLeaseId = '44444444-4444-4444-8444-444444444444'
+    const first = { pageId: 'page-1', presenceId: 'presence-1', subjectId: 'user-1', clientId: 'client-1', leaseId, localClaimGeneration: 1, reservationGeneration: 2, presentation: peerFlowPresentation(leaseId, 5, true, true) }
+    const second = { pageId: 'page-1', presenceId: 'presence-2', subjectId: 'user-2', clientId: 'client-2', leaseId: otherLeaseId, localClaimGeneration: 1, reservationGeneration: 2, presentation: peerFlowPresentation(otherLeaseId, 5, true, true) }
+    const mixed = structuredClone({ type: 'interaction.roster', envelope: serverEnvelope, interactions: [first, second] })
+    mixed.interactions[1]!.presentation = peerFlowPresentation(leaseId, 5, true, true)
+    expect(() => parseCollaborationServerMessage(JSON.stringify(mixed), undefined, flowAuthority)).toThrow('Invalid collaboration server message')
+
+    const valid = { type: 'interaction.roster', envelope: serverEnvelope, interactions: [first, second] }
+    expect(parseCollaborationServerMessage(JSON.stringify(valid), undefined, flowAuthority)).toEqual(valid)
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C1-LEASE binds released tombstones to lease-derived peer identities', () => {
+    const frame = {
+      type: 'interaction.released', envelope: serverEnvelope, pageId: 'page-1', presenceId: 'presence-1', subjectId: 'user-1', clientId: 'client-1',
+      interactionId: peerFlowInteractionId(leaseId), leaseId, localClaimGeneration: 1, reservationGeneration: 2, terminalSampleSequence: 5, reason: 'committed',
+    }
+    expect(parseCollaborationServerMessage(JSON.stringify(frame))).toEqual(frame)
+    expect(() => parseCollaborationServerMessage(JSON.stringify({ ...frame, interactionId: 'flow-drag-1' }))).toThrow('Invalid collaboration server message')
+    expect(() => parseCollaborationServerMessage(JSON.stringify({ ...frame, leaseId: '44444444-4444-4444-8444-444444444444' }))).toThrow('Invalid collaboration server message')
+  })
+
+  it('rejects the reserved peer namespace at client acquire without partial acceptance', () => {
+    const reserved = peerFlowPresentation(leaseId, 4, false, true)
+    const frame = { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: reserved }
+    expect(() => parseCollaborationClientMessage(JSON.stringify(frame), undefined, flowAuthority)).toThrow('Invalid interaction acquire message')
+
+    const valid = { ...frame, presentation: flowPresentation(4, false, true) }
+    expect(parseCollaborationClientMessage(JSON.stringify(valid), undefined, flowAuthority)).toEqual(valid)
+  })
+
+  it('binds terminal semantic operations to one exact lease, generation, sequence, digest, and lane pair', () => {
+    const flowBinding = {
+      leaseId, interactionId: 'flow-drag-1', localClaimGeneration: 1, reservationGeneration: 2, terminalSampleSequence: 5,
+      presentationDigest: 'a'.repeat(64), sourceLane: { parentId: 'flex-1', slot: { presence: 'absent' as const } },
+      targetLane: { parentId: 'flex-2', slot: { presence: 'present' as const, value: '' } },
+    }
+    const frame = { type: 'operation.submit', operation: { ...operation, flowBinding } }
+    expect(parseCollaborationClientMessage(JSON.stringify(frame))).toEqual(frame)
+
+    const invalid = [
+      { ...flowBinding, extra: true },
+      { ...flowBinding, leaseId: 'not-a-uuid' },
+      { ...flowBinding, localClaimGeneration: 0 },
+      { ...flowBinding, reservationGeneration: 0 },
+      { ...flowBinding, terminalSampleSequence: 0 },
+      { ...flowBinding, presentationDigest: 'g'.repeat(64) },
+      { ...flowBinding, sourceLane: { parentId: 'flex-1', slot: { presence: 'absent', value: '' } } },
+      { ...flowBinding, targetLane: { parentId: 'flex-2', slot: { presence: 'present' } } },
+    ]
+    const { terminalSampleSequence: _terminalSampleSequence, ...missing } = flowBinding
+    invalid.push(missing as typeof flowBinding)
+    for (const candidate of invalid) {
+      expect(() => parseCollaborationClientMessage(JSON.stringify({ type: 'operation.submit', operation: { ...operation, flowBinding: candidate } }))).toThrow('Invalid semantic operation')
+    }
+  })
+
+  it('locks the frozen flow-specific resource ceilings', () => {
+    expect(Object.isFrozen(flowDragResourceLimits)).toBe(true)
+    expect(flowDragResourceLimits).toEqual({
+      maxClaimsPerLease: 16,
+      maxLanesPerReservation: 8,
+      maxNodeIdsPerLane: 4096,
+      maxReservedIdsPerSession: 16_384,
+      maxReservationBytesPerSession: 512 * 1024,
+      maxReservationsPerRoom: 512,
+      maxClaimsPerRoom: 2048,
+      maxSamplesPerSecond: 240,
+      maxSampleBurst: 480,
+      maxSamplePayloadBytes: 64 * 1024,
+      maxTopologyDepth: 128,
+      maxLaneComparisonNodes: 8192,
+      maxTerminalGeometryItems: 32,
+      maxRetainedSettlementReceipts: 512,
+    })
+  })
+
+  it('accepts only the exact result action, status, lease, and denial matrix', () => {
+    const result = (action: string, status: string, nextLeaseId: string | null, denialCode: string | null) => ({
+      type: 'interaction.result', envelope: serverEnvelope, pageId: 'page-1', action, status, interactionId: 'flow-drag-1',
+      leaseId: nextLeaseId, localClaimGeneration: 1, reservationGeneration: 1, sampleSequence: 4, denialCode,
+    })
+    const valid = [
+      result('acquire', 'granted', leaseId, null), result('acquire', 'retained', leaseId, null), result('acquire', 'denied', null, 'overlap'),
+      result('reserve', 'granted', leaseId, null), result('reserve', 'retained', leaseId, null), result('reserve', 'denied', leaseId, 'invalid_topology'),
+      result('release', 'retained', leaseId, null), result('release', 'released', leaseId, null), result('release', 'denied', leaseId, 'stale_generation'),
+    ]
+    expect(valid.map(frame => parseCollaborationServerMessage(JSON.stringify(frame)))).toEqual(valid)
+    for (const frame of [
+      result('acquire', 'released', leaseId, null), result('acquire', 'denied', leaseId, 'overlap'),
+      result('reserve', 'released', leaseId, null), result('reserve', 'denied', null, 'overlap'),
+      result('release', 'granted', leaseId, null), result('release', 'released', null, null),
+      result('release', 'denied', leaseId, null), result('release', 'retained', leaseId, 'overlap'),
+    ]) expect(() => parseCollaborationServerMessage(JSON.stringify(frame))).toThrow('Invalid collaboration server message')
+  })
+
+  it('rejects extra fields, stale presentation identity, topology mismatch, and inconsistent results', () => {
+    expect(() => parseCollaborationClientMessage(JSON.stringify({ type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation(), role: 'owner' }), undefined, flowAuthority)).toThrow('Invalid interaction acquire')
+    const stale = structuredClone(flowPresentation())
+    ;(stale.identity as { sampleSequence: number }).sampleSequence = 3
+    expect(() => parseCollaborationClientMessage(JSON.stringify({ type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: stale }), undefined, flowAuthority)).toThrow('Invalid interaction acquire')
+    expect(() => parseCollaborationClientMessage(JSON.stringify({ type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() }), undefined, { ...flowAuthority, source: () => null })).toThrow('Invalid interaction acquire')
+    expect(() => parseCollaborationClientMessage(JSON.stringify({ type: 'interaction.acquire', pageId: 'page-2', localClaimGeneration: 1, presentation: flowPresentation() }), undefined, flowAuthority)).toThrow('Invalid interaction acquire')
+    expect(() => parseCollaborationServerMessage(JSON.stringify({ type: 'interaction.result', envelope: serverEnvelope, pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: 'flow-drag-1', leaseId, localClaimGeneration: 1, reservationGeneration: 1, sampleSequence: 4, denialCode: 'overlap' }))).toThrow('Invalid collaboration server message')
+    expect(() => parseCollaborationServerMessage(JSON.stringify({ type: 'interaction.result', envelope: serverEnvelope, pageId: 'page-1', action: 'acquire', status: 'granted', interactionId: 'flow-drag-1', leaseId, localClaimGeneration: 1, reservationGeneration: 1, sampleSequence: 0, denialCode: null }))).toThrow('Invalid collaboration server message')
+  })
+})
+
 describe('ticket capability boundary', () => {
   it('requires every server-verified claim bound by the opaque ticket', () => {
-    const claims = { subjectId: 'user-1', displayName: 'Alpha', avatarUrl: 'https://images.example/alpha.png', fileId, role: 'owner', generationId, protocolEpoch: 2, buildId: 'web-1', expiresAtUnixMs: 1_800_000_000_000, accessEpoch: '3', clientId: 'client-1', connectionNonce: 'nonce_1234567890123' }
+    const claims = { subjectId: 'user-1', displayName: 'Alpha', avatarUrl: 'https://images.example/alpha.png', fileId, role: 'owner', generationId, protocolEpoch: 4, buildId: 'web-1', expiresAtUnixMs: 1_800_000_000_000, accessEpoch: '3', clientId: 'client-1', connectionNonce: 'nonce_1234567890123' }
     expect(validateVerifiedRoomTicketClaimsShape(claims)).toEqual(claims)
     expect(collaborationModeForRole('owner')).toBe('editable')
     expect(collaborationModeForRole('viewer')).toBe('read_only')
@@ -268,7 +535,7 @@ describe('ticket capability boundary', () => {
       fileId,
       role: 'viewer',
       generationId,
-      protocolEpoch: 2,
+      protocolEpoch: 4,
       buildId: 'b'.repeat(maxCollaborationIdentifierLength),
       expiresAtUnixMs: Number.MAX_SAFE_INTEGER,
       accessEpoch: '9223372036854775807',
@@ -292,7 +559,7 @@ describe('semantic command persistence codec', () => {
       operationPayload: { nodeId: 'node-1', placement: { parentId: 'frame-1', index: 0 }, preserveWorldPosition: true },
     })
     expect(decodeSemanticCommandFromPersistence(encoded)).toEqual(command)
-    expect(await semanticOperationContentDigest(command)).toBe('a1b2a3a23ee6895885ee3a2c052ed80446cd086627660a74a5617f862d648e4d')
+    expect(await semanticOperationContentDigest(command)).toBe('641cdb52c2ffe8c8921747c4030d2be4df1a6ec9e9c24202f8f6640f8b51ae6c')
     expect(Object.isFrozen(encoded.operationPayload)).toBe(true)
     expect(Object.isFrozen(encoded.operationPayload.placement)).toBe(true)
     expect(persistenceCompatiblePayload).toBe(encoded.operationPayload)
@@ -335,10 +602,10 @@ describe('protocol portions of REPLAY-001', () => {
 describe('snapshot stream contract', () => {
   it('accepts the canonical load phases and a consistent snapshot declaration', () => {
     const messages = [
-      { type: 'admission.queued', protocolEpoch: 2, schemaVersion: 1, requestId: 'request-1' },
-      { type: 'room.assigned', envelope: serverEnvelope, requestId: 'request-1', role: 'owner' },
+      { type: 'admission.queued', protocolEpoch: 4, schemaVersion: 1, requestId: 'request-1' },
+      { type: 'room.assigned', envelope: serverEnvelope, requestId: 'request-1', role: 'owner', replayScopeId: 'a'.repeat(64) },
       { type: 'load.phase', envelope: serverEnvelope, requestId: 'request-1', phase: 'stream' },
-      { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 7, baseSequence: '4', compression: 'none', contentEncoding: 'utf-8', storedByteLength: 2, documentByteLength: 2, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 1 },
+      { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 9, baseSequence: '4', compression: 'none', contentEncoding: 'utf-8', storedByteLength: 2, documentByteLength: 2, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 1 },
       { type: 'snapshot.chunk', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', chunkIndex: 0, chunkCount: 1, data: 'e30=' },
       { type: 'snapshot.end', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1' },
       { type: 'load.phase', envelope: serverEnvelope, requestId: 'request-1', phase: 'apply' },
@@ -347,14 +614,26 @@ describe('snapshot stream contract', () => {
     expect(messages.map(message => parseCollaborationServerMessage(JSON.stringify(message)))).toEqual(messages)
     expect(isValidLoadPhaseTransition('stream', 'apply')).toBe(true)
     expect(isValidLoadPhaseTransition('apply', 'stream')).toBe(false)
-    expect(() => parseCollaborationServerMessage(JSON.stringify({ type: 'admission.queued', protocolEpoch: 2, schemaVersion: 1, requestId: 'request-1', envelope: serverEnvelope }))).toThrow('Invalid collaboration server message')
-    expect(() => parseCollaborationServerMessage(JSON.stringify({ type: 'room.assigned', envelope: serverEnvelope, requestId: 'request-1', roomTicket: 'room_ticket_1234567890', role: 'owner' }))).toThrow('Invalid collaboration server message')
+    expect(() => parseCollaborationServerMessage(JSON.stringify({ type: 'admission.queued', protocolEpoch: 4, schemaVersion: 1, requestId: 'request-1', envelope: serverEnvelope }))).toThrow('Invalid collaboration server message')
+    expect(() => parseCollaborationServerMessage(JSON.stringify({ type: 'room.assigned', envelope: serverEnvelope, requestId: 'request-1', roomTicket: 'room_ticket_1234567890', role: 'owner', replayScopeId: 'a'.repeat(64) }))).toThrow('Invalid collaboration server message')
+  })
+
+  it('requires a non-secret replay-scope digest on room assignment', () => {
+    const assigned = { type: 'room.assigned', envelope: serverEnvelope, requestId: 'request-1', role: 'owner', replayScopeId: 'a'.repeat(64) }
+    expect(parseCollaborationServerMessage(JSON.stringify(assigned))).toEqual(assigned)
+    expect(JSON.stringify(assigned)).not.toMatch(/accessEpoch|roomTicket|capability/i)
+    for (const replayScopeId of [undefined, '', 'a'.repeat(63), 'g'.repeat(64), 'A'.repeat(64)]) {
+      const candidate = replayScopeId === undefined
+        ? { type: assigned.type, envelope: assigned.envelope, requestId: assigned.requestId, role: assigned.role }
+        : { ...assigned, replayScopeId }
+      expect(() => parseCollaborationServerMessage(JSON.stringify(candidate)), String(replayScopeId)).toThrow('Invalid collaboration server message')
+    }
   })
 
   it('rejects unsupported schemas and inconsistent or oversized snapshot declarations', () => {
-    const begin = { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 7, baseSequence: '0', compression: 'none', contentEncoding: 'utf-8', storedByteLength: maxSnapshotChunkBytes + 1, documentByteLength: maxSnapshotChunkBytes + 1, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 2 }
+    const begin = { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 9, baseSequence: '0', compression: 'none', contentEncoding: 'utf-8', storedByteLength: maxSnapshotChunkBytes + 1, documentByteLength: maxSnapshotChunkBytes + 1, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 2 }
     expect(parseCollaborationServerMessage(JSON.stringify(begin))).toEqual(begin)
-    expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, documentSchemaVersion: 6 }))).toThrow('Invalid collaboration server message')
+    expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, documentSchemaVersion: 8 }))).toThrow('Invalid collaboration server message')
     expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, chunkCount: 1 }))).toThrow('Invalid collaboration server message')
     expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, storedByteLength: maxSnapshotBytes + 1, documentByteLength: maxSnapshotBytes + 1 }))).toThrow('Invalid collaboration server message')
     expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, compression: 'gzip' }))).toThrow('Invalid collaboration server message')
@@ -377,7 +656,7 @@ describe('snapshot stream contract', () => {
 
 describe('protocol portions of DRAIN-001 and READONLY-001', () => {
   it('request-scopes pre-assignment errors and room-scopes post-assignment errors', () => {
-    const capacity = { type: 'request.error', protocolEpoch: 2, schemaVersion: 1, requestId: 'request-1', code: 'capacity_refused', message: 'Room capacity is unavailable.', retry: 'retry', retryAfterMs: 250 }
+    const capacity = { type: 'request.error', protocolEpoch: 4, schemaVersion: 1, requestId: 'request-1', code: 'capacity_refused', message: 'Room capacity is unavailable.', retry: 'retry', retryAfterMs: 250 }
     const draining = { type: 'room.error', envelope: serverEnvelope, code: 'draining', message: 'Room is moving.', retry: 'reconnect', retryAfterMs: 250 }
     const readOnly = { type: 'room.error', envelope: serverEnvelope, code: 'read_only', message: 'This file is read-only.', retry: 'none', mutationId: 'mutation-0001' }
     expect(parseCollaborationServerMessage(JSON.stringify(capacity))).toEqual(capacity)

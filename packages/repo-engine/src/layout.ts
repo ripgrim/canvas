@@ -207,7 +207,7 @@ export const displayModes: readonly DisplayMode[] = ['freeform', 'block', 'flex'
 export type FlexDirection = 'row' | 'row-reverse' | 'column' | 'column-reverse'
 export type FlexWrap = 'nowrap' | 'wrap' | 'wrap-reverse'
 export type MainDistribution = 'start' | 'center' | 'end' | 'space-between' | 'space-around' | 'space-evenly'
-export type CrossAlignment = 'start' | 'center' | 'end' | 'stretch' | 'baseline'
+export type CrossAlignment = 'start' | 'center' | 'end' | 'stretch' | 'baseline' | 'last baseline'
 export type ContentDistribution = 'start' | 'center' | 'end' | 'stretch' | 'space-between' | 'space-around' | 'space-evenly'
 export type ItemAlignment = 'start' | 'center' | 'end' | 'stretch'
 export type LayoutGap = number | { x: number; y: number }
@@ -218,7 +218,7 @@ export type LayoutContainer = { display: DisplayMode; overflow?: 'visible' | 'hi
 export const flexDirections: readonly FlexDirection[] = ['row', 'row-reverse', 'column', 'column-reverse']
 export const flexWraps: readonly FlexWrap[] = ['nowrap', 'wrap', 'wrap-reverse']
 export const mainDistributions: readonly MainDistribution[] = ['start', 'center', 'end', 'space-between', 'space-around', 'space-evenly']
-export const crossAlignments: readonly CrossAlignment[] = ['start', 'center', 'end', 'stretch', 'baseline']
+export const crossAlignments: readonly CrossAlignment[] = ['start', 'center', 'end', 'stretch', 'baseline', 'last baseline']
 export const contentDistributions: readonly ContentDistribution[] = ['start', 'center', 'end', 'stretch', 'space-between', 'space-around', 'space-evenly']
 export const itemAlignments: readonly ItemAlignment[] = ['start', 'center', 'end', 'stretch']
 export const maxGridTracks = 200
@@ -268,7 +268,7 @@ export const defaultGridContainer = (): GridContainer => ({ columns: [{ kind: 'f
 
 // Items ---------------------------------------------------------------------------------------------------------------
 
-export type PositionMode = 'flow' | 'absolute'
+export type PositionMode = 'freeform' | 'flow' | 'absolute'
 export type NodePosition = { mode: PositionMode; left?: InsetLength; right?: InsetLength; top?: InsetLength; bottom?: InsetLength; zIndex?: number }
 export type FlexItem = { grow?: number; shrink?: number; basis?: LayoutLength }
 export type GridItem = { columnStart?: number; rowStart?: number; columnSpan?: number; rowSpan?: number; justifySelf?: ItemAlignment; alignSelf?: ItemAlignment }
@@ -282,7 +282,7 @@ const insetRules: LengthRules = { allowNegative: true, allowIntrinsic: false, al
 export function validatePosition(value: unknown, options: LayoutValidationOptions = {}): value is NodePosition {
   if (!record(value)) return false
   optionalKeys(value, ['mode'], ['left', 'right', 'top', 'bottom', 'zIndex'], 'node position')
-  if (!oneOf(['flow', 'absolute'] as const, value.mode)) return false
+  if (!oneOf(['freeform', 'flow', 'absolute'] as const, value.mode)) return false
   for (const key of ['left', 'right', 'top', 'bottom'] as const) {
     if (!own(value, key)) continue
     if (value.mode !== 'absolute' || !validateLength(value[key], insetRules, options)) return false
@@ -348,7 +348,7 @@ export function normalizeContainer(container: LayoutContainer): LayoutContainer 
 }
 /** Flow items keep no insets or z-index; items only keep flex or grid fields when the parent uses that mode. */
 export function normalizeItem(item: LayoutItem, parentDisplay: DisplayMode | null): LayoutItem {
-  const position: NodePosition = item.position.mode === 'absolute' ? { ...item.position } : { mode: 'flow' }
+  const position: NodePosition = item.position.mode === 'absolute' ? { ...item.position } : { mode: item.position.mode }
   const next: LayoutItem = { ...item, position }
   if (parentDisplay !== 'flex') delete next.flex
   if (parentDisplay !== 'grid') delete next.grid
@@ -457,7 +457,7 @@ export function projectSpacingStyle(spacing: NodeSpacing | undefined): StyleProj
 export function legacyLayout(layout: NodeLayout | undefined): DocumentNodeLayout {
   if (!layout) return { mode: 'flow', x: 0, y: 0 }
   const { item } = layout
-  const result: DocumentNodeLayout = { mode: item.position.mode, x: item.position.left?.kind === 'px' ? item.position.left.value : 0, y: item.position.top?.kind === 'px' ? item.position.top.value : 0 }
+  const result: DocumentNodeLayout = { mode: item.position.mode === 'freeform' ? 'flow' : item.position.mode, x: item.position.left?.kind === 'px' ? item.position.left.value : 0, y: item.position.top?.kind === 'px' ? item.position.top.value : 0 }
   if (item.width?.value.kind === 'px') result.width = item.width.value.value
   if (item.height?.value.kind === 'px') result.height = item.height.value.value
   return result

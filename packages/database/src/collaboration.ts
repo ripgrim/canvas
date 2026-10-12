@@ -590,14 +590,57 @@ export function createPostgresCollaborationPersistence(pool: Pool, options: Coll
           `SELECT ${projectionColumns} FROM app_collaboration_projection WHERE file_id = $1 FOR UPDATE`,
           [input.fileId],
         )
-        const existing = existingResult.rows[0] ? projectionFromRow(existingResult.rows[0]) : null
-        const replayCandidate = existing?.sequence === 0n
+        let existing = existingResult.rows[0] ? projectionFromRow(existingResult.rows[0]) : null
+        let migratedExisting = false
+        if (existing && existing.document.schemaVersion !== existing.documentSchemaVersion) {
+          await client.query('ROLLBACK')
+          return Object.freeze({ status: 'invalid-source', reason: 'schema-version' })
+        }
+        if (existing && existing.documentSchemaVersion !== input.documentSchemaVersion) {
+          const sourceDocument = cloneCollaborationJson(existing.document) as CollaborationPayload
+          const migration = options.migrateLegacyDocument?.(cloneCollaborationJson(sourceDocument) as CollaborationPayload, input.documentSchemaVersion)
+          if (!migration || migration.status === 'unsupported') {
+            await client.query('ROLLBACK')
+            return Object.freeze({ status: 'invalid-source', reason: migration?.reason ?? 'schema-version' })
+          }
+          const migratedDocument = cloneCollaborationJson(migration.document) as CollaborationPayload
+          if (migratedDocument.fileId !== input.fileId) {
+            await client.query('ROLLBACK')
+            return Object.freeze({ status: 'invalid-source', reason: 'file-identity' })
+          }
+          if (migratedDocument.schemaVersion !== input.documentSchemaVersion) {
+            await client.query('ROLLBACK')
+            return Object.freeze({ status: 'invalid-source', reason: 'schema-version' })
+          }
+          const validation = options.validateLegacyDocument?.({
+            sourceDocument: cloneCollaborationJson(sourceDocument) as CollaborationPayload,
+            document: cloneCollaborationJson(migratedDocument) as CollaborationPayload,
+            targetSchemaVersion: input.documentSchemaVersion,
+          })
+          if (!validation || validation.status === 'invalid') {
+            await client.query('ROLLBACK')
+            return Object.freeze({ status: 'invalid-source', reason: validation?.reason ?? 'document-invalid' })
+          }
+          const documentJson = canonicalCollaborationJson(migratedDocument)
+          const documentDigest = createHash('sha256').update(documentJson).digest('hex')
+          const migratedProjection = await client.query<ProjectionRow>(
+            `UPDATE app_collaboration_projection
+             SET document_schema_version = $2, document = $3::jsonb, document_digest = $4, updated_at = now()
+             WHERE file_id = $1 AND sequence = $5 AND document_schema_version = $6 AND document_digest = $7
+             RETURNING ${projectionColumns}`,
+            [input.fileId, input.documentSchemaVersion, documentJson, documentDigest, existing.sequence.toString(), existing.documentSchemaVersion, existing.documentDigest],
+          )
+          if (migratedProjection.rowCount !== 1 || !migratedProjection.rows[0]) throw new Error('Collaboration projection changed during schema migration.')
+          existing = projectionFromRow(migratedProjection.rows[0])
+          migratedExisting = true
+        }
+        const replayCandidate = !migratedExisting && existing?.sequence === 0n
           && existing.authority === 'legacy-seed'
           && existing.generationId === input.generationId
           && existing.fencingToken === input.fencingToken
           && existing.documentSchemaVersion === input.documentSchemaVersion
         if (existing && !replayCandidate) {
-          await client.query('ROLLBACK')
+          await client.query(migratedExisting ? 'COMMIT' : 'ROLLBACK')
           return Object.freeze({
             status: 'existing-projection',
             projection: existing,

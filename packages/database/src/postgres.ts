@@ -6,7 +6,7 @@ import { emptyCanvasDocument } from './index.js'
 
 type ProjectRow = QueryResultRow & Readonly<{ id: string; name: string; created_at: Date | string; updated_at: Date | string }>
 type FileRow = QueryResultRow & Readonly<{ id: string; project_id: string | null; name: string; head_revision: string | number; thumbnail_key: string | null; thumbnail_etag: string | null; created_at: Date | string; updated_at: Date | string }>
-type DocumentRow = QueryResultRow & Readonly<{ file_id: string; revision: string | number; document: Record<string, JsonValue>; updated_at: Date | string }>
+type DocumentRow = QueryResultRow & Readonly<{ file_id: string; revision: unknown; document: Record<string, JsonValue>; updated_at: Date | string }>
 type ProjectionAuthorityRow = QueryResultRow & Readonly<{ authority: 'legacy-seed' | 'room' }>
 type ThumbnailRow = QueryResultRow & Readonly<{ id: string; head_revision: string | number; thumbnail_key: string | null; thumbnail_etag: string | null }>
 type InternalThumbnailRow = ThumbnailRow & Readonly<{ owner_user_id: string }>
@@ -14,7 +14,7 @@ type CaptureJobRow = QueryResultRow & Readonly<{ id: string; file_id: string; re
 type ShareRow = QueryResultRow & Readonly<{ file_id: string; access: 'private' | 'view'; updated_at: Date | string }>
 type AccessRow = QueryResultRow & Readonly<{ file_id: string; role: 'owner' | 'viewer'; access_epoch: string | number | bigint }>
 type LockedShareRow = QueryResultRow & Readonly<{ file_id: string; access: 'private' | 'view'; updated_at: Date | string; access_epoch: string | number | bigint }>
-type SharedFileRow = QueryResultRow & Readonly<{ id: string; name: string; head_revision: string | number; file_updated_at: Date | string; revision: string | number; document: Record<string, JsonValue>; document_updated_at: Date | string }>
+type SharedFileRow = QueryResultRow & Readonly<{ id: string; name: string; head_revision: unknown; file_updated_at: Date | string; revision: unknown; document: Record<string, JsonValue>; document_updated_at: Date | string }>
 
 const iso = (value: Date | string) => value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 const maxSignedInt64 = 9_223_372_036_854_775_807n
@@ -23,7 +23,8 @@ const safeInt64 = (value: string | number | bigint, name: string): bigint => {
   if (parsed < 0n || parsed > maxSignedInt64) throw new Error(`Database returned an invalid ${name}.`)
   return parsed
 }
-const safeRevision = (value: number | string) => {
+const safeRevision = (value: unknown) => {
+  if (typeof value !== 'number' && typeof value !== 'string') throw new Error('Database returned an invalid revision.')
   const revision = Number(value)
   if (!Number.isSafeInteger(revision) || revision < 0) throw new Error('Database returned an invalid revision.')
   return revision
@@ -37,6 +38,11 @@ const accessFromRow = (row: AccessRow, subjectUserId: string): FileAccessAuthori
 
 const projectColumns = 'id, name, created_at, updated_at'
 const fileColumns = 'id, project_id, name, head_revision, thumbnail_key, thumbnail_etag, created_at, updated_at'
+const projectedRevision = "CASE WHEN jsonb_typeof(projection.document -> 'revision') = 'number' THEN projection.document ->> 'revision' ELSE NULL END"
+const canonicalDocumentColumns = `legacy.file_id,
+  CASE WHEN projection.authority = 'room' THEN ${projectedRevision} ELSE legacy.revision::text END AS revision,
+  CASE WHEN projection.authority = 'room' THEN projection.document ELSE legacy.document END AS document,
+  CASE WHEN projection.authority = 'room' THEN projection.updated_at ELSE legacy.updated_at END AS updated_at`
 
 export function createPostgresPool(connectionString: string): Pool {
   const url = new URL(connectionString)
@@ -109,11 +115,23 @@ export function createPostgresControlPlane(pool: Pool): ControlPlaneStore {
       return row ? Object.freeze({ ...thumbnailFromRow(row), ownerUserId: row.owner_user_id }) satisfies InternalFileThumbnail : null
     },
     async getFileDocument(ownerUserId, fileId) {
-      const result = await pool.query<DocumentRow>('SELECT file_id, revision, document, updated_at FROM app_file_document WHERE file_id = $1 AND owner_user_id = $2', [fileId, ownerUserId])
+      const result = await pool.query<DocumentRow>(
+        `SELECT ${canonicalDocumentColumns}
+         FROM app_file_document AS legacy
+         LEFT JOIN app_collaboration_projection AS projection ON projection.file_id = legacy.file_id
+         WHERE legacy.file_id = $1 AND legacy.owner_user_id = $2`,
+        [fileId, ownerUserId],
+      )
       return result.rows[0] ? documentFromRow(result.rows[0]) : null
     },
     async getFileDocumentForCapture(fileId) {
-      const result = await pool.query<DocumentRow>('SELECT file_id, revision, document, updated_at FROM app_file_document WHERE file_id = $1', [fileId])
+      const result = await pool.query<DocumentRow>(
+        `SELECT ${canonicalDocumentColumns}
+         FROM app_file_document AS legacy
+         LEFT JOIN app_collaboration_projection AS projection ON projection.file_id = legacy.file_id
+         WHERE legacy.file_id = $1`,
+        [fileId],
+      )
       return result.rows[0] ? documentFromRow(result.rows[0]) : null
     },
     async getFileShare(ownerUserId, fileId) {
@@ -138,7 +156,20 @@ export function createPostgresControlPlane(pool: Pool): ControlPlaneStore {
       return result.rows[0] ? accessFromRow(result.rows[0], subjectUserId) : null
     },
     async getSharedFile(fileId) {
-      const result = await pool.query<SharedFileRow>("SELECT f.id, f.name, f.head_revision, f.updated_at AS file_updated_at, d.revision, d.document, d.updated_at AS document_updated_at FROM app_file_share s JOIN app_file f ON f.id = s.file_id AND f.owner_user_id = s.owner_user_id JOIN app_file_document d ON d.file_id = f.id AND d.owner_user_id = f.owner_user_id WHERE s.file_id = $1 AND s.access = 'view'", [fileId])
+      const result = await pool.query<SharedFileRow>(
+        `SELECT file.id, file.name,
+                CASE WHEN projection.authority = 'room' THEN ${projectedRevision} ELSE file.head_revision::text END AS head_revision,
+                file.updated_at AS file_updated_at,
+                CASE WHEN projection.authority = 'room' THEN ${projectedRevision} ELSE legacy.revision::text END AS revision,
+                CASE WHEN projection.authority = 'room' THEN projection.document ELSE legacy.document END AS document,
+                CASE WHEN projection.authority = 'room' THEN projection.updated_at ELSE legacy.updated_at END AS document_updated_at
+         FROM app_file_share AS share
+         JOIN app_file AS file ON file.id = share.file_id AND file.owner_user_id = share.owner_user_id
+         JOIN app_file_document AS legacy ON legacy.file_id = file.id AND legacy.owner_user_id = file.owner_user_id
+         LEFT JOIN app_collaboration_projection AS projection ON projection.file_id = file.id
+         WHERE share.file_id = $1 AND share.access = 'view'`,
+        [fileId],
+      )
       const row = result.rows[0]
       if (!row) return null
       return Object.freeze({

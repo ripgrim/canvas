@@ -38,10 +38,13 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     service.start()
     const interactionId = service.beginInteraction('move', ['node-1'])
     expect(interactionId).toBeTypeOf('string')
+    expect(service.hasInteraction(interactionId!)).toBe(true)
+    expect(service.hasInteraction('remote-interaction')).toBe(false)
     expect(service.updateInteraction(interactionId!, [{ nodeId: 'node-1', dx: 8, dy: 5 }])).toBe(true)
     expect(service.canCommitInteraction(interactionId!)).toBe(true)
     await expect(service.waitForCommitInteraction(interactionId!)).resolves.toBe(true)
     service.endInteraction(interactionId!)
+    expect(service.hasInteraction(interactionId!)).toBe(false)
     expect(service.canCommitInteraction(interactionId!)).toBe(false)
     service.stop()
   })
@@ -162,6 +165,28 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     service.stop()
   })
 
+  it('keeps local canvas gestures editable when the transport uses a separate interaction protocol', async () => {
+    const docs = documents()
+    const local = participant('local', 'tab-local')
+    const transport = collaboration(snapshot('live', 'tab-local', [local]))
+    const updateAwareness = vi.fn(transport.api.updateAwareness)
+    const service = createCollaborationService(docs.api, fakeWindow, animationClock().clock)
+    service.configure({ ...transport.api, interactionAwareness: false, updateAwareness })
+    service.start()
+    updateAwareness.mockClear()
+
+    const interactionId = service.beginInteraction('move', ['node-1'])
+
+    expect(interactionId).toBeTypeOf('string')
+    expect(service.canCommitInteraction(interactionId!)).toBe(true)
+    await expect(service.waitForCommitInteraction(interactionId!)).resolves.toBe(true)
+    expect(service.updateInteraction(interactionId!, [{ nodeId: 'node-1', dx: 12, dy: 8 }])).toBe(true)
+    expect(updateAwareness).not.toHaveBeenCalled()
+    service.endInteraction(interactionId!)
+    expect(service.hasInteraction(interactionId!)).toBe(false)
+    service.stop()
+  })
+
   it('cancels ownership when a transform sample cannot be published', () => {
     const docs = documents()
     const local = participant('local', 'tab-local')
@@ -204,6 +229,8 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
 
     service.endInteraction(firstId!)
 
+    expect(service.hasInteraction(firstId!)).toBe(false)
+    expect(service.hasInteraction(secondId!)).toBe(true)
     expect(second.updates).toHaveLength(updatesBeforeStaleRelease)
     expect(second.updates.at(-1)?.interaction?.interactionId).toBe(secondId)
     service.endInteraction(secondId!)
@@ -246,11 +273,33 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     expect(transport.updates.at(-1)?.interaction).toMatchObject({ interactionId: firstId, kind: 'move', nodeIds: ['node-1'], transforms: [] })
 
     service.endInteraction(firstId!)
+    expect(service.hasInteraction(secondId!)).toBe(true)
     expect(service.canCommitInteraction(secondId!)).toBe(true)
     expect(transport.updates.at(-1)?.interaction).not.toBeNull()
 
     service.endInteraction(secondId!)
+    expect(service.hasInteraction(secondId!)).toBe(false)
     expect(service.canCommitInteraction(secondId!)).toBe(false)
+    expect(transport.updates.at(-1)).toEqual({ pageId: 'page-1', interaction: null })
+    service.stop()
+  })
+
+  it('invalidates the local claim synchronously when the transport disconnects', () => {
+    const docs = documents()
+    const local = participant('local', 'tab-local')
+    const transport = collaboration(snapshot('live', 'tab-local', [local]))
+    const service = createCollaborationService(docs.api, fakeWindow, animationClock().clock)
+    service.configure(transport.api)
+    service.start()
+
+    const interactionId = service.beginInteraction('resize', ['node-1'])
+    expect(interactionId).toBeTypeOf('string')
+    expect(service.hasInteraction(interactionId!)).toBe(true)
+
+    transport.publish(snapshot('reconnecting', 'tab-local', [], false))
+
+    expect(service.hasInteraction(interactionId!)).toBe(false)
+    expect(service.canCommitInteraction(interactionId!)).toBe(false)
     expect(transport.updates.at(-1)).toEqual({ pageId: 'page-1', interaction: null })
     service.stop()
   })

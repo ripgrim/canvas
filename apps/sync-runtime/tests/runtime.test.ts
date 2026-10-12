@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it, vi } from "vitest"
 import runtime, { RoomContainer } from "../src/index.js"
 import { validateRuntimeEnv } from "../src/config.js"
+import { parseRuntimeRoute } from "../src/route.js"
 import type { SyncRuntimeEnv } from "../src/config.js"
 
 const fileId = "c4964764-a27f-4345-8b6a-eada5b77f339"
@@ -12,7 +14,7 @@ function environment(fetcher = vi.fn(async () => new Response(null, { status: 20
   return {
     DATABASE_URL: "postgresql://user:password@database.example:6432/canvas?sslmode=verify-full",
     SYNC_ROOM_TICKET_SECRET: secret,
-    ALLOWED_ORIGINS: "https://staging.canvas.example,https://login-staging.canvas.example",
+    ALLOWED_ORIGINS: "https://staging.canvas.example",
     SYNC_CONTAINER_INACTIVITY_MS: "600000",
     ROOM_CONTAINERS: { idFromName: name => name, get: () => ({ fetch: fetcher }) },
   }
@@ -54,5 +56,32 @@ describe("staging room runtime", () => {
     expect(() => validateRuntimeEnv({ ...env, DATABASE_URL: "" })).toThrow("DATABASE_URL")
     expect(() => validateRuntimeEnv({ ...env, ALLOWED_ORIGINS: "http://staging.canvas.example" })).toThrow("ALLOWED_ORIGINS")
     expect((await runtime.fetch(new Request("https://runtime.internal/unknown"), env)).status).toBe(404)
+  })
+
+  it("CLOUD-SYNC-DO-SEC-001 accepts only the exact bounded runtime query shape", async () => {
+    expect(parseRuntimeRoute(url)).toEqual({ fileId, generationId, roomName: `sync:4:${fileId}:${generationId}` })
+    const invalid = [
+      `${url}&role=owner`,
+      `${url}&clientId=tab-2`,
+      `${url}&connectionNonce=${"x".repeat(24)}`,
+      `https://runtime.internal/sync/${fileId}/${generationId}?connectionNonce=${"n".repeat(24)}`,
+      `https://runtime.internal/sync/${fileId}/${generationId}?clientId=tab-1`,
+      `https://runtime.internal/sync/${fileId}/${generationId}?clientId=%20tab-1&connectionNonce=${"n".repeat(24)}`,
+      `https://runtime.internal/sync/${fileId}/${generationId}?clientId=tab-1&connectionNonce=short`,
+      "not a url",
+    ]
+    for (const candidate of invalid) expect(parseRuntimeRoute(candidate), candidate).toBeNull()
+
+    const fetcher = vi.fn(async () => ({ status: 101 } as Response))
+    for (const candidate of invalid.slice(0, 7)) {
+      expect((await runtime.fetch(new Request(candidate), environment(fetcher))).status, candidate).toBe(404)
+    }
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it("CLOUD-SYNC-AUTH-001 configures only the editor origin at the private runtime boundary", () => {
+    const configuration = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8")
+    expect(configuration).toContain('"ALLOWED_ORIGINS": "https://staging.canvas.ripgrim.com"')
+    expect(configuration).not.toContain("login-staging.canvas.ripgrim.com")
   })
 })

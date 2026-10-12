@@ -12,6 +12,7 @@ import { layoutFromLegacy } from './layout.js'
 import type { Appearance, ColorToken, ColorValue, FileDocument, FileNode, NodeRelationship, Paint } from './file-document.js'
 import { record, validateNodeLayout } from './document.js'
 import { orderKeySequence } from './order-keys.js'
+import { legacyTextProperties } from './text.js'
 
 export type LegacyPage = { id: string; name: string; document: EditorDocument }
 export type MigrationResult = { file: FileDocument; diagnostics: string[] }
@@ -34,7 +35,7 @@ const builtInTokenId = (name: string) => `legacy:builtin:${name}`
 
 export const isLegacyDocument = (value: unknown): value is EditorDocument => typeof value === 'object' && value !== null && (value as { version?: unknown }).version === 1
 /** Any stored design file this build can read, including every supported predecessor upgraded on read. */
-export const isFileDocumentShape = (value: unknown): value is FileDocument => typeof value === 'object' && value !== null && [2, 3, 4, 5, 6, fileSchemaVersion].includes((value as { schemaVersion?: unknown }).schemaVersion as number)
+export const isFileDocumentShape = (value: unknown): value is FileDocument => typeof value === 'object' && value !== null && [2, 3, 4, 5, 6, 7, 8, fileSchemaVersion].includes((value as { schemaVersion?: unknown }).schemaVersion as number)
 
 type LegacyPaint = { type: 'solid'; color: ColorValue; visible?: boolean } | { type: 'linear-gradient'; angle: number; stops: { id: string; position: number; color: ColorValue }[]; visible?: boolean }
 /** Version 2 kept `fills` top-first with the first visible paint drawn; version 3 stores bottom-to-top with stable ids. */
@@ -54,7 +55,7 @@ function upgradePaints(fills: unknown, nodeId: string): Appearance | undefined {
  * for the validator to reject.
  */
 export function upgradeFileDocument(input: unknown): unknown {
-  return upgradeV6ToV7(upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(input)))))
+  return upgradeV8ToV9(upgradeV7ToV8(upgradeV6ToV7(upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(input)))))))
 }
 function upgradeV2ToV3(input: unknown): unknown {
   if (!record(input) || input.schemaVersion !== 2 || !record(input.nodes)) return input
@@ -103,8 +104,24 @@ function upgradeV6ToV7(input: unknown): unknown {
     if (!record(input.assets)) throw new Error('Invalid version 6 image assets')
     if (Object.keys(input.assets).length) throw new Error('Image assets require externalization before schema 7 migration')
     const { assets: _assets, ...file } = input
-    return { ...file, schemaVersion: fileSchemaVersion }
+    return { ...file, schemaVersion: 7 }
   }
+  return { ...input, schemaVersion: 7 }
+}
+
+/** Version 8 makes text typography and axis sizing explicit while preserving the exact version 7 renderer defaults. */
+function upgradeV7ToV8(input: unknown): unknown {
+  if (!record(input) || input.schemaVersion !== 7 || !record(input.nodes)) return input
+  const nodes: Record<string, unknown> = {}
+  for (const [id, node] of Object.entries(input.nodes)) nodes[id] = record(node) && node.type === 'text' ? { ...node, ...legacyTextProperties() } : node
+  return { ...input, schemaVersion: 8, nodes }
+}
+
+/** Version 9 admits layout on canvas primitives. Valid v8 files need only a version bump, never synthesized layout. */
+function upgradeV8ToV9(input: unknown): unknown {
+  if (!record(input) || input.schemaVersion !== 8 || !record(input.nodes)) return input
+  // A v8 root or primitive could not own layout. Refuse to bless that formerly invalid shape as v9 input.
+  if (Object.values(input.nodes).some(node => record(node) && node.type !== 'component' && own(node, 'layout'))) return input
   return { ...input, schemaVersion: fileSchemaVersion }
 }
 
@@ -196,7 +213,7 @@ export function migrateLegacyPages(fileId: string, pages: LegacyPage[], atoms: A
         id: element.id, type: element.kind, name: element.name,
         styles: { left: element.x, top: element.y, width: element.width, height: element.height, ...(element.rotation ? { rotation: element.rotation } : {}), ...(element.kind === 'frame' ? { overflow: element.clip === false ? 'visible' : 'clip' } : {}) },
         appearance: { fills: paintsFor(plan, page.id, element, diagnostics) },
-        ...(element.kind === 'text' ? { text: element.text ?? '' } : {}),
+        ...(element.kind === 'text' ? { text: element.text ?? '', ...legacyTextProperties() } : {}),
         themeMode: 'inherit',
       }
     }

@@ -12,7 +12,7 @@ const firstScope: CollaborationStoreScope = Object.freeze({
   clientId: 'client-a',
   fileId: '11111111-1111-4111-8111-111111111111',
   documentSchemaVersion: 6,
-  protocolEpoch: 2,
+  protocolEpoch: 4,
 })
 
 const secondScope: CollaborationStoreScope = Object.freeze({ ...firstScope, accountId: 'account-b' })
@@ -69,7 +69,13 @@ function mutation(mutationId: string, status: 'pending' | 'recoverable' = 'pendi
     baseSequence: null,
     command: encodeSemanticCommandForPersistence({ type: 'node.rename', nodeId: 'node-1', name: mutationId }),
     status,
+    replayScopeId: 'a'.repeat(64),
+    flowBinding: null,
   })
+}
+
+function checkpoint(title: string, replayScopeId = 'a'.repeat(64)) {
+  return Object.freeze({ snapshotId: 'projection:1', serverSequence: '1', document: { title }, replayScopeId })
 }
 
 describe('durable collaboration store', () => {
@@ -83,7 +89,7 @@ describe('durable collaboration store', () => {
     expect(await store.load(secondScope)).toMatchObject({ scope: secondScope, pending: [{ mutationId: 'mutation-account-b' }] })
 
     expect(await store.load({ ...firstScope, documentSchemaVersion: 7 })).toBeNull()
-    expect(await store.load({ ...firstScope, protocolEpoch: 3 })).toBeNull()
+    expect(await store.load({ ...firstScope, protocolEpoch: 2 })).toBeNull()
 
     const secondTab = Object.freeze({ ...firstScope, clientId: 'client-b' })
     await store.enqueue(secondTab, mutation('mutation-client-b'))
@@ -100,7 +106,7 @@ describe('durable collaboration store', () => {
     const store = createCollaborationDurableStore(memory.driver)
     await store.enqueue(firstScope, mutation('mutation-first'))
     await store.enqueue(firstScope, mutation('mutation-second'))
-    await store.acknowledge(firstScope, 'mutation-first', { snapshotId: 'projection:1', serverSequence: '1', document: { title: 'After first' } })
+    await store.acknowledge(firstScope, 'mutation-first', checkpoint('After first'))
 
     expect(await store.load(firstScope)).toMatchObject({
       checkpoint: { snapshotId: 'projection:1', serverSequence: '1', document: { title: 'After first' } },
@@ -123,6 +129,42 @@ describe('durable collaboration store', () => {
     })
   })
 
+  it('CLOUD-SYNC-LIFECYCLE-002 atomically revokes the checkpoint and every pending mutation', async () => {
+    const memory = memoryDriver()
+    const store = createCollaborationDurableStore(memory.driver)
+    await store.checkpoint(firstScope, checkpoint('Private'))
+    await store.enqueue(firstScope, mutation('mutation-first'))
+    await store.enqueue(firstScope, mutation('mutation-second'))
+
+    await store.markAllRecoverable(firstScope, { clearCheckpoint: true })
+
+    expect(await store.load(firstScope)).toMatchObject({
+      checkpoint: null,
+      pending: [
+        { mutationId: 'mutation-first', status: 'recoverable' },
+        { mutationId: 'mutation-second', status: 'recoverable' },
+      ],
+    })
+  })
+
+  it('CLOUD-SYNC-REPLAY-001 atomically quarantines mutations and cached bytes from another replay scope', async () => {
+    const memory = memoryDriver()
+    const store = createCollaborationDurableStore(memory.driver)
+    await store.enqueue(firstScope, mutation('mutation-old'))
+    await store.enqueue(firstScope, Object.freeze({ ...mutation('mutation-current'), replayScopeId: 'b'.repeat(64) }))
+    await store.checkpoint(firstScope, checkpoint('Private'))
+
+    await store.reconcileReplayScope(firstScope, 'b'.repeat(64))
+
+    expect(await store.load(firstScope)).toMatchObject({
+      checkpoint: null,
+      pending: [
+        { mutationId: 'mutation-old', status: 'recoverable', replayScopeId: 'a'.repeat(64) },
+        { mutationId: 'mutation-current', status: 'pending', replayScopeId: 'b'.repeat(64) },
+      ],
+    })
+  })
+
   it('CLOUD-SYNC-CACHE-001 purges one account without disclosing or deleting another account', async () => {
     const memory = memoryDriver()
     const store = createCollaborationDurableStore(memory.driver)
@@ -140,7 +182,7 @@ describe('durable collaboration store', () => {
     await store.enqueue(firstScope, mutation('mutation-first'))
 
     await expect(store.enqueue(firstScope, mutation('mutation-second'))).rejects.toThrow('Too many pending')
-    await expect(store.checkpoint(firstScope, { snapshotId: 'projection:0', serverSequence: '0', document: { title: 'x'.repeat(100) } })).rejects.toThrow('storage limit')
+    await expect(store.checkpoint(firstScope, { ...checkpoint('x'.repeat(100)), snapshotId: 'projection:0', serverSequence: '0' })).rejects.toThrow('storage limit')
     expect(await store.load(firstScope)).toMatchObject({ checkpoint: null, pending: [{ mutationId: 'mutation-first' }] })
   })
 
@@ -150,7 +192,7 @@ describe('durable collaboration store', () => {
     await store.enqueue(firstScope, mutation('mutation-unsaved'))
     const anotherFile = Object.freeze({ ...firstScope, fileId: '22222222-2222-4222-8222-222222222222' })
 
-    await expect(store.checkpoint(anotherFile, { snapshotId: 'projection:0', serverSequence: '0', document: { title: 'Other' } })).rejects.toThrow('full of unsaved work')
+    await expect(store.checkpoint(anotherFile, { ...checkpoint('Other'), snapshotId: 'projection:0', serverSequence: '0' })).rejects.toThrow('full of unsaved work')
     expect(await store.load(firstScope)).toMatchObject({ pending: [{ mutationId: 'mutation-unsaved' }] })
     expect(await store.load(anotherFile)).toBeNull()
   })
@@ -161,7 +203,7 @@ describe('durable collaboration store', () => {
     const store = createCollaborationDurableStore(memory.driver, { maxRoomsPerAccount: 1 })
     const freshScope = Object.freeze({ ...firstScope, fileId: '44444444-4444-4444-8444-444444444444' })
 
-    await store.checkpoint(freshScope, { snapshotId: 'projection:0', serverSequence: '0', document: { title: 'Fresh' } })
+    await store.checkpoint(freshScope, { ...checkpoint('Fresh'), snapshotId: 'projection:0', serverSequence: '0' })
 
     expect(await store.load(corruptScope)).toBeNull()
     expect(await store.load(freshScope)).toMatchObject({ checkpoint: { document: { title: 'Fresh' } }, pending: [] })

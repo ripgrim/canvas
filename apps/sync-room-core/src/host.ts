@@ -1,7 +1,7 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
-import { maxRoomTicketLength, parseCollaborationClientMessage } from '@canvas/sync-protocol'
+import { collaborationProtocolEpoch, maxRoomTicketLength, parseCollaborationClientMessage } from '@canvas/sync-protocol'
 import type { CollaborationClientMessage, RoomOpenMessage, VerifiedRoomTicketClaims } from '@canvas/sync-protocol'
 import { WebSocket, WebSocketServer } from 'ws'
 import type { RawData } from 'ws'
@@ -46,6 +46,7 @@ type Route = Readonly<{ fileId: string; generationId: string; clientId: string; 
 type RoomEntry = { room: HostedCollaborationRoom; rawStartup: Promise<HostedCollaborationRoom>; startup: Promise<HostedCollaborationRoom>; abandoned: boolean }
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const routeQueryKeys = Object.freeze(['clientId', 'connectionNonce'] as const)
 
 class HostCapacityError extends Error {}
 class HostGenerationConflictError extends Error {}
@@ -61,6 +62,10 @@ function routeOf(request: IncomingMessage): Route | null {
   try { url = new URL(request.url ?? '/', 'http://sync-room.local') } catch { return null }
   const match = /^\/sync\/([^/]+)\/([^/]+)$/.exec(url.pathname)
   if (!match) return null
+  const queryKeys = [...url.searchParams.keys()]
+  if (queryKeys.length !== routeQueryKeys.length
+    || queryKeys.some(key => !routeQueryKeys.includes(key as (typeof routeQueryKeys)[number]))
+    || routeQueryKeys.some(key => url.searchParams.getAll(key).length !== 1)) return null
   let fileId: string
   let generationId: string
   try { fileId = decodeURIComponent(match[1]!); generationId = decodeURIComponent(match[2]!) } catch { return null }
@@ -99,7 +104,7 @@ function roomKey(identity: Pick<RoomIdentity, 'fileId' | 'generationId'>): strin
 }
 
 function matchesContext(claims: VerifiedRoomTicketClaims, context: RoomTicketContext): boolean {
-  return claims.protocolEpoch === 2
+  return claims.protocolEpoch === collaborationProtocolEpoch
     && claims.fileId === context.fileId
     && claims.generationId === context.generationId
     && claims.clientId === context.clientId
@@ -206,7 +211,7 @@ export function createMultiRoomHost(options: MultiRoomHostOptions): MultiRoomHos
        const authorization = await options.tickets.verify(ticketContext)
        if (!authorization || !matchesContext(authorization.claims, ticketContext)) { reject(socket, 401, 'Unauthorized'); return }
       if (phase !== 'accepting') { reject(socket, 503, 'Service Unavailable'); return }
-      const room = await awaitStartup({ fileId: route.fileId, generationId: route.generationId, protocolEpoch: 2 })
+      const room = await awaitStartup({ fileId: route.fileId, generationId: route.generationId, protocolEpoch: collaborationProtocolEpoch })
       if (phase !== 'accepting') { reject(socket, 503, 'Service Unavailable'); return }
       socket.resume()
       await new Promise<void>((resolveUpgrade, rejectUpgrade) => {

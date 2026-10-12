@@ -2,15 +2,16 @@ import { CloudApiError, createCloudApiClient } from '@canvas/cloud-client'
 import type { CloudFileSummary } from '@canvas/cloud-client'
 import { authSessionView } from '@canvas/auth'
 import type { AuthSessionView } from '@canvas/auth'
-import type { EditorAssetPreview, EditorAuthApi, EditorCapabilities, EditorCollaborationLocalProfile, EditorCollaborationRole, EditorCollaborationSnapshot, EditorFile, EditorPersistenceIntent, EditorProjectApi, EditorProjectSnapshot } from '@canvas/editor/capabilities'
+import type { EditorAssetPreview, EditorAuthApi, EditorCapabilities, EditorCollaborationFlowAuthority, EditorCollaborationLocalProfile, EditorCollaborationRemoteFlowEvent, EditorCollaborationRole, EditorCollaborationSnapshot, EditorFile, EditorPersistenceIntent, EditorProjectApi, EditorProjectSnapshot } from '@canvas/editor/capabilities'
 import { UnavailableCapabilityError } from '@canvas/editor/capabilities'
+import { createEditorFlowTopologyAuthority } from '@canvas/editor/flow-drag-relay'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { applyHostedFileCommand, validateFileDocument } from '@canvas/repo-engine/file-document'
 import { createCollaborationClient } from '@canvas/sync-client'
 import type { CollaborationDurableStore, CollaborationWebSocket } from '@canvas/sync-client'
 import type { FileCommand } from '@canvas/repo-engine/file-document'
-import { collaborationDocumentSchemaVersion } from '@canvas/sync-protocol'
-import type { ClientLifecycleState } from '@canvas/sync-protocol'
+import { collaborationDocumentSchemaVersion, collaborationWebSocketProtocol } from '@canvas/sync-protocol'
+import type { ClientLifecycleState, FlowDragPresentation, FlowDragTerminalBinding } from '@canvas/sync-protocol'
 import { appVersion } from '@canvas/tracking'
 import { browserHollowAtoms, browserSampleComposition, browserSampleThemes } from './browser'
 import { createCloudAssetTransport } from './cloud-assets'
@@ -25,7 +26,7 @@ export type CloudAdapterOptions = Readonly<{
   syncClientId?: string
   syncBuildId?: string
   syncMaxMessageBytes?: number
-  createWebSocket?: (url: string, protocol: 'canvas-sync-v2') => CollaborationWebSocket
+  createWebSocket?: (url: string, protocol: typeof collaborationWebSocketProtocol) => CollaborationWebSocket
   syncDurableStore?: CollaborationDurableStore
   fetch?: typeof fetch
   navigate?: (url: string) => void
@@ -91,6 +92,23 @@ function reportCloudError(error: unknown, operation: 'asset_hydration'): void {
   console.error(`Cloud ${operation} failed.`, error)
 }
 
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== 'object') return value
+  const object = value as object
+  if (seen.has(object)) return value
+  seen.add(object)
+  for (const key of Reflect.ownKeys(object)) {
+    const descriptor = Object.getOwnPropertyDescriptor(object, key)
+    if (descriptor && 'value' in descriptor) deepFreeze(descriptor.value, seen)
+  }
+  return Object.freeze(value)
+}
+
+async function sha256(value: string): Promise<string> {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+  return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
 const syncClientHistoryKey = 'canvasSyncClientId'
 
 function browserSyncClientId(): string {
@@ -114,6 +132,7 @@ export function collaborationShellState(lifecycle: ClientLifecycleState): Exclud
   if (lifecycle === 'access-revoked') return 'access-removed'
   if (lifecycle === 'incompatible-build') return 'update-required'
   if (lifecycle === 'capacity-refused') return 'file-busy'
+  if (lifecycle === 'connection-failed') return 'connection-failed'
   return null
 }
 
@@ -143,6 +162,13 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
   let assetHydrationGeneration = 0
   let pendingHydrationRevision: number | null = null
   let activeForegroundHydration: symbol | null = null
+  let clearedRevokedFileId: string | null = null
+  let flowAuthority: Readonly<{
+    value: EditorCollaborationFlowAuthority
+    document: FileDocument
+    topology: NonNullable<ReturnType<typeof createEditorFlowTopologyAuthority>>
+  }> | null = null
+  const clearFlowAuthority = () => { flowAuthority = null }
   const syncClientId = options.syncClientId ?? browserSyncClientId()
   const syncClient = sync ? createCollaborationClient<FileDocument>({
     syncOrigin: sync,
@@ -153,9 +179,32 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
     ...(options.syncMaxMessageBytes ? { maxMessageBytes: options.syncMaxMessageBytes } : {}),
     validateDocument: value => validateFileDocument(value, browserHollowAtoms),
     applyCommand: (document, command) => applyHostedFileCommand(document, command, browserHollowAtoms),
+    resolveFlowAuthority: (document, pageId) => {
+      const current = flowAuthority
+      if (!current || current.value.pageId !== pageId || current.value.file.fileId !== document.fileId
+        || current.value.documentRevision !== document.revision || current.document !== document) return null
+      return current.topology
+    },
   }) : null
+  const currentFlowAuthority = () => {
+    const current = flowAuthority
+    const document = syncClient?.getSnapshot().document
+    return current && document && document.fileId === current.value.file.fileId
+      && document.revision === current.value.documentRevision
+      && document === current.document ? current : null
+  }
+  const validFlowPresentation = (presentation: FlowDragPresentation) => {
+    const current = currentFlowAuthority()
+    return Boolean(current
+      && presentation.fence.fileId === current.value.file.fileId
+      && presentation.fence.fileRevision === current.value.documentRevision
+      && presentation.fence.documentRevision === current.value.documentRevision
+      && presentation.fence.layoutGeneration === current.value.layoutGeneration
+      && presentation.fence.pageId === current.value.pageId
+      && presentation.fence.pageRootId === current.value.pageRootId)
+  }
   const listeners = new Set<(session: AuthSessionView) => void>()
-  const fileListeners = new Set<(snapshot: EditorProjectSnapshot) => void>()
+  const fileListeners = new Set<(snapshot: EditorProjectSnapshot | null) => void>()
   const failureListeners = new Set<(failure: Readonly<{ operation: 'asset_hydration'; error: unknown }>) => void>()
   let authState = authSessionView('loading', null, 'Checking your session.')
   const collaborationListeners = new Set<() => void>()
@@ -167,6 +216,7 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
     authorityFileId = fileId
     authoritativeRole = null
     localProfile = null
+    clearFlowAuthority()
   }
   const collaborationStatus = (): EditorCollaborationSnapshot['status'] => {
     if (!syncClient) return 'unavailable'
@@ -175,7 +225,7 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
     if (current.lifecycle === 'live') return 'live'
     if (current.lifecycle === 'read-only') return 'read-only'
     if (['offline-clean', 'offline-dirty', 'reconnecting', 'replaying', 'draining', 'parked'].includes(current.lifecycle)) return 'reconnecting'
-    if (['access-revoked', 'incompatible-build', 'capacity-refused'].includes(current.lifecycle) && current.error) return 'error'
+    if (['access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed'].includes(current.lifecycle) && current.error) return 'error'
     if (current.lifecycle === 'closed') return 'unavailable'
     return 'connecting'
   }
@@ -187,7 +237,7 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
       return Object.freeze({ status: 'unavailable', shellState: null, localClientId: null, localProfile: null, canMutate: false, canManageShare: false, participants: Object.freeze([]), agents: noAgents, error: null })
     }
     if (current.fileId !== authorityFileId) resetCollaborationAuthority(current.fileId)
-    const authorityFailed = ['access-revoked', 'incompatible-build', 'capacity-refused'].includes(current.lifecycle)
+    const authorityFailed = ['access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed'].includes(current.lifecycle)
     if (authorityFailed) resetCollaborationAuthority(current.fileId)
     const roleIsCurrent = !authorityFailed && !['cold', 'opening', 'connecting', 'authorizing', 'closing', 'closed'].includes(current.lifecycle)
     if (current.role && roleIsCurrent) authoritativeRole = current.role
@@ -378,7 +428,7 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
         const live = syncClient.getSnapshot()
         if (live.fileId !== fileId) return
         if ((live.lifecycle === 'live' || live.lifecycle === 'read-only') && live.document) { finish({ document: live.document }); return }
-        if (['access-revoked', 'incompatible-build', 'capacity-refused', 'closed'].includes(live.lifecycle)) {
+        if (['access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed', 'closed'].includes(live.lifecycle)) {
           finish({ error: new Error(live.error ?? 'Live sync could not open this file.') })
         }
       }
@@ -393,6 +443,7 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
       activeFileId = fileId
       activeMetadata = metadata
       deliveredRevision = null
+      clearedRevokedFileId = null
       activeOpenGeneration = generation
       syncClient.stop()
       resetCollaborationAuthority(fileId)
@@ -492,7 +543,23 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
       }
     })
   }
-  const stopSyncWatch = syncClient?.subscribe(() => { publishLiveSnapshot(); publishCollaborationSnapshot() })
+  const clearRevokedFile = () => {
+    if (!syncClient || !activeFileId || clearedRevokedFileId === activeFileId) return
+    const current = syncClient.getSnapshot()
+    if (current.fileId !== activeFileId || current.lifecycle !== 'access-revoked') return
+    clearedRevokedFileId = activeFileId
+    assetHydrationGeneration += 1
+    pendingHydrationRevision = null
+    activeForegroundHydration = null
+    deliveredRevision = null
+    for (const listener of fileListeners) listener(null)
+  }
+  const stopSyncWatch = syncClient?.subscribe(() => {
+    if (flowAuthority && syncClient.getSnapshot().document !== flowAuthority.document) clearFlowAuthority()
+    clearRevokedFile()
+    publishLiveSnapshot()
+    publishCollaborationSnapshot()
+  })
   const unavailable = async (): Promise<never> => { throw new UnavailableCapabilityError(sourceReason) }
   return {
     capabilities: cloudCapabilities,
@@ -500,6 +567,7 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
     ...(syncClient ? { collaboration: {
       subscribe: (listener: () => void) => { collaborationListeners.add(listener); return () => collaborationListeners.delete(listener) },
       getSnapshot: () => collaborationSnapshot,
+      interactionAwareness: false,
       updateAwareness: (patch, presenceOptions) => syncClient.updatePresence({
         ...(patch.pageId === undefined ? {} : { pageId: patch.pageId }),
         ...(patch.focused === undefined ? {} : { focused: patch.focused }),
@@ -508,6 +576,44 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
         ...(patch.cursor === undefined ? {} : { cursor: patch.cursor }),
         ...(patch.interaction === undefined ? {} : { interaction: patch.interaction }),
       }, presenceOptions),
+      updateFlowAuthority: authority => {
+        if (!authority) { clearFlowAuthority(); return }
+        const live = syncClient.getSnapshot()
+        const page = authority.file.pages.find(candidate => candidate.id === authority.pageId)
+        if (!activeFileId || live.fileId !== activeFileId || authority.file.fileId !== activeFileId
+          || authority.documentRevision !== authority.file.revision || !page || page.rootNodeId !== authority.pageRootId
+          || live.document?.fileId !== authority.file.fileId || live.document.revision !== authority.file.revision) {
+          clearFlowAuthority()
+          return
+        }
+        const checked = validateFileDocument(authority.file, [...authority.atoms], { allowUnavailableBindings: true })
+        const documentSignature = JSON.stringify(checked)
+        if (documentSignature !== JSON.stringify(live.document)) { clearFlowAuthority(); return }
+        const value = deepFreeze({ ...authority, file: checked, atoms: [...authority.atoms] })
+        const topology = createEditorFlowTopologyAuthority(value.file, value.atoms, value.pageId)
+        if (!topology) { clearFlowAuthority(); return }
+        flowAuthority = Object.freeze({ value, document: live.document, topology })
+      },
+      getFlowClaims: () => syncClient.getFlowClaims(),
+      subscribeInteractionResults: listener => syncClient.subscribeInteractionResults(listener),
+      subscribeRemoteFlow: listener => syncClient.subscribeRemoteFlow((event: EditorCollaborationRemoteFlowEvent) => {
+        const presentation = event.type === 'sample' ? event.sample.presentation : null
+        if (presentation && validFlowPresentation(presentation)) listener(event)
+        else if (event.type === 'released') listener(event)
+      }),
+      acquireFlow: input => {
+        if (!validFlowPresentation(input.presentation)) throw new Error('Authoritative interaction topology is unavailable.')
+        return syncClient.acquireInteraction(input)
+      },
+      reserveFlow: input => {
+        if (!validFlowPresentation(input.presentation)) return Promise.reject(new Error('Authoritative interaction topology is unavailable.'))
+        return syncClient.reserveInteraction(input)
+      },
+      sampleFlow: input => {
+        if (!validFlowPresentation(input.presentation)) throw new Error('Authoritative interaction topology is unavailable.')
+        syncClient.sampleInteraction(input)
+      },
+      releaseFlow: input => syncClient.releaseInteraction(input),
       retry: retryCollaboration,
       leave: leaveCollaboration,
     } } : {}),
@@ -570,18 +676,55 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
         if (live.lifecycle !== 'live' || !live.document || live.fileId !== fileId) throw new Error(live.lifecycle === 'read-only' ? 'This file is read only.' : 'Live sync is not ready.')
         if (!intent) throw new Error('Live sync requires the semantic command that produced this change.')
         if (!intent.commands.length) {
+          if (intent.flow) throw new Error('An interaction-bound save requires a semantic command.')
           return foregroundSnapshot(metadata, live.document, () => !disposed && activeFileId === fileId)
         }
         const command: FileCommand = intent.commands.length === 1 ? intent.commands[0]! : { type: 'batch', commands: [...intent.commands] }
         const projected = applyHostedFileCommand(live.document, command, browserHollowAtoms)
+        let flowBinding: FlowDragTerminalBinding | undefined
+        const flow = intent.flow
+        if (flow) {
+          const claim = syncClient.getFlowClaims().find(candidate => candidate.claim === flow.claim)
+          const terminal = flow.terminalPresentation
+          const accepted = claim?.latestAcceptedPresentation
+          if (!claim || !claim.leaseId || !claim.currentTargetLane || !accepted || claim.pendingRelease
+            || accepted.identity.interactionId !== terminal.identity.interactionId
+            || accepted.identity.sampleSequence !== terminal.identity.sampleSequence
+            || accepted.retention.kind !== 'terminal-retained'
+            || terminal.retention.kind !== 'terminal-retained'
+            || terminal.retention.terminalSampleSequence !== terminal.identity.sampleSequence
+            || JSON.stringify(accepted) !== JSON.stringify(terminal)) throw new Error('The interaction binding is not authoritative.')
+          const source = accepted.original.sourceRelationship
+          flowBinding = Object.freeze({
+            leaseId: claim.leaseId,
+            interactionId: claim.claim.interactionId,
+            localClaimGeneration: claim.claim.localClaimGeneration,
+            reservationGeneration: claim.reservationGeneration,
+            terminalSampleSequence: accepted.identity.sampleSequence,
+            presentationDigest: await sha256(JSON.stringify(accepted)),
+            sourceLane: Object.freeze({ parentId: source.parentId, slot: source.slot }),
+            targetLane: claim.currentTargetLane,
+          })
+        }
         const token = Symbol('cloud-save')
         activeSave = { fileId, token }
+        let acknowledged = false
         try {
-          await syncClient.submit({ mutationId: crypto.randomUUID(), command })
-          const saved = syncClient.getSnapshot().document
-          if (!saved || saved.fileId !== fileId || saved.revision < projected.revision) throw new Error('The sync service did not acknowledge this change.')
-          if (activeFileId === fileId) deliveredRevision = saved.revision
-          return foregroundSnapshot(metadata, saved, () => !disposed && activeFileId === fileId)
+          try {
+            await syncClient.submit({ mutationId: crypto.randomUUID(), command, ...(flowBinding ? { flowBinding } : {}) })
+            const saved = syncClient.getSnapshot().document
+            if (!saved || saved.fileId !== fileId || saved.revision < projected.revision) throw new Error('The sync service did not acknowledge this change.')
+            acknowledged = true
+            if (flow) await syncClient.releaseInteraction({ claim: flow.claim, terminalSampleSequence: flow.terminalPresentation.identity.sampleSequence, reason: 'committed' })
+            if (activeFileId === fileId) deliveredRevision = saved.revision
+            return foregroundSnapshot(metadata, saved, () => !disposed && activeFileId === fileId)
+          } catch (error) {
+            if (flow && !acknowledged) {
+              try { await syncClient.releaseInteraction({ claim: flow.claim, terminalSampleSequence: flow.terminalPresentation.identity.sampleSequence, reason: 'failed' }) }
+              catch (releaseError) { console.error('Flow release failed after the save failed.', releaseError) }
+            }
+            throw error
+          }
         } finally {
           if (activeSave?.token === token) activeSave = null
           publishLiveSnapshot()
@@ -611,6 +754,7 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
       activeFileId = null
       activeMetadata = null
       deliveredRevision = null
+      clearedRevokedFileId = null
       listeners.clear()
       fileListeners.clear()
       failureListeners.clear()

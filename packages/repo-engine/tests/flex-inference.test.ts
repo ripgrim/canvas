@@ -1,117 +1,151 @@
 import { describe, expect, it } from 'vitest'
 import { inferFlexLayout } from '../src/flex-inference.js'
-import type { Rect } from '../src/flex-inference.js'
+import type { FlexAnalysisChild, FlexInferenceInput, Rect } from '../src/flex-inference.js'
+import type { PositionMode } from '../src/layout.js'
 
-const box = (id: string, x: number, y: number, width: number, height: number): { id: string } & Rect => ({ id, x, y, width, height })
-const gapReason = 'Adjacent gaps differ by more than 2 px'
-const wrapReason = 'Children wrap onto more than one line'
+const rect = (x: number, y: number, width: number, height: number): Rect => ({ x, y, width, height })
+const child = (
+  id: string,
+  worldAabb: Rect,
+  authoredPosition = { x: worldAabb.x, y: worldAabb.y },
+  authoredSize = { width: worldAabb.width, height: worldAabb.height },
+  parentLocalCenter = { x: authoredPosition.x + authoredSize.width / 2, y: authoredPosition.y + authoredSize.height / 2 },
+  sourcePosition: PositionMode = 'freeform',
+): FlexAnalysisChild => ({ id, worldAabb, authoredPosition, authoredSize, parentLocalCenter, sourcePosition })
+const analyze = (children: readonly FlexAnalysisChild[], options: Partial<Pick<FlexInferenceInput, 'containerSize' | 'directAddLeadingInset' | 'kind' | 'isRoot'>> = {}) => inferFlexLayout({
+  containerSize: options.containerSize ?? { width: 200, height: 200 },
+  children,
+  directAddLeadingInset: options.directAddLeadingInset ?? { x: 0, y: 0 },
+  kind: options.kind ?? 'direct-add',
+  isRoot: options.isRoot ?? false,
+})
 
-describe('freeform to flex inference', () => {
-  it('LAY-FLEX-005: an evenly spaced row with symmetric cross insets is a stretch row', () => {
-    // Children span x 32..364, y 40..80 in a 400x120 box. Gaps: 148 - 132 = 16, 264 - 248 = 16.
-    // insetX = min(32, 400 - 364 = 36) = 32; insetY = min(40, 120 - 80 = 40) = 40.
-    // Main: inner start 32, inner size 336, content 332 at 32 -> start 0, center (32 - 34)^2 = 4, end (32 - 36)^2 = 16.
-    // Cross: inner size 120 - 80 = 40 equals every child height at the inner start, so the stretch rule applies.
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 400, height: 120 }, children: [box('c', 264, 40, 100, 40), box('a', 32, 40, 100, 40), box('b', 148, 40, 100, 40)] })
-    expect(result).toEqual({ direction: 'row', wrap: 'nowrap', gap: 16, justify: 'start', align: 'stretch', padding: { x: 32, y: 40 }, order: ['a', 'b', 'c'], lines: 1, reproducible: true, reasons: [] })
+describe('PAPER-FLEX-001/002 Paper Add and Wrap analysis', () => {
+  it('uses Paper empty-frame defaults and the strict wider-than-tall boundary', () => {
+    const square = analyze([], { containerSize: { width: 100, height: 100 } })
+    expect(square).toMatchObject({ direction: 'column', align: 'start', justify: 'start', wrap: 'nowrap', gap: 16, padding: { x: 16, y: 16 }, order: [], worldBounds: null })
+    expect(square.synthetic).toEqual({ container: { x: 0, y: 0, width: 32, height: 32 }, children: [] })
+
+    const wider = analyze([], { containerSize: { width: 101, height: 100 } })
+    expect(wider).toMatchObject({ direction: 'row', align: 'center', gap: 16, padding: { x: 16, y: 16 } })
   })
 
-  it('LAY-FLEX-005: the same row in a 140 px tall container aligns to the cross start', () => {
-    // insetY = min(40, 140 - 80 = 60) = 40; inner cross size 140 - 80 = 60, children 40 tall at y 40.
-    // Errors: start |40 - 40| = 0, center 40 + 10 = 50 -> 10, end 40 + 20 = 60 -> 20.
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 400, height: 140 }, children: [box('a', 32, 40, 100, 40), box('b', 148, 40, 100, 40), box('c', 264, 40, 100, 40)] })
-    expect(result).toEqual({ direction: 'row', wrap: 'nowrap', gap: 16, justify: 'start', align: 'start', padding: { x: 32, y: 40 }, order: ['a', 'b', 'c'], lines: 1, reproducible: true, reasons: [] })
+  it('chooses direction from normalized world-AABB center spread and gives an exact tie to row', () => {
+    const column = analyze([child('a', rect(0, 0, 100, 40)), child('b', rect(80, 100, 100, 40))])
+    expect(column.worldBounds).toEqual({ x: 0, y: 0, width: 180, height: 140 })
+    expect(column.direction).toBe('column')
+
+    const tie = analyze([child('a', rect(0, 0, 40, 40)), child('b', rect(50, 50, 40, 40))])
+    expect(tie.direction).toBe('row')
   })
 
-  it('LAY-FLEX-005: column gaps 12, 12, 13 share one 4 px bucket and average to 12', () => {
-    // y ranges: 20..40, 52..72, 84..104, 117..137 -> gaps 12, 12, 13; average 37 / 3 = 12.33 -> 12.
-    // Each raw gap is within 2 px of 12.
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 200, height: 300 }, children: [box('a', 48, 20, 100, 20), box('b', 48, 52, 100, 20), box('c', 48, 84, 100, 20), box('d', 48, 117, 100, 20)] })
-    expect(result?.direction).toBe('column')
-    expect(result?.gap).toBe(12)
-    expect(result?.order).toEqual(['a', 'b', 'c', 'd'])
-    expect(result?.reproducible).toBe(true)
-    expect(result?.reasons).toEqual([])
+  it('matches Paper direct Add fixture A/B/C without shifting the authored Y coordinates', () => {
+    const a = child('a', rect(10, 20, 20, 20))
+    const b = child('b', rect(50, 20, 20, 40))
+    const c = child('c', rect(100, 20, 20, 60))
+    const result = analyze([c, a, b], { containerSize: { width: 300, height: 200 }, directAddLeadingInset: { x: 10, y: 20 } })
+    expect(result).toMatchObject({ direction: 'row', align: 'start', gap: 25, padding: { x: 10, y: 20 }, order: ['a', 'b', 'c'] })
+    expect(result.synthetic.container).toEqual({ x: 0, y: 0, width: 130, height: 100 })
+    expect(result.synthetic.children.map(entry => entry.synthetic)).toEqual([
+      { x: 10, y: 20, width: 20, height: 20 },
+      { x: 55, y: 20, width: 20, height: 40 },
+      { x: 100, y: 20, width: 20, height: 60 },
+    ])
   })
 
-  it('LAY-FLEX-005 negative: column gaps 8 and 24 are not reproducible', () => {
-    // y ranges: 20..40, 48..68, 92..112 -> gaps 8 and 24, which differ by 16.
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 200, height: 300 }, children: [box('a', 48, 20, 100, 20), box('b', 48, 48, 100, 20), box('c', 48, 92, 100, 20)] })
-    expect(result?.direction).toBe('column')
-    expect(result?.reproducible).toBe(false)
-    expect(result?.reasons).toContain(gapReason)
+  it('uses start, then end, then center as exact world cross-range tie priority and never stretch', () => {
+    expect(analyze([child('a', rect(0, 20, 20, 20)), child('b', rect(40, 20, 20, 20))]).align).toBe('start')
+    expect(analyze([child('a', rect(0, 20, 20, 10)), child('b', rect(40, 5, 20, 30))]).align).toBe('end')
+    expect(analyze([child('a', rect(0, 30, 20, 20)), child('b', rect(40, 20, 20, 40)), child('c', rect(80, 10, 20, 60))]).align).toBe('center')
   })
 
-  it('LAY-FLEX-005: raw gaps under 2 px (1 and 0) collapse to gap 0', () => {
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 100, height: 40 }, children: [box('a', 0, 10, 10, 20), box('b', 11, 10, 10, 20), box('c', 21, 10, 10, 20)] })
-    expect(result?.direction).toBe('row')
-    expect(result?.gap).toBe(0)
-    expect(result?.reasons).not.toContain(gapReason)
+  it('uses the mathematical median of parent-local edge gaps, retaining overlap samples until the final clamp', () => {
+    const four = [0, 15, 55, 175].map((x, index) => child(String(index), rect(x, 0, 20, 20)))
+    expect(analyze(four).gap).toBe(20)
+
+    const overlap = [0, 15, 30].map((x, index) => child(String(index), rect(x, 0, 20, 20)))
+    expect(analyze(overlap).gap).toBe(0)
   })
 
-  it('LAY-FLEX-005: centered content justifies center', () => {
-    // Content 40 + 10 + 40 + 10 + 40 = 140 wide at x 130..270 in 400: insets 130 and 130.
-    // padding x = round(130 / 4) * 4 = 132; inner start 132, inner size 400 - 264 = 136.
-    // start (130 - 132)^2 = 4; center 132 + (136 - 140) / 2 = 130 -> 0; end 132 + 136 - 140 = 128 -> 4.
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 400, height: 100 }, children: [box('a', 130, 30, 40, 40), box('b', 180, 30, 40, 40), box('c', 230, 30, 40, 40)] })
-    expect(result?.justify).toBe('center')
+  it('applies the one-child authored shape, alignment, and main-axis-padding gap rules', () => {
+    const wide = analyze([child('wide', rect(10, 20, 60, 20))], { directAddLeadingInset: { x: 10, y: 20 } })
+    expect(wide).toMatchObject({ direction: 'column', align: 'start', gap: 20, padding: { x: 10, y: 20 } })
+    expect(wide.synthetic.container).toEqual({ x: 0, y: 0, width: 80, height: 60 })
+
+    const square = analyze([child('square', rect(12, 8, 30, 30))], { directAddLeadingInset: { x: 12, y: 8 } })
+    expect(square).toMatchObject({ direction: 'row', align: 'center', gap: 12, padding: { x: 12, y: 8 } })
   })
 
-  it('LAY-FLEX-005: right-aligned content justifies end', () => {
-    // Content 144 wide at x 224..368 in 400: insetX = min(224, 32) = 32; inner start 32, inner size 336.
-    // start (224 - 32)^2, center 32 + 96 = 128 -> 96^2, end 32 + 336 - 144 = 224 -> 0.
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 400, height: 100 }, children: [box('a', 224, 30, 40, 40), box('b', 276, 30, 40, 40), box('c', 328, 30, 40, 40)] })
-    expect(result?.justify).toBe('end')
+  it('uses authored one-child dimensions even when rotation makes the world AABB imply the inverse', () => {
+    const authoredWide = child('authored-wide', rect(0, 0, 20, 80), { x: 0, y: 0 }, { width: 80, height: 20 }, { x: 40, y: 10 })
+    const authoredTall = child('authored-tall', rect(0, 0, 80, 20), { x: 0, y: 0 }, { width: 20, height: 80 }, { x: 10, y: 40 })
+    expect(analyze([authoredWide])).toMatchObject({ direction: 'column', align: 'start' })
+    expect(analyze([authoredTall])).toMatchObject({ direction: 'row', align: 'center' })
   })
 
-  it('LAY-FLEX-005: children filling the inner cross size within 2 px stretch', () => {
-    // Heights 60, 61, 60 at y 20 in a 100 px tall box: insetY = min(20, 100 - 81 = 19) = 19 -> padding 20.
-    // Inner cross size 100 - 40 = 60; |61 - 60| = 1 is within tolerance and every child starts at 20.
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 400, height: 100 }, children: [box('a', 20, 20, 40, 60), box('b', 72, 20, 40, 61), box('c', 124, 20, 40, 60)] })
-    expect(result?.align).toBe('stretch')
+  it('stable-sorts only authored main-axis coordinates and retains input tree order for ties', () => {
+    const b = child('b', rect(10, 120, 20, 20), { x: 10, y: 120 })
+    const a = child('a', rect(10, 0, 20, 20), { x: 10, y: 0 })
+    const c = child('c', rect(150, 60, 20, 20), { x: 150, y: 60 })
+    const result = analyze([b, a, c])
+    expect(result.direction).toBe('row')
+    expect(result.order).toEqual(['b', 'a', 'c'])
+    expect(result.synthetic.children.map(entry => entry.treeIndex)).toEqual([0, 1, 2])
   })
 
-  it('LAY-FLEX-005 negative: a child 4 px short of the inner cross size prevents stretch', () => {
-    // Heights 60, 60, 56 at y 20: padding 20, inner 60; |56 - 60| = 4 > 2. All start at 20, so start error is 0.
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 400, height: 100 }, children: [box('a', 20, 20, 40, 60), box('b', 72, 20, 40, 60), box('c', 124, 20, 40, 56)] })
-    expect(result?.align).toBe('start')
+  it('uses zero padding for roots and wraps while preserving the inferred gap', () => {
+    const children = [child('a', rect(18, 24, 20, 20)), child('b', rect(58, 24, 20, 20))]
+    const root = analyze(children, { directAddLeadingInset: { x: 18, y: 24 }, isRoot: true })
+    const wrap = analyze(children, { directAddLeadingInset: { x: 18, y: 24 }, kind: 'wrap' })
+    expect(root.padding).toEqual({ x: 0, y: 0 })
+    expect(wrap.padding).toEqual({ x: 0, y: 0 })
+    expect(root.gap).toBe(20)
+    expect(wrap.gap).toBe(20)
   })
 
-  it('LAY-FLEX-005: children of different heights sharing a vertical center align center', () => {
-    // Heights 20, 40, 60 centered on y 60: y 50, 40, 30. insetY = min(30, 30) = 30 -> padding 32, inner 56.
-    // center expects 32 + (56 - h) / 2 = 50, 40, 30 -> error 0; start and end both average 28 / 3.
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 400, height: 120 }, children: [box('a', 32, 50, 40, 20), box('b', 84, 40, 40, 40), box('c', 136, 30, 40, 60)] })
-    expect(result?.direction).toBe('row')
-    expect(result?.align).toBe('center')
+  it('preserves explicit absolute children during direct Add and clears them for Wrap', () => {
+    const flow = child('flow', rect(10, 20, 20, 20))
+    const absolute = child('absolute', rect(50, 20, 20, 20), undefined, undefined, undefined, 'absolute')
+    const direct = analyze([flow, absolute], { directAddLeadingInset: { x: 10, y: 20 } })
+    const wrap = analyze([flow, absolute], { kind: 'wrap' })
+    expect(direct.synthetic.children.map(entry => ({ id: entry.id, source: entry.sourcePosition, target: entry.position }))).toEqual([
+      { id: 'flow', source: 'freeform', target: 'flow' },
+      { id: 'absolute', source: 'absolute', target: 'absolute' },
+    ])
+    expect(wrap.synthetic.children.map(entry => ({ id: entry.id, source: entry.sourcePosition, target: entry.position }))).toEqual([
+      { id: 'flow', source: 'freeform', target: 'flow' },
+      { id: 'absolute', source: 'absolute', target: 'flow' },
+    ])
   })
 
-  it('LAY-FLEX-005: two visual lines are reported as wrapping and ordered line by line', () => {
-    // Line 1 at y 32..72: a, b, c at x 32, 84, 136. Line 2 at y 84..124: d, e at x 32, 84.
-    // Center spread: x 52..156 = 104, y 52..104 = 52, so row. Line 2 does not overlap line 1 on the cross axis.
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 400, height: 200 }, children: [box('e', 84, 84, 40, 40), box('c', 136, 32, 40, 40), box('a', 32, 32, 40, 40), box('d', 32, 84, 40, 40), box('b', 84, 32, 40, 40)] })
-    expect(result?.direction).toBe('row')
-    expect(result?.lines).toBe(2)
-    expect(result?.reproducible).toBe(false)
-    expect(result?.reasons).toContain(wrapReason)
-    expect(result?.order).toEqual(['a', 'b', 'c', 'd', 'e'])
+  it('places center-aligned fractional children from the rounded synthetic cross size', () => {
+    const first = child('first', rect(0, 0, 10, 10.6), { x: 0, y: 0 }, { width: 10, height: 10.6 }, { x: 5, y: 5.3 })
+    const second = child('second', rect(20, 2.4, 10, 5.8), { x: 20, y: 2.4 }, { width: 10, height: 5.8 }, { x: 25, y: 5.3 })
+    const result = analyze([first, second])
+    expect(result).toMatchObject({ direction: 'row', align: 'center', gap: 10 })
+    expect(result.synthetic.container).toEqual({ x: 0, y: 0, width: 30, height: 11 })
+    expect(result.synthetic.children[1]?.synthetic).toEqual({ x: 20, y: 3, width: 10, height: 6 })
   })
 
-  it('LAY-FLEX-005: zero-size children are ignored and an empty input yields null', () => {
-    // Without the ignore rule, the 0x40 child at x 0 would make insetX 0 instead of 32.
-    const result = inferFlexLayout({ container: { x: 0, y: 0, width: 400, height: 120 }, children: [box('z', 0, 0, 0, 40), box('a', 32, 40, 100, 40), box('w', 380, 0, 10, 0), box('b', 148, 40, 100, 40), box('c', 264, 40, 100, 40)] })
-    expect(result?.order).toEqual(['a', 'b', 'c'])
-    expect(result?.padding).toEqual({ x: 32, y: 40 })
-    expect(inferFlexLayout({ container: { x: 0, y: 0, width: 400, height: 120 }, children: [] })).toBeNull()
-    expect(inferFlexLayout({ container: { x: 0, y: 0, width: 400, height: 120 }, children: [box('z', 10, 10, 0, 0)] })).toBeNull()
+  it('keeps rotated world analysis separate from authored ordering, local-center gaps, and authored sizing', () => {
+    const a = child('a', rect(0, 0, 80, 20), { x: 0, y: 100 }, { width: 20, height: 80 }, { x: 10, y: 100 }, 'absolute')
+    const b = child('b', rect(30, 100, 20, 80), { x: 0, y: 0 }, { width: 80, height: 20 }, { x: 40, y: 30 })
+    const result = analyze([a, b], { kind: 'wrap' })
+    expect(result).toMatchObject({ direction: 'column', align: 'center', order: ['b', 'a'], gap: 20, padding: { x: 0, y: 0 } })
+    expect(result.worldBounds).toEqual({ x: 0, y: 0, width: 80, height: 180 })
+    expect(result.synthetic.container).toEqual({ x: 0, y: 0, width: 80, height: 120 })
+    expect(result.synthetic.children.map(entry => ({ id: entry.id, treeIndex: entry.treeIndex, rect: entry.synthetic, target: entry.position }))).toEqual([
+      { id: 'b', treeIndex: 1, rect: { x: 0, y: 0, width: 80, height: 20 }, target: 'flow' },
+      { id: 'a', treeIndex: 0, rect: { x: 30, y: 40, width: 20, height: 80 }, target: 'flow' },
+    ])
   })
 
-  it('LAY-FLEX-005: direction is column when the vertical center spread exceeds the horizontal one', () => {
-    // Centers (20, 20) and (30, 120): spread x 10, y 100.
-    const column = inferFlexLayout({ container: { x: 0, y: 0, width: 200, height: 200 }, children: [box('a', 0, 0, 40, 40), box('b', 10, 100, 40, 40)] })
-    expect(column?.direction).toBe('column')
-    expect(column?.order).toEqual(['a', 'b'])
-    // Negative control: centers (20, 20) and (70, 70) spread equally, and a tie picks row.
-    const tie = inferFlexLayout({ container: { x: 0, y: 0, width: 200, height: 200 }, children: [box('a', 0, 0, 40, 40), box('b', 50, 50, 40, 40)] })
-    expect(tie?.direction).toBe('row')
+  it('rounds leading insets and synthetic output without four-pixel buckets', () => {
+    const one = child('a', rect(17.7, 29.7, 20.4, 10.4), { x: 7.5, y: 9.6 }, { width: 20.4, height: 10.4 }, { x: 17.7, y: 14.8 })
+    const two = child('b', rect(53.2, 29.7, 20.4, 10.4), { x: 43, y: 9.6 }, { width: 20.4, height: 10.4 }, { x: 53.2, y: 14.8 })
+    const result = analyze([one, two], { directAddLeadingInset: { x: 7.5, y: 9.6 } })
+    expect(result.padding).toEqual({ x: 8, y: 10 })
+    expect(result.gap).toBe(15)
+    expect(result.synthetic.container).toEqual({ x: 0, y: 0, width: 72, height: 30 })
   })
 })

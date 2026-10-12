@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { flowInsertIndex } from './canvas-math'
 import type { Rect } from './canvas-math'
-import { flexInsertIndex } from './flex-reorder'
+import { flexInsertIndex, measuredFlexInsertIndex } from './flex-reorder'
 
 // LAY-GEST-005 (Flex part): hand-drawn sibling boxes, pointer positions, and the expected drop. `index` is a gap in
 // the full document-ordered sibling list (dragged node included): 0 is before the first sibling, n after the last.
@@ -40,6 +40,89 @@ describe('LAY-GEST-005: Flex reorder targets', () => {
     // Centers left of x 250: b, d, e -> 3, which would land a between c and d instead of after e.
     expect(flowInsertIndex({ x: 250, y: 70 }, wrapped, 'a')).toEqual({ index: 3, axis: 'x' })
     expect(flexInsertIndex({ x: 250, y: 70 }, wrapped, 'a', 'row', 'wrap').index).not.toBe(3)
+  })
+
+  it('uses Paper visual lines for mixed primitive and component children and carries measurement authority', () => {
+    const mixed = [
+      { id: 'a', kind: 'frame', rect: box(0, 0) },
+      { id: 'b', kind: 'component', rect: box(110, 0) },
+      { id: 'c', kind: 'text', rect: box(220, 0) },
+      { id: 'd', kind: 'rectangle', rect: box(0, 50) },
+      { id: 'e', kind: 'component', rect: box(110, 50) },
+    ] as const
+    const result = measuredFlexInsertIndex({
+      pointer: { x: 250, y: 70 }, draggedId: 'a', direction: 'row', wrap: 'wrap',
+      expected: { measurementRevision: 41, documentRevision: 17, layoutGeneration: 9 },
+      measurement: { measurementRevision: 41, documentRevision: 17, layoutGeneration: 9, siblings: mixed },
+    })
+    expect(result).toEqual({
+      status: 'ready', authority: { measurementRevision: 41, documentRevision: 17, layoutGeneration: 9 },
+      target: { index: 5, line: 1, guide: { axis: 'x', position: 210, start: 50, end: 90 } },
+    })
+
+    const applyGap = (ids: readonly string[], draggedId: string, gap: number) => {
+      const withoutDragged = ids.filter(id => id !== draggedId)
+      const insertion = gap > ids.indexOf(draggedId) ? gap - 1 : gap
+      return [...withoutDragged.slice(0, insertion), draggedId, ...withoutDragged.slice(insertion)]
+    }
+    expect(applyGap(['a', 'b', 'c', 'd', 'e'], 'a', result.status === 'ready' ? result.target.index : -1)).toEqual(['b', 'c', 'd', 'e', 'a'])
+
+    // Mutation control: generic dominant-axis ordering answers gap 3 and produces the wrong cross-line order.
+    const mutatedGap = flowInsertIndex({ x: 250, y: 70 }, mixed, 'a').index
+    expect(mutatedGap).toBe(3)
+    expect(applyGap(['a', 'b', 'c', 'd', 'e'], 'a', mutatedGap)).toEqual(['b', 'c', 'a', 'd', 'e'])
+    expect(applyGap(['a', 'b', 'c', 'd', 'e'], 'a', mutatedGap)).not.toEqual(['b', 'c', 'd', 'e', 'a'])
+  })
+
+  it('rejects stale measurement, document, or layout authority before exposing an insertion target', () => {
+    const actual = { measurementRevision: 41, documentRevision: 17, layoutGeneration: 9 }
+    for (const expected of [
+      { measurementRevision: 42, documentRevision: 17, layoutGeneration: 9 },
+      { measurementRevision: 41, documentRevision: 18, layoutGeneration: 9 },
+      { measurementRevision: 41, documentRevision: 17, layoutGeneration: 10 },
+    ]) {
+      expect(measuredFlexInsertIndex({
+        pointer: { x: 250, y: 70 }, draggedId: 'a', direction: 'row', wrap: 'wrap', expected,
+        measurement: { ...actual, siblings: wrapped },
+      })).toEqual({ status: 'stale', expected, actual, target: null })
+    }
+  })
+
+  it('keeps unequal and staggered children in their contiguous visual lines', () => {
+    // First line: a is tall, b is 70 px lower, and c is short. Second line starts when the main axis wraps to x=0.
+    const staggered = list({
+      a: box(0, 0, 90, 80), b: box(100, 70, 120, 40), c: box(230, 80, 60, 20),
+      d: box(0, 120, 140, 50), e: box(150, 135, 70, 25),
+    })
+    expect(flexInsertIndex({ x: 280, y: 85 }, staggered, 'd', 'row', 'wrap')).toMatchObject({ index: 3, line: 0 })
+    expect(flexInsertIndex({ x: 190, y: 145 }, staggered, 'a', 'row', 'wrap')).toEqual({ index: 5, line: 1, guide: { axis: 'x', position: 220, start: 120, end: 170 } })
+
+    // Mutation control: a fixed 50% overlap with the first child would split b from a despite the same main-axis run.
+    const headOverlap = Math.min(80, 70 + 40) - Math.max(0, 70)
+    expect(headOverlap).toBe(10)
+    expect(headOverlap).toBeLessThan(0.5 * Math.min(80, 40))
+    expect(staggered[2]!.rect.y).not.toBe(staggered[0]!.rect.y)
+  })
+
+  it('keeps the dragged child as cross-axis evidence while reconstructing its visual line', () => {
+    // The dragged item bridges a and b into one contiguous line. Removing it before line reconstruction falsely
+    // splits b into a second line and produces an insertion after b instead of before a.
+    const bridged = list({
+      a: box(0, 0, 20, 20), dragged: box(30, 0, 20, 100), b: box(60, 80, 20, 20), c: box(0, 110, 20, 20),
+    })
+    expect(flexInsertIndex({ x: 10, y: 80 }, bridged, 'dragged', 'row', 'wrap')).toEqual({
+      index: 0,
+      line: 0,
+      guide: { axis: 'x', position: 40, start: 0, end: 100 },
+    })
+
+    // Mutation control: deleting the bridge first creates the false line and changes both the target and guide.
+    const withoutBridgeGeometry = bridged.map(entry => entry.id === 'dragged' ? { ...entry, rect: box(30, 0, 0, 0) } : entry)
+    expect(flexInsertIndex({ x: 10, y: 80 }, withoutBridgeGeometry, 'dragged', 'row', 'wrap')).toEqual({
+      index: 2,
+      line: 1,
+      guide: { axis: 'x', position: 60, start: 80, end: 100 },
+    })
   })
 
   // row-reverse, nowrap. Document order a b c shows right to left in a 320 wide container.

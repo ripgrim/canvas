@@ -22,7 +22,7 @@ const containerGrammar: Record<string, RegExp> = {
   'flex-wrap': keywords('nowrap', 'wrap', 'wrap-reverse'),
   'justify-content': keywords('flex-start', 'flex-end', 'center', 'space-between', 'space-around', 'space-evenly', 'stretch', 'start', 'end'),
   'align-content': keywords('flex-start', 'flex-end', 'center', 'space-between', 'space-around', 'space-evenly', 'stretch', 'start', 'end'),
-  'align-items': keywords('flex-start', 'flex-end', 'center', 'stretch', 'baseline', 'start', 'end'),
+  'align-items': keywords('flex-start', 'flex-end', 'center', 'stretch', 'baseline', 'last baseline', 'start', 'end'),
   'justify-items': keywords('flex-start', 'flex-end', 'center', 'stretch', 'start', 'end'),
   'column-gap': exact(`${unsigned}px`),
   'row-gap': exact(`${unsigned}px`),

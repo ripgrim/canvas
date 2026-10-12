@@ -7,8 +7,6 @@ import { canvasGestures, creationTools } from './canvas-gestures'
 import { documentStore as store } from './document-store'
 import type { CanvasElementKind } from '@canvas/repo-engine/document'
 import { screenToWorld } from './canvas-math'
-import { buildScene, clickTarget } from './canvas-scene'
-import { sceneGeometry } from './scene-geometry'
 import { hasComponentDrag, readComponentDrag } from './component-drag'
 import { componentSyncQueue } from './component-sync-queue'
 import { editorStore } from './store'
@@ -35,10 +33,7 @@ export function CanvasStage({ active = true, readOnly = false, onOpenContextMenu
   const onContextMenu = (event: MouseEvent<HTMLDivElement>) => {
     event.preventDefault()
     if (readOnly || !state.file || !state.pageId) return
-    const bounds = event.currentTarget.getBoundingClientRect()
-    const world = screenToWorld({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, state.viewport, state.viewportSize)
-    const scene = buildScene(state.file, state.pageId, sceneGeometry.getSnapshot().nodes)
-    const target = clickTarget(scene, world, state.selection, event.ctrlKey || event.metaKey)
+    const target = canvasGestures.contextMenuTarget(event)
     if (!target) return
     if (!state.selection.includes(target.id)) store.select(target.id)
     onOpenContextMenu({ x: event.clientX, y: event.clientY })

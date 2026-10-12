@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { cp, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -44,7 +45,51 @@ async function temporaryFixture(): Promise<{ root: string, cleanup: () => Promis
   return { root, cleanup: async () => { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) } }
 }
 
+async function runWorkerWithRuntimeDependencyRoot(runtimeDependencyRoot: string): Promise<{ code: number | null, output: { ok: boolean, message?: string } }> {
+  const root = await mkdtemp(join(tmpdir(), 'design-editor-preview-worker-boundary-'))
+  try {
+    const settings = join(root, 'settings.json')
+    await writeFile(settings, JSON.stringify({ runtimeDependencyRoots: [runtimeDependencyRoot] }))
+    return await new Promise((resolveWorker, rejectWorker) => {
+      const worker = spawn(process.execPath, [resolve(import.meta.dirname, '../src/worker.mjs'), settings], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+      let stdout = ''
+      let stderr = ''
+      worker.stdout.on('data', chunk => { stdout += String(chunk) })
+      worker.stderr.on('data', chunk => { stderr += String(chunk) })
+      worker.once('error', rejectWorker)
+      worker.once('close', code => {
+        try { resolveWorker({ code, output: JSON.parse(stdout) }) }
+        catch { rejectWorker(new Error(stderr || 'Preview worker did not return JSON')) }
+      })
+    })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+}
+
 describe('AT-PRV-003 and AT-PRV-004 real Vite build boundary', () => {
+  it.each([
+    ['an adjacent package source root', resolve(import.meta.dirname, '../../repo-engine/src')],
+    ['a traversal escape from the approved dist root', resolve(import.meta.dirname, '../../sync-protocol/dist/../../repo-engine/src')],
+  ])('rejects %s as a runtime dependency root', async (_, runtimeDependencyRoot) => {
+    const result = await runWorkerWithRuntimeDependencyRoot(runtimeDependencyRoot)
+    expect(result.code).toBe(1)
+    expect(result.output).toEqual({ ok: false, message: 'Preview runtime dependency root is not the canonical flow protocol runtime' })
+  })
+
+  it('rejects a symlinked runtime root that resolves to an adjacent package', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'design-editor-preview-runtime-root-link-'))
+    try {
+      const linkedRoot = join(root, 'canonical-looking-dist')
+      await symlink(await realpath(resolve(import.meta.dirname, '../../repo-engine/src')), linkedRoot, process.platform === 'win32' ? 'junction' : 'dir')
+      const result = await runWorkerWithRuntimeDependencyRoot(linkedRoot)
+      expect(result.code).toBe(1)
+      expect(result.output).toEqual({ ok: false, message: 'Preview runtime dependency root is not the canonical flow protocol runtime' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('compiles real atom imports, serves isolated assets, retains last good on failure and closes its port', async () => {
     const service = createPreviewRuntime({ repositoryRoot, editorOrigin: 'http://127.0.0.1:4319', executionTrust: 'fixture-only' })
     try {

@@ -1,17 +1,34 @@
 import { encodeCollaborationMessage, parseCollaborationClientMessage, parseCollaborationServerMessage } from '@canvas/sync-protocol'
-import type { VerifiedRoomTicketClaims } from '@canvas/sync-protocol'
+import type { SemanticFileCommand, VerifiedRoomTicketClaims } from '@canvas/sync-protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { RoomTicketContext, RoomTicketVerifier } from '../src/contracts.js'
+import { createFlowTopologyAuthority, flowLaneSnapshot, flowPresentationDigest, sameFlowLane } from '../src/flow-authority.js'
+import { assertCanonicalPeerFlowPresentation, canonicalPeerFlowPresentation, peerFlowInteractionId } from '../src/flow-reservations.js'
+import { createSemanticProjector } from '../src/projector.js'
 import { CollaborationRoomCore, RoomNotAcceptingError } from '../src/room-core.js'
-import { checkpoints, clientId, connectionNonce, deferred, document, FakePeer, FakePersistence, fileId, generationId, lease, projection, projector, subjectId, ticket, tickets } from './support.js'
+import { checkpoints, clientId, connectionNonce, deferred, document, FakePeer, FakePersistence, fileId, flowDocument, flowPresentation, generationId, lease, projection, projector, subjectId, ticket, tickets } from './support.js'
 
 const createRoom = (persistence = new FakePersistence(), role: 'owner' | 'viewer' = 'owner') => new CollaborationRoomCore({
-  identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+  identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
 }, { persistence, tickets: tickets(role), projector, checkpoints })
+
+const createFlowRoom = (persistence = new FakePersistence(), role: 'owner' | 'viewer' = 'owner') => {
+  persistence.current = projection(flowDocument())
+  return new CollaborationRoomCore({
+    identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+  }, { persistence, tickets: tickets(role), projector: createSemanticProjector(), checkpoints })
+}
+
+const createFlowRoomWith = (persistence: FakePersistence, value: ReturnType<typeof flowDocument>, verifier: RoomTicketVerifier = tickets()) => {
+  persistence.current = projection(value)
+  return new CollaborationRoomCore({
+    identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+  }, { persistence, tickets: verifier, projector: createSemanticProjector(), checkpoints })
+}
 
 const open = (requestId = 'request-1', openFileId = fileId, openClientId = clientId) => ({
   type: 'room.open' as const,
-  protocolEpoch: 2 as const,
+  protocolEpoch: 4 as const,
   schemaVersion: 1 as const,
   requestId,
   fileId: openFileId,
@@ -69,9 +86,40 @@ describe('collaboration room authority', () => {
     expect(persistence.calls.slice(0, 3)).toEqual(['register', 'acquire', 'bootstrap'])
     const messages = peer.messages.map(message => parseCollaborationServerMessage(message))
     expect(messages.map(message => message.type)).toEqual(['room.assigned', 'load.phase', 'snapshot.begin', 'snapshot.chunk', 'snapshot.end', 'load.phase', 'sync.ready', 'presence.roster'])
+    expect(messages[0]).toMatchObject({ type: 'room.assigned', replayScopeId: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    expect(peer.messages[0]).not.toMatch(/accessEpoch|ticket|capability/i)
     expect(messages.map(message => 'requestId' in message ? message.requestId : null)).toEqual([...Array(7).fill('request-from-client'), null])
     expect(room.activeConnections).toBe(1)
     await expect(room.drain()).resolves.toEqual({ status: 'stopped' })
+  })
+
+  it('CLOUD-SYNC-REPLAY-001 binds the replay scope to the verified access grant', async () => {
+    const assignedScope = async (input: Readonly<{ subject: string; role: 'owner' | 'viewer'; accessEpoch: string }>) => {
+      const room = new CollaborationRoomCore({
+        identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      }, {
+        persistence: new FakePersistence(),
+        tickets: customTickets(
+          async context => ({ subjectId: input.subject, displayName: 'Alpha', avatarUrl: null, fileId, role: input.role, generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: input.accessEpoch, clientId: context.clientId, connectionNonce: context.connectionNonce }),
+          async () => true,
+        ),
+        projector,
+        checkpoints,
+      })
+      await room.start()
+      const peer = new FakePeer(`scope-${input.subject}-${input.role}-${input.accessEpoch}`)
+      await expect(room.admit(admission(peer))).resolves.toBe(true)
+      const assigned = parseCollaborationServerMessage(peer.messages[0]!)
+      expect(assigned.type).toBe('room.assigned')
+      await room.drain()
+      return assigned.type === 'room.assigned' ? assigned.replayScopeId : ''
+    }
+
+    const original = await assignedScope({ subject: subjectId, role: 'owner', accessEpoch: '1' })
+    expect(await assignedScope({ subject: subjectId, role: 'owner', accessEpoch: '1' })).toBe(original)
+    expect(await assignedScope({ subject: subjectId, role: 'owner', accessEpoch: '2' })).not.toBe(original)
+    expect(await assignedScope({ subject: subjectId, role: 'viewer', accessEpoch: '1' })).not.toBe(original)
+    expect(await assignedScope({ subject: 'subject-2', role: 'owner', accessEpoch: '1' })).not.toBe(original)
   })
 
   it('CLOUD-SYNC-DO-SEC-001 rejects room.open identities outside the authorized admission scope', async () => {
@@ -104,11 +152,11 @@ describe('collaboration room authority', () => {
   it('CLOUD-SYNC-DO-SEC-001 verifies a capability once and consumes the resulting authorization once', async () => {
     let verificationCount = 0
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, {
       persistence: new FakePersistence(),
       tickets: customTickets(
-        async context => { verificationCount += 1; return { subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 2, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce } },
+        async context => { verificationCount += 1; return { subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce } },
         async () => true,
       ),
       projector,
@@ -129,11 +177,11 @@ describe('collaboration room authority', () => {
   it('CLOUD-SYNC-AUTH-001 records a safe reason when capability consumption rejects admission', async () => {
     const events: Readonly<Record<string, string | number | boolean | null>>[] = []
     const verifier = customTickets(
-      async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 2, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
+      async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
       async () => false,
     )
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, { persistence: new FakePersistence(), tickets: verifier, projector, checkpoints, logger: { event(value) { events.push(value) } } })
     await room.start()
     const request = admission(new FakePeer('rejected'))
@@ -150,11 +198,11 @@ describe('collaboration room authority', () => {
     let current = true
     let currentChecks = 0
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, {
       persistence: new FakePersistence(),
       tickets: customTickets(
-        async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 2, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
+        async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
         async () => { currentChecks += 1; return current },
       ),
       projector,
@@ -187,7 +235,7 @@ describe('collaboration room authority', () => {
     await room.drain()
   })
 
-  it('CLOUD-SYNC-GESTURE-001 grants the first overlapping interaction and releases it explicitly', async () => {
+  it.fails('legacy presence lock is replaced by epoch-4 flow leases', async () => {
     const room = createRoom()
     await room.start()
     const first = new FakePeer('first-lock-owner')
@@ -215,7 +263,7 @@ describe('collaboration room authority', () => {
     expect(first.messages).toHaveLength(firstMessageCount)
     expect(second.messages).toHaveLength(secondMessageCount + 1)
 
-    await room.receive(first.connectionId, { type: 'presence.update', sequence: 3, data: { interaction: null } })
+    await room.receive(first.connectionId, { type: 'presence.update', sequence: 3, data: { interaction: null } as never })
     expect(first.messages).toHaveLength(firstMessageCount + 1)
     await room.receive(second.connectionId, interaction(2, 'gesture-second', ['node-1'], [{ nodeId: 'node-1', dx: 3, dy: 4 }]))
     expect(first.messages.map(message => parseCollaborationServerMessage(message))).toContainEqual(expect.objectContaining({
@@ -224,7 +272,7 @@ describe('collaboration room authority', () => {
     await room.drain()
   })
 
-  it('CLOUD-SYNC-GESTURE-001 rejects lock mutation, permits disjoint nodes, and releases locks on disconnect', async () => {
+  it.fails('legacy presence lock mutation is replaced by epoch-4 flow leases', async () => {
     const persistence = new FakePersistence()
     persistence.current = projection(document({
       nodes: {
@@ -256,7 +304,7 @@ describe('collaboration room authority', () => {
     }))
 
     room.disconnect(first.connectionId)
-    await room.receive(second.connectionId, { type: 'presence.update', sequence: 2, data: { interaction: null } })
+    await room.receive(second.connectionId, { type: 'presence.update', sequence: 2, data: { interaction: null } as never })
     await room.receive(second.connectionId, interaction(3, 'gesture-second-next', ['node-1']))
     expect(second.messages.map(message => parseCollaborationServerMessage(message))).toContainEqual(expect.objectContaining({
       type: 'presence.changed', participant: expect.objectContaining({ data: expect.objectContaining({ interaction: expect.objectContaining({ interactionId: 'gesture-second-next' }) }) }),
@@ -265,7 +313,7 @@ describe('collaboration room authority', () => {
     await room.drain()
   })
 
-  it('CLOUD-SYNC-GESTURE-001 rejects a losing semantic command while another session owns the node', async () => {
+  it.fails('legacy presence command exclusion is replaced by epoch-4 structural reservations', async () => {
     const persistence = new FakePersistence()
     const room = createRoom(persistence)
     await room.start()
@@ -288,7 +336,7 @@ describe('collaboration room authority', () => {
     await room.drain()
   })
 
-  it('CLOUD-SYNC-GESTURE-001 protects locked descendants from ancestor, page, and nested batch commands', async () => {
+  it.fails('legacy descendant locks are replaced by epoch-4 structural reservations', async () => {
     const persistence = new FakePersistence()
     persistence.current = projection(document({
       nodes: {
@@ -347,7 +395,7 @@ describe('collaboration room authority', () => {
     await room.drain()
   })
 
-  it('CLOUD-SYNC-GESTURE-001 rejects locks for missing nodes and nodes on another page', async () => {
+  it.fails('legacy node locks are replaced by epoch-4 topology validation', async () => {
     const persistence = new FakePersistence()
     persistence.current = projection(document({
       pages: [
@@ -386,7 +434,7 @@ describe('collaboration room authority', () => {
     await room.drain()
   })
 
-  it('CLOUD-SYNC-GESTURE-001 does not grant a lock over a mutation waiting to commit', async () => {
+  it.fails('legacy pending mutation locks are replaced by epoch-4 pending reservations', async () => {
     const persistence = new FakePersistence()
     const appendEntered = deferred<void>()
     const releaseAppend = deferred<void>()
@@ -424,12 +472,12 @@ describe('collaboration room authority', () => {
   it('CLOUD-SYNC-PRESENCE-001 prunes revoked sessions before constructing a new roster', async () => {
     const revoked = new Set<string>()
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, {
       persistence: new FakePersistence(),
       tickets: customTickets(async context => {
         if (revoked.has(context.clientId)) return null
-        return { subjectId: context.clientId === clientId ? subjectId : 'subject-new', displayName: context.clientId === clientId ? 'Alpha' : 'New participant', avatarUrl: null, fileId, role: 'owner' as const, generationId, protocolEpoch: 2 as const, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }
+        return { subjectId: context.clientId === clientId ? subjectId : 'subject-new', displayName: context.clientId === clientId ? 'Alpha' : 'New participant', avatarUrl: null, fileId, role: 'owner' as const, generationId, protocolEpoch: 4 as const, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }
       }, async value => !revoked.has(value.clientId)),
       projector,
       checkpoints,
@@ -457,11 +505,11 @@ describe('collaboration room authority', () => {
     let armed = false
     const currentChecks: string[] = []
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, {
       persistence: new FakePersistence(),
       tickets: customTickets(
-        async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 2, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
+        async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
         async claims => {
           if (!armed) return true
           currentChecks.push(claims.clientId)
@@ -495,7 +543,7 @@ describe('collaboration room authority', () => {
 
   it('CLOUD-SYNC-PRESENCE-001 refuses an oversized aggregate roster before partial admission', async () => {
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000, maxMessageBytes: 2_048,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000, maxMessageBytes: 2_048,
     }, { persistence: new FakePersistence(), tickets: tickets(), projector, checkpoints })
     await room.start()
     let admitted = 0
@@ -520,7 +568,7 @@ describe('collaboration room authority', () => {
 
   it('CLOUD-SYNC-PRESENCE-001 does not let a 600-byte awareness update poison the next admission', async () => {
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000, maxMessageBytes: 1_024,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000, maxMessageBytes: 1_024,
     }, { persistence: new FakePersistence(), tickets: tickets(), projector, checkpoints })
     await room.start()
     const sender = new FakePeer('sender')
@@ -618,7 +666,7 @@ describe('collaboration room authority', () => {
     expect(sender.messages).toHaveLength(0)
     expect(recipient.messages).toHaveLength(0)
     const next = { ...persistence.current, sequence: 1n, authority: 'room' as const }
-    pending.resolve({ status: 'committed', projection: next, operation: { fileId, sequence: 1n, generationId, protocolEpoch: 2, fencingToken: lease.fencingToken, subjectId, clientId, clientMutationId: 'mutation-1', operationType: 'node.rename', operationPayload: { nodeId: 'node-1', name: 'Renamed' }, contentDigest: 'a'.repeat(64), committedAt: new Date(0).toISOString() } })
+    pending.resolve({ status: 'committed', projection: next, operation: { fileId, sequence: 1n, generationId, protocolEpoch: 4, fencingToken: lease.fencingToken, subjectId, clientId, clientMutationId: 'mutation-1', operationType: 'node.rename', operationPayload: { nodeId: 'node-1', name: 'Renamed' }, contentDigest: 'a'.repeat(64), committedAt: new Date(0).toISOString() } })
     await mutation
     expect(parseCollaborationServerMessage(sender.messages[0]!).type).toBe('operation.ack')
     expect(parseCollaborationServerMessage(recipient.messages[0]!).type).toBe('operation.applied')
@@ -628,7 +676,7 @@ describe('collaboration room authority', () => {
   it('routes an exact stale retry through persistence and returns a duplicate ACK', async () => {
     const persistence = new FakePersistence()
     persistence.current = { ...persistence.current, sequence: 1n, authority: 'room' }
-    persistence.append = async input => ({ status: 'replayed', operation: { fileId, sequence: 1n, generationId, protocolEpoch: 2, fencingToken: 1n, subjectId, clientId, clientMutationId: input.clientMutationId, operationType: input.operationType, operationPayload: input.operationPayload, contentDigest: 'a'.repeat(64), committedAt: new Date(0).toISOString() } })
+    persistence.append = async input => ({ status: 'replayed', operation: { fileId, sequence: 1n, generationId, protocolEpoch: 4, fencingToken: 1n, subjectId, clientId, clientMutationId: input.clientMutationId, operationType: input.operationType, operationPayload: input.operationPayload, contentDigest: 'a'.repeat(64), committedAt: new Date(0).toISOString() } })
     const room = createRoom(persistence)
     await room.start()
     const peer = new FakePeer()
@@ -652,7 +700,7 @@ describe('collaboration room authority', () => {
     await expect(room.admit(admission(new FakePeer('late')))).rejects.toBeInstanceOf(RoomNotAcceptingError)
     expect(persistence.calls).not.toContain('checkpoint')
     const next = { ...persistence.current, sequence: 1n, authority: 'room' as const }
-    pending.resolve({ status: 'committed', projection: next, operation: { fileId, sequence: 1n, generationId, protocolEpoch: 2, fencingToken: 1n, subjectId, clientId, clientMutationId: 'mutation-1', operationType: 'node.rename', operationPayload: { nodeId: 'node-1', name: 'Renamed' }, contentDigest: 'a'.repeat(64), committedAt: new Date(0).toISOString() } })
+    pending.resolve({ status: 'committed', projection: next, operation: { fileId, sequence: 1n, generationId, protocolEpoch: 4, fencingToken: 1n, subjectId, clientId, clientMutationId: 'mutation-1', operationType: 'node.rename', operationPayload: { nodeId: 'node-1', name: 'Renamed' }, contentDigest: 'a'.repeat(64), committedAt: new Date(0).toISOString() } })
     await mutation
     await expect(draining).resolves.toEqual({ status: 'stopped' })
     expect(persistence.calls.slice(-2)).toEqual(['checkpoint', 'release'])
@@ -674,7 +722,7 @@ describe('collaboration room authority', () => {
   it('CLOUD-SYNC-PRESENCE-001 sends an authoritative roster, join, monotonic updates, and leave without persistence', async () => {
     const persistence = new FakePersistence()
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, {
       persistence,
       tickets: customTickets(async context => {
@@ -685,7 +733,7 @@ describe('collaboration room authority', () => {
           fileId,
           role: context.clientId === 'client-viewer' ? 'viewer' as const : 'owner' as const,
           generationId,
-          protocolEpoch: 2 as const,
+          protocolEpoch: 4 as const,
           expiresAtUnixMs: Date.now() + 60_000,
           accessEpoch: '1',
           clientId: context.clientId,
@@ -800,7 +848,7 @@ describe('collaboration room authority', () => {
 
     const forged = {
       type: 'presence.update',
-      envelope: { protocolEpoch: 2, schemaVersion: 1, room: { fileId, generationId: '11111111-1111-4111-8111-111111111111' }, roomTicket: ticket },
+      envelope: { protocolEpoch: 4, schemaVersion: 1, room: { fileId, generationId: '11111111-1111-4111-8111-111111111111' }, roomTicket: ticket },
       clientId: 'forged-client',
       sequence: 1,
       data: { pageId: 'page-1', cursor: { pageId: 'page-1', x: 1, y: 2 } },
@@ -817,7 +865,7 @@ describe('collaboration room authority', () => {
     const persistence = new FakePersistence()
     let senderRevoked = false
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, {
       persistence,
       tickets: customTickets(async context => {
@@ -828,7 +876,7 @@ describe('collaboration room authority', () => {
           fileId,
           role: 'owner' as const,
           generationId,
-          protocolEpoch: 2 as const,
+          protocolEpoch: 4 as const,
           expiresAtUnixMs: Date.now() + 60_000,
           accessEpoch: '1',
           clientId: context.clientId,
@@ -921,11 +969,11 @@ describe('collaboration room authority', () => {
     const persistence = new FakePersistence()
     let revoked = false
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, {
       persistence,
       tickets: customTickets(
-        async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 2, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
+        async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
         async () => !revoked,
       ),
       projector,
@@ -948,11 +996,11 @@ describe('collaboration room authority', () => {
     const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => now)
     const persistence = new FakePersistence()
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, {
       persistence,
       tickets: customTickets(
-        async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 2, expiresAtUnixMs: 1_100, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
+        async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 4, expiresAtUnixMs: 1_100, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
         async () => true,
       ),
       projector,
@@ -980,11 +1028,11 @@ describe('collaboration room authority', () => {
   it('AT-AUTH-003 closes an idle revoked viewer during lease renewal', async () => {
     let revoked = false
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 100, leaseRenewalMs: 20, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 100, leaseRenewalMs: 20, drainTimeoutMs: 2_000,
     }, {
       persistence: new FakePersistence(),
       tickets: customTickets(
-        async context => ({ subjectId: 'viewer-1', displayName: 'Viewer', avatarUrl: null, fileId, role: 'viewer', generationId, protocolEpoch: 2, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
+        async context => ({ subjectId: 'viewer-1', displayName: 'Viewer', avatarUrl: null, fileId, role: 'viewer', generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
         async () => !revoked,
       ),
       projector,
@@ -1008,11 +1056,11 @@ describe('collaboration room authority', () => {
     const persistence = new FakePersistence()
     let changeOwner = false
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, {
       persistence,
       tickets: customTickets(async context => {
-        const verified = { subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner' as const, generationId, protocolEpoch: 2 as const, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }
+        const verified = { subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner' as const, generationId, protocolEpoch: 4 as const, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }
         return verified
       }, async () => { if (changeOwner) { persistence.ownerSubjectId = 'replacement-owner'; changeOwner = false }; return true }),
       projector,
@@ -1037,11 +1085,11 @@ describe('collaboration room authority', () => {
     const persistence = new FakePersistence()
     let changeEpoch = false
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, {
       persistence,
       tickets: customTickets(async context => {
-        const verified = { subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner' as const, generationId, protocolEpoch: 2 as const, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }
+        const verified = { subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner' as const, generationId, protocolEpoch: 4 as const, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }
         return verified
       }, async () => { if (changeEpoch) { persistence.accessEpoch = 2n; changeEpoch = false }; return true }),
       projector,
@@ -1065,7 +1113,7 @@ describe('collaboration room authority', () => {
   it('releases its lease when checkpoint publication fails', async () => {
     const persistence = new FakePersistence()
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, { persistence, tickets: tickets(), projector, checkpoints: { async write() { throw new Error('storage unavailable') } } })
     await room.start()
     await expect(room.drain()).resolves.toEqual({ status: 'checkpoint-failed' })
@@ -1078,14 +1126,14 @@ describe('collaboration room authority', () => {
     const recipientNonce = 'C'.repeat(24)
     let recipientRevoked = false
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
     }, {
       persistence,
       tickets: customTickets(async context => {
         if (context.connectionNonce === recipientNonce) {
-          return { subjectId: 'viewer-1', displayName: 'Viewer', avatarUrl: null, fileId, role: 'viewer', generationId, protocolEpoch: 2, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }
+          return { subjectId: 'viewer-1', displayName: 'Viewer', avatarUrl: null, fileId, role: 'viewer', generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }
         }
-        return { subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 2, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }
+        return { subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }
       }, async value => !(recipientRevoked && value.connectionNonce === recipientNonce)),
       projector,
       checkpoints,
@@ -1168,6 +1216,1007 @@ describe('collaboration room authority', () => {
     expect(sender.closes).toContainEqual({ code: 1011, reason: 'Acknowledgement failed' })
     expect(failingRecipient.closes).toContainEqual({ code: 1011, reason: 'Operation delivery failed' })
     expect(healthyRecipient.messages.map(message => parseCollaborationServerMessage(message)).find(message => message.type === 'operation.applied')).toMatchObject({ type: 'operation.applied', sequence: '1' })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-GESTURE-001-C2 and CLOUD-SYNC-LEASE-001-C2 issue one authoritative lease, deny overlap, and deliver samples only to peers', async () => {
+    const room = createFlowRoom()
+    await room.start()
+    const owner = new FakePeer('flow-owner')
+    const contender = new FakePeer('flow-contender')
+    await room.admit(admission(owner))
+    await room.admit(admission(contender, 'Y'.repeat(24), 'flow-contender-request', 'flow-contender-client'))
+    owner.messages.length = 0
+    contender.messages.length = 0
+
+    const first = flowPresentation()
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: first })
+    const granted = JSON.parse(owner.messages[0]!)
+    expect(granted).toMatchObject({ type: 'interaction.result', action: 'acquire', status: 'granted', localClaimGeneration: 1, reservationGeneration: 1, sampleSequence: 1, denialCode: null })
+    expect(granted.leaseId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(contender.messages.map(message => JSON.parse(message))).toContainEqual(expect.objectContaining({ type: 'interaction.sample', leaseId: granted.leaseId, presentation: expect.objectContaining({ identity: { interactionId: peerFlowInteractionId(granted.leaseId), gestureGeneration: 1, sampleSequence: 1 } }) }))
+
+    const ownerCount = owner.messages.length
+    const peerCount = contender.messages.length
+    const sample = flowPresentation({ sequence: 2 })
+    await room.receive(owner.connectionId, { type: 'interaction.sample', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 1, presentation: sample })
+    expect(owner.messages).toHaveLength(ownerCount)
+    expect(contender.messages).toHaveLength(peerCount + 1)
+    expect(JSON.parse(contender.messages.at(-1)!)).toMatchObject({ type: 'interaction.sample', presentation: { identity: { sampleSequence: 2 } } })
+
+    await room.receive(contender.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation({ interactionId: 'competing-flow' }) })
+    expect(JSON.parse(contender.messages.at(-1)!)).toMatchObject({ type: 'interaction.result', status: 'denied', denialCode: 'overlap', leaseId: null })
+
+    await room.receive(owner.connectionId, { type: 'interaction.sample', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 1, presentation: sample })
+    expect(JSON.parse(owner.messages.at(-1)!)).toMatchObject({ type: 'interaction.result', status: 'denied', denialCode: 'stale_sequence' })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-GESTURE-001-C2 gives colliding local interactions independent peer render identities and tombstones', async () => {
+    const persistence = new FakePersistence()
+    const value = flowDocument() as unknown as { nodes: Record<string, unknown>; relationships: Record<string, unknown> }
+    value.nodes['second-target-frame'] = {
+      id: 'second-target-frame', type: 'frame', name: 'Second target', styles: { left: 1040, top: 0, width: 200, height: 200 },
+      layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } },
+    }
+    value.relationships['second-target-frame'] = { parentId: 'root-1', orderKey: 'Y' }
+    const room = createFlowRoomWith(persistence, value as never)
+    await room.start()
+    const firstOwner = new FakePeer('collision-owner-one')
+    const secondOwner = new FakePeer('collision-owner-two')
+    const observer = new FakePeer('collision-observer')
+    await room.admit(admission(firstOwner))
+    await room.admit(admission(secondOwner, 'J'.repeat(24), 'collision-owner-two-request', 'collision-owner-two-client'))
+    await room.admit(admission(observer, 'L'.repeat(24), 'collision-observer-request', 'collision-observer-client'))
+    firstOwner.messages.length = 0
+    secondOwner.messages.length = 0
+    observer.messages.length = 0
+
+    const firstPresentation = flowPresentation({ interactionId: 'shared-local-interaction', supportClone: true })
+    const secondPresentation = flowPresentation({
+      interactionId: 'shared-local-interaction', sourceNodeId: 'disjoint-node', sourceParentId: 'disjoint-frame',
+      targetParentId: 'second-target-frame',
+    })
+    const firstInput = structuredClone(firstPresentation)
+    const secondInput = structuredClone(secondPresentation)
+    const firstDigest = flowPresentationDigest(firstPresentation)
+    const secondDigest = flowPresentationDigest(secondPresentation)
+
+    await room.receive(firstOwner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: firstPresentation })
+    await room.receive(secondOwner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: secondPresentation })
+    const firstGrant = firstOwner.messages.map(message => JSON.parse(message)).find(message => message.type === 'interaction.result')
+    const secondGrant = secondOwner.messages.map(message => JSON.parse(message)).find(message => message.type === 'interaction.result')
+    expect(firstGrant).toMatchObject({ type: 'interaction.result', status: 'granted', interactionId: 'shared-local-interaction' })
+    expect(secondGrant).toMatchObject({ type: 'interaction.result', status: 'granted', interactionId: 'shared-local-interaction' })
+    if (!firstGrant?.leaseId || !secondGrant?.leaseId) throw new Error('Expected both flow leases')
+    expect(secondGrant.leaseId).not.toBe(firstGrant.leaseId)
+
+    const flowAuthority = createFlowTopologyAuthority(value as never, 'page-1')
+    if (!flowAuthority) throw new Error('Expected flow topology authority')
+    const peerSamples = observer.messages
+      .filter(message => JSON.parse(message).type === 'interaction.sample')
+      .map(message => parseCollaborationServerMessage(message, undefined, flowAuthority))
+      .filter(message => message.type === 'interaction.sample')
+    expect(peerSamples).toHaveLength(2)
+    expect(peerSamples.map(message => [message.leaseId, message.presentation.identity.interactionId])).toEqual([
+      [firstGrant.leaseId, peerFlowInteractionId(firstGrant.leaseId)],
+      [secondGrant.leaseId, peerFlowInteractionId(secondGrant.leaseId)],
+    ])
+    expect(peerSamples[0]!.presentation.supportClone?.key.interactionId).toBe(peerFlowInteractionId(firstGrant.leaseId))
+    expect(firstPresentation).toEqual(firstInput)
+    expect(secondPresentation).toEqual(secondInput)
+    expect(flowPresentationDigest(firstPresentation)).toBe(firstDigest)
+    expect(flowPresentationDigest(secondPresentation)).toBe(secondDigest)
+
+    const lateObserver = new FakePeer('collision-late-observer')
+    await room.admit(admission(lateObserver, 'M'.repeat(24), 'collision-late-observer-request', 'collision-late-observer-client'))
+    const rosterWire = lateObserver.messages.find(message => JSON.parse(message).type === 'interaction.roster')
+    const roster = rosterWire ? parseCollaborationServerMessage(rosterWire, undefined, flowAuthority) : null
+    expect(roster?.type).toBe('interaction.roster')
+    if (!roster) throw new Error('Expected flow roster')
+    if (roster.type !== 'interaction.roster') throw new Error('Expected parsed flow roster')
+    expect(roster.interactions.map(entry => [entry.leaseId, entry.presentation.identity.interactionId])).toEqual([
+      [firstGrant.leaseId, peerFlowInteractionId(firstGrant.leaseId)],
+      [secondGrant.leaseId, peerFlowInteractionId(secondGrant.leaseId)],
+    ])
+    expect(roster.interactions[0]!.presentation.supportClone?.key.interactionId).toBe(peerFlowInteractionId(firstGrant.leaseId))
+
+    observer.messages.length = 0
+    await room.receive(firstOwner.connectionId, {
+      type: 'interaction.release', pageId: 'page-1', leaseId: firstGrant.leaseId, interactionId: 'shared-local-interaction',
+      localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, reason: 'cancelled',
+    })
+    await room.receive(secondOwner.connectionId, {
+      type: 'interaction.release', pageId: 'page-1', leaseId: secondGrant.leaseId, interactionId: 'shared-local-interaction',
+      localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, reason: 'cancelled',
+    })
+    const releases = observer.messages.map(message => JSON.parse(message)).filter(message => message.type === 'interaction.released')
+    expect(releases.map(message => [message.leaseId, message.interactionId])).toEqual([
+      [firstGrant.leaseId, peerFlowInteractionId(firstGrant.leaseId)],
+      [secondGrant.leaseId, peerFlowInteractionId(secondGrant.leaseId)],
+    ])
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C2 rejects reserved peer identities and detects incomplete nested canonicalization', async () => {
+    const room = createFlowRoom()
+    await room.start()
+    const owner = new FakePeer('reserved-peer-identity-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    const forged = flowPresentation({ interactionId: 'lease:11111111-1111-4111-8111-111111111111', supportClone: true })
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: forged })
+    expect(parseCollaborationServerMessage(owner.messages[0]!)).toMatchObject({ type: 'interaction.result', status: 'denied', denialCode: 'invalid_topology', leaseId: null })
+
+    owner.messages.length = 0
+    const nestedForged = structuredClone(flowPresentation({ interactionId: 'local-with-forged-nested-id', supportClone: true }))
+    ;(nestedForged.supportClone!.key as { interactionId: string }).interactionId = 'lease:33333333-3333-4333-8333-333333333333'
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 2, presentation: nestedForged })
+    expect(parseCollaborationServerMessage(owner.messages[0]!)).toMatchObject({ type: 'interaction.result', status: 'denied', denialCode: 'invalid_topology', leaseId: null })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 3, presentation: flowPresentation({ interactionId: 'valid-after-reserved-denial' }) })
+    expect(parseCollaborationServerMessage(owner.messages[0]!)).toMatchObject({ type: 'interaction.result', status: 'granted', denialCode: null })
+
+    const incomplete = structuredClone(flowPresentation({ interactionId: 'local-id', supportClone: true }))
+    const leaseId = '22222222-2222-4222-8222-222222222222'
+    ;(incomplete.identity as { interactionId: string }).interactionId = peerFlowInteractionId(leaseId)
+    expect(() => assertCanonicalPeerFlowPresentation(incomplete, leaseId)).toThrow('non-canonical interaction identity')
+    const canonical = canonicalPeerFlowPresentation(flowPresentation({ interactionId: 'local-id', supportClone: true }), leaseId)
+    expect(Object.isFrozen(canonical)).toBe(true)
+    expect(Object.isFrozen(canonical.supportClone?.key)).toBe(true)
+    expect(canonical.identity.interactionId).toBe(peerFlowInteractionId(leaseId))
+    expect(canonical.supportClone?.key.interactionId).toBe(peerFlowInteractionId(leaseId))
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 retains only an exact acquire retry and returns the authoritative sequence without a duplicate peer sample', async () => {
+    const room = createFlowRoom()
+    await room.start()
+    const owner = new FakePeer('retry-owner')
+    const peer = new FakePeer('retry-peer')
+    await room.admit(admission(owner))
+    await room.admit(admission(peer, 'R'.repeat(24), 'retry-peer-request', 'retry-peer-client'))
+    owner.messages.length = 0
+    peer.messages.length = 0
+    const original = flowPresentation()
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: original })
+    const granted = JSON.parse(owner.messages[0]!)
+    const peerSamples = peer.messages.map(message => JSON.parse(message)).filter(message => message.type === 'interaction.sample').length
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, presentation: original })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'retained', denialCode: null, sampleSequence: 1 })
+    expect(peer.messages.map(message => JSON.parse(message)).filter(message => message.type === 'interaction.sample')).toHaveLength(peerSamples)
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, presentation: flowPresentation({ sequence: 2 }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'invalid_topology', sampleSequence: 1 })
+    expect(peer.messages.map(message => JSON.parse(message)).filter(message => message.type === 'interaction.sample')).toHaveLength(peerSamples)
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-READONLY-001-C2 denies viewer acquisition without allocating a lease', async () => {
+    const persistence = new FakePersistence()
+    const room = createFlowRoomWith(persistence, flowDocument(), customTickets(
+      async context => ({
+        subjectId, displayName: 'Alpha', avatarUrl: null, fileId,
+        role: context.clientId === clientId ? 'viewer' : 'owner',
+        generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000,
+        accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce,
+      }),
+      async () => true,
+    ))
+    await room.start()
+    const viewer = new FakePeer('flow-viewer')
+    const owner = new FakePeer('flow-owner-after-viewer')
+    await room.admit(admission(viewer))
+    await room.admit(admission(owner, 'O'.repeat(24), 'flow-owner-request', 'flow-owner-client'))
+    viewer.messages.length = 0
+    owner.messages.length = 0
+    await room.receive(viewer.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    expect(JSON.parse(viewer.messages[0]!)).toMatchObject({ type: 'interaction.result', status: 'denied', denialCode: 'read_only', leaseId: null })
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation({ interactionId: 'owner-after-viewer' }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'interaction.result', status: 'granted', denialCode: null })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C2 and PAPER-FLEX-007-C2 enforce Frame-only absent-slot Flex targets', async () => {
+    const persistence = new FakePersistence()
+    const value = flowDocument() as unknown as { nodes: Record<string, unknown>; relationships: Record<string, unknown> }
+    value.nodes['component-target'] = { id: 'component-target', type: 'component', componentId: 'card', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } }
+    value.relationships['component-target'] = { parentId: 'root-1', orderKey: 'Y' }
+    persistence.current = projection(value as never)
+    const room = new CollaborationRoomCore({
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+    }, { persistence, tickets: tickets(), projector: createSemanticProjector(), checkpoints })
+    await room.start()
+    const owner = new FakePeer('component-target-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    const forged = structuredClone(flowPresentation())
+    ;(forged.target! as { parentId: string; slot: { presence: 'present'; value: string } }).parentId = 'component-target'
+    ;(forged.target! as { parentId: string; slot: { presence: 'present'; value: string } }).slot = { presence: 'present', value: 'children' }
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: forged })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'interaction.result', status: 'denied', denialCode: 'component_slot_unverified' })
+
+    owner.messages.length = 0
+    const componentAbsent = structuredClone(flowPresentation())
+    ;(componentAbsent.target! as { parentId: string }).parentId = 'component-target'
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 2, presentation: componentAbsent })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'interaction.result', status: 'denied', denialCode: 'component_slot_unverified' })
+
+    owner.messages.length = 0
+    const framePresent = structuredClone(flowPresentation())
+    ;(framePresent.target! as { slot: { presence: 'present'; value: string } }).slot = { presence: 'present', value: 'children' }
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 3, presentation: framePresent })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'interaction.result', status: 'denied', denialCode: 'component_slot_unverified' })
+
+    owner.messages.length = 0
+    const root = structuredClone(flowPresentation())
+    ;(root.target! as { parentId: string; parentOutline: null }).parentId = 'root-1'
+    ;(root.target! as { parentId: string; parentOutline: null }).parentOutline = null
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 4, presentation: root })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'interaction.result', status: 'denied', denialCode: 'invalid_topology' })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C2 refuses a target inside the selected subtree', async () => {
+    const persistence = new FakePersistence()
+    const value = flowDocument() as unknown as { nodes: Record<string, unknown>; relationships: Record<string, { parentId: string; orderKey: string }> }
+    const flex = { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } as const
+    value.nodes['source-node'] = { id: 'source-node', type: 'frame', name: 'Source subtree', styles: { left: 0, top: 0, width: 100, height: 80 }, layout: { item: { position: { mode: 'flow' } }, container: flex } }
+    value.nodes['nested-target'] = { id: 'nested-target', type: 'frame', name: 'Nested target', styles: { left: 0, top: 0, width: 50, height: 40 }, layout: { item: { position: { mode: 'flow' } }, container: flex } }
+    value.relationships['nested-target'] = { parentId: 'source-node', orderKey: 'V' }
+    const room = createFlowRoomWith(persistence, value as never)
+    await room.start()
+    const owner = new FakePeer('subtree-target-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation({ sourceKind: 'frame', targetParentId: 'nested-target' }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'invalid_topology', leaseId: null })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 keeps reservations append-only, requires reserve for changes, and permits revisiting an unchanged lane', async () => {
+    const room = createFlowRoom()
+    await room.start()
+    const owner = new FakePeer('reservation-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    const granted = JSON.parse(owner.messages[0]!)
+
+    owner.messages.length = 0
+    const changed = flowPresentation({ sequence: 2, targetParentId: 'disjoint-frame' })
+    await room.receive(owner.connectionId, { type: 'interaction.sample', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 1, presentation: changed })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'stale_reservation' })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.reserve', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 3, targetLane: { parentId: 'disjoint-frame', slot: { presence: 'absent' } }, presentation: changed })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'stale_reservation' })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.reserve', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 2, targetLane: { parentId: 'disjoint-frame', slot: { presence: 'absent' } }, presentation: changed })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'retained', denialCode: null, reservationGeneration: 2 })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.reserve', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 2, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } }, presentation: flowPresentation({ sequence: 3 }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'stale_reservation', reservationGeneration: 2 })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.reserve', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 3, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } }, presentation: flowPresentation({ sequence: 4 }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'retained', denialCode: null, reservationGeneration: 3 })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.sample', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 3, presentation: flowPresentation({ sequence: 5 }) })
+    expect(owner.messages).toEqual([])
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-GESTURE-001-C2 binds terminal mutation semantics and literal post-projector lanes', async () => {
+    const persistence = new FakePersistence()
+    const room = createFlowRoom(persistence)
+    await room.start()
+    const owner = new FakePeer('terminal-owner')
+    const peer = new FakePeer('terminal-peer')
+    await room.admit(admission(owner))
+    await room.admit(admission(peer, 'Z'.repeat(24), 'terminal-peer-request', 'terminal-peer-client'))
+    owner.messages.length = 0
+    peer.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    const granted = JSON.parse(owner.messages[0]!)
+    const terminal = flowPresentation({ sequence: 2, terminal: true })
+    await room.receive(owner.connectionId, { type: 'interaction.sample', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 1, presentation: terminal })
+    owner.messages.length = 0
+    peer.messages.length = 0
+    await room.receive(owner.connectionId, {
+      type: 'operation.submit',
+      operation: {
+        mutationId: 'flow-terminal-mutation', baseSequence: '0',
+        command: { type: 'node.restoreRelationship', nodeId: 'source-node', expected: { parentId: 'source-frame', orderKey: 'V' }, source: { parentId: 'target-frame', orderKey: 'U' } },
+        flowBinding: {
+          leaseId: granted.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1,
+          terminalSampleSequence: 2, presentationDigest: flowPresentationDigest(terminal),
+          sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } },
+          targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } },
+        },
+      },
+    })
+    expect(persistence.calls).toContain('append:flow-terminal-mutation')
+    expect((persistence.current.document.relationships as Record<string, { parentId: string }>)['source-node']).toMatchObject({ parentId: 'target-frame' })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'operation.ack', status: 'applied' })
+    expect(peer.messages.map(message => JSON.parse(message))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'interaction.released', reason: 'committed', leaseId: granted.leaseId }),
+      expect.objectContaining({ type: 'operation.applied', mutationId: 'flow-terminal-mutation' }),
+    ]))
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C2 rejects wrong terminal digest before projector or persistence and permits disjoint edits', async () => {
+    const persistence = new FakePersistence()
+    const room = createFlowRoom(persistence)
+    await room.start()
+    const owner = new FakePeer('binding-owner')
+    const disjoint = new FakePeer('binding-disjoint')
+    await room.admit(admission(owner))
+    await room.admit(admission(disjoint, 'K'.repeat(24), 'binding-disjoint-request', 'binding-disjoint-client'))
+    owner.messages.length = 0
+    disjoint.messages.length = 0
+    const terminal = flowPresentation({ terminal: true })
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: terminal })
+    const granted = JSON.parse(owner.messages[0]!)
+
+    await room.receive(disjoint.connectionId, { type: 'operation.submit', operation: { mutationId: 'disjoint-edit', baseSequence: '0', command: { type: 'node.rename', nodeId: 'disjoint-node', name: 'Still disjoint' } } })
+    expect(persistence.calls).toContain('append:disjoint-edit')
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, {
+      type: 'operation.submit', operation: {
+        mutationId: 'wrong-flow-binding', baseSequence: '1', command: { type: 'node.reparent', nodeId: 'source-node', placement: { parentId: 'target-frame', index: 0 } },
+        flowBinding: {
+          leaseId: granted.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1,
+          terminalSampleSequence: 1, presentationDigest: '0'.repeat(64),
+          sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } },
+        },
+      },
+    })
+    expect(persistence.calls).not.toContain('append:wrong-flow-binding')
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'room.error', code: 'invalid_operation', mutationId: 'wrong-flow-binding' })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 rejects structural commands that overlap a reserved subtree, lane, container, or page', async () => {
+    const persistence = new FakePersistence()
+    const room = createFlowRoom(persistence)
+    await room.start()
+    const owner = new FakePeer('scope-owner')
+    const contender = new FakePeer('scope-contender')
+    await room.admit(admission(owner))
+    await room.admit(admission(contender, 'G'.repeat(24), 'scope-contender-request', 'scope-contender-client'))
+    owner.messages.length = 0
+    contender.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+
+    const commands: readonly Readonly<{ mutationId: string; command: SemanticFileCommand }>[] = [
+      { mutationId: 'nested-source', command: { type: 'batch', commands: [{ type: 'batch', commands: [{ type: 'node.rename', nodeId: 'source-frame', name: 'Blocked' }] }] } },
+      { mutationId: 'insert-target-lane', command: { type: 'node.insert', node: { id: 'inserted-node', type: 'rectangle', name: 'Inserted', styles: { left: 0, top: 0, width: 10, height: 10 }, layout: { item: { position: { mode: 'flow' } } } }, placement: { parentId: 'target-frame', index: 0 } } },
+      { mutationId: 'reparent-target-lane', command: { type: 'node.reparent', nodeId: 'disjoint-node', placement: { parentId: 'target-frame', index: 0 } } },
+      { mutationId: 'delete-page', command: { type: 'page.delete', pageId: 'page-1' } },
+    ]
+    for (const candidate of commands) {
+      await room.receive(contender.connectionId, { type: 'operation.submit', operation: { mutationId: candidate.mutationId, baseSequence: '0', command: candidate.command } })
+    }
+    expect(persistence.calls.filter(call => call.startsWith('append:'))).toEqual([])
+    expect(contender.messages.map(message => JSON.parse(message)).filter(message => message.type === 'room.error').map(message => message.mutationId)).toEqual([
+      'nested-source', 'insert-target-lane', 'reparent-target-lane', 'delete-page',
+    ])
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 prevents an older claim or disconnect from releasing a newer claim', async () => {
+    const room = createFlowRoom()
+    await room.start()
+    const owner = new FakePeer('generation-owner')
+    const peer = new FakePeer('generation-peer')
+    await room.admit(admission(owner))
+    await room.admit(admission(peer, 'H'.repeat(24), 'generation-peer-request', 'generation-peer-client'))
+    owner.messages.length = 0
+    peer.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    const first = JSON.parse(owner.messages[0]!)
+    owner.messages.length = 0
+    const mutatedFence = structuredClone(flowPresentation({ sequence: 2 }))
+    ;(mutatedFence.fence as { measurementRevision: number }).measurementRevision = 2
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 2, presentation: mutatedFence })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'invalid_topology', localClaimGeneration: 1, sampleSequence: 1 })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', leaseId: first.leaseId, localClaimGeneration: 2, presentation: flowPresentation({ sequence: 2, sourceNodeId: 'disjoint-node', sourceParentId: 'disjoint-frame' }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'invalid_topology', localClaimGeneration: 1, sampleSequence: 1 })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', leaseId: first.leaseId, localClaimGeneration: 2, presentation: flowPresentation({ sequence: 2, targetParentId: 'disjoint-frame' }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'stale_reservation', localClaimGeneration: 1, sampleSequence: 1 })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', leaseId: first.leaseId, localClaimGeneration: 2, presentation: flowPresentation({ sequence: 2 }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'granted', leaseId: first.leaseId, localClaimGeneration: 2 })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.release', pageId: 'page-1', leaseId: first.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, reason: 'cancelled' })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'lease_not_found' })
+    const peerCount = peer.messages.length
+    await room.receive(owner.connectionId, { type: 'interaction.sample', pageId: 'page-1', leaseId: first.leaseId, localClaimGeneration: 2, reservationGeneration: 1, presentation: flowPresentation({ sequence: 3 }) })
+    expect(peer.messages).toHaveLength(peerCount + 1)
+    expect(JSON.parse(peer.messages.at(-1)!)).toMatchObject({ type: 'interaction.sample', localClaimGeneration: 2, presentation: { identity: { sampleSequence: 3 } } })
+    await room.drain()
+  })
+
+  it('PAPER-FLEX-007-C2 commits support-clone identity as one literal duplicate lane transition', async () => {
+    const persistence = new FakePersistence()
+    const room = createFlowRoom(persistence)
+    await room.start()
+    const owner = new FakePeer('clone-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    const terminal = flowPresentation({ sequence: 1, terminal: true, supportClone: true, targetRawIndex: 1, targetSemanticIndex: 0 })
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: terminal })
+    const granted = JSON.parse(owner.messages[0]!)
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, {
+      type: 'operation.submit', operation: {
+        mutationId: 'clone-terminal', baseSequence: '0',
+        command: { type: 'batch', commands: [
+          { type: 'node.duplicate', nodeId: 'source-node', ids: { 'source-node': 'source-clone' } },
+          { type: 'node.restoreRelationship', nodeId: 'source-node', expected: { parentId: 'source-frame', orderKey: 'V' }, source: { parentId: 'target-frame', orderKey: 'W' } },
+        ] },
+        flowBinding: {
+          leaseId: granted.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1,
+          terminalSampleSequence: 1, presentationDigest: flowPresentationDigest(terminal),
+          sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } },
+        },
+      },
+    })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'operation.ack', status: 'applied' })
+    const relationships = persistence.current.document.relationships as Record<string, { parentId: string }>
+    expect(relationships['source-node']).toMatchObject({ parentId: 'target-frame', orderKey: 'W' })
+    expect(relationships['source-clone']).toMatchObject({ parentId: 'source-frame' })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C2 refuses a projector result whose literal lanes do not match the bound terminal transition', async () => {
+    const persistence = new FakePersistence()
+    persistence.current = projection(flowDocument())
+    const room = new CollaborationRoomCore({
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+    }, { persistence, tickets: tickets(), projector: { apply(value) { return value } }, checkpoints })
+    await room.start()
+    const owner = new FakePeer('mismatch-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    const terminal = flowPresentation({ terminal: true })
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: terminal })
+    const granted = JSON.parse(owner.messages[0]!)
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'operation.submit', operation: {
+      mutationId: 'mismatched-projector', baseSequence: '0', command: { type: 'node.reparent', nodeId: 'source-node', placement: { parentId: 'target-frame', index: 0 } },
+      flowBinding: {
+        leaseId: granted.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1,
+        terminalSampleSequence: 1, presentationDigest: flowPresentationDigest(terminal),
+        sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } },
+      },
+    } })
+    expect(persistence.calls).not.toContain('append:mismatched-projector')
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'room.error', code: 'invalid_operation', mutationId: 'mismatched-projector' })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C2 distinguishes missing and cross-page sources before allocating a lease', async () => {
+    const persistence = new FakePersistence()
+    const value = structuredClone(flowDocument()) as unknown as { pages: unknown[]; nodes: Record<string, unknown>; relationships: Record<string, unknown> }
+    value.pages.push({ id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' })
+    value.nodes['root-2'] = { id: 'root-2', type: 'root' }
+    value.nodes['page-2-node'] = { id: 'page-2-node', type: 'rectangle', name: 'Other page', styles: { left: 0, top: 0, width: 100, height: 80 }, layout: { item: { position: { mode: 'flow' } } } }
+    value.relationships['page-2-node'] = { parentId: 'root-2', orderKey: 'V' }
+    persistence.current = projection(value as never)
+    const room = new CollaborationRoomCore({
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+    }, { persistence, tickets: tickets(), projector: createSemanticProjector(), checkpoints })
+    await room.start()
+    const owner = new FakePeer('source-validation-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation({ sourceNodeId: 'missing-node' }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'missing_node', leaseId: null })
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 2, presentation: flowPresentation({ sourceNodeId: 'page-2-node', sourceParentId: 'root-2' }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'wrong_page', leaseId: null })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 preserves an unchanged lease across a disjoint committed edit', async () => {
+    const persistence = new FakePersistence()
+    const room = createFlowRoom(persistence)
+    await room.start()
+    const owner = new FakePeer('disjoint-flow-owner')
+    const editor = new FakePeer('disjoint-flow-editor')
+    await room.admit(admission(owner))
+    await room.admit(admission(editor, 'L'.repeat(24), 'disjoint-flow-request', 'disjoint-flow-client'))
+    owner.messages.length = 0
+    editor.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    const granted = JSON.parse(owner.messages[0]!)
+    await room.receive(editor.connectionId, { type: 'operation.submit', operation: { mutationId: 'disjoint-during-flow', baseSequence: '0', command: { type: 'node.rename', nodeId: 'disjoint-node', name: 'Disjoint update' } } })
+    const peerSamplesBefore = editor.messages.map(message => JSON.parse(message)).filter(message => message.type === 'interaction.sample').length
+    await room.receive(owner.connectionId, { type: 'interaction.sample', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 1, presentation: flowPresentation({ sequence: 2 }) })
+    expect(editor.messages.map(message => JSON.parse(message)).filter(message => message.type === 'interaction.sample')).toHaveLength(peerSamplesBefore + 1)
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 releases reservations on disconnect and protocol cleanup', async () => {
+    const room = createFlowRoom()
+    await room.start()
+    const first = new FakePeer('cleanup-owner')
+    const contender = new FakePeer('cleanup-contender')
+    await room.admit(admission(first))
+    await room.admit(admission(contender, 'M'.repeat(24), 'cleanup-contender-request', 'cleanup-contender-client'))
+    first.messages.length = 0
+    contender.messages.length = 0
+    await room.receive(first.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    room.disconnect(first.connectionId)
+    await waitUntil(() => contender.messages.some(message => JSON.parse(message).type === 'interaction.released'))
+    contender.messages.length = 0
+    await room.receive(contender.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation({ interactionId: 'cleanup-contender-flow' }) })
+    expect(contender.messages.map(message => JSON.parse(message))).toContainEqual(expect.objectContaining({ type: 'interaction.result', status: 'granted', denialCode: null }))
+    const contenderLease = JSON.parse(contender.messages[0]!).leaseId
+    contender.messages.length = 0
+    await room.receive(contender.connectionId, open('duplicate-open', fileId, 'cleanup-contender-client'))
+    expect(contender.closes).toContainEqual({ code: 4400, reason: 'Duplicate room open' })
+    const replacement = new FakePeer('cleanup-replacement')
+    await room.admit(admission(replacement, 'N'.repeat(24), 'cleanup-replacement-request', 'cleanup-replacement-client'))
+    replacement.messages.length = 0
+    await room.receive(replacement.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation({ interactionId: 'cleanup-replacement-flow' }) })
+    expect(JSON.parse(replacement.messages[0]!)).toMatchObject({ status: 'granted', denialCode: null })
+    expect(JSON.parse(replacement.messages[0]!).leaseId).not.toBe(contenderLease)
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 keeps a terminal reservation pending until persistence settles', async () => {
+    const persistence = new FakePersistence()
+    const pending = deferred<Awaited<ReturnType<NonNullable<typeof persistence.append>>>>()
+    let appendInput: Parameters<NonNullable<typeof persistence.append>>[0] | null = null
+    persistence.append = async input => { appendInput = input; return pending.promise }
+    const room = createFlowRoom(persistence)
+    await room.start()
+    const owner = new FakePeer('pending-owner')
+    const contender = new FakePeer('pending-contender')
+    await room.admit(admission(owner))
+    await room.admit(admission(contender, 'P'.repeat(24), 'pending-contender-request', 'pending-contender-client'))
+    owner.messages.length = 0
+    contender.messages.length = 0
+    const terminal = flowPresentation({ terminal: true })
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: terminal })
+    const granted = JSON.parse(owner.messages[0]!)
+    owner.messages.length = 0
+    contender.messages.length = 0
+    const commit = room.receive(owner.connectionId, { type: 'operation.submit', operation: {
+      mutationId: 'pending-terminal', baseSequence: '0', command: { type: 'node.reparent', nodeId: 'source-node', placement: { parentId: 'target-frame', index: 0 } },
+      flowBinding: { leaseId: granted.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, presentationDigest: flowPresentationDigest(terminal), sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } } },
+    } })
+    await waitUntil(() => persistence.calls.includes('append:pending-terminal'))
+    const contenderAcquire = room.receive(contender.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation({ interactionId: 'pending-contender-flow' }) })
+    await new Promise(resolve => setImmediate(resolve))
+    expect(contender.messages).toEqual([])
+    const input = appendInput!
+    const next = projection(input.projection.document, 1n)
+    pending.resolve({ status: 'committed', projection: next, operation: { fileId, sequence: 1n, generationId, protocolEpoch: 4, fencingToken: 1n, subjectId, clientId, clientMutationId: 'pending-terminal', operationType: input.operationType, operationPayload: input.operationPayload, contentDigest: 'a'.repeat(64), committedAt: new Date(0).toISOString() } })
+    await commit
+    await contenderAcquire
+    expect(contender.messages.map(message => JSON.parse(message))).toContainEqual(expect.objectContaining({ type: 'interaction.result', status: 'denied', denialCode: 'invalid_topology' }))
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 releases a terminal reservation after persistence failure', async () => {
+    const persistence = new FakePersistence()
+    persistence.append = async () => { throw new Error('persistence failed') }
+    const room = createFlowRoom(persistence)
+    await room.start()
+    const owner = new FakePeer('failure-owner')
+    const contender = new FakePeer('failure-contender')
+    await room.admit(admission(owner))
+    await room.admit(admission(contender, 'Q'.repeat(24), 'failure-contender-request', 'failure-contender-client'))
+    owner.messages.length = 0
+    contender.messages.length = 0
+    const terminal = flowPresentation({ terminal: true })
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: terminal })
+    const granted = JSON.parse(owner.messages[0]!)
+    await expect(room.receive(owner.connectionId, { type: 'operation.submit', operation: {
+      mutationId: 'failed-terminal', baseSequence: '0', command: { type: 'node.reparent', nodeId: 'source-node', placement: { parentId: 'target-frame', index: 0 } },
+      flowBinding: { leaseId: granted.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, presentationDigest: flowPresentationDigest(terminal), sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } } },
+    } })).rejects.toThrow('persistence failed')
+    contender.messages.length = 0
+    await room.receive(contender.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation({ interactionId: 'failure-contender-flow' }) })
+    expect(JSON.parse(contender.messages[0]!)).toMatchObject({ status: 'granted', denialCode: null })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C2 rejects mutated lease, interaction, sequence, node, and lane bindings before projection', async () => {
+    const persistence = new FakePersistence()
+    const room = createFlowRoom(persistence)
+    await room.start()
+    const owner = new FakePeer('binding-mutation-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    const terminal = flowPresentation({ terminal: true })
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: terminal })
+    const granted = JSON.parse(owner.messages[0]!)
+    const validBinding = {
+      leaseId: granted.leaseId as string, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1,
+      terminalSampleSequence: 1, presentationDigest: flowPresentationDigest(terminal),
+      sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' as const } },
+      targetLane: { parentId: 'target-frame', slot: { presence: 'absent' as const } },
+    }
+    const attempts = [
+      { mutationId: 'mutated-lease', binding: { ...validBinding, leaseId: '00000000-0000-4000-8000-000000000000' }, nodeId: 'source-node' },
+      { mutationId: 'mutated-interaction', binding: { ...validBinding, interactionId: 'other-interaction' }, nodeId: 'source-node' },
+      { mutationId: 'mutated-sequence', binding: { ...validBinding, terminalSampleSequence: 2 }, nodeId: 'source-node' },
+      { mutationId: 'mutated-source-lane', binding: { ...validBinding, sourceLane: { parentId: 'disjoint-frame', slot: { presence: 'absent' as const } } }, nodeId: 'source-node' },
+      { mutationId: 'mutated-target-lane', binding: { ...validBinding, targetLane: { parentId: 'disjoint-frame', slot: { presence: 'absent' as const } } }, nodeId: 'source-node' },
+      { mutationId: 'mutated-node', binding: validBinding, nodeId: 'target-child' },
+    ] as const
+    owner.messages.length = 0
+    for (const attempt of attempts) {
+      await room.receive(owner.connectionId, { type: 'operation.submit', operation: {
+        mutationId: attempt.mutationId, baseSequence: '0',
+        command: { type: 'node.reparent', nodeId: attempt.nodeId, placement: { parentId: 'target-frame', index: 0 } },
+        flowBinding: attempt.binding,
+      } })
+    }
+    expect(persistence.calls.filter(call => call.startsWith('append:'))).toEqual([])
+    expect(owner.messages.map(message => JSON.parse(message)).filter(message => message.type === 'room.error').map(message => message.mutationId)).toEqual(attempts.map(attempt => attempt.mutationId))
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 invalidates a lease when a targeted projector mutation changes a reserved lane', async () => {
+    const persistence = new FakePersistence()
+    persistence.current = projection(flowDocument())
+    const semantic = createSemanticProjector()
+    const room = new CollaborationRoomCore({
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+    }, { persistence, tickets: tickets(), projector: { apply(value, command) {
+      const projected = semantic.apply(value, command)
+      if (command.type !== 'node.rename' || command.nodeId !== 'disjoint-node') return projected
+      const mutated = structuredClone(projected) as unknown as { relationships: Record<string, { parentId: string; orderKey: string }> }
+      delete mutated.relationships['target-child']
+      return mutated as never
+    } }, checkpoints })
+    await room.start()
+    const owner = new FakePeer('lane-mutation-owner')
+    const editor = new FakePeer('lane-mutation-editor')
+    await room.admit(admission(owner))
+    await room.admit(admission(editor, 'R'.repeat(24), 'lane-mutation-request', 'lane-mutation-client'))
+    owner.messages.length = 0
+    editor.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    const granted = JSON.parse(owner.messages[0]!)
+    await room.receive(editor.connectionId, { type: 'operation.submit', operation: { mutationId: 'mutate-reserved-lane', baseSequence: '0', command: { type: 'node.rename', nodeId: 'disjoint-node', name: 'Triggers mutation control' } } })
+    expect(persistence.calls).not.toContain('append:mutate-reserved-lane')
+    expect(editor.messages.map(message => JSON.parse(message))).toContainEqual(expect.objectContaining({ type: 'room.error', mutationId: 'mutate-reserved-lane', code: 'invalid_operation' }))
+    owner.messages.length = 0
+    const editorCount = editor.messages.length
+    await room.receive(owner.connectionId, { type: 'interaction.sample', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 1, presentation: flowPresentation({ sequence: 2 }) })
+    expect(owner.messages).toEqual([])
+    expect(editor.messages).toHaveLength(editorCount + 1)
+    expect(JSON.parse(editor.messages.at(-1)!)).toMatchObject({ type: 'interaction.sample', leaseId: granted.leaseId, presentation: { identity: { sampleSequence: 2 } } })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 rejects a terminal batch that mutates an earlier non-active reserved lane', async () => {
+    const persistence = new FakePersistence()
+    const room = createFlowRoom(persistence)
+    await room.start()
+    const owner = new FakePeer('historical-lane-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    const granted = JSON.parse(owner.messages[0]!)
+    const terminal = flowPresentation({ sequence: 2, terminal: true, targetParentId: 'disjoint-frame' })
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.reserve', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 2, targetLane: { parentId: 'disjoint-frame', slot: { presence: 'absent' } }, presentation: terminal })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'retained', reservationGeneration: 2 })
+
+    owner.messages.length = 0
+    const reclaimed = flowPresentation({ sequence: 3, terminal: true, targetParentId: 'disjoint-frame' })
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 2, presentation: reclaimed })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'granted', localClaimGeneration: 2, reservationGeneration: 2, sampleSequence: 3 })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'operation.submit', operation: {
+      mutationId: 'mutate-historical-reserved-lane', baseSequence: '0', command: { type: 'batch', commands: [
+        { type: 'node.restoreRelationship', nodeId: 'source-node', expected: { parentId: 'source-frame', orderKey: 'V' }, source: { parentId: 'disjoint-frame', orderKey: 'U' } },
+        { type: 'node.delete', nodeIds: ['target-child'] },
+      ] },
+      flowBinding: { leaseId: granted.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 2, reservationGeneration: 2, terminalSampleSequence: 3, presentationDigest: flowPresentationDigest(reclaimed), sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'disjoint-frame', slot: { presence: 'absent' } } },
+    } })
+    expect(persistence.calls).not.toContain('append:mutate-historical-reserved-lane')
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'room.error', code: 'invalid_operation' })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 applies the flow sample burst limit without advancing the rejected sequence', async () => {
+    const room = createFlowRoom()
+    await room.start()
+    const owner = new FakePeer('sample-limit-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    const granted = JSON.parse(owner.messages[0]!)
+    owner.messages.length = 0
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now())
+    try {
+      for (let sequence = 2; sequence <= 481; sequence += 1) {
+        await room.receive(owner.connectionId, { type: 'interaction.sample', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 1, presentation: flowPresentation({ sequence }) })
+      }
+      expect(owner.messages).toEqual([])
+      await room.receive(owner.connectionId, { type: 'interaction.sample', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 1, presentation: flowPresentation({ sequence: 482 }) })
+      expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'capacity_refused', sampleSequence: 482 })
+    } finally {
+      clock.mockRestore()
+      await room.drain()
+    }
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C2 requires a terminal presentation and exact support-clone semantics', async () => {
+    const activePersistence = new FakePersistence()
+    const activeRoom = createFlowRoom(activePersistence)
+    await activeRoom.start()
+    const activeOwner = new FakePeer('active-terminal-owner')
+    await activeRoom.admit(admission(activeOwner))
+    activeOwner.messages.length = 0
+    const active = flowPresentation()
+    await activeRoom.receive(activeOwner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: active })
+    const activeLease = JSON.parse(activeOwner.messages[0]!)
+    activeOwner.messages.length = 0
+    await activeRoom.receive(activeOwner.connectionId, { type: 'operation.submit', operation: {
+      mutationId: 'active-not-terminal', baseSequence: '0', command: { type: 'node.restoreRelationship', nodeId: 'source-node', expected: { parentId: 'source-frame', orderKey: 'V' }, source: { parentId: 'target-frame', orderKey: 'U' } },
+      flowBinding: { leaseId: activeLease.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, presentationDigest: flowPresentationDigest(active), sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } } },
+    } })
+    expect(activePersistence.calls).not.toContain('append:active-not-terminal')
+    expect(JSON.parse(activeOwner.messages[0]!)).toMatchObject({ type: 'room.error', code: 'invalid_operation' })
+    await activeRoom.drain()
+
+    const clonePersistence = new FakePersistence()
+    const cloneRoom = createFlowRoom(clonePersistence)
+    await cloneRoom.start()
+    const cloneOwner = new FakePeer('clone-binding-owner')
+    await cloneRoom.admit(admission(cloneOwner))
+    cloneOwner.messages.length = 0
+    const terminalWithoutClone = flowPresentation({ terminal: true })
+    await cloneRoom.receive(cloneOwner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: terminalWithoutClone })
+    const cloneLease = JSON.parse(cloneOwner.messages[0]!)
+    cloneOwner.messages.length = 0
+    await cloneRoom.receive(cloneOwner.connectionId, { type: 'operation.submit', operation: {
+      mutationId: 'clone-without-support', baseSequence: '0', command: { type: 'batch', commands: [
+        { type: 'node.duplicate', nodeId: 'source-node', ids: { 'source-node': 'unbound-clone' } },
+        { type: 'node.restoreRelationship', nodeId: 'source-node', expected: { parentId: 'source-frame', orderKey: 'V' }, source: { parentId: 'target-frame', orderKey: 'U' } },
+      ] },
+      flowBinding: { leaseId: cloneLease.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, presentationDigest: flowPresentationDigest(terminalWithoutClone), sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } } },
+    } })
+    expect(clonePersistence.calls).not.toContain('append:clone-without-support')
+    expect(JSON.parse(cloneOwner.messages[0]!)).toMatchObject({ type: 'room.error', code: 'invalid_operation' })
+    await cloneRoom.receive(cloneOwner.connectionId, { type: 'interaction.release', pageId: 'page-1', leaseId: cloneLease.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, reason: 'cancelled' })
+    cloneOwner.messages.length = 0
+    const terminalWithClone = flowPresentation({ terminal: true, supportClone: true, interactionId: 'support-move' })
+    await cloneRoom.receive(cloneOwner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 2, presentation: terminalWithClone })
+    const moveLease = JSON.parse(cloneOwner.messages[0]!)
+    cloneOwner.messages.length = 0
+    await cloneRoom.receive(cloneOwner.connectionId, { type: 'operation.submit', operation: {
+      mutationId: 'move-with-support', baseSequence: '0', command: { type: 'node.restoreRelationship', nodeId: 'source-node', expected: { parentId: 'source-frame', orderKey: 'V' }, source: { parentId: 'target-frame', orderKey: 'U' } },
+      flowBinding: { leaseId: moveLease.leaseId, interactionId: 'support-move', localClaimGeneration: 2, reservationGeneration: 1, terminalSampleSequence: 1, presentationDigest: flowPresentationDigest(terminalWithClone), sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } } },
+    } })
+    expect(clonePersistence.calls).not.toContain('append:move-with-support')
+    expect(JSON.parse(cloneOwner.messages[0]!)).toMatchObject({ type: 'room.error', code: 'invalid_operation' })
+    await cloneRoom.drain()
+  })
+
+  it('PAPER-FLEX-007-C2 keeps the support clone at the source when the selected original moves within the same lane', async () => {
+    const persistence = new FakePersistence()
+    const room = createFlowRoom(persistence)
+    await room.start()
+    const owner = new FakePeer('same-lane-clone-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    const terminal = flowPresentation({ terminal: true, supportClone: true, targetParentId: 'source-frame', targetRawIndex: 0, targetSemanticIndex: 0 })
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: terminal })
+    const granted = JSON.parse(owner.messages[0]!)
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'operation.submit', operation: {
+      mutationId: 'same-lane-clone-terminal', baseSequence: '0', command: { type: 'batch', commands: [
+        { type: 'node.duplicate', nodeId: 'source-node', ids: { 'source-node': 'same-lane-clone' } },
+        { type: 'node.restoreRelationship', nodeId: 'source-node', expected: { parentId: 'source-frame', orderKey: 'V' }, source: { parentId: 'source-frame', orderKey: 'z' } },
+      ] },
+      flowBinding: { leaseId: granted.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, presentationDigest: flowPresentationDigest(terminal), sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'source-frame', slot: { presence: 'absent' } } },
+    } })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'operation.ack', status: 'applied' })
+    const relationships = persistence.current.document.relationships as Record<string, { parentId: string; orderKey: string }>
+    expect(relationships['same-lane-clone']).toMatchObject({ parentId: 'source-frame' })
+    expect(relationships['source-node']).toMatchObject({ parentId: 'source-frame', orderKey: 'z' })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C2 preserves present-named Component source lanes through acquisition and exact binding', async () => {
+    for (const slotValue of ['children', 'heading']) {
+      const persistence = new FakePersistence()
+      const value = flowDocument() as unknown as { nodes: Record<string, unknown>; relationships: Record<string, { parentId: string; orderKey: string; slot?: string }> }
+      value.nodes['source-component-parent'] = { id: 'source-component-parent', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {} }
+      value.nodes['source-node'] = { id: 'source-node', type: 'component', componentId: 'sample-button', exportName: 'Button', props: {}, layout: { item: { position: { mode: 'flow' } } } }
+      value.relationships['source-component-parent'] = { parentId: 'root-1', orderKey: 'Y' }
+      value.relationships['source-node'] = { parentId: 'source-component-parent', orderKey: 'V', slot: slotValue }
+      persistence.current = projection(value as never)
+      const semantic = createSemanticProjector()
+      let projectorCalls = 0
+      const room = new CollaborationRoomCore({
+        identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+      }, { persistence, tickets: tickets(), projector: { apply(document, command) { projectorCalls += 1; return semantic.apply(document, command) } }, checkpoints })
+      await room.start()
+      const owner = new FakePeer(`slot-${slotValue}-owner`)
+      await room.admit(admission(owner))
+      owner.messages.length = 0
+      const sourceSlot = { presence: 'present' as const, value: slotValue }
+      const terminal = flowPresentation({ terminal: true, sourceKind: 'component', sourceParentId: 'source-component-parent', sourceSlot })
+      await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: terminal })
+      const granted = JSON.parse(owner.messages[0]!)
+      expect(granted).toMatchObject({ status: 'granted', denialCode: null })
+      const validBinding = { leaseId: granted.leaseId as string, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, presentationDigest: flowPresentationDigest(terminal), sourceLane: { parentId: 'source-component-parent', slot: sourceSlot }, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' as const } } }
+
+      owner.messages.length = 0
+      await room.receive(owner.connectionId, { type: 'operation.submit', operation: {
+        mutationId: `slot-${slotValue}-forged`, baseSequence: '0',
+        command: { type: 'node.reparent', nodeId: 'source-node', placement: { parentId: 'target-frame', index: 0 } },
+        flowBinding: { ...validBinding, sourceLane: { parentId: 'source-component-parent', slot: { presence: 'absent' as const } } },
+      } })
+      expect(projectorCalls).toBe(0)
+      expect(persistence.calls).not.toContain(`append:slot-${slotValue}-forged`)
+      expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'room.error', code: 'invalid_operation' })
+
+      owner.messages.length = 0
+      await room.receive(owner.connectionId, { type: 'operation.submit', operation: {
+        mutationId: `slot-${slotValue}-valid`, baseSequence: '0',
+        command: { type: 'node.reparent', nodeId: 'source-node', placement: { parentId: 'target-frame', index: 0 } },
+        flowBinding: validBinding,
+      } })
+      expect(projectorCalls).toBe(1)
+      expect(persistence.calls).not.toContain(`append:slot-${slotValue}-valid`)
+      expect(JSON.parse(owner.messages[0]!)).toMatchObject({ type: 'room.error', code: 'invalid_operation' })
+      await room.drain()
+    }
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C2 keeps absent and legacy present-empty lanes distinct at the topology adapter boundary', () => {
+    const value = flowDocument() as unknown as { relationships: Record<string, { parentId: string; orderKey: string; slot?: string }> }
+    value.relationships['source-node'] = { parentId: 'source-frame', orderKey: 'V', slot: '' }
+    const empty = flowLaneSnapshot(value as never, { parentId: 'source-frame', slot: { presence: 'present', value: '' } })
+    const absent = flowLaneSnapshot(value as never, { parentId: 'source-frame', slot: { presence: 'absent' } })
+    expect(empty?.nodeIds).toEqual(['source-node'])
+    expect(absent?.nodeIds).toEqual([])
+    expect(sameFlowLane(empty!.lane, absent!.lane)).toBe(false)
+  })
+
+  it('CLOUD-SYNC-SCHEMA-001-C2 rejects a forged source position mode without allocating a lease', async () => {
+    const persistence = new FakePersistence()
+    const value = flowDocument() as unknown as { nodes: Record<string, { layout?: { item: { position: { mode: string } } } }> }
+    value.nodes['source-node']!.layout = { item: { position: { mode: 'freeform' } } }
+    const room = createFlowRoomWith(persistence, value as never)
+    await room.start()
+    const owner = new FakePeer('mode-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'invalid_topology', leaseId: null })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 2, presentation: flowPresentation({ interactionId: 'mode-proof', sourceNodeId: 'disjoint-node', sourceParentId: 'disjoint-frame', targetParentId: 'target-frame' }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'granted', denialCode: null })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 rejects cross-page release while retaining the authoritative lease and permits cleanup after access loss', async () => {
+    let current = true
+    const persistence = new FakePersistence()
+    const room = createFlowRoomWith(persistence, flowDocument(), customTickets(
+      async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
+      async () => current,
+    ))
+    await room.start()
+    const owner = new FakePeer('release-page-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    const granted = JSON.parse(owner.messages[0]!)
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.release', pageId: 'page-2', leaseId: granted.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, reason: 'cancelled' })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'wrong_page', pageId: 'page-1', leaseId: granted.leaseId })
+
+    current = false
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.release', pageId: 'page-1', leaseId: granted.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, reason: 'cancelled' })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'released', denialCode: null, pageId: 'page-1' })
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 releases reservations after ticket revocation so a contender can acquire', async () => {
+    let revokedClient: string | null = null
+    const persistence = new FakePersistence()
+    const room = createFlowRoomWith(persistence, flowDocument(), customTickets(
+      async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 4, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
+      async claims => claims.clientId !== revokedClient,
+    ))
+    await room.start()
+    const owner = new FakePeer('revoked-flow-owner')
+    const contender = new FakePeer('revoked-flow-contender')
+    await room.admit(admission(owner))
+    await room.admit(admission(contender, 'V'.repeat(24), 'revoked-contender-request', 'revoked-contender-client'))
+    owner.messages.length = 0
+    contender.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    const granted = JSON.parse(owner.messages[0]!)
+    revokedClient = clientId
+    await room.receive(owner.connectionId, { type: 'interaction.sample', pageId: 'page-1', leaseId: granted.leaseId, localClaimGeneration: 1, reservationGeneration: 1, presentation: flowPresentation({ sequence: 2 }) })
+    contender.messages.length = 0
+    await room.receive(contender.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation({ interactionId: 'after-revocation' }) })
+    expect(contender.messages.map(message => JSON.parse(message))).toContainEqual(expect.objectContaining({ type: 'interaction.result', status: 'granted', denialCode: null }))
+    await room.drain()
+  })
+
+  it.each(['access-revoked', 'access-conflict'] as const)('CLOUD-SYNC-LEASE-001-C2 releases a terminal reservation after persistence returns %s', async status => {
+    const persistence = new FakePersistence()
+    persistence.append = async () => status === 'access-revoked'
+      ? { status: 'access-revoked' as const }
+      : { status: 'access-conflict' as const, currentAccessEpoch: 2n }
+    const room = createFlowRoom(persistence)
+    await room.start()
+    const owner = new FakePeer(`${status}-owner`)
+    const contender = new FakePeer(`${status}-contender`)
+    await room.admit(admission(owner))
+    await room.admit(admission(contender, 'X'.repeat(24), `${status}-request`, `${status}-client`))
+    owner.messages.length = 0
+    contender.messages.length = 0
+    const terminal = flowPresentation({ terminal: true })
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: terminal })
+    const granted = JSON.parse(owner.messages[0]!)
+    await room.receive(owner.connectionId, { type: 'operation.submit', operation: {
+      mutationId: `${status}-terminal`, baseSequence: '0', command: { type: 'node.restoreRelationship', nodeId: 'source-node', expected: { parentId: 'source-frame', orderKey: 'V' }, source: { parentId: 'target-frame', orderKey: 'U' } },
+      flowBinding: { leaseId: granted.leaseId, interactionId: 'flow-interaction', localClaimGeneration: 1, reservationGeneration: 1, terminalSampleSequence: 1, presentationDigest: flowPresentationDigest(terminal), sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } } },
+    } })
+    contender.messages.length = 0
+    await room.receive(contender.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation({ interactionId: `${status}-contender-flow` }) })
+    expect(contender.messages.map(message => JSON.parse(message))).toContainEqual(expect.objectContaining({ type: 'interaction.result', status: 'granted', denialCode: null }))
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-LEASE-001-C2 refuses excessive source topology without partial allocation', async () => {
+    const persistence = new FakePersistence()
+    const value = flowDocument() as unknown as { nodes: Record<string, unknown>; relationships: Record<string, { parentId: string; orderKey: string }> }
+    let parentId = 'source-node'
+    for (let index = 0; index < 130; index += 1) {
+      const nodeId = `deep-${index}`
+      value.nodes[nodeId] = { id: nodeId, type: 'frame', name: nodeId, styles: { left: 0, top: 0, width: 10, height: 10 } }
+      value.relationships[nodeId] = { parentId, orderKey: 'V' }
+      parentId = nodeId
+    }
+    const room = createFlowRoomWith(persistence, value as never)
+    await room.start()
+    const owner = new FakePeer('deep-topology-owner')
+    await room.admit(admission(owner))
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'denied', denialCode: 'capacity_refused', leaseId: null })
+
+    owner.messages.length = 0
+    await room.receive(owner.connectionId, { type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 2, presentation: flowPresentation({ interactionId: 'deep-capacity-proof', sourceNodeId: 'disjoint-node', sourceParentId: 'disjoint-frame', targetParentId: 'target-frame' }) })
+    expect(JSON.parse(owner.messages[0]!)).toMatchObject({ status: 'granted', denialCode: null })
     await room.drain()
   })
 })

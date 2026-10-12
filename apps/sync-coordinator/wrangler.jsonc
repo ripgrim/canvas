@@ -52,7 +52,7 @@
         "SYNC_ROOM_RUNTIME_ORIGIN": "http://127.0.0.1:4325",
         "SYNC_ROOM_TICKET_TTL_MS": "300000",
         "SYNC_CONTAINER_INACTIVITY_MS": "600000",
-        "ALLOWED_ORIGINS": "https://staging.canvas.ripgrim.com,https://login-staging.canvas.ripgrim.com"
+        "ALLOWED_ORIGINS": "https://staging.canvas.ripgrim.com"
       }
     }
   }

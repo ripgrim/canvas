@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fitCamera, flowInsertIndex, gridBackground, gridVisible, resizeRect, resizeRotatedRect, screenToWorld, snapRect, stepZoom, wheelPanDelta, wheelZoomFactor, worldToScreen, zoomAtPoint, zoomPresets } from './canvas-math'
+import { advanceResizeGesture, beginResizeGesture, effectiveResizeHandle, fitCamera, flowInsertIndex, gridBackground, gridVisible, resizeHandleCenter, resizeRect, resizeRectResult, resizeRotatedRect, resizeRotatedRectResult, screenToWorld, snapRect, stepZoom, wheelPanDelta, wheelZoomFactor, worldToScreen, zoomAtPoint, zoomPresets } from './canvas-math'
 
 const size = { width: 1200, height: 800 }
 
@@ -99,5 +99,159 @@ describe('snapping, flow insertion, and resizing', () => {
     const resized = resizeRotatedRect({ x: 10, y: 20, width: 100, height: 50 }, 'right', { x: 0, y: 20 }, 90, { symmetric: true, proportional: false })
     expect(resized).toEqual({ x: -10, y: 20, width: 140, height: 50 })
     expect({ x: resized.x + resized.width / 2, y: resized.y + resized.height / 2 }).toEqual({ x: 60, y: 45 })
+  })
+
+  it('matches the audited Shift, Alt, and combined right-handle resize rectangles', () => {
+    const start = { x: 0, y: 0, width: 100, height: 50 }
+    expect(resizeRectResult(start, 'right', { x: 20, y: 0 }, { symmetric: false, proportional: true }).rect).toEqual({ x: 0, y: -5, width: 120, height: 60 })
+    expect(resizeRectResult(start, 'right', { x: 20, y: 0 }, { symmetric: true, proportional: false }).rect).toEqual({ x: -20, y: 0, width: 140, height: 50 })
+    expect(resizeRectResult(start, 'right', { x: 20, y: 0 }, { symmetric: true, proportional: true }).rect).toEqual({ x: -20, y: -10, width: 140, height: 70 })
+  })
+
+  it('freezes size while Space moves, rebases on release, and resumes resize without a jump', () => {
+    const options = { symmetric: false, proportional: false }
+    let state = beginResizeGesture({ x: 0, y: 0, width: 100, height: 50 }, 'right', { x: 0, y: 0 }, 0)
+    state = advanceResizeGesture(state, { pointer: { x: 20, y: 0 }, spaceHeld: false, options })
+    expect(state.rect).toEqual({ x: 0, y: 0, width: 120, height: 50 })
+
+    state = advanceResizeGesture(state, { pointer: { x: 50, y: 10 }, spaceHeld: true, options })
+    expect(state.phase).toBe('space-move')
+    expect(state.rect).toEqual({ x: 30, y: 10, width: 120, height: 50 })
+
+    state = advanceResizeGesture(state, { pointer: { x: 50, y: 10 }, spaceHeld: false, options })
+    expect(state.phase).toBe('resize')
+    expect(state.rect).toEqual({ x: 30, y: 10, width: 120, height: 50 })
+
+    state = advanceResizeGesture(state, { pointer: { x: 60, y: 10 }, spaceHeld: false, options })
+    expect(state.rect).toEqual({ x: 30, y: 10, width: 130, height: 50 })
+  })
+
+  it('gives Space release precedence over pointer and modifier changes for that frame', () => {
+    const plain = { symmetric: false, proportional: false }
+    let state = beginResizeGesture({ x: 0, y: 0, width: 100, height: 50 }, 'right', { x: 0, y: 0 }, 0)
+    state = advanceResizeGesture(state, { pointer: { x: 20, y: 0 }, spaceHeld: false, options: plain })
+    state = advanceResizeGesture(state, { pointer: { x: 50, y: 10 }, spaceHeld: true, options: plain })
+
+    state = advanceResizeGesture(state, { pointer: { x: 75, y: 25 }, spaceHeld: false, options: { symmetric: true, proportional: true } })
+    expect(state.phase).toBe('resize')
+    expect(state.pointer).toEqual({ x: 75, y: 25 })
+    expect(state.rect).toEqual({ x: 30, y: 10, width: 120, height: 50 })
+    // Mutation control: falling through to Shift+Alt resize on the release frame uses the stale pre-Space origin.
+    expect(state.rect).not.toEqual({ x: -75, y: -37.5, width: 250, height: 125 })
+  })
+
+  it('keeps affected axes authoritative when Shift is pressed on a Space-release frame', () => {
+    const plain = { symmetric: false, proportional: false }
+    let state = beginResizeGesture({ x: 0, y: 0, width: 100, height: 50 }, 'right', { x: 0, y: 0 }, 0)
+    state = advanceResizeGesture(state, { pointer: { x: 20, y: 0 }, spaceHeld: false, options: plain })
+    expect(state.affectedAxes).toEqual(['x'])
+
+    state = advanceResizeGesture(state, { pointer: { x: 50, y: 10 }, spaceHeld: true, options: plain })
+    expect(state.affectedAxes).toEqual(['x'])
+
+    state = advanceResizeGesture(state, { pointer: { x: 55, y: 15 }, spaceHeld: true, options: { symmetric: false, proportional: true } })
+    expect(state.rect).toEqual({ x: 35, y: 15, width: 120, height: 50 })
+    expect(state.affectedAxes).toEqual(['x'])
+
+    state = advanceResizeGesture(state, { pointer: { x: 55, y: 15 }, spaceHeld: false, options: { symmetric: false, proportional: true } })
+    expect(state.rect).toEqual({ x: 35, y: 15, width: 120, height: 50 })
+    expect(state.affectedAxes).toEqual(['x'])
+
+    state = advanceResizeGesture(state, { pointer: { x: 65, y: 15 }, spaceHeld: false, options: { symmetric: false, proportional: true } })
+    expect(state.rect).toEqual({ x: 35, y: 7.5, width: 130, height: 65 })
+    expect(state.affectedAxes).toEqual(['x', 'y'])
+  })
+
+  it('uses the Alt state at Space entry for Paper rebase and ignores Alt toggled after entry', () => {
+    const plain = { symmetric: false, proportional: false }
+    const symmetric = { symmetric: true, proportional: false }
+    const start = { x: 0, y: 0, width: 100, height: 50 }
+    const pointerDown = { x: 100, y: 25 }
+    const begin = () => advanceResizeGesture(beginResizeGesture(start, 'right', pointerDown, 0), { pointer: { x: 25, y: 25 }, spaceHeld: false, options: plain })
+
+    let enteredWithAlt = advanceResizeGesture(begin(), { pointer: { x: 25, y: 25 }, spaceHeld: true, options: symmetric })
+    expect(enteredWithAlt.spaceEntrySymmetric).toBe(true)
+    expect(enteredWithAlt.resizeOriginPointer).toEqual({ x: 125, y: 25 })
+    enteredWithAlt = advanceResizeGesture(enteredWithAlt, { pointer: { x: 55, y: 35 }, spaceHeld: true, options: plain })
+    expect(enteredWithAlt.resizeOriginPointer).toEqual({ x: 125, y: 25 })
+    expect(enteredWithAlt.rect).toEqual({ x: 30, y: 10, width: 25, height: 50 })
+    const altRelease = advanceResizeGesture(enteredWithAlt, { pointer: { x: 55, y: 35 }, spaceHeld: false, options: symmetric })
+    expect(altRelease.resizeOriginPointer).toEqual({ x: 155, y: 35 })
+    expect(altRelease.resizeOriginRect).toEqual({ x: 30, y: 10, width: 100, height: 50 })
+    expect(advanceResizeGesture(altRelease, { pointer: { x: 65, y: 35 }, spaceHeld: false, options: symmetric }).rect).toEqual({ x: 40, y: 10, width: 80, height: 50 })
+    expect(advanceResizeGesture(altRelease, { pointer: { x: 65, y: 35 }, spaceHeld: false, options: plain }).rect).toEqual({ x: 30, y: 10, width: 10, height: 50 })
+
+    let enteredWithoutAlt = advanceResizeGesture(begin(), { pointer: { x: 25, y: 25 }, spaceHeld: true, options: plain })
+    expect(enteredWithoutAlt.spaceEntrySymmetric).toBe(false)
+    expect(enteredWithoutAlt.resizeOriginPointer).toEqual({ x: 100, y: 25 })
+    enteredWithoutAlt = advanceResizeGesture(enteredWithoutAlt, { pointer: { x: 55, y: 35 }, spaceHeld: true, options: symmetric })
+    expect(enteredWithoutAlt.resizeOriginPointer).toEqual({ x: 100, y: 25 })
+    const plainRelease = advanceResizeGesture(enteredWithoutAlt, { pointer: { x: 55, y: 35 }, spaceHeld: false, options: symmetric })
+    expect(plainRelease.resizeOriginPointer).toEqual({ x: 130, y: 35 })
+    expect(advanceResizeGesture(plainRelease, { pointer: { x: 65, y: 35 }, spaceHeld: false, options: symmetric }).rect).toEqual({ x: 65, y: 10, width: 30, height: 50 })
+    expect(advanceResizeGesture(plainRelease, { pointer: { x: 65, y: 35 }, spaceHeld: false, options: plain }).rect).toEqual({ x: 30, y: 10, width: 35, height: 50 })
+
+    // Mutation control: sampling Alt continuously would make both entry branches share one pointer origin and result.
+    expect(altRelease.resizeOriginPointer).not.toEqual(plainRelease.resizeOriginPointer)
+  })
+
+  it('projects 90- and 180-degree pointer deltas into local axes', () => {
+    const options = { symmetric: false, proportional: false }
+    const quarterTurn = resizeRotatedRectResult({ x: 0, y: 0, width: 100, height: 50 }, 'right', { x: 0, y: 20 }, 90, options)
+    expect(quarterTurn.localDelta).toEqual({ x: 20, y: 0 })
+    expect(quarterTurn.rect).toEqual({ x: -10, y: 10, width: 120, height: 50 })
+    // Mutation control: applying world dx=0 as local x would leave the width at 100.
+    expect(quarterTurn.rect.width).not.toBe(100)
+
+    const halfTurn = resizeRotatedRectResult({ x: 0, y: 0, width: 100, height: 50 }, 'right', { x: -20, y: 0 }, 180, options)
+    expect(halfTurn.localDelta).toEqual({ x: 20, y: 0 })
+    expect(halfTurn.rect).toEqual({ x: -20, y: 0, width: 120, height: 50 })
+    // Mutation control: world-space right resize would shrink to 80 instead of growing to 120.
+    expect(halfTurn.rect.width).not.toBe(80)
+  })
+
+  it('maps a crossed handle to the visual side that remains under the pointer', () => {
+    const start = { x: 0, y: 0, width: 100, height: 50 }
+    const result = resizeRotatedRectResult(start, 'right', { x: 0, y: -125 }, 90, { symmetric: false, proportional: false })
+    expect(result.crossedX).toBe(true)
+    expect(result.effectiveHandle).toBe('left')
+    expect(effectiveResizeHandle('bottom-right', true, true)).toBe('top-left')
+
+    const initialHandle = resizeHandleCenter(start, 'right', 90)
+    const pointer = { x: initialHandle.x, y: initialHandle.y - 125 }
+    const effectiveCenter = resizeHandleCenter(result.rect, result.effectiveHandle, 90)
+    const screenDistanceAtTwoX = Math.hypot(effectiveCenter.x - pointer.x, effectiveCenter.y - pointer.y) * 2
+    expect(screenDistanceAtTwoX).toBeLessThanOrEqual(0.5)
+
+    // Mutation control: retaining the original handle after crossing puts the HUD on the opposite side.
+    const staleCenter = resizeHandleCenter(result.rect, 'right', 90)
+    expect(Math.hypot(staleCenter.x - pointer.x, staleCenter.y - pointer.y) * 2).toBeGreaterThan(0.5)
+  })
+
+  it('switches the effective handle within half a CSS pixel of an axis crossing', () => {
+    const start = { x: 0, y: 0, width: 100, height: 50 }
+    const pointer = { x: -0.25, y: 25 }
+    const result = resizeRotatedRectResult(start, 'right', { x: -100.25, y: 0 }, 0, { symmetric: false, proportional: false, minimum: 0.5 })
+    expect(result.crossedX).toBe(true)
+    expect(result.effectiveHandle).toBe('left')
+    expect(result.rect).toEqual({ x: -0.5, y: 0, width: 0.5, height: 50 })
+    const effectiveCenter = resizeHandleCenter(result.rect, result.effectiveHandle, 0)
+    expect(Math.hypot(effectiveCenter.x - pointer.x, effectiveCenter.y - pointer.y) * 2).toBe(0.5)
+
+    // Mutation control: failing to swap the handle leaves it on the far side of the minimum-size rectangle.
+    const staleCenter = resizeHandleCenter(result.rect, 'right', 0)
+    expect(Math.hypot(staleCenter.x - pointer.x, staleCenter.y - pointer.y) * 2).toBe(0.5)
+    expect(staleCenter.x).not.toBe(effectiveCenter.x)
+  })
+
+  it('uses the newest pure sample so a one-unit final pointer change cannot reuse the previous rectangle', () => {
+    const options = { symmetric: false, proportional: false }
+    let state = beginResizeGesture({ x: 0, y: 0, width: 100, height: 50 }, 'right', { x: 0, y: 0 }, 0)
+    state = advanceResizeGesture(state, { pointer: { x: 20, y: 0 }, spaceHeld: false, options })
+    const penultimate = state.rect
+    state = advanceResizeGesture(state, { pointer: { x: 21, y: 0 }, spaceHeld: false, options })
+    expect(penultimate).toEqual({ x: 0, y: 0, width: 120, height: 50 })
+    expect(state.rect).toEqual({ x: 0, y: 0, width: 121, height: 50 })
+    expect(state.rect).not.toEqual(penultimate)
   })
 })

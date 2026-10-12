@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { legacyTextProperties } from '@canvas/repo-engine/file-document'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { DesignTheme } from '@canvas/repo-engine/design-themes'
 import { createDocumentStore } from './document-store'
@@ -15,14 +16,14 @@ const hex = (value: string) => ({ kind: 'hex' as const, hex: value })
  * The `surface` token reads the stylesheet's --surface; nothing stores a theme mode yet.
  */
 const fixture = (): FileDocument => ({
-  schemaVersion: 7, fileId: 'file-1', revision: 4,
+  schemaVersion: 9, fileId: 'file-1', revision: 4,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
     card: { id: 'card', type: 'component', name: 'Login card', componentId: 'card-component', exportName: 'Card', props: { heading: 'Welcome' }, layout: { item: { position: { mode: 'flow' } }, spacing: { padding: { top: 8, right: 8, bottom: 8, left: 8 } } }, appearance: { fills: [{ id: 'card-fill', type: 'solid', color: { kind: 'token', tokenId: 'surface' } }], opacity: 0.9 } },
     label: { id: 'label', type: 'component', componentId: 'label-component', exportName: 'Label', props: { children: 'Email' } },
     box: { id: 'box', type: 'rectangle', name: 'Box', styles: { left: 600, top: 400, width: 50, height: 40, rotation: 15 }, appearance: { fills: [{ id: 'box-fill', type: 'solid', color: { kind: 'token', tokenId: 'surface' } }] } },
-    caption: { id: 'caption', type: 'text', name: 'Caption', text: 'Hello', styles: { left: 10, top: 10, width: 120, height: 20 }, appearance: { fills: [{ id: 'caption-fill', type: 'solid', color: { kind: 'literal', color: hex('#202124') } }] } },
+    caption: { id: 'caption', type: 'text', name: 'Caption', text: 'Hello', styles: { left: 10, top: 10, width: 120, height: 20 }, appearance: { fills: [{ id: 'caption-fill', type: 'solid', color: { kind: 'literal', color: hex('#202124') } }] }, ...legacyTextProperties() },
   },
   relationships: {
     card: { parentId: 'root-1', orderKey: 'V' },

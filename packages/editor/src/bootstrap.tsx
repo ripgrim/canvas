@@ -69,6 +69,16 @@ export function bindProjectFailures(api: Pick<EditorProjectApi, 'subscribeFailur
   }
 }
 
+export function bindProjectFileUpdates(
+  api: Pick<EditorProjectApi, 'subscribeFile'>,
+  target: Pick<typeof editorStore, 'receiveExternalSnapshot' | 'clearFile'> = editorStore,
+): () => void {
+  return api.subscribeFile?.(snapshot => {
+    if (snapshot) target.receiveExternalSnapshot(snapshot)
+    else target.clearFile()
+  }) ?? (() => undefined)
+}
+
 export function bindAuthFileClear(
   source: Pick<typeof authSessionService, 'getSnapshot' | 'subscribe'> = authSessionService,
   target: Pick<typeof editorStore, 'clearFile'> = editorStore,
@@ -113,9 +123,9 @@ export function startEditorServices(api: EditorProjectApi): () => void {
     const keyboard = createEditorKeyboardService(window)
     keyboard.start()
     homeStore.start()
-    const stopFileSubscription = api.subscribeFile?.(snapshot => editorStore.receiveExternalSnapshot(snapshot))
+    const stopFileSubscription = bindProjectFileUpdates(api)
     stopWorkspace = () => {
-      stopFileSubscription?.()
+      stopFileSubscription()
       canvasInput.stop()
       canvasViewportService.stop()
       canvasHudPainter.stop()

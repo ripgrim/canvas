@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import type { CollaborationPersistence, FileAccessAuthorization } from '@canvas/database'
-import { collaborationProtocolEpoch, normalizeCollaborationDisplayName, validateCollaborationIdentity } from '@canvas/sync-protocol'
+import {
+  collaborationProtocolEpoch,
+  collaborationWebSocketProtocol,
+  normalizeCollaborationDisplayName,
+  validateCollaborationIdentity,
+} from '@canvas/sync-protocol'
 
-export const collaborationAdmissionProtocolEpoch = collaborationProtocolEpoch
+export const collaborationAdmissionProtocolEpoch: 4 = collaborationProtocolEpoch
+export const collaborationAdmissionWebSocketProtocol: 'canvas-sync-v4' = collaborationWebSocketProtocol
 
 export type CollaborationAdmissionRole = 'owner' | 'viewer'
 export type CollaborationAdmissionGenerationStatus = 'active' | 'candidate'

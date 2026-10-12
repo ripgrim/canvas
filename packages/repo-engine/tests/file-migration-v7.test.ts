@@ -12,13 +12,13 @@ const version6 = () => ({
   theme: { tokens: {} },
 })
 
-describe('CLOUD-SYNC-SCHEMA-001 version 6 to 7 asset externalization boundary', () => {
+describe('CLOUD-SYNC-SCHEMA-001 version 6 asset externalization through the current schema', () => {
   it('purely upgrades a version 6 file with no inline assets', () => {
     const input = version6()
     const before = structuredClone(input)
     const upgraded = upgradeFileDocument(input)
 
-    expect(upgraded).toStrictEqual({ ...input, schemaVersion: 7 })
+    expect(upgraded).toStrictEqual({ ...input, schemaVersion: 9 })
     expect(upgraded).not.toBe(input)
     expect(input).toStrictEqual(before)
     expect(validateFileDocument(upgraded, [])).toStrictEqual(upgraded)
@@ -29,7 +29,7 @@ describe('CLOUD-SYNC-SCHEMA-001 version 6 to 7 asset externalization boundary', 
   it('drops an empty legacy asset map instead of preserving the old storage shape', () => {
     const input = { ...version6(), assets: {} }
     const upgraded = upgradeFileDocument(input)
-    expect(upgraded).toStrictEqual({ ...version6(), schemaVersion: 7 })
+    expect(upgraded).toStrictEqual({ ...version6(), schemaVersion: 9 })
     expect(upgraded).not.toHaveProperty('assets')
     expect(input).toHaveProperty('assets', {})
   })

@@ -42,6 +42,7 @@ try {
 async function runAcceptance(pool) {
   const persistence = currentSchemaPersistence(pool)
   const controlPlane = createPostgresControlPlane(pool)
+  await assertCloudSyncClientCanonicalProjectionReads(pool, persistence, controlPlane)
   await assertBootstrapCutoverRace(pool, persistence, controlPlane)
   await assertUniformLockOrderRace(pool)
   await assertAdmissionLockOrderRace(pool, controlPlane)
@@ -51,8 +52,8 @@ async function runAcceptance(pool) {
   const proposedAdmissionA = randomUUID()
   const proposedAdmissionB = randomUUID()
   const admissionResults = await Promise.all([
-    persistence.resolveAdmissionGeneration({ fileId: admissionFile.id, generationId: proposedAdmissionA, protocolEpoch: 2, candidateTtlMs: 30_000 }),
-    persistence.resolveAdmissionGeneration({ fileId: admissionFile.id, generationId: proposedAdmissionB, protocolEpoch: 2, candidateTtlMs: 30_000 }),
+    persistence.resolveAdmissionGeneration({ fileId: admissionFile.id, generationId: proposedAdmissionA, protocolEpoch: 3, candidateTtlMs: 30_000 }),
+    persistence.resolveAdmissionGeneration({ fileId: admissionFile.id, generationId: proposedAdmissionB, protocolEpoch: 3, candidateTtlMs: 30_000 }),
   ])
   assert.equal(admissionResults[0].status, 'candidate')
   assert.equal(admissionResults[1].status, 'candidate')
@@ -60,7 +61,7 @@ async function runAcceptance(pool) {
   assert.equal((await pool.query("SELECT count(*)::int AS count FROM app_collaboration_generation WHERE file_id = $1 AND status = 'candidate'", [admissionFile.id])).rows[0].count, 1)
   await pool.query("UPDATE app_collaboration_generation SET created_at = now() - interval '1 minute' WHERE file_id = $1 AND status = 'candidate'", [admissionFile.id])
   const replacementAdmissionId = randomUUID()
-  const replacementAdmission = await persistence.resolveAdmissionGeneration({ fileId: admissionFile.id, generationId: replacementAdmissionId, protocolEpoch: 2, candidateTtlMs: 30_000 })
+  const replacementAdmission = await persistence.resolveAdmissionGeneration({ fileId: admissionFile.id, generationId: replacementAdmissionId, protocolEpoch: 3, candidateTtlMs: 30_000 })
   assert.deepEqual(replacementAdmission, { status: 'candidate', generationId: replacementAdmissionId })
   assert.equal((await pool.query("SELECT count(*)::int AS count FROM app_collaboration_generation WHERE file_id = $1 AND status = 'failed'", [admissionFile.id])).rows[0].count, 1)
   const file = await controlPlane.createFile('collaboration-acceptance', 'Collaboration acceptance', null)
@@ -102,13 +103,13 @@ async function runAcceptance(pool) {
   await pool.query('DELETE FROM app_file WHERE id = $1', [maxEpochFile.id])
   assert.equal(await controlPlane.resolveFileAccess('max-owner', maxEpochFile.id), null)
   await Promise.all([
-    persistence.registerGeneration({ fileId, generationId: candidateA, protocolEpoch: 2 }),
-    persistence.registerGeneration({ fileId, generationId: candidateB, protocolEpoch: 2 }),
+    persistence.registerGeneration({ fileId, generationId: candidateA, protocolEpoch: 3 }),
+    persistence.registerGeneration({ fileId, generationId: candidateB, protocolEpoch: 3 }),
   ])
 
   const raced = await Promise.all([
-    persistence.acquireLease({ fileId, generationId: candidateA, protocolEpoch: 2, leaseDurationMs: 30_000 }),
-    persistence.acquireLease({ fileId, generationId: candidateB, protocolEpoch: 2, leaseDurationMs: 30_000 }),
+    persistence.acquireLease({ fileId, generationId: candidateA, protocolEpoch: 3, leaseDurationMs: 30_000 }),
+    persistence.acquireLease({ fileId, generationId: candidateB, protocolEpoch: 3, leaseDurationMs: 30_000 }),
   ])
   const acquired = raced.filter(result => result.status === 'acquired')
   const held = raced.filter(result => result.status === 'held')
@@ -117,33 +118,33 @@ async function runAcceptance(pool) {
   const winner = acquired[0].lease
   const waitingGeneration = winner.generationId === candidateA ? candidateB : candidateA
   assert.equal(held[0].lease.generationId, winner.generationId)
-  assert.equal((await persistence.renewLease({ fileId, generationId: winner.generationId, protocolEpoch: 2, fencingToken: winner.fencingToken, leaseDurationMs: 30_000 }))?.fencingToken, winner.fencingToken)
-  assert.equal(await persistence.releaseLease({ fileId, generationId: winner.generationId, protocolEpoch: 2, fencingToken: winner.fencingToken }), true)
-  assert.equal(await persistence.releaseLease({ fileId, generationId: winner.generationId, protocolEpoch: 2, fencingToken: winner.fencingToken }), true)
+  assert.equal((await persistence.renewLease({ fileId, generationId: winner.generationId, protocolEpoch: 3, fencingToken: winner.fencingToken, leaseDurationMs: 30_000 }))?.fencingToken, winner.fencingToken)
+  assert.equal(await persistence.releaseLease({ fileId, generationId: winner.generationId, protocolEpoch: 3, fencingToken: winner.fencingToken }), true)
+  assert.equal(await persistence.releaseLease({ fileId, generationId: winner.generationId, protocolEpoch: 3, fencingToken: winner.fencingToken }), true)
 
-  const expiring = await persistence.acquireLease({ fileId, generationId: waitingGeneration, protocolEpoch: 2, leaseDurationMs: 1_000 })
+  const expiring = await persistence.acquireLease({ fileId, generationId: waitingGeneration, protocolEpoch: 3, leaseDurationMs: 1_000 })
   assert.equal(expiring.status, 'acquired')
   await pool.query("UPDATE app_collaboration_lease SET lease_expires_at = now() - interval '1 second' WHERE file_id = $1", [fileId])
-  assert.equal((await persistence.registerGeneration({ fileId, generationId: replacementGeneration, protocolEpoch: 2 })).status, 'registered')
-  const replacement = await persistence.acquireLease({ fileId, generationId: replacementGeneration, protocolEpoch: 2, leaseDurationMs: 30_000 })
+  assert.equal((await persistence.registerGeneration({ fileId, generationId: replacementGeneration, protocolEpoch: 3 })).status, 'registered')
+  const replacement = await persistence.acquireLease({ fileId, generationId: replacementGeneration, protocolEpoch: 3, leaseDurationMs: 30_000 })
   assert.equal(replacement.status, 'acquired')
   assert.ok(replacement.lease.fencingToken > expiring.lease.fencingToken)
-  assert.equal(await persistence.renewLease({ fileId, generationId: waitingGeneration, protocolEpoch: 2, fencingToken: expiring.lease.fencingToken, leaseDurationMs: 30_000 }), null)
+  assert.equal(await persistence.renewLease({ fileId, generationId: waitingGeneration, protocolEpoch: 3, fencingToken: expiring.lease.fencingToken, leaseDurationMs: 30_000 }), null)
 
   const staleAppend = await persistence.appendOperation(operationInput({ fileId, lease: expiring.lease, mutationId: 'stale-append', baseSequence: 0n, revision: 1, name: 'Stale', expectedAccessEpoch: 3n }))
   assert.equal(staleAppend.status, 'stale-fence')
-  assert.equal((await persistence.bootstrapProjectionFromLegacy({ fileId, generationId: waitingGeneration, protocolEpoch: 2, fencingToken: expiring.lease.fencingToken, documentSchemaVersion: 7 })).status, 'stale-fence')
+  assert.equal((await persistence.bootstrapProjectionFromLegacy({ fileId, generationId: waitingGeneration, protocolEpoch: 3, fencingToken: expiring.lease.fencingToken, documentSchemaVersion: 9 })).status, 'stale-fence')
   const staleCheckpoint = await persistence.commitVerifiedCheckpoint({
     fileId,
     generationId: waitingGeneration,
-    protocolEpoch: 2,
+    protocolEpoch: 3,
     fencingToken: expiring.lease.fencingToken,
     sequence: 0n,
     objectKey: `checkpoints/${fileId}/stale.zst`,
     objectDigest: 'f'.repeat(64),
     documentDigest: 'e'.repeat(64),
     compressedBytes: 64n,
-    documentSchemaVersion: 7,
+    documentSchemaVersion: 9,
   })
   assert.equal(staleCheckpoint.status, 'stale-fence')
 
@@ -153,7 +154,7 @@ async function runAcceptance(pool) {
   const legacyThumbnailKey = `thumbnails/${fileId}/versions/1/before-cutover.avif`
   assert.equal((await controlPlane.setFileThumbnail('collaboration-acceptance', fileId, 1, legacyThumbnailKey, '"before-cutover"')).status, 'saved')
 
-  const bootstrapInput = { fileId, generationId: replacementGeneration, protocolEpoch: 2, fencingToken: replacement.lease.fencingToken, documentSchemaVersion: 7 }
+  const bootstrapInput = { fileId, generationId: replacementGeneration, protocolEpoch: 3, fencingToken: replacement.lease.fencingToken, documentSchemaVersion: 9 }
   const bootstrapped = await Promise.all([
     persistence.bootstrapProjectionFromLegacy(bootstrapInput),
     persistence.bootstrapProjectionFromLegacy(bootstrapInput),
@@ -175,13 +176,17 @@ async function runAcceptance(pool) {
   assert.equal((await persistence.appendOperation(firstInput)).status, 'committed')
   const authoritativeProjection = await persistence.getProjection(fileId)
   assert.equal(authoritativeProjection.authority, 'room')
-  const legacyDocument = await controlPlane.getFileDocument('collaboration-acceptance', fileId)
-  assert.deepEqual(await controlPlane.saveFileDocument('collaboration-acceptance', fileId, 1, { ...legacyDocument.document, revision: 2, legacyAfterCutover: true }), { status: 'collaboration-authoritative' })
+  const canonicalDocument = await controlPlane.getFileDocument('collaboration-acceptance', fileId)
+  assert.deepEqual(await controlPlane.saveFileDocument('collaboration-acceptance', fileId, 1, { ...canonicalDocument.document, revision: 2, legacyAfterCutover: true }), { status: 'collaboration-authoritative' })
   assert.deepEqual(await controlPlane.saveFileDocument('different-user', fileId, 1, { revision: 2 }), { status: 'not-found' })
-  const legacyAfterRejectedSave = await controlPlane.getFileDocument('collaboration-acceptance', fileId)
-  assert.equal(legacyAfterRejectedSave.revision, 1)
-  assert.equal(legacyAfterRejectedSave.document.beforeCutover, true)
-  assert.equal(legacyAfterRejectedSave.document.legacyAfterCutover, undefined)
+  const canonicalAfterRejectedSave = await controlPlane.getFileDocument('collaboration-acceptance', fileId)
+  assert.equal(canonicalAfterRejectedSave.revision, 1)
+  assert.equal(canonicalAfterRejectedSave.document.name, 'Card')
+  assert.equal(canonicalAfterRejectedSave.document.beforeCutover, undefined)
+  assert.equal(canonicalAfterRejectedSave.document.legacyAfterCutover, undefined)
+  const staleLegacyDocument = (await pool.query('SELECT document FROM app_file_document WHERE file_id = $1', [fileId])).rows[0].document
+  assert.equal(staleLegacyDocument.beforeCutover, true)
+  assert.equal(staleLegacyDocument.name, undefined)
   assert.equal((await controlPlane.getFile('collaboration-acceptance', fileId)).headRevision, 1)
   assert.equal((await controlPlane.getFileThumbnail('collaboration-acceptance', fileId)).thumbnailKey, legacyThumbnailKey)
   assert.equal((await pool.query('SELECT count(*)::int AS count FROM app_thumbnail_capture_job WHERE file_id = $1 AND revision = 2', [fileId])).rows[0].count, 0)
@@ -211,19 +216,19 @@ async function runAcceptance(pool) {
   assert.equal(rolledBack.rows[0].count, 0)
   assert.equal((await persistence.getProjection(fileId)).sequence, 2n)
 
-  assert.equal((await persistence.pruneCoveredOperations({ fileId, generationId: replacementGeneration, protocolEpoch: 2, fencingToken: replacement.lease.fencingToken, throughSequence: 1n })).status, 'no-committed-checkpoint')
+  assert.equal((await persistence.pruneCoveredOperations({ fileId, generationId: replacementGeneration, protocolEpoch: 3, fencingToken: replacement.lease.fencingToken, throughSequence: 1n })).status, 'no-committed-checkpoint')
   const projection = await persistence.getProjection(fileId)
   const checkpointInput = {
     fileId,
     generationId: replacementGeneration,
-    protocolEpoch: 2,
+    protocolEpoch: 3,
     fencingToken: replacement.lease.fencingToken,
     sequence: 2n,
     objectKey: `checkpoints/${fileId}/2.zst`,
     objectDigest: 'a'.repeat(64),
     documentDigest: projection.documentDigest,
     compressedBytes: 256n,
-    documentSchemaVersion: 7,
+    documentSchemaVersion: 9,
   }
   assert.equal((await persistence.commitVerifiedCheckpoint(checkpointInput)).status, 'committed')
   assert.equal((await persistence.commitVerifiedCheckpoint(checkpointInput)).status, 'replayed')
@@ -232,14 +237,113 @@ async function runAcceptance(pool) {
 
   const thirdInput = operationInput({ fileId, lease: replacement.lease, mutationId: 'mutation-3', baseSequence: 2n, revision: 3, name: 'Toolbar', expectedAccessEpoch: 4n })
   assert.equal((await persistence.appendOperation(thirdInput)).status, 'committed')
-  const beyond = await persistence.pruneCoveredOperations({ fileId, generationId: replacementGeneration, protocolEpoch: 2, fencingToken: replacement.lease.fencingToken, throughSequence: 3n })
+  const beyond = await persistence.pruneCoveredOperations({ fileId, generationId: replacementGeneration, protocolEpoch: 3, fencingToken: replacement.lease.fencingToken, throughSequence: 3n })
   assert.deepEqual(beyond, { status: 'beyond-checkpoint', checkpointSequence: 2n })
-  const stalePrune = await persistence.pruneCoveredOperations({ fileId, generationId: waitingGeneration, protocolEpoch: 2, fencingToken: expiring.lease.fencingToken, throughSequence: 2n })
+  const stalePrune = await persistence.pruneCoveredOperations({ fileId, generationId: waitingGeneration, protocolEpoch: 3, fencingToken: expiring.lease.fencingToken, throughSequence: 2n })
   assert.equal(stalePrune.status, 'stale-fence')
-  const pruned = await persistence.pruneCoveredOperations({ fileId, generationId: replacementGeneration, protocolEpoch: 2, fencingToken: replacement.lease.fencingToken, throughSequence: 2n })
+  const pruned = await persistence.pruneCoveredOperations({ fileId, generationId: replacementGeneration, protocolEpoch: 3, fencingToken: replacement.lease.fencingToken, throughSequence: 2n })
   assert.deepEqual(pruned, { status: 'pruned', throughSequence: 2n, deletedCount: 2n })
   const remaining = await persistence.listOperationsAfter(fileId, 0n, 10)
   assert.deepEqual(remaining.map(operation => operation.sequence), [3n])
+}
+
+async function assertCloudSyncClientCanonicalProjectionReads(pool, persistence, controlPlane) {
+  const ownerUserId = 'canonical-read-owner'
+  const file = await controlPlane.createFile(ownerUserId, 'Canonical projection read', null)
+  const initial = await controlPlane.getFileDocument(ownerUserId, file.id)
+  const legacyDocument = {
+    ...initial.document,
+    revision: 1,
+    pages: initial.document.pages.map((page, index) => index === 0 ? { ...page, name: 'Seed' } : page),
+  }
+  assert.equal((await controlPlane.saveFileDocument(ownerUserId, file.id, 0, legacyDocument)).status, 'saved')
+  await pool.query("UPDATE app_file_document SET updated_at = now() - interval '1 day' WHERE file_id = $1", [file.id])
+  await controlPlane.setFileShare(ownerUserId, file.id, 'view')
+
+  const generationId = randomUUID()
+  assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId, protocolEpoch: 3 })).status, 'registered')
+  const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 3, leaseDurationMs: 30_000 })
+  assert.equal(acquired.status, 'acquired')
+  const bootstrapInput = { fileId: file.id, generationId, protocolEpoch: 3, fencingToken: acquired.lease.fencingToken, documentSchemaVersion: 9 }
+  assert.equal((await persistence.bootstrapProjectionFromLegacy(bootstrapInput)).status, 'seeded')
+
+  const unpublishedDocument = {
+    ...legacyDocument,
+    revision: 999,
+    pages: legacyDocument.pages.map((page, index) => index === 0 ? { ...page, name: 'Unpublished projection' } : page),
+  }
+  await pool.query(
+    'UPDATE app_collaboration_projection SET document = $2::jsonb, document_digest = $3 WHERE file_id = $1',
+    [file.id, JSON.stringify(unpublishedDocument), collaborationDocumentDigest(unpublishedDocument)],
+  )
+  const legacySeedRead = await controlPlane.getFileDocument(ownerUserId, file.id)
+  assert.equal(legacySeedRead.revision, 1)
+  assert.equal(legacySeedRead.document.pages[0].name, 'Seed')
+  const legacySeedCapture = await controlPlane.getFileDocumentForCapture(file.id)
+  assert.equal(legacySeedCapture.revision, 1)
+  assert.equal(legacySeedCapture.document.pages[0].name, 'Seed')
+  const legacySeedShared = await controlPlane.getSharedFile(file.id)
+  assert.equal(legacySeedShared.file.headRevision, 1)
+  assert.equal(legacySeedShared.document.revision, 1)
+  assert.equal(legacySeedShared.document.document.pages[0].name, 'Seed')
+
+  const liveDocument = {
+    ...legacyDocument,
+    revision: 7,
+    pages: legacyDocument.pages.map((page, index) => index === 0 ? { ...page, name: 'Live' } : page),
+  }
+  const appended = await persistence.appendOperation({
+    fileId: file.id,
+    generationId,
+    protocolEpoch: 3,
+    fencingToken: acquired.lease.fencingToken,
+    expectedSubjectId: ownerUserId,
+    expectedAccessEpoch: 2n,
+    clientId: 'canonical-read-client',
+    clientMutationId: 'canonical-read-mutation',
+    operationType: 'page.rename',
+    operationPayload: { pageId: legacyDocument.pages[0].id, name: 'Live' },
+    baseSequence: 0n,
+    projection: { documentSchemaVersion: 9, document: liveDocument },
+  })
+  assert.equal(appended.status, 'committed')
+
+  const staleLegacyRow = (await pool.query('SELECT revision, document, updated_at FROM app_file_document WHERE file_id = $1', [file.id])).rows[0]
+  const projectionRow = (await pool.query('SELECT document, document_digest, updated_at FROM app_collaboration_projection WHERE file_id = $1', [file.id])).rows[0]
+  assert.equal(Number(staleLegacyRow.revision), 1)
+  assert.equal(staleLegacyRow.document.pages[0].name, 'Seed')
+
+  const ownerRead = await controlPlane.getFileDocument(ownerUserId, file.id)
+  assert.equal(ownerRead.revision, 7)
+  assert.equal(ownerRead.document.revision, 7)
+  assert.equal(ownerRead.document.pages[0].name, 'Live')
+  assert.equal(ownerRead.updatedAt, new Date(projectionRow.updated_at).toISOString())
+  assert.notEqual(ownerRead.updatedAt, new Date(staleLegacyRow.updated_at).toISOString())
+  assert.notEqual(ownerRead.document.pages[0].name, staleLegacyRow.document.pages[0].name)
+  assert.equal(await controlPlane.getFileDocument('canonical-read-other-owner', file.id), null)
+
+  const captureRead = await controlPlane.getFileDocumentForCapture(file.id)
+  assert.equal(captureRead.revision, 7)
+  assert.equal(captureRead.document.pages[0].name, 'Live')
+  assert.equal(captureRead.updatedAt, new Date(projectionRow.updated_at).toISOString())
+
+  const sharedRead = await controlPlane.getSharedFile(file.id)
+  assert.equal(sharedRead.file.headRevision, 7)
+  assert.equal(sharedRead.document.revision, 7)
+  assert.equal(sharedRead.document.document.pages[0].name, 'Live')
+  assert.equal(sharedRead.document.updatedAt, new Date(projectionRow.updated_at).toISOString())
+
+  const { revision: _revision, ...missingRevision } = liveDocument
+  for (const malformed of [missingRevision, { ...liveDocument, revision: '' }, { ...liveDocument, revision: '7' }, { ...liveDocument, revision: '   ' }, { ...liveDocument, revision: 7.5 }]) {
+    await pool.query('UPDATE app_collaboration_projection SET document = $2::jsonb WHERE file_id = $1', [file.id, JSON.stringify(malformed)])
+    await assert.rejects(controlPlane.getFileDocument(ownerUserId, file.id), /invalid revision/)
+    await assert.rejects(controlPlane.getFileDocumentForCapture(file.id), /invalid revision/)
+    await assert.rejects(controlPlane.getSharedFile(file.id), /invalid revision/)
+  }
+  await pool.query(
+    'UPDATE app_collaboration_projection SET document = $2::jsonb, document_digest = $3, updated_at = $4 WHERE file_id = $1',
+    [file.id, JSON.stringify(projectionRow.document), projectionRow.document_digest, projectionRow.updated_at],
+  )
 }
 
 async function assertAdmissionLockOrderRace(pool, controlPlane) {
@@ -250,7 +354,7 @@ async function assertAdmissionLockOrderRace(pool, controlPlane) {
   await blocker.query('BEGIN')
   await blocker.query('SELECT id FROM app_file WHERE id = $1 FOR UPDATE', [file.id])
   try {
-    const resolution = persistence.resolveAdmissionGeneration({ fileId: file.id, generationId: randomUUID(), protocolEpoch: 2, candidateTtlMs: 30_000 })
+    const resolution = persistence.resolveAdmissionGeneration({ fileId: file.id, generationId: randomUUID(), protocolEpoch: 3, candidateTtlMs: 30_000 })
     await waitForRowLockWaiter(pool)
     await blocker.query('SELECT file_id FROM app_collaboration_lease WHERE file_id = $1 FOR UPDATE', [file.id])
     await blocker.query('COMMIT')
@@ -265,7 +369,7 @@ async function assertAdmissionReplacementRollback(pool, controlPlane) {
   const persistence = currentSchemaPersistence(pool)
   const file = await controlPlane.createFile('admission-rollback-owner', 'Admission rollback', null)
   const staleId = randomUUID()
-  assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId: staleId, protocolEpoch: 2 })).status, 'registered')
+  assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId: staleId, protocolEpoch: 3 })).status, 'registered')
   await pool.query("UPDATE app_collaboration_generation SET created_at = now() - interval '1 minute' WHERE file_id = $1 AND generation_id = $2", [file.id, staleId])
   await pool.query(`CREATE FUNCTION collaboration_acceptance_fail_admission_insert() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
@@ -278,7 +382,7 @@ async function assertAdmissionReplacementRollback(pool, controlPlane) {
   await pool.query('CREATE TRIGGER collaboration_acceptance_fail_admission_insert BEFORE INSERT ON app_collaboration_generation FOR EACH ROW EXECUTE FUNCTION collaboration_acceptance_fail_admission_insert()')
   try {
     await assert.rejects(
-      persistence.resolveAdmissionGeneration({ fileId: file.id, generationId: randomUUID(), protocolEpoch: 2, candidateTtlMs: 30_000 }),
+      persistence.resolveAdmissionGeneration({ fileId: file.id, generationId: randomUUID(), protocolEpoch: 3, candidateTtlMs: 30_000 }),
       /forced admission insertion failure/,
     )
     assert.equal((await pool.query('SELECT status FROM app_collaboration_generation WHERE file_id = $1 AND generation_id = $2', [file.id, staleId])).rows[0].status, 'candidate')
@@ -291,8 +395,8 @@ async function assertAdmissionReplacementRollback(pool, controlPlane) {
 async function assertBootstrapCutoverRace(pool, persistence, controlPlane) {
   const file = await controlPlane.createFile('cutover-race-owner', 'Cutover race', null)
   const generationId = randomUUID()
-  assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId, protocolEpoch: 2 })).status, 'registered')
-  const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 2, leaseDurationMs: 30_000 })
+  assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId, protocolEpoch: 3 })).status, 'registered')
+  const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 3, leaseDurationMs: 30_000 })
   assert.equal(acquired.status, 'acquired')
 
   const advisoryKey = 1_143_920_117
@@ -311,9 +415,9 @@ async function assertBootstrapCutoverRace(pool, persistence, controlPlane) {
     const bootstrap = persistence.bootstrapProjectionFromLegacy({
       fileId: file.id,
       generationId,
-      protocolEpoch: 2,
+      protocolEpoch: 3,
       fencingToken: acquired.lease.fencingToken,
-      documentSchemaVersion: 7,
+      documentSchemaVersion: 9,
     })
     await waitForAdvisoryWaiter(pool)
     const source = await controlPlane.getFileDocument('cutover-race-owner', file.id)
@@ -340,11 +444,11 @@ async function assertUniformLockOrderRace(pool) {
   const controlPlane = createPostgresControlPlane(pool)
   const file = await controlPlane.createFile('lock-order-owner', 'Lock order race', null)
   const generationId = randomUUID()
-  assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId, protocolEpoch: 2 })).status, 'registered')
-  const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 2, leaseDurationMs: 30_000 })
+  assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId, protocolEpoch: 3 })).status, 'registered')
+  const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 3, leaseDurationMs: 30_000 })
   assert.equal(acquired.status, 'acquired')
   const lease = acquired.lease
-  const bootstrapInput = { fileId: file.id, generationId, protocolEpoch: 2, fencingToken: lease.fencingToken, documentSchemaVersion: 7 }
+  const bootstrapInput = { fileId: file.id, generationId, protocolEpoch: 3, fencingToken: lease.fencingToken, documentSchemaVersion: 9 }
   assert.equal((await persistence.bootstrapProjectionFromLegacy(bootstrapInput)).status, 'seeded')
   const firstInput = operationInput({ fileId: file.id, lease, mutationId: 'lock-order-mutation', baseSequence: 0n, revision: 1, name: 'Lock order', expectedSubjectId: 'lock-order-owner', expectedAccessEpoch: 1n })
   assert.equal((await persistence.appendOperation(firstInput)).status, 'committed')
@@ -352,14 +456,14 @@ async function assertUniformLockOrderRace(pool) {
   const checkpointInput = {
     fileId: file.id,
     generationId,
-    protocolEpoch: 2,
+    protocolEpoch: 3,
     fencingToken: lease.fencingToken,
     sequence: 1n,
     objectKey: `checkpoints/${file.id}/lock-order.zst`,
     objectDigest: 'c'.repeat(64),
     documentDigest: projection.documentDigest,
     compressedBytes: 128n,
-    documentSchemaVersion: 7,
+    documentSchemaVersion: 9,
   }
 
   const appendBarrier = queryBarrier()
@@ -379,7 +483,7 @@ async function assertUniformLockOrderRace(pool) {
   const prunePersistence = currentSchemaPersistence(instrumentedPool(pool))
   const bootstrapAttempt = bootstrapPersistence.bootstrapProjectionFromLegacy(bootstrapInput)
   await bootstrapBarrier.wait()
-  const pruneAttempt = prunePersistence.pruneCoveredOperations({ fileId: file.id, generationId, protocolEpoch: 2, fencingToken: lease.fencingToken, throughSequence: 1n })
+  const pruneAttempt = prunePersistence.pruneCoveredOperations({ fileId: file.id, generationId, protocolEpoch: 3, fencingToken: lease.fencingToken, throughSequence: 1n })
   await waitForRowLockWaiter(pool)
   bootstrapBarrier.open()
   const [bootstrap, prune] = await bounded(Promise.all([bootstrapAttempt, pruneAttempt]), 'bootstrap and prune lock-order race')
@@ -393,24 +497,24 @@ async function assertLegacyMigrationRollback(pool, controlPlane) {
   const current = await controlPlane.getFileDocument('legacy-migration-owner', file.id)
   const source = { ...current.document, schemaVersion: 6, assets: {}, migrationRollbackMarker: 'rollback' }
   const { assets: _assets, ...assetFreeSource } = source
-  const expected = { ...assetFreeSource, schemaVersion: 7 }
+  const expected = { ...assetFreeSource, schemaVersion: 9 }
   await pool.query('UPDATE app_file_document SET document = $2::jsonb WHERE file_id = $1', [file.id, JSON.stringify(source)])
   const persistence = createPostgresCollaborationPersistence(pool, {
     migrateLegacyDocument(document, targetSchemaVersion) {
-      if (canonicalCollaborationJson(document) !== canonicalCollaborationJson(source) || targetSchemaVersion !== 7) return { status: 'unsupported', reason: 'document-invalid' }
+      if (canonicalCollaborationJson(document) !== canonicalCollaborationJson(source) || targetSchemaVersion !== 9) return { status: 'unsupported', reason: 'document-invalid' }
       return { status: 'migrated', document: expected }
     },
     validateLegacyDocument({ sourceDocument, document, targetSchemaVersion }) {
-      const valid = targetSchemaVersion === 7
+      const valid = targetSchemaVersion === 9
         && canonicalCollaborationJson(sourceDocument) === canonicalCollaborationJson(source)
         && canonicalCollaborationJson(document) === canonicalCollaborationJson(expected)
       return valid ? { status: 'valid' } : { status: 'invalid', reason: 'document-invalid' }
     },
   })
-  assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId, protocolEpoch: 2 })).status, 'registered')
-  const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 2, leaseDurationMs: 30_000 })
+  assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId, protocolEpoch: 3 })).status, 'registered')
+  const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 3, leaseDurationMs: 30_000 })
   assert.equal(acquired.status, 'acquired')
-  const input = { fileId: file.id, generationId, protocolEpoch: 2, fencingToken: acquired.lease.fencingToken, documentSchemaVersion: 7 }
+  const input = { fileId: file.id, generationId, protocolEpoch: 3, fencingToken: acquired.lease.fencingToken, documentSchemaVersion: 9 }
 
   await pool.query(`CREATE FUNCTION collaboration_acceptance_fail_legacy_projection() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
@@ -441,7 +545,7 @@ async function assertLegacyMigrationRollback(pool, controlPlane) {
   await pool.query('UPDATE app_file_document SET document = $2::jsonb WHERE file_id = $1', [hostileFile.id, JSON.stringify(hostileSource)])
   const hostile = createPostgresCollaborationPersistence(pool, {
     migrateLegacyDocument(document) {
-      document.schemaVersion = 7
+      document.schemaVersion = 9
       document.revision = 999
       return { status: 'migrated', document }
     },
@@ -451,10 +555,10 @@ async function assertLegacyMigrationRollback(pool, controlPlane) {
         : { status: 'invalid', reason: 'document-invalid' }
     },
   })
-  assert.equal((await hostile.registerGeneration({ fileId: hostileFile.id, generationId: hostileGenerationId, protocolEpoch: 2 })).status, 'registered')
-  const hostileLease = await hostile.acquireLease({ fileId: hostileFile.id, generationId: hostileGenerationId, protocolEpoch: 2, leaseDurationMs: 30_000 })
+  assert.equal((await hostile.registerGeneration({ fileId: hostileFile.id, generationId: hostileGenerationId, protocolEpoch: 3 })).status, 'registered')
+  const hostileLease = await hostile.acquireLease({ fileId: hostileFile.id, generationId: hostileGenerationId, protocolEpoch: 3, leaseDurationMs: 30_000 })
   assert.equal(hostileLease.status, 'acquired')
-  assert.deepEqual(await hostile.bootstrapProjectionFromLegacy({ fileId: hostileFile.id, generationId: hostileGenerationId, protocolEpoch: 2, fencingToken: hostileLease.lease.fencingToken, documentSchemaVersion: 7 }), { status: 'invalid-source', reason: 'document-invalid' })
+  assert.deepEqual(await hostile.bootstrapProjectionFromLegacy({ fileId: hostileFile.id, generationId: hostileGenerationId, protocolEpoch: 3, fencingToken: hostileLease.lease.fencingToken, documentSchemaVersion: 9 }), { status: 'invalid-source', reason: 'document-invalid' })
   assert.deepEqual((await pool.query('SELECT document FROM app_file_document WHERE file_id = $1', [hostileFile.id])).rows[0]?.document, hostileSource)
   assert.equal((await pool.query('SELECT count(*)::int AS count FROM app_collaboration_projection WHERE file_id = $1', [hostileFile.id])).rows[0]?.count, 0)
 }
@@ -540,7 +644,7 @@ async function waitForAdvisoryWaiter(pool) {
 }
 
 function operationInput({ fileId, lease, mutationId, baseSequence, revision, name, failureMarker, expectedSubjectId = 'collaboration-acceptance', expectedAccessEpoch }) {
-  const document = { schemaVersion: 7, fileId, revision, name, ...(failureMarker ? { failureMarker } : {}) }
+  const document = { schemaVersion: 9, fileId, revision, name, ...(failureMarker ? { failureMarker } : {}) }
   return {
     fileId,
     generationId: lease.generationId,
@@ -553,7 +657,7 @@ function operationInput({ fileId, lease, mutationId, baseSequence, revision, nam
     operationType: 'document.edit',
     operationPayload: { kind: 'rename', name },
     baseSequence,
-    projection: { documentSchemaVersion: 7, document },
+    projection: { documentSchemaVersion: 9, document },
   }
 }
 

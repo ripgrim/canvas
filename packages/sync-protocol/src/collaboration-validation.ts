@@ -1,5 +1,18 @@
 import { validateFileCommand } from '@canvas/repo-engine/file-document'
 import {
+  flowDragDenialCodes,
+  flowDragIntegerLimit,
+  flowDragResourceLimits,
+  isFlowDragLane,
+  isFlowDragPresentationKey,
+  isFlowDragSourceFence,
+  validateFlowDragPresentation,
+  validateFlowDragPresentationStructure,
+  type FlowDragPresentation,
+  type FlowDragTerminalBinding,
+  type FlowDragTopologyAuthority,
+} from './flow.js'
+import {
   collaborationDocumentSchemaVersion,
   collaborationEnvelopeSchemaVersion,
   collaborationProtocolEpoch,
@@ -22,7 +35,6 @@ import type {
   PresenceParticipant,
   PresencePatch,
   PresencePoint,
-  PresenceInteraction,
   PresenceSelection,
   PresenceState,
   PersistedSemanticCommand,
@@ -86,21 +98,22 @@ export function validateCollaborationIdentity(value: unknown): Readonly<{ displa
 const lifecycleTransitions: Readonly<Record<ClientLifecycleState, readonly ClientLifecycleState[]>> = {
   cold: ['opening'],
   opening: ['authorizing', 'closing'],
-  authorizing: ['hydrating-local', 'admission-queued', 'access-revoked', 'incompatible-build', 'capacity-refused', 'closing'],
+  authorizing: ['hydrating-local', 'admission-queued', 'offline-clean', 'offline-dirty', 'access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed', 'closing'],
   'hydrating-local': ['admission-queued', 'offline-clean', 'offline-dirty', 'closing'],
-  'admission-queued': ['streaming', 'capacity-refused', 'draining', 'offline-clean', 'offline-dirty', 'access-revoked', 'closing'],
-  streaming: ['applying', 'draining', 'offline-clean', 'offline-dirty', 'access-revoked', 'incompatible-build', 'closing'],
-  applying: ['live', 'read-only', 'replaying', 'offline-clean', 'offline-dirty', 'access-revoked', 'incompatible-build', 'closing'],
-  live: ['read-only', 'offline-clean', 'offline-dirty', 'parked', 'access-revoked', 'draining', 'closing'],
-  'read-only': ['offline-clean', 'parked', 'access-revoked', 'draining', 'closing'],
+  'admission-queued': ['streaming', 'capacity-refused', 'incompatible-build', 'draining', 'offline-clean', 'offline-dirty', 'access-revoked', 'connection-failed', 'closing'],
+  streaming: ['applying', 'draining', 'offline-clean', 'offline-dirty', 'access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed', 'closing'],
+  applying: ['live', 'read-only', 'replaying', 'offline-clean', 'offline-dirty', 'access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed', 'closing'],
+  live: ['read-only', 'offline-clean', 'offline-dirty', 'parked', 'access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed', 'draining', 'closing'],
+  'read-only': ['offline-clean', 'parked', 'access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed', 'draining', 'closing'],
   'offline-clean': ['reconnecting', 'offline-dirty', 'parked', 'access-revoked', 'closing'],
   'offline-dirty': ['reconnecting', 'access-revoked', 'closing'],
-  reconnecting: ['authorizing', 'offline-clean', 'offline-dirty', 'closing'],
-  replaying: ['live', 'read-only', 'offline-dirty', 'access-revoked', 'draining', 'closing'],
+  reconnecting: ['authorizing', 'offline-clean', 'offline-dirty', 'connection-failed', 'closing'],
+  replaying: ['live', 'read-only', 'offline-dirty', 'access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed', 'draining', 'closing'],
   parked: ['reconnecting', 'closing', 'access-revoked'],
   'access-revoked': ['closing'],
   'incompatible-build': ['closing'],
   'capacity-refused': ['closing'],
+  'connection-failed': ['closing'],
   draining: ['reconnecting', 'offline-clean', 'offline-dirty', 'closing'],
   closing: ['closed'],
   closed: ['opening', 'cold'],
@@ -210,37 +223,12 @@ function isPresenceSelection(value: unknown): value is PresenceSelection {
     && new Set(value.nodeIds).size === value.nodeIds.length
 }
 
-function isPresenceInteraction(value: unknown): value is PresenceInteraction {
-  if (!isRecord(value)
-    || !exactKeys(value, ['interactionId', 'pageId', 'kind', 'nodeIds', 'transforms'])
-    || !isIdentifier(value.interactionId)
-    || !isIdentifier(value.pageId)
-    || (value.kind !== 'move' && value.kind !== 'resize')
-    || !Array.isArray(value.nodeIds)
-    || value.nodeIds.length === 0
-    || value.nodeIds.length > maxPresenceIdentifiers
-    || !value.nodeIds.every(isIdentifier)
-    || new Set(value.nodeIds).size !== value.nodeIds.length
-    || !Array.isArray(value.transforms)
-    || value.transforms.length > maxPresenceIdentifiers) return false
-  const locked = new Set(value.nodeIds)
-  return value.transforms.every(transform => isRecord(transform)
-    && exactKeys(transform, ['nodeId', 'dx', 'dy'], ['width', 'height'])
-    && isIdentifier(transform.nodeId)
-    && locked.has(transform.nodeId)
-    && isPresenceCoordinate(transform.dx)
-    && isPresenceCoordinate(transform.dy)
-    && (!Object.hasOwn(transform, 'width') || typeof transform.width === 'number' && Number.isFinite(transform.width) && transform.width > 0 && transform.width <= maxPresenceCoordinate)
-    && (!Object.hasOwn(transform, 'height') || typeof transform.height === 'number' && Number.isFinite(transform.height) && transform.height > 0 && transform.height <= maxPresenceCoordinate))
-}
-
 function presencePageIds(value: PresencePatch | PresenceState): readonly string[] {
   return [
     value.pageId,
     value.selection?.pageId,
     value.camera?.pageId,
     value.cursor?.pageId,
-    value.interaction?.pageId,
   ].filter((pageId): pageId is string => typeof pageId === 'string')
 }
 
@@ -249,25 +237,23 @@ function hasOnePresencePage(value: PresencePatch | PresenceState): boolean {
 }
 
 function isPresencePatch(value: unknown): value is PresencePatch {
-  if (!isRecord(value) || !exactKeys(value, [], ['pageId', 'focused', 'selection', 'camera', 'cursor', 'interaction']) || Object.keys(value).length === 0) return false
+  if (!isRecord(value) || !exactKeys(value, [], ['pageId', 'focused', 'selection', 'camera', 'cursor']) || Object.keys(value).length === 0) return false
   if (Object.hasOwn(value, 'pageId') && value.pageId !== null && !isIdentifier(value.pageId)) return false
   if (Object.hasOwn(value, 'focused') && typeof value.focused !== 'boolean') return false
   if (Object.hasOwn(value, 'selection') && value.selection !== null && !isPresenceSelection(value.selection)) return false
   if (Object.hasOwn(value, 'camera') && value.camera !== null && !isPresenceCamera(value.camera)) return false
   if (Object.hasOwn(value, 'cursor') && value.cursor !== null && !isPresencePoint(value.cursor)) return false
-  if (Object.hasOwn(value, 'interaction') && value.interaction !== null && !isPresenceInteraction(value.interaction)) return false
   return hasOnePresencePage(value as PresencePatch)
 }
 
 function isPresenceState(value: unknown): value is PresenceState {
   if (!isRecord(value)
-    || !exactKeys(value, ['pageId', 'focused', 'selection', 'camera', 'cursor'], ['interaction'])
+    || !exactKeys(value, ['pageId', 'focused', 'selection', 'camera', 'cursor'])
     || (value.pageId !== null && !isIdentifier(value.pageId))
     || typeof value.focused !== 'boolean'
     || (value.selection !== null && !isPresenceSelection(value.selection))
     || (value.camera !== null && !isPresenceCamera(value.camera))
-    || (value.cursor !== null && !isPresencePoint(value.cursor))
-    || (value.interaction !== undefined && value.interaction !== null && !isPresenceInteraction(value.interaction))) return false
+    || (value.cursor !== null && !isPresencePoint(value.cursor))) return false
   const state = value as unknown as PresenceState
   return hasOnePresencePage(state) && (presencePageIds(state).length === 0 || state.pageId !== null)
 }
@@ -300,6 +286,70 @@ function isFenceToken(value: unknown): value is string {
 
 function isServerEnvelope(value: unknown): value is ServerRoomEnvelope {
   return isRecord(value) && exactKeys(value, ['protocolEpoch', 'schemaVersion', 'room', 'fenceToken']) && value.protocolEpoch === collaborationProtocolEpoch && value.schemaVersion === collaborationEnvelopeSchemaVersion && isRoomIdentity(value.room) && isFenceToken(value.fenceToken)
+}
+
+function isFlowGeneration(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= flowDragIntegerLimit
+}
+
+function ownEnumerableDataValue(value: object, key: string): { readonly ok: true; readonly value: unknown } | { readonly ok: false } {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key)
+  return descriptor && descriptor.enumerable && 'value' in descriptor
+    ? { ok: true, value: descriptor.value }
+    : { ok: false }
+}
+
+function isFlowPresentation(value: unknown, authority: FlowDragTopologyAuthority | undefined): value is FlowDragPresentation {
+  if (!isRecord(value)) return false
+  const identityProperty = ownEnumerableDataValue(value, 'identity')
+  const fenceProperty = ownEnumerableDataValue(value, 'fence')
+  if (!identityProperty.ok || !fenceProperty.ok || !isRecord(identityProperty.value) || !isRecord(fenceProperty.value)) return false
+  const interactionId = ownEnumerableDataValue(identityProperty.value, 'interactionId')
+  const gestureGeneration = ownEnumerableDataValue(identityProperty.value, 'gestureGeneration')
+  const sampleSequence = ownEnumerableDataValue(identityProperty.value, 'sampleSequence')
+  if (!interactionId.ok || !gestureGeneration.ok || !sampleSequence.ok) return false
+  const key = {
+    interactionId: interactionId.value,
+    gestureGeneration: gestureGeneration.value,
+    sequence: sampleSequence.value,
+  }
+  if (!isFlowDragPresentationKey(key) || !isFlowDragSourceFence(fenceProperty.value)) return false
+  return authority === undefined
+    ? validateFlowDragPresentationStructure(value, key, fenceProperty.value)
+    : validateFlowDragPresentation(value, key, fenceProperty.value, authority)
+}
+
+const peerFlowInteractionPrefix = 'lease:'
+const peerFlowInteractionId = (leaseId: string): string => `${peerFlowInteractionPrefix}${leaseId}`
+
+function hasExactInteractionIdentity(value: unknown, expected: string, seen = new WeakSet<object>()): boolean {
+  if (value === null || typeof value !== 'object') return true
+  if (seen.has(value)) return true
+  seen.add(value)
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (!descriptor || !('value' in descriptor)) return false
+    if (key === 'interactionId' && descriptor.value !== expected) return false
+    if (!hasExactInteractionIdentity(descriptor.value, expected, seen)) return false
+  }
+  return true
+}
+
+export function validatePeerFlowDragPresentation(value: unknown, leaseId: string, authority?: FlowDragTopologyAuthority): value is FlowDragPresentation {
+  return isUuid(leaseId) && isFlowPresentation(value, authority) && hasExactInteractionIdentity(value, peerFlowInteractionId(leaseId))
+}
+
+function isFlowTerminalBinding(value: unknown): value is FlowDragTerminalBinding {
+  return isRecord(value)
+    && exactKeys(value, ['leaseId', 'interactionId', 'localClaimGeneration', 'reservationGeneration', 'terminalSampleSequence', 'presentationDigest', 'sourceLane', 'targetLane'])
+    && isUuid(value.leaseId)
+    && isIdentifier(value.interactionId)
+    && isFlowGeneration(value.localClaimGeneration)
+    && isFlowGeneration(value.reservationGeneration)
+    && isFlowGeneration(value.terminalSampleSequence)
+    && typeof value.presentationDigest === 'string' && digestPattern.test(value.presentationDigest)
+    && isFlowDragLane(value.sourceLane)
+    && isFlowDragLane(value.targetLane)
 }
 
 function parseObject(source: string, maxBytes: number): Record<string, unknown> {
@@ -357,7 +407,7 @@ export function validateVerifiedRoomTicketClaimsShape(value: unknown): VerifiedR
   return value as VerifiedRoomTicketClaims
 }
 
-export function parseCollaborationClientMessage(source: string, maxBytes = defaultMaxCollaborationMessageBytes): CollaborationClientMessage {
+export function parseCollaborationClientMessage(source: string, maxBytes = defaultMaxCollaborationMessageBytes, flowAuthority?: FlowDragTopologyAuthority): CollaborationClientMessage {
   const input = parseObject(source, maxBytes)
   if (input.type === 'room.open') {
     assertRootVersion(input)
@@ -370,11 +420,46 @@ export function parseCollaborationClientMessage(source: string, maxBytes = defau
     return input as unknown as CollaborationClientMessage
   }
   if (input.type === 'operation.submit') {
-    if (!exactKeys(input, ['type', 'operation']) || !isRecord(input.operation) || !exactKeys(input.operation, ['mutationId', 'baseSequence', 'command']) || !isMutationId(input.operation.mutationId) || !isDurableSequence(input.operation.baseSequence) || !isSemanticFileCommand(input.operation.command)) throw new Error('Invalid semantic operation message')
+    if (!exactKeys(input, ['type', 'operation']) || !isRecord(input.operation) || !exactKeys(input.operation, ['mutationId', 'baseSequence', 'command'], ['flowBinding']) || !isMutationId(input.operation.mutationId) || !isDurableSequence(input.operation.baseSequence) || !isSemanticFileCommand(input.operation.command)
+      || (Object.hasOwn(input.operation, 'flowBinding') && !isFlowTerminalBinding(input.operation.flowBinding))) throw new Error('Invalid semantic operation message')
     return input as unknown as CollaborationClientMessage
   }
   if (input.type === 'presence.update') {
     if (!exactKeys(input, ['type', 'sequence', 'data']) || !isEphemeralCounter(input.sequence) || !isPresencePatch(input.data)) throw new Error('Invalid presence update message')
+    return input as unknown as CollaborationClientMessage
+  }
+  if (input.type === 'interaction.acquire') {
+    if (!exactKeys(input, ['type', 'pageId', 'localClaimGeneration', 'presentation'], ['leaseId'])
+      || !isIdentifier(input.pageId) || !isFlowGeneration(input.localClaimGeneration)
+      || (Object.hasOwn(input, 'leaseId') && !isUuid(input.leaseId))
+      || !isFlowPresentation(input.presentation, flowAuthority)
+      || input.presentation.identity.interactionId.startsWith(peerFlowInteractionPrefix)
+      || input.pageId !== input.presentation.fence.pageId) throw new Error('Invalid interaction acquire message')
+    return input as unknown as CollaborationClientMessage
+  }
+  if (input.type === 'interaction.reserve') {
+    if (!exactKeys(input, ['type', 'pageId', 'leaseId', 'localClaimGeneration', 'reservationGeneration', 'targetLane', 'presentation'])
+      || !isIdentifier(input.pageId) || !isUuid(input.leaseId) || !isFlowGeneration(input.localClaimGeneration) || !isFlowGeneration(input.reservationGeneration)
+      || !isFlowDragLane(input.targetLane) || !isFlowPresentation(input.presentation, flowAuthority)
+      || input.pageId !== input.presentation.fence.pageId
+      || input.presentation.target === null
+      || input.presentation.target.parentId !== input.targetLane.parentId
+      || input.presentation.target.slot.presence !== input.targetLane.slot.presence
+      || (input.presentation.target.slot.presence === 'present'
+        && (input.targetLane.slot.presence !== 'present' || input.presentation.target.slot.value !== input.targetLane.slot.value))) throw new Error('Invalid interaction reserve message')
+    return input as unknown as CollaborationClientMessage
+  }
+  if (input.type === 'interaction.sample') {
+    if (!exactKeys(input, ['type', 'pageId', 'leaseId', 'localClaimGeneration', 'reservationGeneration', 'presentation'])
+      || !isIdentifier(input.pageId) || !isUuid(input.leaseId) || !isFlowGeneration(input.localClaimGeneration) || !isFlowGeneration(input.reservationGeneration)
+      || !isFlowPresentation(input.presentation, flowAuthority) || input.pageId !== input.presentation.fence.pageId) throw new Error('Invalid interaction sample message')
+    return input as unknown as CollaborationClientMessage
+  }
+  if (input.type === 'interaction.release') {
+    if (!exactKeys(input, ['type', 'pageId', 'leaseId', 'interactionId', 'localClaimGeneration', 'reservationGeneration', 'terminalSampleSequence', 'reason'])
+      || !isIdentifier(input.pageId) || !isUuid(input.leaseId) || !isIdentifier(input.interactionId) || !isFlowGeneration(input.localClaimGeneration)
+      || !isFlowGeneration(input.reservationGeneration) || !isFlowGeneration(input.terminalSampleSequence)
+      || !['committed', 'cancelled', 'failed', 'disconnecting'].includes(input.reason as string)) throw new Error('Invalid interaction release message')
     return input as unknown as CollaborationClientMessage
   }
   if (input.type === 'room.leave') {
@@ -400,12 +485,12 @@ function isRoomError(input: Record<string, unknown>): boolean {
   return (input.code === 'capacity_refused' || input.code === 'draining') && input.retry === 'reconnect' && isRetryDelay(input.retryAfterMs)
 }
 
-function isServerMessage(input: Record<string, unknown>): boolean {
+function isServerMessage(input: Record<string, unknown>, flowAuthority?: FlowDragTopologyAuthority): boolean {
   if (input.type === 'request.error') return input.protocolEpoch === collaborationProtocolEpoch && input.schemaVersion === collaborationEnvelopeSchemaVersion && isPreAssignmentError(input)
   if (input.type === 'admission.queued') return exactKeys(input, ['type', 'protocolEpoch', 'schemaVersion', 'requestId']) && input.protocolEpoch === collaborationProtocolEpoch && input.schemaVersion === collaborationEnvelopeSchemaVersion && isIdentifier(input.requestId)
   if (input.type === 'room.error') return isRoomError(input)
   if (!isServerEnvelope(input.envelope)) return false
-  if (input.type === 'room.assigned') return exactKeys(input, ['type', 'envelope', 'requestId', 'role']) && isIdentifier(input.requestId) && (input.role === 'owner' || input.role === 'viewer')
+  if (input.type === 'room.assigned') return exactKeys(input, ['type', 'envelope', 'requestId', 'role', 'replayScopeId']) && isIdentifier(input.requestId) && (input.role === 'owner' || input.role === 'viewer') && typeof input.replayScopeId === 'string' && digestPattern.test(input.replayScopeId)
   if (input.type === 'load.phase') return exactKeys(input, ['type', 'envelope', 'requestId', 'phase']) && isIdentifier(input.requestId) && (input.phase === 'stream' || input.phase === 'apply')
   if (input.type === 'snapshot.begin') {
     return exactKeys(input, ['type', 'envelope', 'requestId', 'snapshotId', 'documentSchemaVersion', 'baseSequence', 'compression', 'contentEncoding', 'storedByteLength', 'documentByteLength', 'objectDigest', 'documentDigest', 'chunkCount'])
@@ -431,15 +516,61 @@ function isServerMessage(input: Record<string, unknown>): boolean {
   if (input.type === 'presence.roster') return exactKeys(input, ['type', 'envelope', 'participants']) && Array.isArray(input.participants) && input.participants.length <= maxPresenceParticipants && input.participants.every(isPresenceParticipant) && new Set(input.participants.map(participant => participant.clientId)).size === input.participants.length && new Set(input.participants.map(participant => participant.presenceId)).size === input.participants.length
   if (input.type === 'presence.join' || input.type === 'presence.changed') return exactKeys(input, ['type', 'envelope', 'participant']) && isPresenceParticipant(input.participant)
   if (input.type === 'presence.leave') return exactKeys(input, ['type', 'envelope', 'presenceId', 'subjectId', 'clientId']) && isIdentifier(input.presenceId) && isIdentifier(input.subjectId) && isIdentifier(input.clientId)
+  if (input.type === 'interaction.result') {
+    if (!exactKeys(input, ['type', 'envelope', 'pageId', 'action', 'status', 'interactionId', 'leaseId', 'localClaimGeneration', 'reservationGeneration', 'sampleSequence', 'denialCode'])
+      || !['acquire', 'reserve', 'release'].includes(input.action as string)
+      || !['granted', 'retained', 'released', 'denied'].includes(input.status as string)
+      || !isIdentifier(input.pageId) || !isIdentifier(input.interactionId) || !isFlowGeneration(input.localClaimGeneration)
+      || !isFlowGeneration(input.reservationGeneration) || !isFlowGeneration(input.sampleSequence)
+      || (input.denialCode !== null && !flowDragDenialCodes.includes(input.denialCode as never))) return false
+    const denied = input.status === 'denied'
+    if (denied !== (input.denialCode !== null)) return false
+    if (input.leaseId !== null && !isUuid(input.leaseId)) return false
+    if (input.action === 'acquire') {
+      if (denied) return input.leaseId === null
+      return input.leaseId !== null && ['granted', 'retained'].includes(input.status as string)
+    }
+    if (input.leaseId === null) return false
+    if (input.action === 'reserve' && !['granted', 'retained', 'denied'].includes(input.status as string)) return false
+    return input.action !== 'release' || ['retained', 'released', 'denied'].includes(input.status as string)
+  }
+  if (input.type === 'interaction.sample') {
+    return exactKeys(input, ['type', 'envelope', 'pageId', 'presenceId', 'subjectId', 'clientId', 'leaseId', 'localClaimGeneration', 'reservationGeneration', 'presentation'])
+      && isIdentifier(input.pageId) && isIdentifier(input.presenceId) && isIdentifier(input.subjectId) && isIdentifier(input.clientId) && isUuid(input.leaseId)
+      && isFlowGeneration(input.localClaimGeneration) && isFlowGeneration(input.reservationGeneration)
+      && validatePeerFlowDragPresentation(input.presentation, input.leaseId, flowAuthority) && input.pageId === input.presentation.fence.pageId
+  }
+  if (input.type === 'interaction.released') {
+    return exactKeys(input, ['type', 'envelope', 'pageId', 'presenceId', 'subjectId', 'clientId', 'interactionId', 'leaseId', 'localClaimGeneration', 'reservationGeneration', 'terminalSampleSequence', 'reason'])
+      && isIdentifier(input.pageId) && isIdentifier(input.presenceId) && isIdentifier(input.subjectId) && isIdentifier(input.clientId) && isIdentifier(input.interactionId)
+      && isUuid(input.leaseId) && isFlowGeneration(input.localClaimGeneration) && isFlowGeneration(input.reservationGeneration)
+      && input.interactionId === peerFlowInteractionId(input.leaseId)
+      && isFlowGeneration(input.terminalSampleSequence) && ['committed', 'cancelled', 'failed', 'disconnecting'].includes(input.reason as string)
+  }
+  if (input.type === 'interaction.roster') {
+    if (!exactKeys(input, ['type', 'envelope', 'interactions']) || !Array.isArray(input.interactions)
+      || input.interactions.length > flowDragResourceLimits.maxReservationsPerRoom) return false
+    const leases = new Set<string>(), interactions = new Set<string>()
+    for (const entry of input.interactions) {
+      if (!isRecord(entry) || !exactKeys(entry, ['pageId', 'presenceId', 'subjectId', 'clientId', 'leaseId', 'localClaimGeneration', 'reservationGeneration', 'presentation'])
+        || !isIdentifier(entry.pageId) || !isIdentifier(entry.presenceId) || !isIdentifier(entry.subjectId) || !isIdentifier(entry.clientId) || !isUuid(entry.leaseId)
+        || !isFlowGeneration(entry.localClaimGeneration) || !isFlowGeneration(entry.reservationGeneration)
+        || !validatePeerFlowDragPresentation(entry.presentation, entry.leaseId, flowAuthority) || entry.pageId !== entry.presentation.fence.pageId || leases.has(entry.leaseId)
+        || interactions.has(entry.presentation.identity.interactionId)) return false
+      leases.add(entry.leaseId)
+      interactions.add(entry.presentation.identity.interactionId)
+    }
+    return true
+  }
   if (input.type === 'operation.rebase_required') return exactKeys(input, ['type', 'envelope', 'mutationId', 'baseSequence', 'authoritativeSequence', 'retry']) && isMutationId(input.mutationId) && isDurableSequence(input.baseSequence) && isDurableSequence(input.authoritativeSequence) && BigInt(input.authoritativeSequence) > BigInt(input.baseSequence) && input.retry === 'resync'
   return false
 }
 
-export function parseCollaborationServerMessage(source: string, maxBytes = defaultMaxCollaborationMessageBytes): CollaborationServerMessage {
+export function parseCollaborationServerMessage(source: string, maxBytes = defaultMaxCollaborationMessageBytes, flowAuthority?: FlowDragTopologyAuthority): CollaborationServerMessage {
   const input = parseObject(source, maxBytes)
   if (input.type === 'request.error' || input.type === 'admission.queued') assertRootVersion(input)
   else assertEnvelopeVersion(input)
-  if (!isServerMessage(input)) throw new Error('Invalid collaboration server message')
+  if (!isServerMessage(input, flowAuthority)) throw new Error('Invalid collaboration server message')
   return input as unknown as CollaborationServerMessage
 }
 

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { maxCollaborationAvatarUrlBytes, maxRoomTicketLength } from "@canvas/sync-protocol"
+import { collaborationProtocolEpoch, collaborationWebSocketProtocol, maxCollaborationAvatarUrlBytes, maxRoomTicketLength } from "@canvas/sync-protocol"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { handleCoordinatorRequest, proxyRoomUpgrade } from "../src/index.js"
 import { consumeAdmission } from "../src/admission-replay.js"
@@ -9,8 +9,9 @@ import type { DurableObjectStorage, DurableObjectTransaction } from "../src/plat
 
 const fileId = "c4964764-a27f-4345-8b6a-eada5b77f339"
 const generationId = "3d6c7f8e-20bc-47eb-b264-d190a9239e70"
-const roomName = `sync:2:${fileId}:${generationId}`
+const roomName = `sync:${collaborationProtocolEpoch}:${fileId}:${generationId}`
 const origin = "https://canvas.example"
+const requestId = "request-1"
 const secretBytes = Uint8Array.from({ length: 32 }, (_, index) => index + 1)
 const secret = Buffer.from(secretBytes).toString("base64url")
 type AdmissionEnvelope = Readonly<{
@@ -19,7 +20,7 @@ type AdmissionEnvelope = Readonly<{
   origin: string
   clientId: string
   requestId: string
-  claims: Readonly<{ subjectId: string; displayName: string; avatarUrl: string | null; fileId: string; role: "owner" | "viewer"; generationId: string; protocolEpoch: 2; buildId: string; accessEpoch: string }>
+  claims: Readonly<{ subjectId: string; displayName: string; avatarUrl: string | null; fileId: string; role: "owner" | "viewer"; generationId: string; protocolEpoch: number; buildId: string; accessEpoch: string }>
   issuedAtUnixMs: number
   expiresAtUnixMs: number
 }>
@@ -27,8 +28,8 @@ type AdmissionEnvelope = Readonly<{
 async function signAdmission(now = Date.now(), overrides: Partial<Omit<AdmissionEnvelope, "claims">> & Readonly<{ claims?: Partial<AdmissionEnvelope["claims"]> }> = {}): Promise<string> {
   const { claims: claimOverrides, ...fields } = overrides
   const envelope: AdmissionEnvelope = {
-    admissionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", roomName, origin, clientId: "tab-1", requestId: "request-1",
-    claims: { subjectId: "user:1", displayName: "Alpha", avatarUrl: "https://images.example/alpha.png", fileId, role: "owner", generationId, protocolEpoch: 2, buildId: "0.1.0", accessEpoch: "1", ...claimOverrides },
+    admissionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", roomName, origin, clientId: "tab-1", requestId,
+    claims: { subjectId: "user:1", displayName: "Alpha", avatarUrl: "https://images.example/alpha.png", fileId, role: "owner", generationId, protocolEpoch: collaborationProtocolEpoch, buildId: "0.1.0", accessEpoch: "1", ...claimOverrides },
     issuedAtUnixMs: now, expiresAtUnixMs: now + 15_000, ...fields,
   }
   const payload = Buffer.from(JSON.stringify(envelope)).toString("base64url")
@@ -38,7 +39,7 @@ async function signAdmission(now = Date.now(), overrides: Partial<Omit<Admission
 }
 
 async function handshake(overrides: Record<string, string> = {}, method = "GET"): Promise<Request> {
-  return new Request(`https://coordinator.internal/sync/${fileId}?tabId=tab-1`, { method, headers: { Origin: origin, Upgrade: "websocket", Connection: "Upgrade", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==", "Sec-WebSocket-Protocol": "canvas-sync-v2", "X-Canvas-Sync-Room": roomName, "X-Canvas-Sync-Admission": await signAdmission(), ...overrides } })
+  return new Request(`https://coordinator.internal/sync/${fileId}?tabId=tab-1`, { method, headers: { Origin: origin, Upgrade: "websocket", Connection: "Upgrade", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==", "Sec-WebSocket-Protocol": collaborationWebSocketProtocol, "X-Canvas-Sync-Room": roomName, "X-Canvas-Sync-Admission": await signAdmission(), "X-Canvas-Request-Id": requestId, ...overrides } })
 }
 
 class FakeStorage implements DurableObjectStorage {
@@ -74,8 +75,8 @@ function environment(runtimeRequests: Request[], storage = new FakeStorage()) {
 
 afterEach(() => vi.unstubAllGlobals())
 
-describe("private coordinator and real DO boundary", () => {
-  it("routes a complete handshake through the real DO without API or repository authority", async () => {
+describe("CLOUD-SYNC-DO-001-C4-COORD private coordinator and real DO boundary", () => {
+  it("routes a complete epoch-4 handshake through the real DO without API or repository authority", async () => {
     const runtime: Request[] = []; const env = environment(runtime)
     const response = await handleCoordinatorRequest(await handshake(), env)
     expect(response.status).toBe(101)
@@ -87,19 +88,24 @@ describe("private coordinator and real DO boundary", () => {
     expect(proxied.headers.get("X-Canvas-Collaboration-Token")).toBeNull()
     expect(proxied.headers.get("X-Canvas-Sync-Admission")).toBeNull()
     expect(proxied.headers.get("X-Canvas-Sync-Room")).toBeNull()
-    expect(proxied.headers.get("Sec-WebSocket-Protocol")).toBe("canvas-sync-v2")
+    expect(proxied.headers.get("Sec-WebSocket-Protocol")).toBe(collaborationWebSocketProtocol)
     expect(new URL(proxied.url).pathname).toBe(`/sync/${fileId}/${generationId}`)
     expect(new URL(proxied.url).searchParams.get("clientId")).toBe("tab-1")
     expect(new URL(proxied.url).searchParams.get("connectionNonce")).toMatch(/^[A-Za-z0-9_-]{16,512}$/)
     const roomTicket = proxied.headers.get("Authorization")!.slice("Bearer ".length)
     const ticketBytes = Buffer.from(roomTicket, "base64url")
     const ticketClaims = JSON.parse(ticketBytes.subarray(0, -32).toString("utf8"))
-    expect(ticketClaims).toMatchObject({ subjectId: "user:1", displayName: "Alpha", avatarUrl: "https://images.example/alpha.png" })
+    expect(ticketClaims).toMatchObject({
+      subjectId: "user:1", role: "owner", accessEpoch: "1", fileId, generationId, protocolEpoch: collaborationProtocolEpoch,
+      buildId: "0.1.0", clientId: "tab-1", displayName: "Alpha", avatarUrl: "https://images.example/alpha.png",
+    })
+    expect(ticketClaims.connectionNonce).toBe(new URL(proxied.url).searchParams.get("connectionNonce"))
+    expect(ticketClaims.expiresAtUnixMs).toEqual(expect.any(Number))
     expect(ticketClaims).not.toHaveProperty("email")
     expect(JSON.stringify(ticketClaims)).not.toMatch(/API_SERVICE|DATABASE|REPOSITORY|SOURCE/)
   })
 
-  it("CLOUD-SYNC-AUTH-001 consumes an admission once across disconnect and DO object restart", async () => {
+  it("CLOUD-SYNC-AUTH-001-C4-COORD consumes an admission once across disconnect and DO object restart", async () => {
     const runtime: Request[] = []
     const storage = new FakeStorage()
     const env = environment(runtime, storage)
@@ -111,7 +117,18 @@ describe("private coordinator and real DO boundary", () => {
     expect(storage.values.size).toBe(1)
   })
 
-  it("CLOUD-SYNC-AUTH-001 bounds expired replay-ledger cleanup work", async () => {
+  it("CLOUD-SYNC-AUTH-001-C4-COORD atomically admits only one of two concurrent redemptions", async () => {
+    const runtime: Request[] = []
+    const storage = new FakeStorage()
+    const env = environment(runtime, storage)
+    const request = await handshake()
+
+    const responses = await Promise.all([handleCoordinatorRequest(request, env), handleCoordinatorRequest(request, env)])
+    expect(responses.map(response => response.status).sort()).toEqual([101, 403])
+    expect(runtime).toHaveLength(1)
+  })
+
+  it("CLOUD-SYNC-AUTH-001-C4-COORD bounds expired replay-ledger cleanup work", async () => {
     const storage = new FakeStorage()
     for (let index = 0; index < 80; index += 1) storage.values.set(`admission:expired-${index}`, 999)
     storage.values.set("admission:future", 2_000)
@@ -122,7 +139,7 @@ describe("private coordinator and real DO boundary", () => {
     expect(storage.values.get("admission:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")).toBe(2_000)
   })
 
-  it("CLOUD-SYNC-AUTH-001 mints a parseable bounded ticket for worst-case admitted identity", async () => {
+  it("CLOUD-SYNC-SCHEMA-001-C4-COORD mints one parseable bounded ticket for worst-case admitted identity", async () => {
     const runtime: Request[] = []; const env = environment(runtime)
     const maxClientId = "c".repeat(128)
     const avatarPrefix = "https://images.example/"
@@ -143,9 +160,10 @@ describe("private coordinator and real DO boundary", () => {
         Connection: "Upgrade",
         "Sec-WebSocket-Version": "13",
         "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-        "Sec-WebSocket-Protocol": "canvas-sync-v2",
+        "Sec-WebSocket-Protocol": collaborationWebSocketProtocol,
         "X-Canvas-Sync-Room": roomName,
         "X-Canvas-Sync-Admission": token,
+        "X-Canvas-Request-Id": requestId,
       },
     })
 
@@ -164,16 +182,48 @@ describe("private coordinator and real DO boundary", () => {
     ["missing key", { "Sec-WebSocket-Key": "" }, "GET"],
     ["malformed key", { "Sec-WebSocket-Key": "not-base64" }, "GET"],
     ["unknown protocol", { "Sec-WebSocket-Protocol": "other" }, "GET"],
+    ["epoch-3 protocol", { "Sec-WebSocket-Protocol": "canvas-sync-v3" }, "GET"],
+    ["internally spaced protocol", { "Sec-WebSocket-Protocol": "canvas-sync -v4" }, "GET"],
     ["empty protocol", { "Sec-WebSocket-Protocol": "" }, "GET"],
+    ["leading empty protocol member", { "Sec-WebSocket-Protocol": `,${collaborationWebSocketProtocol}` }, "GET"],
+    ["trailing empty protocol member", { "Sec-WebSocket-Protocol": `${collaborationWebSocketProtocol},` }, "GET"],
+    ["consecutive empty protocol member", { "Sec-WebSocket-Protocol": `${collaborationWebSocketProtocol},,other` }, "GET"],
+    ["whitespace-only protocol member", { "Sec-WebSocket-Protocol": `${collaborationWebSocketProtocol},   ` }, "GET"],
+    ["duplicate protocol", { "Sec-WebSocket-Protocol": `${collaborationWebSocketProtocol},${collaborationWebSocketProtocol}` }, "GET"],
+    ["mixed protocol", { "Sec-WebSocket-Protocol": `${collaborationWebSocketProtocol},other` }, "GET"],
+    ["epoch-3 room", { "X-Canvas-Sync-Room": `sync:3:${fileId}:${generationId}` }, "GET"],
     ["missing Origin", { Origin: "" }, "GET"],
     ["untrusted Origin", { Origin: "https://evil.example" }, "GET"],
-  ])("rejects invalid %s at the coordinator before DO routing", async (_name, headers, method) => {
+    ["missing request ID", { "X-Canvas-Request-Id": "" }, "GET"],
+  ])("CLOUD-SYNC-DO-SEC-001-C4-COORD rejects invalid %s before DO routing", async (_name, headers, method) => {
     const runtime: Request[] = []; const env = environment(runtime)
     expect((await handleCoordinatorRequest(await handshake(headers, method), env)).status).toBe(403)
     expect(runtime).toHaveLength(0)
   })
 
-  it("rejects a forged admission capability", async () => {
+  it("CLOUD-SYNC-SCHEMA-001-C4-COORD accepts legal surrounding OWS only after the Fetch Headers boundary canonicalizes it", async () => {
+    const runtime: Request[] = []
+    const env = environment(runtime)
+    const request = await handshake({ "Sec-WebSocket-Protocol": ` \t${collaborationWebSocketProtocol}\t ` })
+
+    expect(request.headers.get("Sec-WebSocket-Protocol")).toBe(collaborationWebSocketProtocol)
+    expect((await handleCoordinatorRequest(request, env)).status).toBe(101)
+    expect(runtime).toHaveLength(1)
+    expect(runtime[0]!.headers.get("Sec-WebSocket-Protocol")).toBe(collaborationWebSocketProtocol)
+  })
+
+  it("CLOUD-SYNC-DO-SEC-001-C4-COORD rejects a genuinely absent WebSocket protocol", async () => {
+    const runtime: Request[] = []
+    const env = environment(runtime)
+    const request = await handshake()
+    const headers = new Headers(request.headers)
+    headers.delete("Sec-WebSocket-Protocol")
+
+    expect((await handleCoordinatorRequest(new Request(request, { headers }), env)).status).toBe(403)
+    expect(runtime).toHaveLength(0)
+  })
+
+  it("CLOUD-SYNC-DO-SEC-001-C4-COORD rejects a forged admission capability", async () => {
     const runtime: Request[] = []; const env = environment(runtime)
     const request = await handshake()
     const headers = new Headers(request.headers); headers.set("X-Canvas-Sync-Admission", `${headers.get("X-Canvas-Sync-Admission")}x`)
@@ -181,12 +231,16 @@ describe("private coordinator and real DO boundary", () => {
     expect(runtime).toHaveLength(0)
   })
 
-  it("rejects independently signed admission scope and lifetime changes", async () => {
+  it("CLOUD-SYNC-DO-SEC-001-C4-COORD rejects independently signed scope, epoch, and lifetime changes", async () => {
     const cases = [
       await signAdmission(Date.now(), { origin: "https://other.example" }),
       await signAdmission(Date.now(), { clientId: "tab-2" }),
+      await signAdmission(Date.now(), { requestId: "request-2" }),
       await signAdmission(Date.now(), { roomName: `${roomName}:other` }),
+      await signAdmission(Date.now(), { roomName: `sync:3:${fileId}:${generationId}` }),
       await signAdmission(Date.now(), { claims: { fileId: "11111111-1111-4111-8111-111111111111" } }),
+      await signAdmission(Date.now(), { claims: { generationId: "11111111-1111-4111-8111-111111111111" } }),
+      await signAdmission(Date.now(), { claims: { protocolEpoch: 3 } }),
       await signAdmission(Date.now(), { claims: { displayName: " Alpha " } }),
       await signAdmission(Date.now(), { claims: { displayName: "Al\u202Epha" } }),
       await signAdmission(Date.now(), { claims: { displayName: "Al\u2067pha" } }),
@@ -206,20 +260,20 @@ describe("private coordinator and real DO boundary", () => {
     }
   })
 
-  it("fails closed when the room runtime is unavailable", async () => {
+  it("CLOUD-SYNC-CONTAINER-001-C4-COORD fails closed when the room runtime is unavailable", async () => {
     const runtime: Request[] = []; const env = environment(runtime)
     vi.stubGlobal("fetch", vi.fn(async (request: Request) => { runtime.push(request); return new Response("offline", { status: 503 }) }))
     expect((await handleCoordinatorRequest(await handshake(), env)).status).toBe(503)
     expect(runtime).toHaveLength(1)
   })
 
-  it("requires independent coordinator and room-ticket credentials", () => {
+  it("CLOUD-SYNC-AUTH-001-C4-COORD requires independent coordinator and room-ticket credentials", () => {
     const runtime: Request[] = []; const env = environment(runtime)
     expect(() => validateCoordinatorEnv({ ...env, SYNC_ROOM_TICKET_SECRET: env.SYNC_COORDINATOR_INTERNAL_SECRET }))
       .toThrow("Sync service credentials must be independent")
   })
 
-  it("CLOUD-SYNC-CONTAINER-001 binds staging only to the private room runtime", () => {
+  it("CLOUD-SYNC-CONTAINER-001-C4-COORD binds staging only to the private room runtime", () => {
     const config = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"))
     expect(config.workers_dev).toBe(false)
     expect(config.routes).toBeUndefined()
@@ -230,39 +284,92 @@ describe("private coordinator and real DO boundary", () => {
     expect(config.env.preview.containers).toEqual(config.containers)
     expect(config.env.preview.services).toBeUndefined()
     expect(config.env.preview.durable_objects.bindings).toEqual([{ name: "SYNC_ROOMS", class_name: "FileSyncRoom" }])
+    expect(config.env.preview.vars.ALLOWED_ORIGINS).toBe("https://staging.canvas.ripgrim.com")
+    expect(config.env.preview.vars.ALLOWED_ORIGINS).not.toContain("login-staging.canvas.ripgrim.com")
     expect(config.env.production).toBeUndefined()
   })
 
-  it("CLOUD-SYNC-CONTAINER-001 sends an admitted upgrade through the local container proxy", async () => {
+  it("CLOUD-SYNC-CONTAINER-001-C4-COORD sends an admitted upgrade through the local container proxy", async () => {
     const runtime: Request[] = []
     const directEnv = environment([])
+    const nowUnixMs = 1_000_000
+    const request = await handshake({ "X-Canvas-Sync-Admission": await signAdmission(nowUnixMs) })
 
     expect((await proxyRoomUpgrade({
-      request: await handshake(),
+      request,
       env: directEnv,
       storage: new FakeStorage(),
+      nowUnixMs,
       runtimeFetch: async request => { runtime.push(request); return { status: 101 } as Response },
     })).status).toBe(101)
     expect(runtime).toHaveLength(1)
+    const ticket = runtime[0]!.headers.get("Authorization")!.slice("Bearer ".length)
+    const ticketBytes = Buffer.from(ticket, "base64url")
+    const claims = JSON.parse(ticketBytes.subarray(0, -32).toString("utf8"))
+    expect(claims.expiresAtUnixMs).toBe(nowUnixMs + 300_000)
   })
 
-  it("CLOUD-SYNC-CONTAINER-002 reports runtime outages separately from room capacity", async () => {
-    const unavailable = await proxyRoomUpgrade({
-      request: await handshake(),
-      env: environment([]),
-      storage: new FakeStorage(),
-      runtimeFetch: async () => new Response("offline", { status: 503 }),
-    })
-    expect(unavailable.status).toBe(503)
-    expect(await unavailable.json()).toEqual({ error: { code: "room_unavailable", message: "Collaboration service is unavailable." } })
+  it("CLOUD-SYNC-CONTAINER-001-C4-COORD sanitizes every runtime refusal without leaking runtime bodies or headers", async () => {
+    const cases = [
+      [401, 403, "forbidden", "Room runtime rejected the request."],
+      [403, 403, "forbidden", "Room runtime rejected the request."],
+      [429, 429, "capacity_refused", "Room capacity is unavailable."],
+      [404, 503, "room_unavailable", "Collaboration service is unavailable."],
+      [409, 503, "room_unavailable", "Collaboration service is unavailable."],
+      [426, 503, "room_unavailable", "Collaboration service is unavailable."],
+      [500, 503, "room_unavailable", "Collaboration service is unavailable."],
+      [503, 503, "room_unavailable", "Collaboration service is unavailable."],
+    ] as const
+    for (const [runtimeStatus, publicStatus, code, message] of cases) {
+      const response = await proxyRoomUpgrade({
+        request: await handshake(),
+        env: environment([]),
+        storage: new FakeStorage(),
+        runtimeFetch: async () => new Response(`runtime-${runtimeStatus}-secret`, { status: runtimeStatus, headers: { "X-Runtime-Secret": "do-not-forward" } }),
+      })
+      expect(response.status).toBe(publicStatus)
+      expect(await response.json()).toEqual({ error: { code, message } })
+      expect(response.headers.get("X-Runtime-Secret")).toBeNull()
+      expect(JSON.stringify([...response.headers])).not.toContain("do-not-forward")
+    }
 
-    const capacity = await proxyRoomUpgrade({
+    const thrown = await proxyRoomUpgrade({
       request: await handshake(),
       env: environment([]),
       storage: new FakeStorage(),
-      runtimeFetch: async () => new Response("full", { status: 429 }),
+      runtimeFetch: async () => { throw new Error("private runtime hostname and token") },
     })
-    expect(capacity.status).toBe(429)
-    expect(await capacity.json()).toEqual({ error: { code: "capacity_refused", message: "Room capacity is unavailable." } })
+    expect(thrown.status).toBe(503)
+    const thrownBody = await thrown.json()
+    expect(thrownBody).toEqual({ error: { code: "room_unavailable", message: "Collaboration service is unavailable." } })
+    expect(JSON.stringify(thrownBody)).not.toContain("private runtime")
+  })
+
+  it("CLOUD-SYNC-CONTAINER-001-C4-COORD re-sanitizes non-upgrade responses at the public coordinator boundary", async () => {
+    const base = environment([])
+    for (const [privateStatus, publicStatus, code] of [[403, 403, "forbidden"], [429, 429, "capacity_refused"], [409, 503, "room_unavailable"]] as const) {
+      const env: SyncCoordinatorEnv = {
+        ...base,
+        SYNC_ROOMS: {
+          idFromName: name => name,
+          get: () => ({ fetch: async () => new Response("private DO detail", { status: privateStatus, headers: { "X-Private-DO": "secret" } }) }),
+        },
+      }
+      const response = await handleCoordinatorRequest(await handshake(), env)
+      expect(response.status).toBe(publicStatus)
+      expect((await response.json()).error.code).toBe(code)
+      expect(response.headers.get("X-Private-DO")).toBeNull()
+    }
+
+    const env: SyncCoordinatorEnv = {
+      ...base,
+      SYNC_ROOMS: {
+        idFromName: name => name,
+        get: () => ({ fetch: async () => { throw new Error("private DO exception") } }),
+      },
+    }
+    const response = await handleCoordinatorRequest(await handshake(), env)
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: { code: "room_unavailable", message: "Collaboration service is unavailable." } })
   })
 })

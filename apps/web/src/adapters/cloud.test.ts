@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyFileCommandWithHistory, applyHostedFileCommand, createBlankFile } from '@canvas/repo-engine/file-document'
+import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { CollaborationSocketEventMap, CollaborationWebSocket } from '@canvas/sync-client'
 import type { CollaborationDurableStore } from '@canvas/sync-client'
-import { collaborationDocumentSchemaVersion, collaborationEnvelopeSchemaVersion, collaborationProtocolEpoch } from '@canvas/sync-protocol'
-import type { CollaborationClientMessage, CollaborationServerMessage, ServerRoomEnvelope } from '@canvas/sync-protocol'
+import { collaborationDocumentSchemaVersion, collaborationEnvelopeSchemaVersion, collaborationProtocolEpoch, collaborationWebSocketProtocol } from '@canvas/sync-protocol'
+import type { CollaborationClientMessage, CollaborationServerMessage, FlowDragPresentation, ServerRoomEnvelope } from '@canvas/sync-protocol'
+import type { EditorProjectSnapshot } from '@canvas/editor/capabilities'
 import { collaborationShellState, createCloudAdapter } from './cloud'
 import { browserHollowAtoms } from './browser'
 
@@ -20,6 +22,53 @@ const imageAsset = {
   bytes: imageBytes.byteLength, width: 1, height: 1, sha256: createHash('sha256').update(imageBytes).digest('hex'),
 }
 const imageDocument = { ...document, assets: { [imageAsset.id]: imageAsset } }
+const flowDocument: FileDocument = {
+  ...document,
+  nodes: {
+    ...document.nodes,
+    'source-frame': { id: 'source-frame', type: 'frame', name: 'Source frame', styles: { left: 0, top: 0, width: 200, height: 200 }, layout: { item: { position: { mode: 'absolute' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+    'target-frame': { id: 'target-frame', type: 'frame', name: 'Target frame', styles: { left: 300, top: 0, width: 200, height: 200 }, layout: { item: { position: { mode: 'absolute' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+    source: { id: 'source', type: 'frame', name: 'Source', styles: { left: 0, top: 0, width: 40, height: 30 }, layout: { item: { position: { mode: 'flow' } }, container: { display: 'freeform' } } },
+  },
+  relationships: {
+    ...document.relationships,
+    'source-frame': { parentId: 'root_cloud', orderKey: 'V' },
+    'target-frame': { parentId: 'root_cloud', orderKey: 'W' },
+    source: { parentId: 'source-frame', orderKey: 'V' },
+  },
+}
+
+const flowGeometry = (x: number, y: number) => ({
+  coordinateSpace: 'world' as const,
+  quad: [{ x, y }, { x: x + 40, y }, { x: x + 40, y: y + 30 }, { x, y: y + 30 }] as const,
+  aabb: { x, y, width: 40, height: 30 }, semanticSize: { width: 40, height: 30 },
+})
+
+const flowPresentation = (sequence: number, terminal = false): FlowDragPresentation => Object.freeze({
+  kind: 'flow-drag', coordinateSpace: 'world', identity: { interactionId: 'cloud-flow', gestureGeneration: 1, sampleSequence: sequence },
+  fence: { fileId: metadata.id, fileRevision: 0, measurementRevision: 1, documentRevision: 0, layoutGeneration: 5, pageId: 'page_cloud', pageRootId: 'root_cloud' },
+  retention: terminal
+    ? { kind: 'terminal-retained', gestureGeneration: 1, sampleSequence: sequence, terminalReason: 'pointer-up', terminalSampleSequence: sequence, holdUntil: 'authoritative-geometry' }
+    : { kind: 'active', gestureGeneration: 1, sampleSequence: sequence },
+  pointer: { downWorld: { x: 0, y: 0 }, currentWorld: { x: 10, y: 20 } },
+  original: {
+    documentNodeId: 'source', kind: 'frame', name: 'Source', sourceRelationship: { parentId: 'source-frame', orderKey: 'V', slot: { presence: 'absent' } }, sourceIndex: 0,
+    mode: 'flow', source: flowGeometry(0, 0), current: flowGeometry(10, 20), sourceOffsetParentPose: null,
+    dom: { treatment: 'drag-dimmed', opacity: 0.6, opacityPriority: 'important', zIndex: null },
+    namePresentation: { visible: true, anchor: 'source', pose: flowGeometry(0, 0) },
+  },
+  movingVisual: { kind: 'fill-ghost', documentNodeId: null, geometry: flowGeometry(10, 20), fill: { kind: 'fill-only', color: 'oklch(0.67 0.17 258)', alpha: 0.15 }, hitTesting: 'none', a11y: 'hidden' },
+  supportClone: null,
+  target: { parentId: 'target-frame', slot: { presence: 'absent' }, rawIndex: 0, semanticIndex: 0, line: 0,
+    parentOutline: { coordinateSpace: 'world', quad: [{ x: 300, y: 0 }, { x: 500, y: 0 }, { x: 500, y: 200 }, { x: 300, y: 200 }],
+      aabb: { x: 300, y: 0, width: 200, height: 200 }, color: 'oklch(0.67 0.17 258)', widthCssPx: 2 }, insertionGuide: null },
+  hud: { showDimensions: false, showSelectionOutline: false, showResizeHandles: false, showRotationHandles: false, interactiveHandleLayer: false },
+  mobileQuickActions: { mounted: true, hidden: true, inert: true, transition: { property: 'opacity', durationMs: 150, source: 'wonder' } },
+}) as unknown as FlowDragPresentation
+const peerFlowPresentation = (sequence: number, serverLeaseId = '55555555-5555-4555-8555-555555555555'): FlowDragPresentation => {
+  const presentation = flowPresentation(sequence)
+  return Object.freeze({ ...presentation, identity: { ...presentation.identity, interactionId: `lease:${serverLeaseId}` } }) as FlowDragPresentation
+}
 const imageResponse = () => new Response(imageBytes.slice(), {
   status: 200,
   headers: {
@@ -44,6 +93,7 @@ describe('UI-COLLAB-STATE-001 collaboration shell state', () => {
     expect(collaborationShellState('access-revoked')).toBe('access-removed')
     expect(collaborationShellState('incompatible-build')).toBe('update-required')
     expect(collaborationShellState('capacity-refused')).toBe('file-busy')
+    expect(collaborationShellState('connection-failed')).toBe('connection-failed')
     expect(collaborationShellState('closed')).toBeNull()
     expect(collaborationShellState('live')).toBeNull()
     expect(collaborationShellState('read-only')).toBeNull()
@@ -82,7 +132,7 @@ const roomEnvelope = (fileId = metadata.id, sequence = '9'): ServerRoomEnvelope 
   fenceToken: sequence,
 })
 
-function scriptRoom(socket: ScriptedSocket, file: typeof document, onOperation?: (message: Extract<CollaborationClientMessage, { type: 'operation.submit' }>) => void, role: 'owner' | 'viewer' = 'owner') {
+function scriptRoom(socket: ScriptedSocket, file: FileDocument, onOperation?: (message: Extract<CollaborationClientMessage, { type: 'operation.submit' }>) => void, role: 'owner' | 'viewer' = 'owner') {
   const envelope = roomEnvelope(file.fileId)
   let requestId = ''
   const streamSnapshot = () => {
@@ -106,7 +156,7 @@ function scriptRoom(socket: ScriptedSocket, file: typeof document, onOperation?:
     const message = raw as CollaborationClientMessage
     if (message.type === 'room.open') {
       requestId = message.requestId
-      socket.server({ type: 'room.assigned', envelope, requestId, role })
+      socket.server({ type: 'room.assigned', envelope, requestId, role, replayScopeId: 'a'.repeat(64) })
       streamSnapshot()
       return
     }
@@ -128,6 +178,8 @@ const memoryOnlyDurableStore: CollaborationDurableStore = Object.freeze({
   checkpoint: async () => undefined,
   acknowledge: async () => undefined,
   markRecoverable: async () => undefined,
+  markAllRecoverable: async () => undefined,
+  reconcileReplayScope: async () => undefined,
   clearCheckpoint: async () => undefined,
   purgeAccount: async () => undefined,
 })
@@ -331,7 +383,7 @@ describe('cloud adapter', () => {
       syncDurableStore: { ...memoryOnlyDurableStore, load: loadDurableScope },
       createWebSocket: (url, protocol) => {
         expect(url).toBe(`wss://sync.canvas.test/sync/${metadata.id}?tabId=tab-1`)
-        expect(protocol).toBe('canvas-sync-v2')
+        expect(protocol).toBe(collaborationWebSocketProtocol)
         const socket = new ScriptedSocket()
         envelope = scriptRoom(socket, document, message => socket.server({ type: 'operation.ack', envelope, mutationId: message.operation.mutationId, sequence: '1', status: 'applied' }))
         sockets.push(socket)
@@ -343,7 +395,7 @@ describe('cloud adapter', () => {
         return json({ file: metadata })
       }) as typeof fetch,
     })
-    adapter.subscribeFile?.(snapshot => remoteSnapshots.push(snapshot.file.revision))
+    adapter.subscribeFile?.(snapshot => { if (snapshot) remoteSnapshots.push(snapshot.file.revision) })
     await adapter.auth?.getSession()
     await adapter.openFile?.(metadata.id)
     expect(sockets[0]!.sent.find(message => message.type === 'room.open')).toMatchObject({ buildId: '0.1.0-staging' })
@@ -466,7 +518,7 @@ describe('cloud adapter', () => {
         return json({ file: metadata })
       }) as typeof fetch,
     })
-    adapter.subscribeFile?.(snapshot => remoteSnapshots.push(snapshot.file.revision))
+    adapter.subscribeFile?.(snapshot => { if (snapshot) remoteSnapshots.push(snapshot.file.revision) })
     await adapter.openFile?.(metadata.id)
 
     socket!.server({ type: 'operation.applied', envelope, mutationId: 'remote-asset-attach', sequence: '1', subjectId: 'other', command: { type: 'asset.attach', asset: imageAsset } })
@@ -503,7 +555,7 @@ describe('cloud adapter', () => {
         return json({ file: metadata })
       }) as typeof fetch,
     })
-    adapter.subscribeFile?.(snapshot => remoteSnapshots.push(snapshot.file.revision))
+    adapter.subscribeFile?.(snapshot => { if (snapshot) remoteSnapshots.push(snapshot.file.revision) })
     const opening = adapter.openFile?.(metadata.id)
     await waitFor(() => assetRequests === 1)
     socket!.server({
@@ -572,7 +624,7 @@ describe('cloud adapter', () => {
         return json({ file: metadata })
       }) as typeof fetch,
     })
-    adapter.subscribeFile?.(snapshot => remoteSnapshots.push(snapshot.file.revision))
+    adapter.subscribeFile?.(snapshot => { if (snapshot) remoteSnapshots.push(snapshot.file.revision) })
     await adapter.openFile?.(metadata.id)
     socket!.server({ type: 'operation.applied', envelope, mutationId: 'asset-before-refresh', sequence: '1', subjectId: 'other', command: { type: 'asset.attach', asset: imageAsset } })
     await waitFor(() => assetRequests === 1)
@@ -685,6 +737,8 @@ describe('cloud adapter', () => {
       },
       fetch: (async () => json({ file: metadata })) as typeof fetch,
     })
+    const fileUpdates: (EditorProjectSnapshot | null)[] = []
+    adapter.subscribeFile?.(snapshot => fileUpdates.push(snapshot))
     await adapter.openFile?.(metadata.id)
     socket!.server({
       type: 'presence.roster', envelope, participants: [
@@ -694,6 +748,9 @@ describe('cloud adapter', () => {
     expect(adapter.collaboration?.getSnapshot()).toMatchObject({ status: 'live', canMutate: true, canManageShare: true, localProfile: { role: 'owner' } })
     socket!.server({ type: 'room.error', envelope, code: 'access_revoked', message: 'Access was removed.', retry: 'none' })
     expect(adapter.collaboration?.getSnapshot()).toMatchObject({ status: 'error', shellState: 'access-removed', canMutate: false, canManageShare: false, localProfile: null })
+    expect(fileUpdates).toEqual([null])
+    socket!.server({ type: 'room.error', envelope, code: 'access_revoked', message: 'Access was removed.', retry: 'none' })
+    expect(fileUpdates).toEqual([null])
     adapter.dispose()
   })
 
@@ -864,6 +921,146 @@ describe('cloud adapter', () => {
     await expect(adapter.saveFile(changed, 0, { kind: 'commands', commands })).rejects.toThrow('byte limit')
     expect(calls.some(call => call.startsWith('PUT '))).toBe(false)
     expect(sockets[0]!.sent.some(message => message.type === 'operation.submit')).toBe(false)
+    adapter.dispose()
+  })
+
+  it('CLOUD-SYNC-CLIENT-001-C3B CLOUD-SYNC-REPLAY-001-C3B binds canonical flow authority and settles the exact acknowledged claim', async () => {
+    let socket: ScriptedSocket | null = null
+    let envelope = roomEnvelope()
+    const submittedBindings: unknown[] = []
+    const releases: Record<string, unknown>[] = []
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test', loginOrigin: 'https://login.canvas.test', syncOrigin: 'wss://sync.canvas.test', syncClientId: 'tab-flow', syncDurableStore: memoryOnlyDurableStore,
+      createWebSocket: () => {
+        socket = new ScriptedSocket()
+        envelope = scriptRoom(socket, flowDocument, message => {
+          submittedBindings.push(message.operation.flowBinding)
+          socket!.server({ type: 'operation.ack', envelope, mutationId: message.operation.mutationId, sequence: '1', status: 'applied' })
+        })
+        const roomSend = socket.onSend
+        socket.onSend = raw => {
+          const message = raw as CollaborationClientMessage
+          if (message.type === 'interaction.acquire') {
+            socket!.server({ type: 'interaction.result', envelope, pageId: 'page_cloud', action: 'acquire', status: 'granted', interactionId: message.presentation.identity.interactionId,
+              leaseId: '55555555-5555-4555-8555-555555555555', localClaimGeneration: message.localClaimGeneration, reservationGeneration: 1,
+              sampleSequence: message.presentation.identity.sampleSequence, denialCode: null })
+            return
+          }
+          if (message.type === 'interaction.release') {
+            releases.push(raw)
+            socket!.server({ type: 'interaction.result', envelope, pageId: 'page_cloud', action: 'release', status: 'released', interactionId: message.interactionId,
+              leaseId: message.leaseId, localClaimGeneration: message.localClaimGeneration, reservationGeneration: message.reservationGeneration,
+              sampleSequence: message.terminalSampleSequence, denialCode: null })
+            return
+          }
+          roomSend(raw)
+        }
+        return socket
+      },
+      fetch: (async (input: string | URL | Request) => String(input).endsWith('/api/session') ? signedInSessionResponse() : json({ file: metadata })) as typeof fetch,
+    })
+    await adapter.auth?.getSession()
+    await adapter.openFile?.(metadata.id)
+    const collaboration = adapter.collaboration!
+
+    expect(() => collaboration.acquireFlow?.({ presentation: flowPresentation(1) })).toThrow('topology is unavailable')
+    collaboration.updateFlowAuthority?.({ file: flowDocument, atoms: browserHollowAtoms, pageId: 'page_cloud', pageRootId: 'root_cloud', documentRevision: 0, layoutGeneration: 5 })
+    const acquired = collaboration.acquireFlow!({ presentation: flowPresentation(1) })
+    await expect(acquired.result).resolves.toMatchObject({ status: 'granted', leaseId: '55555555-5555-4555-8555-555555555555' })
+    const terminal = flowPresentation(2, true)
+    collaboration.sampleFlow!({ claim: acquired.claim, presentation: terminal })
+    const command = { type: 'node.rename' as const, nodeId: 'source', name: 'Moved source' }
+    const changed = applyHostedFileCommand(flowDocument, command, browserHollowAtoms)
+    const saved = await adapter.saveFile(changed, 0, { kind: 'commands', commands: [command], flow: { claim: acquired.claim, terminalPresentation: terminal } })
+
+    expect(saved.file).toMatchObject({ revision: 1, nodes: { source: { name: 'Moved source' } } })
+    expect(submittedBindings).toHaveLength(1)
+    expect(submittedBindings[0]).toMatchObject({
+      interactionId: 'cloud-flow', localClaimGeneration: acquired.claim.localClaimGeneration, reservationGeneration: 1, terminalSampleSequence: 2,
+      sourceLane: { parentId: 'source-frame', slot: { presence: 'absent' } }, targetLane: { parentId: 'target-frame', slot: { presence: 'absent' } },
+    })
+    const submittedDigest = (submittedBindings[0] as { presentationDigest: string }).presentationDigest
+    const expectedDigest = createHash('sha256').update(JSON.stringify(terminal)).digest('hex')
+    const changedDigest = createHash('sha256').update(JSON.stringify(flowPresentation(3, true))).digest('hex')
+    expect(submittedDigest).toBe(expectedDigest)
+    expect(submittedDigest).not.toBe(changedDigest)
+    expect(releases).toEqual([expect.objectContaining({ type: 'interaction.release', localClaimGeneration: acquired.claim.localClaimGeneration, terminalSampleSequence: 2, reason: 'committed' })])
+    adapter.dispose()
+  })
+
+  it('PAPER-FLEX-007-C3B fails closed on stale authority and filters remote samples by the current document fence', async () => {
+    let socket: ScriptedSocket | null = null
+    let envelope = roomEnvelope()
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test', loginOrigin: 'https://login.canvas.test', syncOrigin: 'wss://sync.canvas.test', syncClientId: 'tab-flow', syncDurableStore: memoryOnlyDurableStore,
+      createWebSocket: () => {
+        socket = new ScriptedSocket()
+        envelope = scriptRoom(socket, flowDocument)
+        return socket
+      },
+      fetch: (async (input: string | URL | Request) => String(input).endsWith('/api/session') ? signedInSessionResponse() : json({ file: metadata })) as typeof fetch,
+    })
+    await adapter.auth?.getSession()
+    await adapter.openFile?.(metadata.id)
+    const collaboration = adapter.collaboration!
+    const events: unknown[] = []
+    collaboration.subscribeRemoteFlow?.(event => events.push(event))
+    collaboration.updateFlowAuthority?.({ file: flowDocument, atoms: browserHollowAtoms, pageId: 'page_cloud', pageRootId: 'root_cloud', documentRevision: 0, layoutGeneration: 5 })
+    socket!.server({ type: 'interaction.sample', envelope, pageId: 'page_cloud', presenceId: 'remote-presence', subjectId: 'remote-user', clientId: 'tab-remote',
+      leaseId: '55555555-5555-4555-8555-555555555555', localClaimGeneration: 1, reservationGeneration: 1, presentation: peerFlowPresentation(1) })
+    await Promise.resolve()
+    expect(collaboration.getSnapshot()).toMatchObject({ status: 'live' })
+    expect(events).toHaveLength(1)
+
+    collaboration.updateFlowAuthority?.({ file: flowDocument, atoms: browserHollowAtoms, pageId: 'wrong-page', pageRootId: 'root_cloud', documentRevision: 0, layoutGeneration: 5 })
+    expect(() => collaboration.acquireFlow?.({ presentation: flowPresentation(2) })).toThrow('topology is unavailable')
+    socket!.server({ type: 'interaction.sample', envelope, pageId: 'page_cloud', presenceId: 'remote-presence', subjectId: 'remote-user', clientId: 'tab-remote',
+      leaseId: '55555555-5555-4555-8555-555555555555', localClaimGeneration: 1, reservationGeneration: 1, presentation: peerFlowPresentation(2) })
+    await Promise.resolve()
+    expect(events).toHaveLength(1)
+    adapter.dispose()
+  })
+
+  it('invalidates same-revision replacement document authority without serializing the document per sample', async () => {
+    const sockets: ScriptedSocket[] = []
+    const envelopes: ServerRoomEnvelope[] = []
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test', loginOrigin: 'https://login.canvas.test', syncOrigin: 'wss://sync.canvas.test', syncClientId: 'tab-flow', syncDurableStore: memoryOnlyDurableStore,
+      createWebSocket: () => {
+        const socket = new ScriptedSocket()
+        envelopes.push(scriptRoom(socket, structuredClone(flowDocument)))
+        sockets.push(socket)
+        return socket
+      },
+      fetch: (async (input: string | URL | Request) => String(input).endsWith('/api/session') ? signedInSessionResponse() : json({ file: metadata })) as typeof fetch,
+    })
+    await adapter.auth?.getSession()
+    await adapter.openFile?.(metadata.id)
+    const collaboration = adapter.collaboration!
+    const events: unknown[] = []
+    collaboration.subscribeRemoteFlow?.(event => events.push(event))
+    collaboration.updateFlowAuthority?.({ file: flowDocument, atoms: browserHollowAtoms, pageId: 'page_cloud', pageRootId: 'root_cloud', documentRevision: 0, layoutGeneration: 5 })
+    const stringify = vi.spyOn(JSON, 'stringify')
+    const sendSample = (socket: ScriptedSocket, envelope: ServerRoomEnvelope, sequence: number) => socket.server({
+      type: 'interaction.sample', envelope, pageId: 'page_cloud', presenceId: 'remote-presence', subjectId: 'remote-user', clientId: 'tab-remote',
+      leaseId: '55555555-5555-4555-8555-555555555555', localClaimGeneration: 1, reservationGeneration: 1, presentation: peerFlowPresentation(sequence),
+    })
+
+    sendSample(sockets[0]!, envelopes[0]!, 1)
+    await Promise.resolve()
+    expect(events).toHaveLength(1)
+    expect(stringify.mock.calls.some(([value]) => Boolean(value && typeof value === 'object' && 'fileId' in value && 'schemaVersion' in value))).toBe(false)
+
+    sockets[0]!.disconnect()
+    await new Promise(resolve => setTimeout(resolve, 500))
+    await waitFor(() => sockets.length === 2 && collaboration.getSnapshot().status === 'live')
+    stringify.mockClear()
+    sendSample(sockets[1]!, envelopes[1]!, 2)
+    await Promise.resolve()
+    expect(events).toHaveLength(1)
+    expect(stringify.mock.calls.some(([value]) => Boolean(value && typeof value === 'object' && 'fileId' in value && 'schemaVersion' in value))).toBe(false)
+
+    stringify.mockRestore()
     adapter.dispose()
   })
 })

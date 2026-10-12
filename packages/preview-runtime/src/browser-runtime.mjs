@@ -3,19 +3,19 @@ import { createGeometryObserver } from './geometry-observer.mjs'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
-import { acceptPreviewCommand, isPreviewDocument } from './protocol.js'
+import { acceptPreviewCommand, compareFlowDragTransactionOrder, isPreviewDocument, protocolVersion } from './protocol.js'
 import { canvasElementStyle, hostOrigin } from './scene-styles.mjs'
 import { createAppearanceLayer } from './appearance-layer.mjs'
 import { createLayoutLayer } from './layout-layer.mjs'
 import { createThemeLayer } from './theme-layer.mjs'
 import { applyPageBackground } from './page-background.mjs'
-import { createTransientMoveLayer } from './transient-move-layer.mjs'
-export { appearanceStyle, canvasElementStyle, fillLayers, hostOrigin, legacyTextColor } from './scene-styles.mjs'
+import { createFlowDragLayer, createTransientMoveLayer, createTransientPresentationLayer } from './transient-move-layer.mjs'
+export { appearanceStyle, canvasElementStyle, fillLayers, hostOrigin, legacyTextColor, primitiveLayoutStyle } from './scene-styles.mjs'
 export { createAppearanceLayer } from './appearance-layer.mjs'
 export { createLayoutLayer } from './layout-layer.mjs'
 export { createThemeLayer } from './theme-layer.mjs'
 export { applyPageBackground } from './page-background.mjs'
-export { createTransientMoveLayer } from './transient-move-layer.mjs'
+export { createFlowDragLayer, createTransientMoveLayer, createTransientPresentationLayer } from './transient-move-layer.mjs'
 
 export function createSelectionDecorations(ownerDocument) {
   const marked = new Set()
@@ -81,15 +81,22 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
   let renderChrome = true
   let layoutItems = []
   let transientMoves = []
+  let transientPresentations = []
   let camera = { x: 0, y: 0, zoom: 1, width: window.innerWidth, height: window.innerHeight }
   let disposed = false
   let failed = false
-  const send = (type, payload) => window.parent.postMessage({ channel: 'design-editor-preview', version: 3, generation, type, ...payload }, editorOrigin)
+  const send = (type, payload) => window.parent.postMessage({ channel: 'design-editor-preview', version: protocolVersion, generation, type, ...payload }, editorOrigin)
   const root = createRoot(container, { onUncaughtError: error => { failed = true; send('diagnostic', { message: String(error).slice(0, 4000) }) } })
   const bindings = new Map(registry.map(binding => [binding.componentId, binding]))
   // Placement and layout longhands are a reversible inline layer on the actual component roots (never a wrapper).
   const layoutLayer = createLayoutLayer(document, container)
   const transientMoveLayer = createTransientMoveLayer(document, container)
+  const transientPresentationLayer = createTransientPresentationLayer(document, container)
+  const flowDragLayer = createFlowDragLayer(document, container)
+  const presentationSequences = new Map()
+  const flowDragStates = new Map()
+  let flowBarrierFrame = null
+  let measurementRevision = 0
   let layoutGeneration = 0
   // The iframe is an implementation detail of the editor canvas: it paints no sheet of its own.
   for (const element of [document.documentElement, document.body]) Object.assign(element.style, { margin: '0', background: 'transparent', overflow: 'hidden', width: '100%', height: '100%' })
@@ -104,7 +111,119 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
   layoutLayer.start()
   const themeLayer = createThemeLayer(document)
   themeLayer.start()
-  const geometry = createGeometryObserver(container, payload => send('geometry', payload), () => ({ ...camera }), () => ({ report: layoutLayer.report(), layoutGeneration, theme: themeLayer.report() }))
+  let geometry = null
+  const clearTransientPresentations = () => {
+    transientPresentations = []
+    transientPresentationLayer.clear()
+    if (!activeFlowPresentations().length) appearanceLayer.resumeExternalOverlay()
+    if (!transientMoves.length && !activeFlowPresentations().length) geometry?.resume()
+  }
+  const updateSelectionDecorations = () => {
+    const hidden = flowDragLayer.activeNodeIds()
+    selectionDecorations.update(editorDocument, renderChrome ? selectedNodeIds.filter(id => !hidden.has(id)) : [], selectionColor)
+  }
+  const activeFlowPresentations = () => [...flowDragStates.values()].map(state => state.presentation).filter(Boolean)
+  const refreshFlowProjection = () => {
+    const next = activeFlowPresentations()
+    flowDragLayer.setDocument(editorDocument)
+    flowDragLayer.update(next)
+    if (next.length) {
+      geometry?.suspend()
+      layoutLayer.pauseExternalOverlay()
+      appearanceLayer.pauseExternalOverlay()
+    } else {
+      layoutLayer.resumeExternalOverlay()
+      appearanceLayer.resumeExternalOverlay()
+      if (!transientMoves.length && !transientPresentations.length) geometry?.resume()
+    }
+    updateSelectionDecorations()
+  }
+  const sameFence = (left, right) => left.fileId === right.fileId && left.fileRevision === right.fileRevision
+    && left.measurementRevision === right.measurementRevision && left.documentRevision === right.documentRevision
+    && left.layoutGeneration === right.layoutGeneration && left.pageId === right.pageId && left.pageRootId === right.pageRootId
+  const pruneSettledFlowStates = () => {
+    for (const [interactionId, state] of flowDragStates) {
+      if (state.presentation || state.handoff) continue
+      const fence = state.transaction.sourceFence
+      if ((editorDocument?.revision ?? -1) > fence.documentRevision || layoutGeneration > fence.layoutGeneration
+        || measurementRevision > fence.measurementRevision) flowDragStates.delete(interactionId)
+    }
+  }
+  const acceptFlowDragTransaction = transaction => {
+    const interactionId = transaction.key.interactionId
+    const current = flowDragStates.get(interactionId)
+    if (transaction.operation.kind === 'publish') {
+      if (transaction.sourceFence.documentRevision !== editorDocument?.revision || transaction.sourceFence.layoutGeneration !== layoutGeneration
+        || transaction.sourceFence.measurementRevision !== measurementRevision) return false
+      if ([...flowDragStates.entries()].some(([otherId, state]) => otherId !== interactionId && state.presentation?.original.documentNodeId === transaction.operation.presentation.original.documentNodeId)) return false
+    }
+    if (current) {
+      if (transaction.key.gestureGeneration < current.transaction.key.gestureGeneration) return false
+      if (transaction.key.gestureGeneration === current.transaction.key.gestureGeneration) {
+        if (!sameFence(current.transaction.sourceFence, transaction.sourceFence)) return false
+        const order = compareFlowDragTransactionOrder(current.transaction, transaction)
+        if (order === null || order < 0) return false
+        if (order === 0) return true
+      }
+    }
+    if (transaction.operation.kind === 'publish') {
+      flowDragStates.set(interactionId, { transaction, presentation: transaction.operation.presentation, handoff: null })
+    } else if (transaction.operation.kind === 'committed-handoff') {
+      if (!current || current.transaction.key.gestureGeneration !== transaction.key.gestureGeneration
+        || current.transaction.key.sequence !== transaction.key.sequence || current.presentation?.retention.kind !== 'terminal-retained') return false
+      flowDragStates.set(interactionId, { transaction, presentation: current.presentation, handoff: transaction.operation.committed })
+    } else flowDragStates.set(interactionId, { transaction, presentation: null, handoff: null })
+    refreshFlowProjection()
+    scheduleFlowBarrier()
+    return true
+  }
+  const retireUnmatchedFlow = (kind, value) => {
+    for (const state of flowDragStates.values()) {
+      if (!state.presentation) continue
+      const matches = state.presentation.retention.kind === 'terminal-retained' && state.handoff
+        && (kind === 'document' ? state.handoff.documentRevision === value : state.handoff.layoutGeneration === value)
+      if (!matches) { state.presentation = null; state.handoff = null }
+    }
+  }
+  const releaseMeasuredFlow = () => {
+    let changed = false
+    for (const state of flowDragStates.values()) {
+      if (!state.presentation || !state.handoff) continue
+      if (editorDocument?.revision === state.handoff.documentRevision && layoutGeneration === state.handoff.layoutGeneration
+        && measurementRevision >= state.handoff.afterMeasurementRevision) {
+        state.presentation = null
+        state.handoff = null
+        changed = true
+      }
+    }
+    pruneSettledFlowStates()
+    if (changed) refreshFlowProjection()
+  }
+  function scheduleFlowBarrier() {
+    if (flowBarrierFrame !== null) return
+    const ready = [...flowDragStates.values()].some(state => state.presentation && state.handoff
+      && editorDocument?.revision === state.handoff.documentRevision && layoutGeneration === state.handoff.layoutGeneration)
+    if (!ready) return
+    flowBarrierFrame = requestAnimationFrame(() => {
+      flowBarrierFrame = null
+      flowDragLayer.withoutOverlay(() => {
+        layoutLayer.resumeExternalOverlay()
+        appearanceLayer.resumeExternalOverlay()
+        geometry.measureNow()
+        if (activeFlowPresentations().length) {
+          layoutLayer.pauseExternalOverlay()
+          appearanceLayer.pauseExternalOverlay()
+        }
+      })
+      refreshFlowProjection()
+    })
+  }
+  geometry = createGeometryObserver(container, payload => {
+    measurementRevision += 1
+    presentationSequences.clear()
+    send('geometry', { ...payload, measurementRevision })
+    releaseMeasuredFlow()
+  }, () => ({ ...camera }), () => ({ report: layoutLayer.report(), layoutGeneration, theme: themeLayer.report() }))
   // Elements appended beside the preview container (the usual portal target) without an owner claim are counted, never guessed.
   const countUnownedPortals = () => {
     const strays = [...document.body.children].filter(element => element !== container && element.tagName !== 'SCRIPT' && element.tagName !== 'STYLE' && !element.hasAttribute('data-preview-selection-style') && !themeLayer.isClaimed(element))
@@ -135,8 +254,10 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     return adapter && typeof adapter.renderBoundary === 'function' && node.theme ? React.createElement(React.Fragment, { key: node.id }, adapter.renderBoundary({ instanceId: node.id, theme: node.theme, children: element })) : element
   }
   const render = (finishTransient = false) => {
+    clearTransientPresentations()
     if (!finishTransient) transientMoveLayer.update([])
     transientMoveLayer.setDocument(editorDocument)
+    transientPresentationLayer.setDocument(editorDocument)
     layoutLayer.setTransientBounds([])
     applyPageBackground(document, editorDocument?.background)
     const component = editorDocument && !sourceDocument ? editorDocument.rootIds.map(renderNode) : React.createElement(Component, props)
@@ -154,42 +275,84 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     themeLayer.update(editorDocument)
     if (finishTransient) transientMoveLayer.update([])
     selectedNodeIds = selectedNodeIds.filter(id => editorDocument && (Object.hasOwn(editorDocument.nodes, id) || editorDocument.canvas?.elements.some(element => element.id === id)))
-    selectionDecorations.update(editorDocument, renderChrome ? selectedNodeIds : [], selectionColor); geometry.update(editorDocument, null, componentId)
+    updateSelectionDecorations(); geometry.update(editorDocument, null, componentId)
+    flowDragLayer.setDocument(editorDocument)
+    flowDragLayer.reapply()
   }
   // The design theme is applied exactly as the design declares it: an attribute on the document root plus the matching color-scheme.
   const setTheme = theme => { if (theme.attribute === null) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme.attribute; document.documentElement.style.colorScheme = theme.colorScheme }
   const receive = event => {
+    const candidate = event.origin === editorOrigin
+      && event.source === window.parent
+      && event.data !== null
+      && typeof event.data === 'object'
+      && !Array.isArray(event.data)
+      && event.data.channel === 'design-editor-preview'
+      && event.data.version === protocolVersion
+      && ['set-transient-presentations', 'apply-flow-drag-transaction'].includes(event.data.type)
     const command = acceptPreviewCommand(event, editorOrigin, window.parent, generation, editorDocument, registry)
-    if (!command || disposed) return
+    if (!command || disposed) { if (!disposed && candidate && event.data.type === 'set-transient-presentations') clearTransientPresentations(); return }
     if (command.type === 'dispose') dispose()
     else if (command.type === 'ping' && !failed) { if (sourceDocument) send('source-bindings', { instanceIds: Object.keys(sourceDocument.nodes) }); send('ready', { componentId }); geometry.refresh() }
     else if (command.type === 'ping') return
     else if (command.type === 'set-theme') { setTheme(command.theme); geometry.refresh() }
     else if (command.type === 'set-interaction-mode') interactionMode = command.mode
     else if (command.type === 'set-camera') { camera = { ...command.camera }; applyCamera(); geometry.refresh() }
-    else if (command.type === 'set-layout') { geometry.suspend(); transientMoveLayer.clear(); layoutLayer.setTransientBounds([]); layoutItems = command.items; layoutGeneration = command.layoutGeneration; layoutLayer.setItems(layoutItems); appearanceLayer.apply(); transientMoveLayer.reapply(); if (!transientMoves.length) geometry.resume() }
+    else if (command.type === 'set-layout') {
+      geometry.suspend(); transientMoveLayer.clear(); if (command.layoutGeneration !== layoutGeneration) presentationSequences.clear(); clearTransientPresentations(); layoutLayer.setTransientBounds([])
+      retireUnmatchedFlow('layout', command.layoutGeneration)
+      const updateLayout = () => { layoutItems = command.items; layoutGeneration = command.layoutGeneration; layoutLayer.setItems(layoutItems); appearanceLayer.apply(); transientMoveLayer.reapply() }
+      if (activeFlowPresentations().length) flowDragLayer.withoutOverlay(() => { layoutLayer.resumeExternalOverlay(); appearanceLayer.resumeExternalOverlay(); updateLayout(); layoutLayer.pauseExternalOverlay(); appearanceLayer.pauseExternalOverlay() })
+      else updateLayout()
+      pruneSettledFlowStates(); refreshFlowProjection(); scheduleFlowBarrier()
+    }
     else if (command.type === 'set-transient-move') {
       transientMoves = command.items
       if (transientMoves.length) geometry.suspend()
       layoutLayer.setTransientBounds(transientMoves)
       transientMoveLayer.update(transientMoves)
-      if (!transientMoves.length) geometry.resume()
+      if (!transientMoves.length && !transientPresentations.length && !activeFlowPresentations().length) geometry.resume()
     }
-    else if (command.type === 'set-selection') { selectedNodeIds = [...command.nodeIds]; renderChrome = command.renderChrome !== false; selectionColor = command.color; selectionDecorations.update(editorDocument, renderChrome ? selectedNodeIds : [], selectionColor); geometry.update(editorDocument, null, componentId) }
+    else if (command.type === 'set-transient-presentations') {
+      if (command.presentations.some(presentation => presentation.fence.documentRevision !== editorDocument?.revision || presentation.fence.layoutGeneration !== layoutGeneration || presentation.fence.measurementRevision !== measurementRevision)) { clearTransientPresentations(); return }
+      if (command.presentations.some(presentation => presentation.sampleSequence <= (presentationSequences.get(presentation.interactionId) ?? -1))) { clearTransientPresentations(); return }
+      if (!command.presentations.length) {
+        clearTransientPresentations()
+        return
+      }
+      const newInteractions = new Set(command.presentations.map(presentation => presentation.interactionId).filter(interactionId => !presentationSequences.has(interactionId)))
+      if (presentationSequences.size + newInteractions.size > 500) { clearTransientPresentations(); return }
+      for (const presentation of command.presentations) presentationSequences.set(presentation.interactionId, presentation.sampleSequence)
+      transientPresentations = command.presentations
+      geometry.suspend()
+      appearanceLayer.pauseExternalOverlay()
+      transientPresentationLayer.update(transientPresentations)
+    }
+    else if (command.type === 'apply-flow-drag-transaction') acceptFlowDragTransaction(command.transaction)
+    else if (command.type === 'set-selection') { selectedNodeIds = [...command.nodeIds]; renderChrome = command.renderChrome !== false; selectionColor = command.color; updateSelectionDecorations(); geometry.update(editorDocument, null, componentId) }
     else if (command.type === 'set-document') {
       // The incoming document is the authoritative pointer-up result. Restore the old declarations before React
       // writes the committed ones, otherwise retiring the transient after render can put the old size back.
       transientMoves = []
+      if (command.document.revision !== editorDocument?.revision) presentationSequences.clear()
       layoutLayer.setTransientBounds([])
       transientMoveLayer.clear()
+      clearTransientPresentations()
+      retireUnmatchedFlow('document', command.document.revision)
       if (sourceDocument) {
         try { flushSync(() => applySourceDocument(command.document)) }
         catch (error) { send('diagnostic', { message: String(error.message).slice(0, 4000) }); return }
       }
       editorDocument = command.document
+      pruneSettledFlowStates()
       transientMoveLayer.setDocument(editorDocument)
+      transientPresentationLayer.setDocument(editorDocument)
       if (command.theme) setTheme(command.theme)
-      render(true)
+      if (activeFlowPresentations().length) flowDragLayer.withoutOverlay(() => {
+        layoutLayer.resumeExternalOverlay(); appearanceLayer.resumeExternalOverlay(); render(true); layoutLayer.pauseExternalOverlay(); appearanceLayer.pauseExternalOverlay()
+      })
+      else render(true)
+      refreshFlowProjection(); scheduleFlowBarrier()
     }
     else if (!editorDocument) { props = command.props; render() }
     else send('diagnostic', { message: 'Edit document instance props through the component inspector.' })
@@ -217,6 +380,12 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     disposed = true
     geometry.dispose()
     selectionDecorations.dispose()
+    transientPresentationLayer.dispose()
+    if (flowBarrierFrame !== null) cancelAnimationFrame(flowBarrierFrame)
+    flowBarrierFrame = null
+    flowDragStates.clear()
+    flowDragLayer.dispose()
+    appearanceLayer.resumeExternalOverlay()
     appearanceLayer.dispose()
     transientMoveLayer.dispose()
     layoutLayer.dispose()

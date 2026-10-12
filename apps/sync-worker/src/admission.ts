@@ -1,4 +1,4 @@
-import { collaborationProtocolEpoch, maxCollaborationConnectionNonceLength, validateVerifiedRoomTicketClaimsShape } from "@canvas/sync-protocol"
+import { collaborationProtocolEpoch, collaborationWebSocketProtocol, maxCollaborationConnectionNonceLength, validateVerifiedRoomTicketClaimsShape } from "@canvas/sync-protocol"
 import type { VerifiedRoomTicketClaims } from "@canvas/sync-protocol"
 
 export type AdmissionClaims = Omit<VerifiedRoomTicketClaims, "expiresAtUnixMs" | "clientId" | "connectionNonce">
@@ -15,6 +15,8 @@ type AdmissionRequest = Readonly<{
   buildId: string
   fileId: string
   clientId: string
+  origin: string
+  webSocketProtocol: typeof collaborationWebSocketProtocol
   requestId: string
   request: Request
   fetcher?: typeof fetch
@@ -64,6 +66,7 @@ export function parseAdmissionResponse(value: unknown, expected: Readonly<{ file
 export async function requestCollaborationAdmission(input: AdmissionRequest): Promise<Readonly<{ response: Response; admission: CollaborationAdmission | null }>> {
   const headers = new Headers({
     "Content-Type": "application/json",
+    "Origin": input.origin,
     "X-Canvas-Collaboration-Token": input.serviceToken,
     "X-Canvas-Request-Id": input.requestId,
   })
@@ -74,7 +77,7 @@ export async function requestCollaborationAdmission(input: AdmissionRequest): Pr
   const response = await (input.fetcher ?? fetch)(`${input.apiOrigin}/internal/collaboration/admission`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ fileId: input.fileId, clientId: input.clientId, protocolEpoch: collaborationProtocolEpoch, buildId: input.buildId }),
+    body: JSON.stringify({ fileId: input.fileId, clientId: input.clientId, protocolEpoch: collaborationProtocolEpoch, webSocketProtocol: input.webSocketProtocol, buildId: input.buildId }),
   })
   if (!response.ok) return Object.freeze({ response, admission: null })
   let value: unknown

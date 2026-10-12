@@ -429,7 +429,7 @@ function BorderRow({ context, entry, present, mixed }: { context: Context; entry
 // Sections ----------------------------------------------------------------------------------------------------------
 
 /** Blending, Fill, Outline, and Border for every selected node, limited to the sections all of them support. */
-export function AppearanceSections({ file, nodes, overrides, mode, disabled }: { file: FileDocument; nodes: readonly StyledNode[]; overrides: Record<string, Appearance | null> | null; mode: Mode; disabled: boolean }) {
+export function AppearanceSections({ file, nodes, overrides, mode, disabled, afterFill }: { file: FileDocument; nodes: readonly StyledNode[]; overrides: Record<string, Appearance | null> | null; mode: Mode; disabled: boolean; afterFill?: ReactNode }) {
   const sections = eligibleFor(nodes)
   const targets = nodes.map(node => ({ id: node.id, node, appearance: effectiveAppearance(node, overrides) }))
   const palettes = new Map<string, SourcePalette>()
@@ -438,6 +438,7 @@ export function AppearanceSections({ file, nodes, overrides, mode, disabled }: {
   return <>
     {sections.includes('blending') && <BlendingSection context={context} />}
     {sections.includes('fill') && <FillSection context={context} />}
+    {afterFill}
     {sections.includes('outline') && <OutlineSection context={context} />}
     {sections.includes('border') && <BorderSection context={context} />}
   </>

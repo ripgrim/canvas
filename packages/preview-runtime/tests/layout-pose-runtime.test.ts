@@ -8,7 +8,7 @@ import { fixtureRegistry } from './fixture-registry.js'
 import { apply } from '../../repo-engine/src/layout-matrix.js'
 import { worldMatrixOf } from '../../editor/src/features/editor/layout-pose'
 import type { MeasuredNode } from '../../editor/src/features/editor/scene-geometry'
-// Protocol v3: every document node carries its effective theme; the plain light fallback is not explicit.
+// Protocol v4: every document node carries its effective theme; the plain light fallback is not explicit.
 const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false } as const
 
 // LAY-GEST-003 measurement half: the runtime's offset, origin and transform measurements, chained by the editor's
@@ -20,7 +20,7 @@ const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component
 const registry = fixtureRegistry
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false }
 const previewDocument = {
-  version: 1, revision: 1, rootIds: ['card-1'], frame: frameSize,
+  version: 2, revision: 1, rootIds: ['card-1'], frame: frameSize,
   nodes: {
     'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: {}, children: { children: ['input-1'] } },
     'input-1': { id: 'input-1', componentId: 'atom-input', exportName: 'Input', theme: lightTheme, props: { id: 'pose-email', type: 'email' }, children: {} },
@@ -69,10 +69,10 @@ beforeAll(async () => {
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
   send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 3, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
     await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
-  await send({ type: 'set-document', document: previewDocument })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument })
   await waitFor(() => frame.evaluate(() => document.querySelectorAll('[data-preview-instance]').length), value => value === 2)
 }, 90_000)
 
@@ -80,7 +80,7 @@ afterAll(async () => { await dispose?.() }, 30_000)
 
 describe('pose measurement', () => {
   it('LAY-GEST-003: chained offsets, origins and transforms reproduce the rotated child box within 0.5 px', async () => {
-    await send({ type: 'set-layout', layoutGeneration: 5, items: [
+    await send({ type: 'set-layout', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', layoutGeneration: 5, items: [
       { nodeId: 'card-1', mode: 'absolute', x: 60, y: 80, order: 0, width: 300, height: 200, declarations: { transform: 'rotate(30deg) scale(1.5)' } },
       { nodeId: 'input-1', mode: 'absolute', x: 5, y: 6, order: 0, width: 120 },
     ] })

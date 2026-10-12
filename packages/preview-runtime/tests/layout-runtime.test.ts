@@ -5,11 +5,11 @@ import { chromium, type Browser, type Frame, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createPreviewRuntime } from '../src/index.js'
 import { fixtureRegistry } from './fixture-registry.js'
-// Protocol v3: every document node carries its effective theme; the plain light fallback is not explicit.
+// Protocol v4: every document node carries its effective theme; the plain light fallback is not explicit.
 const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false } as const
 
 // LAY-ROOT-001, LAY-ROOT-002, LAY-SEC-001 and LAY-GRID-007 through the real boundary: a Vite preview build of the
-// fixture repository loaded cross-origin in headless Edge, driven over postMessage with protocol v3. Expected pixel
+// fixture repository loaded cross-origin in headless Edge, driven over postMessage with protocol v7. Expected pixel
 // values are derived by hand from the fixture stylesheet (card border 1px) and the host frame (480 wide, 24 padding):
 // card width 432; authored padding 12 on each side; content width 432 - 2 - 24 = 406; with columns `1fr 120px` and an
 // 8px column gap the fr track is 406 - 120 - 8 = 278.
@@ -18,7 +18,7 @@ const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component
 const registry = fixtureRegistry
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false }
 const previewDocument = {
-  version: 1, revision: 1, rootIds: ['card-1', 'button-1'], frame: frameSize,
+  version: 2, revision: 1, rootIds: ['card-1', 'button-1'], frame: frameSize,
   nodes: {
     'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: {}, children: { children: ['input-1', 'label-1'] } },
     'input-1': { id: 'input-1', componentId: 'atom-input', exportName: 'Input', theme: lightTheme, props: { id: 'grid-email', type: 'email' }, children: {} },
@@ -68,7 +68,7 @@ async function waitFor<T>(read: () => Promise<T>, predicate: (value: T) => boole
 /** Sends a layout with a fresh generation and waits for the geometry measured after it landed. */
 async function applyLayout(layoutItems: unknown[]): Promise<{ geometry: Geometry; observed: Observed; generation: number }> {
   const generation = ++generationCounter
-  await send({ type: 'set-layout', items: layoutItems, layoutGeneration: generation })
+  await send({ type: 'set-layout', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', items: layoutItems, layoutGeneration: generation })
   const geometry = await geometryFor(generation)
   return { geometry, observed: await observe(), generation }
 }
@@ -100,10 +100,10 @@ beforeAll(async () => {
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
   send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 3, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
     await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
-  await send({ type: 'set-document', document: previewDocument })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument })
   await waitFor(observe, value => value.input.parent === 'card-1')
 }, 90_000)
 
@@ -119,12 +119,12 @@ describe('layout layer on real component roots', () => {
     expect(observed.input).toMatchObject({ parent: 'card-1', gridColumnStart: '2', marginTop: '3px' })
     expect(geometry.layoutGeneration).toBe(generation)
     const measured = byId(geometry)
-    expect(measured['card-1']).toMatchObject({ parentInstanceId: null, directChild: false, layout: { status: 'applied', conflicts: [] }, grid: { columns: [278, 120], columnGap: 8, rowGap: 4, padding: { top: 12, right: 12, bottom: 12, left: 12 } } })
+    expect(measured['card-1']).toMatchObject({ parentInstanceId: null, directChild: true, offsetParentNodeId: null, offsetParentToRoot: [1, 0, 0, 1, -216, -296], layout: { status: 'applied', conflicts: [] }, grid: { columns: [278, 120], columnGap: 8, rowGap: 4, padding: { top: 12, right: 12, bottom: 12, left: 12 } } })
     // The input holds column 2 of row 1, so the sparse cursor cannot return to column 1: the label opens row 2 (input 37 + 3 margin = 40, label 26).
     expect(measured['card-1']!.grid!.rows).toEqual([40, 26])
     expect(measured['input-1']).toMatchObject({ parentInstanceId: 'card-1', directChild: true, layout: { status: 'applied', conflicts: [] } })
     expect(measured['label-1']).toMatchObject({ parentInstanceId: 'card-1', directChild: true })
-    expect(measured['button-1']).toMatchObject({ parentInstanceId: null, directChild: false })
+    expect(measured['button-1']).toMatchObject({ parentInstanceId: null, directChild: true, offsetParentNodeId: null, offsetParentToRoot: [1, 0, 0, 1, -216, -296] })
     expect(measured['button-1']!.grid).toBeUndefined()
   })
 
@@ -174,7 +174,7 @@ describe('layout layer on real component roots', () => {
     expect(applied.observed.card.display).toBe('grid')
     for (const bad of [{ display: 'inline-flex' }, { 'grid-template-columns': 'url(x)' }, { width: 'calc(100% - 2px)' }, { color: 'red' }, { 'column-gap': '8px; top: 0' }]) {
       const generation = ++generationCounter
-      await send({ type: 'set-layout', items: items({ ...gridCard, ...bad }), layoutGeneration: generation })
+      await send({ type: 'set-layout', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', items: items({ ...gridCard, ...bad }), layoutGeneration: generation })
       await new Promise(resolveWait => setTimeout(resolveWait, 150))
       expect(await page.evaluate(generation => (window as unknown as { received: Geometry[] }).received.some(message => message.layoutGeneration === generation), generation)).toBe(false)
       expect((await observe()).card).toMatchObject({ display: 'grid', columns: '278px 120px', columnGap: '8px' })

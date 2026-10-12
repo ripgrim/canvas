@@ -26,6 +26,7 @@ export function getApiRuntime(environment: NodeJS.ProcessEnv = process.env): Api
     serviceToken,
     collaborationAdmissionServiceToken: required(environment, 'COLLABORATION_ADMISSION_SERVICE_TOKEN'),
     collaborationBuildId: required(environment, 'COLLABORATION_BUILD_ID'),
+    collaborationAllowedOrigins: editorOrigins(environment),
     registryFingerprint: required(environment, 'CANVAS_VERIFIED_REGISTRY_FINGERPRINT'),
     thumbnailServiceToken: required(environment, 'THUMBNAIL_SERVICE_TOKEN'),
     collaborationAuthority: createPostgresCollaborationAdmissionAuthority(createPostgresCollaborationPersistence(pool)),
@@ -41,12 +42,20 @@ export function getApiRuntime(environment: NodeJS.ProcessEnv = process.env): Api
 }
 
 export function apiAllowedOrigins(environment: NodeJS.ProcessEnv): readonly string[] {
-  const webOrigins = [required(environment, 'LOGIN_URL'), environment.APP_URL ?? '']
+  const webOrigins = [required(environment, 'LOGIN_URL'), ...editorOrigins(environment)]
     .flatMap(value => value.split(','))
     .map(value => value.trim())
     .filter(Boolean)
     .map(value => new URL(value).origin)
   return Object.freeze([`${desktopAuthProtocolScheme}:/`, ...new Set(webOrigins)])
+}
+
+function editorOrigins(environment: NodeJS.ProcessEnv): readonly string[] {
+  return Object.freeze([...new Set(required(environment, 'APP_URL')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean)
+    .map(value => new URL(value).origin))])
 }
 
 export function handleApiRequest(request: Request): Promise<Response> {

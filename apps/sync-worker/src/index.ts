@@ -31,7 +31,7 @@ function requestReference(request: Request): string {
   return value && /^[A-Za-z0-9:._-]{1,128}$/.test(value) ? value : crypto.randomUUID()
 }
 
-export async function handleRequest(request: Request, env: SyncWorkerEnv): Promise<Response> {
+export async function handleRequest(request: Request, env: SyncWorkerEnv, requestId = requestReference(request)): Promise<Response> {
   const configuration = validateWorkerEnv(env)
   const url = new URL(request.url)
   if (request.method === "GET" && url.pathname === "/healthz" && url.search === "") return json({ ok: true }, 200)
@@ -42,8 +42,7 @@ export async function handleRequest(request: Request, env: SyncWorkerEnv): Promi
   const origin = request.headers.get("Origin")
   if (!origin || !configuration.allowedOrigins.has(origin)) return error("forbidden", "Origin not allowed.", 403)
 
-  const requestId = requestReference(request)
-  const admitted = await requestCollaborationAdmission({ apiOrigin: configuration.apiOrigin, serviceToken: env.COLLABORATION_ADMISSION_SERVICE_TOKEN, buildId: configuration.buildId, fileId: route.fileId, clientId: route.clientId, requestId, request })
+  const admitted = await requestCollaborationAdmission({ apiOrigin: configuration.apiOrigin, serviceToken: env.COLLABORATION_ADMISSION_SERVICE_TOKEN, buildId: configuration.buildId, fileId: route.fileId, clientId: route.clientId, origin, webSocketProtocol: handshake.protocol, requestId, request })
   if (!admitted.admission) return admissionFailure(admitted.response.status, requestId)
   const roomName = scopedRoomName(route.fileId, admitted.admission.claims.generationId)
   const nowUnixMs = Date.now()
@@ -65,7 +64,7 @@ export async function handleRequest(request: Request, env: SyncWorkerEnv): Promi
 export default {
   async fetch(request: Request, env: SyncWorkerEnv): Promise<Response> {
     const requestId = requestReference(request)
-    try { return await handleRequest(request, env) }
+    try { return await handleRequest(request, env, requestId) }
     catch (reason) {
       console.error(JSON.stringify({ level: "error", event: "sync_worker_request_failed", requestId, path: new URL(request.url).pathname, reason: reason instanceof Error ? reason.message : "Unknown error" }))
       return error("service_unavailable", "Sync is unavailable.", 503, requestId)
