@@ -76,7 +76,7 @@ describe('AT-CAN scene identity and geometry', () => {
     expect(buildScene(source, 'page-1', geometry, 2).byId.get('text')?.rect).toEqual({ x: 450, y: 30, width: 180, height: 24 })
   })
 
-  it('ignores native measurements for fixed text and every non-text primitive', () => {
+  it('ignores native measurements for fixed text and fixed non-text primitives', () => {
     const hostile = {
       ...measured,
       text: { canvasKind: 'text' as const, rect: { x: 999, y: 999, width: 1, height: 1 }, offset: { x: 999, y: 999, width: 1, height: 1, origin: { x: 0, y: 0 } } },
@@ -85,6 +85,27 @@ describe('AT-CAN scene identity and geometry', () => {
     const fixed = buildScene(file(), 'page-1', hostile)
     expect(fixed.byId.get('text')?.rect).toEqual({ x: 330, y: 30, width: 300, height: 40 })
     expect(fixed.byId.get('loose')?.rect).toEqual({ x: -600, y: -600, width: 50, height: 50 })
+  })
+
+  it('uses current DOM geometry for freeform primitives with browser-owned sizing', () => {
+    const source = file()
+    const frame = source.nodes.frame
+    if (!frame || frame.type !== 'frame') throw new Error('Frame fixture is missing')
+    frame.layout = {
+      item: {
+        position: { mode: 'freeform' },
+        height: { value: { kind: 'intrinsic', value: 'fit-content' } },
+      },
+      container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'center', align: 'center' } },
+    }
+    const current = {
+      ...measured,
+      frame: { canvasKind: 'frame' as const, documentRevision: source.revision, layoutGeneration: 3, rect: { x: 300, y: 0, width: 200, height: 311 } },
+    }
+
+    expect(buildScene(source, 'page-1', current, 3).byId.get('frame')?.rect).toEqual({ x: 300, y: 0, width: 200, height: 311 })
+    expect(buildScene(source, 'page-1', measured, 3).byId.has('frame')).toBe(false)
+    expect(buildScene(source, 'page-1', measured, 3).byId.has('inner')).toBe(false)
   })
 
   it('PAPER-FLEX-001/002 uses only current DOM geometry for flow and absolute primitives', () => {

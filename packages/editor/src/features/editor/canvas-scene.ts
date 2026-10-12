@@ -35,9 +35,12 @@ function primitiveRect(file: FileDocument, id: string, measurement: MeasuredNode
   if (!node || node.type === 'root' || node.type === 'component') return null
   const mode = nodePositionMode(node)
   const currentMeasurement = measurement?.canvasKind === node.type && measurement.documentRevision === file.revision && measurement.layoutGeneration === layoutGeneration ? measurement : undefined
-  // Browser layout owns semantic flow and explicit absolute layout. Stored x/y are only a legacy fallback and cannot
-  // stand in for the result of flex/grid distribution, intrinsic sizing, percentages, insets, or padding.
-  if (mode === 'flow' || mode === 'absolute') return currentMeasurement?.rect ?? null
+  const browserSized = node.layout?.item.width !== undefined
+    || node.layout?.item.height !== undefined
+    || node.layout?.item.aspectRatio !== undefined
+  // Browser layout owns semantic flow, explicit absolute layout, and any non-pixel sizing mode. Stored x/y/width/height
+  // cannot stand in for flex/grid distribution, intrinsic sizing, percentages, insets, padding, or aspect-ratio sizing.
+  if (mode === 'flow' || mode === 'absolute' || browserSized) return currentMeasurement?.rect ?? null
   if (node.type !== 'text' || !node.textStyle || !node.textSizing || !currentMeasurement?.offset) return authored
   const widthFits = node.textSizing.width.mode === 'fit'
   const heightFits = node.textSizing.height.mode === 'fit'
@@ -77,7 +80,7 @@ export function buildScene(file: FileDocument | null, pageId: string | null, mea
     } else {
       const rect = primitiveRect(file, id, measured[id], layoutGeneration)
       if (rect) nodes.push({ id, kind: node.type, name: displayName(file, id), parentId, rect, rotation: node.styles.rotation ?? 0, clip: node.type === 'frame' && node.styles.overflow !== 'visible', depth, order: order++, flow: nodePositionMode(node) === 'flow', locked: nodeIsLocked(file, id) })
-      else if (nodePositionMode(node) === 'flow' || nodePositionMode(node) === 'absolute') return
+      else return
     }
     for (const child of childrenOf(file, id)) visit(child, id, depth + 1)
   }

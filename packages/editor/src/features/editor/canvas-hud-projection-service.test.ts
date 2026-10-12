@@ -111,6 +111,62 @@ function setup(mobile = false) {
 }
 
 describe('AT-CAN-005-HUD shared HUD projection service', () => {
+  it('keeps every selection overlay when a freeform frame has browser-owned Hug sizing', () => {
+    const store = createDocumentStore(() => 'id')
+    const source: FileDocument = {
+      schemaVersion: 9, fileId: 'hug-hud-file', revision,
+      pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      nodes: {
+        root: { id: 'root', type: 'root' },
+        hug: {
+          id: 'hug', type: 'frame', name: 'Hug frame',
+          styles: { left: 10, top: 20, width: 100, height: 70 },
+          layout: {
+            item: {
+              position: { mode: 'freeform' },
+              height: { value: { kind: 'intrinsic', value: 'fit-content' } },
+            },
+            container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } },
+          },
+        },
+      },
+      relationships: { hug: { parentId: 'root', orderKey: 'V' } },
+      theme: { tokens: {} },
+    }
+    const measuredGeometry: SceneGeometry = {
+      revision: measurementRevision, documentRevision: revision, layoutGeneration,
+      nodes: {
+        hug: {
+          canvasKind: 'frame', documentRevision: revision, layoutGeneration,
+          rect: { x: 10, y: 20, width: 100, height: 90 },
+          worldAabb: { x: 10, y: 20, width: 100, height: 90 },
+          offset: { x: 10, y: 20, width: 100, height: 90, origin: { x: 50, y: 45 } },
+          offsetParentNodeId: null, directChild: true,
+          transform: [1, 0, 0, 1, 0, 0], offsetParentToRoot: [1, 0, 0, 1, 0, 0],
+          box: structuredClone({ border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { top: 0, right: 0, bottom: 0, left: 0 } }),
+        },
+      },
+      unsupported: {}, themeUnsupported: {}, unownedPortals: 0,
+    }
+    const measured = { getSnapshot: () => measuredGeometry, subscribe: () => () => undefined }
+    const viewport = { getSnapshot: () => false, subscribe: () => () => undefined }
+    store.load(source, [], { replace: true, pageId: 'page' })
+    store.setViewport({ x: 0, y: 0, zoom: 1 })
+    store.setViewportSize({ width: 800, height: 600 })
+    store.select('hug')
+    const service = createCanvasHudProjectionService(store, measured, viewport)
+    service.start()
+
+    expect(service.getSnapshot().frame?.byNodeId.hug).toMatchObject({
+      worldAabb: { x: 10, y: 20, width: 100, height: 90 },
+      dimensions: { width: 100, height: 90 },
+      policy: { selected: true, showOutline: true, showHandles: true },
+    })
+
+    service.dispose()
+    store.dispose()
+  })
+
   it('publishes ordered flow-drag samples from one captured authority and rejects stale generation data', () => {
     const { store, service } = setup(true)
     const first = flowDrag('active', 7)
