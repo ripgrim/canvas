@@ -3,7 +3,7 @@ import { captureGestureAuthority } from './gesture-authority'
 import type { GestureAuthorityDocumentState, GestureAuthoritySnapshot } from './gesture-authority'
 import { mobileViewport } from './mobile-editor'
 import { projectHudFrame } from './canvas-hud-projection'
-import type { HudFlowDragCommittedReceipt, HudProjectionFrame, HudProjectionView } from './canvas-hud-projection'
+import type { HudFlowDragCommittedReceipt, HudMovePresentation, HudProjectionFrame, HudProjectionView } from './canvas-hud-projection'
 import type { FlowDragPresentation } from './flow-drag-presentation'
 import type { ResizePresentation } from './resize-projection'
 import type { PreviewCommittedDocumentReceipt } from './preview-service'
@@ -28,6 +28,7 @@ type MobileSource = Readonly<{
 type Projection = (input: Readonly<{
   authority: GestureAuthoritySnapshot
   view: HudProjectionView
+  movePresentation?: HudMovePresentation | null
   resizePresentation?: ResizePresentation | null
   resizeFence?: GestureAuthoritySnapshot['start']
   flowDragPresentation?: FlowDragPresentation | null
@@ -82,6 +83,7 @@ type FrameInputs = Readonly<{
   readOnly: boolean
   mobile: boolean
   resizeActive: boolean
+  activeMove: HudMovePresentation | null
   activeResize: ActiveResize | null
   activeFlowDrag: ActiveFlowDrag | null
 }>
@@ -103,6 +105,7 @@ const sameFrameInputs = (left: FrameInputs | null, right: FrameInputs): boolean 
   && left.readOnly === right.readOnly
   && left.mobile === right.mobile
   && left.resizeActive === right.resizeActive
+  && left.activeMove === right.activeMove
   && left.activeResize === right.activeResize
   && left.activeFlowDrag === right.activeFlowDrag)
 
@@ -217,6 +220,7 @@ export function createCanvasHudProjectionService(
     }
     if (activeFlowDrag) authority = activeFlowDrag.authority
     const resizeActive = state.transient?.kind === 'resize'
+    const activeMove = state.transient?.kind === 'move' ? state.transient : null
     if (!resizeActive) activeResize = null
     const nextFrameInputs: FrameInputs = {
       authority,
@@ -225,6 +229,7 @@ export function createCanvasHudProjectionService(
       readOnly: state.readOnly,
       mobile: mobile.getSnapshot(),
       resizeActive,
+      activeMove,
       activeResize,
       activeFlowDrag,
     }
@@ -250,6 +255,7 @@ export function createCanvasHudProjectionService(
       frame = project({
         authority,
         view,
+        ...(activeMove ? { movePresentation: activeMove } : {}),
         ...(activeResize ? { resizePresentation: activeResize.presentation, resizeFence: activeResize.fence } : {}),
         ...(activeFlowDrag ? { flowDragPresentation: activeFlowDrag.presentation, flowDragReceipt: activeFlowDrag.receipt } : {}),
       })

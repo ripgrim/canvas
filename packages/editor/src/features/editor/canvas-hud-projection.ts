@@ -136,9 +136,15 @@ export type HudProjectionFrame = Readonly<{
   flowDrag: HudFlowDragProjection | null
 }>
 
+export type HudMovePresentation = Readonly<{
+  rects: Readonly<Record<string, Readonly<Rect>>>
+  offset: Readonly<Point>
+}>
+
 export type HudProjectionInput = Readonly<{
   authority: GestureAuthoritySnapshot
   view: HudProjectionView
+  movePresentation?: HudMovePresentation | null
   resizePresentation?: ResizePresentation | null
   /** The exact pointer-down fence that produced `resizePresentation`. */
   resizeFence?: GestureAuthoritySnapshot['start']
@@ -320,6 +326,17 @@ function resizeProjection(item: ResizePresentationItem): { quad: HudQuad; aabb: 
   return { quad: detached, aabb, dimensions: { width: item.rect.width, height: item.rect.height } }
 }
 
+function moveProjection(
+  projected: Readonly<{ quad: HudQuad; aabb: Rect; dimensions: Size }>,
+  offset: Readonly<Point>,
+): { quad: HudQuad; aabb: Rect; dimensions: Size } {
+  return {
+    quad: projected.quad.map(point => ({ x: point.x + offset.x, y: point.y + offset.y })) as unknown as HudQuad,
+    aabb: { ...projected.aabb, x: projected.aabb.x + offset.x, y: projected.aabb.y + offset.y },
+    dimensions: projected.dimensions,
+  }
+}
+
 function toScreen(point: Readonly<Point>, camera: GestureAuthoritySnapshot['camera'], size: GestureAuthoritySnapshot['size']): Point {
   return {
     x: size.width / 2 + camera.x + point.x * camera.zoom,
@@ -405,6 +422,20 @@ function validResize(authority: GestureAuthoritySnapshot, resize: ResizePresenta
       && authority.scene.byId.has(item.nodeId)
       && item.coordinateSpace === 'parent-padding'
       && relationship?.parentId === item.parentId
+  })
+}
+
+function validMove(authority: GestureAuthoritySnapshot, move: HudMovePresentation | null | undefined): boolean {
+  if (!move) return true
+  if (!finitePoint(move.offset)) return false
+  const entries = Object.entries(move.rects)
+  if (!entries.length || entries.length > authority.selection.length) return false
+  const selection = new Set(authority.selection)
+  return entries.every(([nodeId, rect]) => {
+    const node = authority.scene.byId.get(nodeId)
+    return selection.has(nodeId) && Boolean(node) && finiteRect(rect)
+      && close(rect.width, node!.rect.width) && close(rect.height, node!.rect.height)
+      && close(rect.x, node!.rect.x + move.offset.x) && close(rect.y, node!.rect.y + move.offset.y)
   })
 }
 
@@ -527,9 +558,9 @@ function flowDragProjection(authority: GestureAuthoritySnapshot, presentation: F
  * Any fence, view, topology, or quad failure rejects the whole frame so renderers never mix generations.
  */
 export function projectHudFrame(input: HudProjectionInput): HudProjectionFrame | null {
-  const { authority, view, resizePresentation, resizeFence, flowDragPresentation, flowDragReceipt } = input
-  if (!validView(authority, view) || !validResize(authority, resizePresentation, resizeFence) || !validFlowDrag(authority, flowDragPresentation, flowDragReceipt)) return null
-  if (resizePresentation && flowDragPresentation) return null
+  const { authority, view, movePresentation, resizePresentation, resizeFence, flowDragPresentation, flowDragReceipt } = input
+  if (!validView(authority, view) || !validMove(authority, movePresentation) || !validResize(authority, resizePresentation, resizeFence) || !validFlowDrag(authority, flowDragPresentation, flowDragReceipt)) return null
+  if ([movePresentation, resizePresentation, flowDragPresentation].filter(Boolean).length > 1) return null
   if (view.hover !== null && !authority.scene.byId.has(view.hover)) return null
   const selection = new Set(view.selection)
   if (selection.size !== view.selection.length || view.selection.some(id => !authority.scene.byId.has(id))) return null
@@ -546,12 +577,14 @@ export function projectHudFrame(input: HudProjectionInput): HudProjectionFrame |
   for (const node of authority.scene.nodes) {
     const activeItem = resizePresentation?.byNodeId[node.id]
     const activeFlowNode = flowDrag && node.id === flowDrag.documentNodeId
-    const projected = activeFlowNode
+    const baseProjection = activeFlowNode
       ? { quad: flowDragPresentation!.original.current.quad, aabb: flowDragPresentation!.original.current.aabb, dimensions: {
           width: flowDragPresentation!.original.current.semanticSize.width,
           height: flowDragPresentation!.original.current.semanticSize.height,
         } }
       : activeItem ? resizeProjection(activeItem) : measuredProjection(authority, node.id)
+    const moved = movePresentation?.rects[node.id]
+    const projected = baseProjection && moved ? moveProjection(baseProjection, movePresentation!.offset) : baseProjection
     if (!projected) return null
     const screenQuad = projected.quad.map(point => toScreen(point, authority.camera, authority.size)) as unknown as HudQuad
     const screenAabb = quadAabb(screenQuad)

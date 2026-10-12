@@ -111,6 +111,34 @@ function setup(mobile = false) {
 }
 
 describe('AT-CAN-005-HUD shared HUD projection service', () => {
+  it('keeps the selected outline attached to a rotated node throughout a transient move', () => {
+    const { store, service } = setup()
+    const before = service.getSnapshot()
+    const beforeEntry = before.frame?.byNodeId.selected
+
+    store.setTransient({
+      kind: 'move',
+      rects: { selected: { x: -38, y: 34, width: 100, height: 70 } },
+      offset: { x: 32, y: 24 },
+      guides: [],
+      targetFrameId: null,
+      insertion: null,
+    })
+
+    const held = service.getSnapshot()
+    const heldEntry = held.frame?.byNodeId.selected
+    expect(held.generation).toBeGreaterThan(before.generation)
+    expect(heldEntry?.worldQuad).toStrictEqual(worldQuad.map(point => ({ x: point.x + 32, y: point.y + 24 })))
+    expect(heldEntry?.screenQuad).toStrictEqual(beforeEntry?.screenQuad.map(point => ({ x: point.x + 64, y: point.y + 48 })))
+    expect(heldEntry?.worldAabb).toStrictEqual({ x: -38, y: 34, width: 100, height: 70 })
+    expect(heldEntry?.dimensions).toStrictEqual(beforeEntry?.dimensions)
+
+    store.setTransient(null)
+    expect(service.getSnapshot().frame?.byNodeId.selected?.worldQuad).toStrictEqual(beforeEntry?.worldQuad)
+    service.dispose()
+    store.dispose()
+  })
+
   it('keeps every selection overlay when a freeform frame has browser-owned Hug sizing', () => {
     const store = createDocumentStore(() => 'id')
     const source: FileDocument = {
@@ -612,14 +640,17 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
     store.dispose()
   })
 
-  it('does not publish another frame for transient move samples that do not change projection authority', () => {
+  it('publishes each transient move sample as live projected geometry', () => {
     const { store, service } = setup()
     const listener = vi.fn()
     service.subscribe(listener)
     const before = service.getSnapshot()
     store.setTransient({ kind: 'move', rects: { selected: { x: 20, y: 30, width: 100, height: 70 } }, offset: { x: 90, y: 20 }, guides: [], targetFrameId: null, insertion: null })
-    expect(service.getSnapshot()).toBe(before)
-    expect(listener).not.toHaveBeenCalled()
+    const held = service.getSnapshot()
+    expect(held).not.toBe(before)
+    expect(held.generation).toBe(before.generation + 1)
+    expect(held.frame?.byNodeId.selected?.worldAabb).toStrictEqual({ x: 20, y: 30, width: 100, height: 70 })
+    expect(listener).toHaveBeenCalledTimes(1)
     service.dispose()
     store.dispose()
   })
