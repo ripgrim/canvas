@@ -57,6 +57,9 @@ jobs:
         shell: pwsh
         run: pnpm "build:package:${{ steps.channel.outputs.value }}"
 
+      - name: Smoke packaged main process
+        run: pnpm --filter @canvas/desktop test:packaged-launch-smoke -- "${{ steps.channel.outputs.value }}"
+
       - name: Retain installer for review
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

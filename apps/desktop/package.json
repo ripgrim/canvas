@@ -1,6 +1,6 @@
 {
   "name": "@canvas/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "main": "dist/main/index.js",
@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run tests && node tests/auth-electron-boundary.mjs",
     "test:electron-boundary": "node tests/auth-electron-boundary.mjs",
-    "test:launch-smoke": "node tests/launch-smoke.mjs"
+    "test:launch-smoke": "node tests/launch-smoke.mjs",
+    "test:packaged-launch-smoke": "node tests/packaged-launch-smoke.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",

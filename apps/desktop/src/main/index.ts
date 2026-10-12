@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, session } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import electronUpdater from 'electron-updater'
 import { dirname, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
@@ -25,6 +25,8 @@ import { shadcnPreviewPropRule } from '@canvas/scanner/preview-registry'
 import { createDesktopCollaborationStore, desktopCollaborationClientId } from './collaboration-store'
 import { DesktopUpdateService } from './update-service'
 
+const { autoUpdater } = electronUpdater
+
 protocol.registerSchemesAsPrivileged([{ scheme: 'design-editor', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }])
 
 const directory = dirname(fileURLToPath(import.meta.url))
@@ -43,6 +45,7 @@ const environment: NodeJS.ProcessEnv = desktopPackageEnvironment
     }
   : process.env
 const smoke = process.env.DESIGN_EDITOR_SMOKE === '1'
+const startupSmoke = process.env.DESIGN_EDITOR_STARTUP_SMOKE === '1'
 let repository: RepositoryProcess | undefined
 let repositoryConnections: RepositoryConnections | undefined
 let authService: DesktopAuthService | undefined
@@ -446,7 +449,7 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   void disposeServices().finally(() => { shutdownComplete = true; app.quit() })
 })
-if (primaryInstance) app.whenReady().then(createEditor).catch((error: unknown) => {
+if (primaryInstance) app.whenReady().then(() => startupSmoke ? app.quit() : createEditor()).catch((error: unknown) => {
   console.error('Design editor startup failed:', error instanceof Error ? error.message : 'Unknown startup error')
   app.quit()
 })
