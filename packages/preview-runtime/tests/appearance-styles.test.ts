@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { appearanceStyle, canvasElementStyle, fillLayers } from '../src/scene-styles.mjs'
 
 const assets = { photo: { mime: 'image/png', data: 'AAAA' }, tile: { mime: 'image/webp', data: 'QUJD' } }
+const legacyTextProperties = {
+  textStyle: { fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false },
+  textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+}
 const linear = (interpolation: string, extra: Record<string, unknown> = {}) => ({ type: 'gradient', shape: 'linear', angle: 90, center: { x: 0.5, y: 0.5 }, length: 1, interpolation, stops: [{ color: '#ff0000', position: 0 }, { color: '#0000ff', position: 1 }], ...extra })
 const box = (appearance: unknown) => appearanceStyle(appearance, assets, 'rectangle')
 
@@ -158,6 +162,6 @@ describe('AT-APP-003 appearance styles', () => {
       borderRadius: '50%',
     })
     expect(canvasElementStyle({ ...element, kind: 'frame', clip: false }, assets).overflow).toBe('visible')
-    expect(canvasElementStyle({ ...element, kind: 'text', text: 'Hi', appearance: undefined }, assets)).toMatchObject({ color: '#202124', fontSize: '16px', overflow: 'hidden' })
+    expect(canvasElementStyle({ ...element, kind: 'text', text: 'Hi', ...legacyTextProperties, appearance: undefined }, assets)).toMatchObject({ color: '#202124', fontSize: '16px', overflow: 'hidden' })
   })
 })

@@ -1,28 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { acceptPreviewCommand, acceptPreviewEvent, isPreviewDocument, isPreviewNodeTheme, type PreviewDocument, type PreviewNodeTheme } from '../src/protocol.js'
 
-// CC-NT-015: protocol v3 theme negative controls through the real command and event boundaries. Every rejection
+// CC-NT-015: protocol v7 theme negative controls through the real command and event boundaries. Every rejection
 // starts from a value the same boundary accepts, so a rejection can only come from the single mutation under test.
 
 const editorOrigin = 'http://127.0.0.1:4319'
 const previewOrigin = 'http://127.0.0.1:4400'
 const parent = {} as Window
-const envelope = { channel: 'design-editor-preview', version: 3, generation: 7 } as const
+const envelope = { channel: 'design-editor-preview', version: 8, generation: 7 } as const
 const deliver = (data: unknown) => acceptPreviewCommand({ origin: editorOrigin, source: parent, data }, editorOrigin, parent, 7)
 const receive = (data: unknown) => acceptPreviewEvent({ origin: previewOrigin, source: parent, data }, previewOrigin, parent, 7)
 
 const darkTheme = () => ({ mode: 'dark', designThemeId: 'dark', attribute: 'dark', colorScheme: 'dark', explicit: true }) as Record<string, unknown>
 const document = (cardTheme: unknown = darkTheme()): PreviewDocument => ({
-  version: 1, revision: 1, rootIds: ['card-1'],
+  version: 2, revision: 1, rootIds: ['card-1'],
   nodes: {
     'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', props: {}, children: { children: ['button-1'] }, theme: cardTheme as PreviewNodeTheme },
     'button-1': { id: 'button-1', componentId: 'atom-button', exportName: 'Button', props: { children: 'Go' }, children: {}, theme: { mode: 'dark', designThemeId: 'dark', attribute: 'dark', colorScheme: 'dark', explicit: false } },
   },
   frame: { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false },
 })
-const setDocument = (doc: unknown) => ({ ...envelope, type: 'set-document', document: doc })
+const setDocument = (doc: unknown) => ({ ...envelope, type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: doc })
 const bounds = { x: 10, y: 20, width: 120, height: 40 }
-const geometry = (extra: Record<string, unknown> = {}, item: Record<string, unknown> = {}) => ({ ...envelope, type: 'geometry', items: [{ instanceId: 'card-1', componentId: 'atom-card', bounds, ...item }], root: null, ...extra })
+const geometry = (extra: Record<string, unknown> = {}, item: Record<string, unknown> = {}) => ({ ...envelope, type: 'geometry', items: [{ instanceId: 'card-1', source: 'component', componentId: 'atom-card', bounds, worldAabb: bounds, ...item }], root: null, documentRevision: 1, layoutGeneration: 0, measurementRevision: 1, ...extra })
 
 describe('CC-NT-015 node theme on set-document', () => {
   it('accepts an explicit dark node, an inherited node, the light fallback and the 40 character bounds', () => {
@@ -129,7 +129,7 @@ describe('CC-NT-015 theme reports on geometry events', () => {
   })
 })
 
-describe('CC-NT-015 envelope version 3 in both directions', () => {
+describe('CC-NT-015 envelope version 8 in both directions', () => {
   const commands: [string, Record<string, unknown>][] = [
     ['set-document', setDocument(document())],
     ['set-theme', { ...envelope, type: 'set-theme', theme: { attribute: 'dark', colorScheme: 'dark' } }],
@@ -140,16 +140,26 @@ describe('CC-NT-015 envelope version 3 in both directions', () => {
     ['ready', { ...envelope, type: 'ready', componentId: 'fixture-login' }],
     ['diagnostic', { ...envelope, type: 'diagnostic', message: 'Preview failed' }],
   ]
-  it.each(commands)('accepts a version 3 %s command and rejects versions 2, 4 and "3"', (_, data) => {
+  it.each(commands)('accepts a version 8 %s command and rejects earlier or string versions', (_, data) => {
     expect(deliver(data)).toEqual(data)
-    expect(deliver({ ...data, version: 2 })).toBeNull()
+    expect(deliver({ ...data, version: 3 })).toBeNull()
     expect(deliver({ ...data, version: 4 })).toBeNull()
-    expect(deliver({ ...data, version: '3' })).toBeNull()
+    expect(deliver({ ...data, version: 5 })).toBeNull()
+    expect(deliver({ ...data, version: 6 })).toBeNull()
+    expect(deliver({ ...data, version: 7 })).toBeNull()
+    expect(deliver({ ...data, version: '6' })).toBeNull()
+    expect(deliver({ ...data, version: '7' })).toBeNull()
+    expect(deliver({ ...data, version: '8' })).toBeNull()
   })
-  it.each(events)('accepts a version 3 %s event and rejects versions 2, 4 and "3"', (_, data) => {
+  it.each(events)('accepts a version 8 %s event and rejects earlier or string versions', (_, data) => {
     expect(receive(data)).toEqual(data)
-    expect(receive({ ...data, version: 2 })).toBeNull()
+    expect(receive({ ...data, version: 3 })).toBeNull()
     expect(receive({ ...data, version: 4 })).toBeNull()
-    expect(receive({ ...data, version: '3' })).toBeNull()
+    expect(receive({ ...data, version: 5 })).toBeNull()
+    expect(receive({ ...data, version: 6 })).toBeNull()
+    expect(receive({ ...data, version: 7 })).toBeNull()
+    expect(receive({ ...data, version: '6' })).toBeNull()
+    expect(receive({ ...data, version: '7' })).toBeNull()
+    expect(receive({ ...data, version: '8' })).toBeNull()
   })
 })

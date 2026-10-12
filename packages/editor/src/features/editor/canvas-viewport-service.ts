@@ -24,7 +24,7 @@ export function createCanvasViewportService(store = documentStore, geometry = sc
     const unmeasuredRoots = root ? childrenOf(state.file, root).filter(id => state.file!.nodes[id]?.type === 'component' && !measured[id]) : []
     if (unmeasuredRoots.length && !force) { if (!deadline) deadline = setTimeout(() => { deadline = null; resolve(true) }, 1500); return }
     clearDeadline()
-    const scene = buildScene(state.file, state.pageId, measured)
+    const scene = buildScene(state.file, state.pageId, measured, state.layoutGeneration)
     const ids = state.fitRequested === 'selection' && state.selection.length ? state.selection : scene.nodes.filter(node => node.parentId === null).map(node => node.id)
     const rects = ids.map(id => scene.byId.get(id)?.rect).filter((rect): rect is NonNullable<typeof rect> => Boolean(rect))
     store.resolveFit(rects.length ? unionRects(rects) : null)

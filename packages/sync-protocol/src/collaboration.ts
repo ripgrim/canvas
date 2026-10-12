@@ -1,8 +1,18 @@
 import type { FileCommand } from '@canvas/repo-engine/file-document'
+import type {
+  FlowDragDenialCode,
+  FlowDragLane,
+  FlowDragLocalClaimGeneration,
+  FlowDragPresentation,
+  FlowDragReservationGeneration,
+  FlowDragServerLeaseId,
+  FlowDragTerminalBinding,
+} from './flow.js'
 
-export const collaborationProtocolEpoch = 2 as const
+export const collaborationProtocolEpoch = 4 as const
+export const collaborationWebSocketProtocol = `canvas-sync-v${collaborationProtocolEpoch}` as const
 export const collaborationEnvelopeSchemaVersion = 1 as const
-export const collaborationDocumentSchemaVersion = 7 as const
+export const collaborationDocumentSchemaVersion = 9 as const
 export const maxCollaborationIdentifierLength = 128
 export const maxPresenceParticipants = 512
 export const maxCollaborationDisplayNameLength = 80
@@ -71,6 +81,7 @@ export type ClientLifecycleState =
   | 'access-revoked'
   | 'incompatible-build'
   | 'capacity-refused'
+  | 'connection-failed'
   | 'draining'
   | 'closing'
   | 'closed'
@@ -87,6 +98,7 @@ export type SemanticOperationEnvelope = Readonly<{
   mutationId: string
   baseSequence: DurableSequence
   command: SemanticFileCommand
+  flowBinding?: FlowDragTerminalBinding
 }>
 
 export type CollaborationJsonValue = string | number | boolean | null | readonly CollaborationJsonValue[] | CollaborationJsonObject
@@ -141,23 +153,6 @@ export type PresenceSelection = Readonly<{
   nodeIds: readonly string[]
 }>
 
-/** Pointer-only geometry. It is broadcast immediately and never enters the durable document or undo history. */
-export type PresenceTransform = Readonly<{
-  nodeId: string
-  dx: number
-  dy: number
-  width?: number
-  height?: number
-}>
-
-export type PresenceInteraction = Readonly<{
-  interactionId: string
-  pageId: string
-  kind: 'move' | 'resize'
-  nodeIds: readonly string[]
-  transforms: readonly PresenceTransform[]
-}>
-
 /** A sparse awareness update. The room merges it into the participant state. */
 export type PresencePatch = Readonly<{
   pageId?: string | null
@@ -165,7 +160,6 @@ export type PresencePatch = Readonly<{
   selection?: PresenceSelection | null
   camera?: PresenceCamera | null
   cursor?: PresencePoint | null
-  interaction?: PresenceInteraction | null
 }>
 
 /** The room-owned awareness snapshot. Missing values are represented explicitly. */
@@ -175,7 +169,6 @@ export type PresenceState = Readonly<{
   selection: PresenceSelection | null
   camera: PresenceCamera | null
   cursor: PresencePoint | null
-  interaction?: PresenceInteraction | null
 }>
 
 export type PresenceUpdateMessage = Readonly<{
@@ -188,13 +181,55 @@ export type RoomLeaveMessage = Readonly<{
   type: 'room.leave'
 }>
 
-export type CollaborationClientMessage = RoomOpenMessage | RoomResumeMessage | OperationSubmitMessage | PresenceUpdateMessage | RoomLeaveMessage
+export type InteractionAcquireMessage = Readonly<{
+  type: 'interaction.acquire'
+  pageId: string
+  localClaimGeneration: FlowDragLocalClaimGeneration
+  leaseId?: FlowDragServerLeaseId
+  presentation: FlowDragPresentation
+}>
+
+export type InteractionReserveMessage = Readonly<{
+  type: 'interaction.reserve'
+  pageId: string
+  leaseId: FlowDragServerLeaseId
+  localClaimGeneration: FlowDragLocalClaimGeneration
+  reservationGeneration: FlowDragReservationGeneration
+  targetLane: FlowDragLane
+  presentation: FlowDragPresentation
+}>
+
+export type InteractionSampleMessage = Readonly<{
+  type: 'interaction.sample'
+  pageId: string
+  leaseId: FlowDragServerLeaseId
+  localClaimGeneration: FlowDragLocalClaimGeneration
+  reservationGeneration: FlowDragReservationGeneration
+  presentation: FlowDragPresentation
+}>
+
+export type InteractionReleaseReason = 'committed' | 'cancelled' | 'failed' | 'disconnecting'
+export type InteractionReleaseMessage = Readonly<{
+  type: 'interaction.release'
+  pageId: string
+  leaseId: FlowDragServerLeaseId
+  interactionId: string
+  localClaimGeneration: FlowDragLocalClaimGeneration
+  reservationGeneration: FlowDragReservationGeneration
+  terminalSampleSequence: number
+  reason: InteractionReleaseReason
+}>
+
+export type CollaborationClientMessage = RoomOpenMessage | RoomResumeMessage | OperationSubmitMessage | PresenceUpdateMessage
+  | InteractionAcquireMessage | InteractionReserveMessage | InteractionSampleMessage | InteractionReleaseMessage | RoomLeaveMessage
 
 export type RoomAssignedMessage = Readonly<{
   type: 'room.assigned'
   envelope: ServerRoomEnvelope
   requestId: string
   role: VerifiedRoomRole
+  /** Non-secret equality tag. Durable edits only replay under the same server-verified access grant. */
+  replayScopeId: string
 }>
 
 export type AdmissionQueuedMessage = Readonly<{
@@ -311,6 +346,67 @@ export type PresenceLeaveMessage = Readonly<{
   clientId: string
 }>
 
+export type InteractionResultAction = 'acquire' | 'reserve' | 'release'
+export type InteractionResultStatus = 'granted' | 'retained' | 'released' | 'denied'
+export type InteractionResultMessage = Readonly<{
+  type: 'interaction.result'
+  envelope: ServerRoomEnvelope
+  pageId: string
+  action: InteractionResultAction
+  status: InteractionResultStatus
+  interactionId: string
+  leaseId: FlowDragServerLeaseId | null
+  localClaimGeneration: FlowDragLocalClaimGeneration
+  reservationGeneration: FlowDragReservationGeneration
+  sampleSequence: number
+  denialCode: FlowDragDenialCode | null
+}>
+
+export type InteractionSampleAcceptedMessage = Readonly<{
+  type: 'interaction.sample'
+  envelope: ServerRoomEnvelope
+  pageId: string
+  presenceId: string
+  subjectId: string
+  clientId: string
+  leaseId: FlowDragServerLeaseId
+  localClaimGeneration: FlowDragLocalClaimGeneration
+  reservationGeneration: FlowDragReservationGeneration
+  presentation: FlowDragPresentation
+}>
+
+export type InteractionReleasedMessage = Readonly<{
+  type: 'interaction.released'
+  envelope: ServerRoomEnvelope
+  pageId: string
+  presenceId: string
+  subjectId: string
+  clientId: string
+  interactionId: string
+  leaseId: FlowDragServerLeaseId
+  localClaimGeneration: FlowDragLocalClaimGeneration
+  reservationGeneration: FlowDragReservationGeneration
+  terminalSampleSequence: number
+  reason: InteractionReleaseReason
+}>
+
+export type InteractionRosterEntry = Readonly<{
+  pageId: string
+  presenceId: string
+  subjectId: string
+  clientId: string
+  leaseId: FlowDragServerLeaseId
+  localClaimGeneration: FlowDragLocalClaimGeneration
+  reservationGeneration: FlowDragReservationGeneration
+  presentation: FlowDragPresentation
+}>
+
+export type InteractionRosterMessage = Readonly<{
+  type: 'interaction.roster'
+  envelope: ServerRoomEnvelope
+  interactions: readonly InteractionRosterEntry[]
+}>
+
 export type RebaseRequiredMessage = Readonly<{
   type: 'operation.rebase_required'
   envelope: ServerRoomEnvelope
@@ -345,4 +441,4 @@ export type RoomErrorMessage = Readonly<{
   retryAfterMs?: number
 }>
 
-export type CollaborationServerMessage = AdmissionQueuedMessage | RoomAssignedMessage | LoadPhaseMessage | SnapshotBeginMessage | SnapshotChunkMessage | SnapshotEndMessage | SyncReadyMessage | OperationAckMessage | OperationAppliedMessage | PresenceRosterMessage | PresenceJoinMessage | PresenceChangedMessage | PresenceLeaveMessage | RebaseRequiredMessage | PreAssignmentErrorMessage | RoomErrorMessage
+export type CollaborationServerMessage = AdmissionQueuedMessage | RoomAssignedMessage | LoadPhaseMessage | SnapshotBeginMessage | SnapshotChunkMessage | SnapshotEndMessage | SyncReadyMessage | OperationAckMessage | OperationAppliedMessage | PresenceRosterMessage | PresenceJoinMessage | PresenceChangedMessage | PresenceLeaveMessage | InteractionResultMessage | InteractionSampleAcceptedMessage | InteractionReleasedMessage | InteractionRosterMessage | RebaseRequiredMessage | PreAssignmentErrorMessage | RoomErrorMessage

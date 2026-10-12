@@ -1,10 +1,11 @@
 import type { CollaborationPayload, CollaborationPersistence, CollaborationProjection } from '@canvas/database/collaboration'
+import { collaborationProtocolEpoch } from '@canvas/sync-protocol'
 import type { SemanticFileCommand, VerifiedRoomTicketClaims } from '@canvas/sync-protocol'
 
 export type RoomIdentity = Readonly<{
   fileId: string
   generationId: string
-  protocolEpoch: 2
+  protocolEpoch: typeof collaborationProtocolEpoch
 }>
 
 export type RoomTicketContext = Readonly<{

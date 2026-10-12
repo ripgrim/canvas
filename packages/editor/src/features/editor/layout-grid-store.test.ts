@@ -31,7 +31,7 @@ function fixture(grid: GridContainer, items: [string, GridItem | null][]): FileD
     nodes[id] = { id, type: 'component', componentId: 'label-component', exportName: 'Label', props: { children: id.toUpperCase() }, ...(item ? { layout: itemLayout(item) } : {}) }
     relationships[id] = { parentId: 'card', orderKey: keys[index]!, slot: 'children' }
   })
-  return { schemaVersion: 7, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes, relationships, theme: { tokens: {} } }
+  return { schemaVersion: 9, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes, relationships, theme: { tokens: {} } }
 }
 type Store = ReturnType<typeof createDocumentStore>
 const load = (file: FileDocument) => { const store = createDocumentStore(() => 'unused'); store.load(file, atoms); return store }

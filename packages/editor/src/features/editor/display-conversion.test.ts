@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { LayoutGap, NodeLayout } from '@canvas/repo-engine/layout'
+import { snapshotPaperSizing } from '@canvas/repo-engine/paper-sizing'
+import type { FlexInferenceInput } from '@canvas/repo-engine/flex-inference'
 import { convertDisplay } from './display-conversion'
-import type { ConversionNode, DisplayConversionInput } from './display-conversion'
+import type { ConversionNode, DisplayConversionInput, DisplayMeasurement } from './display-conversion'
 
 // Display conversions with hand-written expected records. Every rectangle below is drawn in the comment beside it and
 // every derived number (padding, margins, gaps, tracks, starts) is computed by hand from those drawings.
@@ -9,6 +11,23 @@ const px = (value: number) => ({ kind: 'px' as const, value })
 const percent = (value: number) => ({ kind: 'percent' as const, value })
 const flow = { mode: 'flow' as const }
 const node = (id: string, layout?: NodeLayout): ConversionNode => ({ id, layout })
+const boxes = (value: NonNullable<DisplayMeasurement['boxes']>): DisplayMeasurement => ({ boxes: value, flexInput: null })
+const directAdd = (input: FlexInferenceInput, parentLayout: NodeLayout | null, childLayouts: Record<string, NodeLayout | null>): DisplayMeasurement => ({
+  boxes: null,
+  directAdd: {
+    input,
+    parentSnapshot: snapshotPaperSizing({ nodeId: 'frame', kind: 'primitive', layout: parentLayout, styles: input.containerSize, measured: input.containerSize }),
+    childSnapshots: Object.fromEntries(input.children.map(child => [child.id, snapshotPaperSizing({ nodeId: child.id, kind: 'primitive', layout: childLayouts[child.id] ?? null, styles: child.authoredSize, measured: child.authoredSize })])),
+  },
+})
+const analysisChild = (id: string, x: number, y: number, width: number, height: number, sourcePosition: 'freeform' | 'absolute' = 'freeform') => ({
+  id,
+  worldAabb: { x, y, width, height },
+  authoredPosition: { x, y },
+  authoredSize: { width, height },
+  parentLocalCenter: { x: x + width / 2, y: y + height / 2 },
+  sourcePosition,
+})
 const convert = (input: Partial<DisplayConversionInput> & Pick<DisplayConversionInput, 'container' | 'to'>) => convertDisplay({ children: [], measured: null, ...input })
 
 describe('LAY-BLOCK-001: Flex to Block', () => {
@@ -65,7 +84,7 @@ describe('Freeform to Block', () => {
     const result = convert({
       container: node('frame', { item: { position: flow } }),
       children: [node('p', { item: { ...absolute(25, 83).item, width: { value: px(120) } } }), node('q', absolute(25, 27, { zIndex: 3 })), node('r', absolute(80, 123, { right: px(4) }))],
-      measured: { container: { x: 100, y: 50, width: 300, height: 400 }, border: { top: 1, right: 1, bottom: 1, left: 1 }, children: { q: { x: 126, y: 78, width: 200, height: 40 }, p: { x: 126, y: 134, width: 120, height: 30 }, r: { x: 181, y: 174, width: 100, height: 50 } } },
+      measured: boxes({ container: { x: 100, y: 50, width: 300, height: 400 }, border: { top: 1, right: 1, bottom: 1, left: 1 }, children: { q: { x: 126, y: 78, width: 200, height: 40 }, p: { x: 126, y: 134, width: 120, height: 30 }, r: { x: 181, y: 174, width: 100, height: 50 } } }),
       to: 'block',
     })
     expect(result.order).toEqual(['q', 'p', 'r'])
@@ -80,7 +99,7 @@ describe('Freeform to Block', () => {
     const result = convert({
       container: node('frame'),
       children: [node('u'), node('v')],
-      measured: { container: { x: 0, y: 0, width: 100, height: 100 }, children: { v: { x: 10, y: 10, width: 20, height: 20 } } },
+      measured: boxes({ container: { x: 0, y: 0, width: 100, height: 100 }, children: { v: { x: 10, y: 10, width: 20, height: 20 } } }),
       to: 'block',
     })
     expect(result.order).toEqual(['v', 'u'])
@@ -114,27 +133,127 @@ describe('to Flex', () => {
     const result = convert({
       container: node('frame'),
       children: [node('c', { item: { position: { mode: 'absolute', left: px(180), top: px(30) } } }), node('a', { item: { position: { mode: 'absolute', left: px(20), top: px(30) } } }), node('b', { item: { position: { mode: 'absolute', left: px(100), top: px(30), zIndex: 1 } } })],
-      measured: { container: { x: 0, y: 0, width: 300, height: 100 }, children: { a: { x: 20, y: 30, width: 60, height: 40 }, b: { x: 100, y: 30, width: 60, height: 40 }, c: { x: 180, y: 30, width: 60, height: 40 } } },
+      measured: directAdd({
+          containerSize: { width: 300, height: 100 }, directAddLeadingInset: { x: 20, y: 30 }, kind: 'direct-add', isRoot: false,
+          children: [
+            { id: 'c', worldAabb: { x: 180, y: 30, width: 60, height: 40 }, authoredPosition: { x: 180, y: 30 }, authoredSize: { width: 60, height: 40 }, parentLocalCenter: { x: 210, y: 50 }, sourcePosition: 'freeform' },
+            { id: 'a', worldAabb: { x: 20, y: 30, width: 60, height: 40 }, authoredPosition: { x: 20, y: 30 }, authoredSize: { width: 60, height: 40 }, parentLocalCenter: { x: 50, y: 50 }, sourcePosition: 'freeform' },
+            { id: 'b', worldAabb: { x: 100, y: 30, width: 60, height: 40 }, authoredPosition: { x: 100, y: 30 }, authoredSize: { width: 60, height: 40 }, parentLocalCenter: { x: 130, y: 50 }, sourcePosition: 'freeform' },
+          ],
+        }, { item: { position: flow } }, {
+          c: { item: { position: { mode: 'absolute', left: px(180), top: px(30) } } },
+          a: { item: { position: { mode: 'absolute', left: px(20), top: px(30) } } },
+          b: { item: { position: { mode: 'absolute', left: px(100), top: px(30), zIndex: 1 } } },
+        }),
       to: 'flex',
     })
-    expect(result.layouts.frame).toEqual({ item: { position: flow }, container: { display: 'flex', gap: 20, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'center' } }, spacing: { padding: { x: 20, y: 32 } } })
+    expect(result.layouts.frame).toEqual({ item: { position: flow, width: { value: { kind: 'intrinsic', value: 'fit-content' } }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } }, container: { display: 'flex', gap: 20, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } }, spacing: { padding: { x: 20, y: 30 } } })
     expect(result.order).toEqual(['a', 'b', 'c'])
     for (const id of ['a', 'b', 'c']) expect(result.layouts[id]).toEqual({ item: { position: flow } })
     expect(result.unsupported).toBeUndefined()
   })
 
-  it('LAY-FLEX-005: a non-reproducible Freeform still converts with the inferred values and names the reason', () => {
-    // Container (0, 0) 200 x 50. a x 0..50, b x 60..110 (gap 10), c x 140..190 (gap 30); all 50 tall at y 0.
-    // Votes: 10 -> bucket 3, 30 -> bucket 8, a tie that the smaller bucket wins: gap 10; 30 differs by more than 2 px.
-    // Every child fills the 50 px cross size at the padding edge (padding 0): stretch.
+  it('defers a non-empty Freeform conversion when exact Paper input is unavailable', () => {
     const result = convert({
       container: node('frame'),
       children: [node('a'), node('b'), node('c')],
-      measured: { container: { x: 0, y: 0, width: 200, height: 50 }, children: { a: { x: 0, y: 0, width: 50, height: 50 }, b: { x: 60, y: 0, width: 50, height: 50 }, c: { x: 140, y: 0, width: 50, height: 50 } } },
+      measured: { boxes: { container: { x: 0, y: 0, width: 200, height: 50 }, children: { a: { x: 0, y: 0, width: 50, height: 50 }, b: { x: 60, y: 0, width: 50, height: 50 }, c: { x: 140, y: 0, width: 50, height: 50 } } }, flexInput: null },
       to: 'flex',
     })
-    expect(result.layouts.frame).toEqual({ item: { position: flow }, container: { display: 'flex', gap: 10, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'stretch' } }, spacing: { padding: { x: 0, y: 0 } } })
-    expect(result.unsupported).toBe('Flex cannot reproduce this layout exactly: adjacent gaps differ by more than 2 px')
+    expect(result).toEqual({ layouts: {}, unsupported: 'Some children have no measured position' })
+  })
+
+  it('uses Paper empty-frame defaults on either side of the width-height direction boundary', () => {
+    const empty = (width: number, height: number) => convert({
+      container: node('frame', { item: { position: { mode: 'freeform' } } }),
+      measured: directAdd({ containerSize: { width, height }, children: [], directAddLeadingInset: { x: 0, y: 0 }, kind: 'direct-add', isRoot: false }, { item: { position: { mode: 'freeform' } } }, {}),
+      to: 'flex',
+    }).layouts.frame
+    expect(empty(100, 100)).toEqual({ item: { position: { mode: 'freeform' }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } }, container: { display: 'flex', gap: 16, flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } }, spacing: { padding: { x: 16, y: 16 } } })
+    expect(empty(101, 100)).toEqual({ item: { position: { mode: 'freeform' }, width: { value: { kind: 'intrinsic', value: 'fit-content' } }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } }, container: { display: 'flex', gap: 16, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'center' } }, spacing: { padding: { x: 16, y: 16 } } })
+  })
+
+  it('puts ordinary Freeform children in flow but preserves every absolute inset and clears stale item data', () => {
+    const absolute = { mode: 'absolute' as const, left: px(8), right: percent(12), top: px(4), bottom: px(6), zIndex: 7 }
+    const result = convert({
+      container: { ...node('frame'), defaultPosition: 'freeform' },
+      children: [
+        { ...node('ordinary'), defaultPosition: 'freeform' },
+        node('pinned', { item: { position: absolute, flex: { grow: 4 }, grid: { columnStart: 2 } } }),
+      ],
+      measured: directAdd({
+          containerSize: { width: 200, height: 100 }, directAddLeadingInset: { x: 8, y: 4 }, kind: 'direct-add', isRoot: false,
+          children: [
+            { id: 'ordinary', worldAabb: { x: 80, y: 10, width: 40, height: 20 }, authoredPosition: { x: 80, y: 10 }, authoredSize: { width: 40, height: 20 }, parentLocalCenter: { x: 100, y: 20 }, sourcePosition: 'freeform' },
+            { id: 'pinned', worldAabb: { x: 8, y: 4, width: 40, height: 20 }, authoredPosition: { x: 8, y: 4 }, authoredSize: { width: 40, height: 20 }, parentLocalCenter: { x: 28, y: 14 }, sourcePosition: 'absolute' },
+          ],
+        }, null, { ordinary: null, pinned: { item: { position: absolute, flex: { grow: 4 }, grid: { columnStart: 2 } } } }),
+      to: 'flex',
+    })
+    expect(result.order).toEqual(['pinned', 'ordinary'])
+    expect(result.layouts.ordinary).toEqual({ item: { position: flow } })
+    expect(result.layouts.pinned).toEqual({ item: { position: absolute } })
+    expect(result.layouts.frame?.item.position).toEqual({ mode: 'freeform' })
+  })
+
+  it('PAPER-FLEX-003 keeps a fixed column width as the inferred fixed fallback and changes fixed height to Fit', () => {
+    const input: FlexInferenceInput = { containerSize: { width: 200, height: 120 }, directAddLeadingInset: { x: 8, y: 10 }, kind: 'direct-add', isRoot: false, children: [analysisChild('a', 8, 10, 60, 20), analysisChild('b', 8, 50, 40, 20)] }
+    const conversionInput: DisplayConversionInput = {
+      container: { ...node('frame', { item: { position: { mode: 'freeform' } } }), parentDisplay: null },
+      children: [{ ...node('a'), defaultPosition: 'freeform' }, { ...node('b'), defaultPosition: 'freeform' }],
+      measured: directAdd(input, { item: { position: { mode: 'freeform' } } }, { a: null, b: null }),
+      to: 'flex',
+    }
+    const before = JSON.stringify(conversionInput)
+    const result = convert(conversionInput)
+    expect(JSON.stringify(conversionInput)).toBe(before)
+    expect(result.layouts.frame?.item).toEqual({ position: { mode: 'freeform' }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } })
+    expect(result.primitiveSizes?.frame).toEqual({ width: 76, height: 120 })
+  })
+
+  it('PAPER-FLEX-003 maps auto without dependents to Fit, or Fill when the converted parent is itself a Flex child', () => {
+    const input: FlexInferenceInput = { containerSize: { width: 120, height: 80 }, directAddLeadingInset: { x: 0, y: 0 }, kind: 'direct-add', isRoot: false, children: [] }
+    const autoLayout: NodeLayout = { item: { position: flow, width: { value: { kind: 'auto' } }, height: { value: { kind: 'auto' } } } }
+    const fit = convert({ container: { ...node('frame', autoLayout), parentDisplay: 'block' }, children: [], measured: directAdd(input, autoLayout, {}), to: 'flex' })
+    expect(fit.layouts.frame?.item).toEqual({ position: flow, width: { value: { kind: 'intrinsic', value: 'fit-content' } }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } })
+    const fill = convert({ container: { ...node('frame', autoLayout), parentDisplay: 'flex', parentFlexDirection: 'row' }, children: [], measured: directAdd(input, autoLayout, {}), to: 'flex' })
+    expect(fill.layouts.frame?.item).toEqual({ position: flow, width: { value: percent(100) }, height: { value: percent(100) } })
+  })
+
+  it('PAPER-FLEX-003 transfers one dependent axis and fixes the parent when several children depend on it', () => {
+    const input: FlexInferenceInput = { containerSize: { width: 220, height: 80 }, directAddLeadingInset: { x: 10, y: 10 }, kind: 'direct-add', isRoot: false, children: [analysisChild('a', 10, 10, 50, 20), analysisChild('b', 80, 10, 50, 20)] }
+    const parent: NodeLayout = { item: { position: flow, width: { value: { kind: 'auto' } }, height: { value: { kind: 'auto' } } } }
+    const relative: NodeLayout = { item: { position: { mode: 'freeform' }, width: { value: percent(42) } } }
+    const one = convert({ container: { ...node('frame', parent), parentDisplay: 'block' }, children: [{ ...node('a', relative), defaultPosition: 'freeform' }, { ...node('b'), defaultPosition: 'freeform' }], measured: directAdd(input, parent, { a: relative, b: null }), to: 'flex' })
+    expect(one.layouts.frame?.item.width).toEqual({ value: percent(42) })
+    expect(one.layouts.a?.item.width).toEqual({ value: percent(100) })
+    const root = convert({ container: { ...node('frame', parent), parentDisplay: 'freeform', hasNonRootParent: false }, children: [{ ...node('a', relative), defaultPosition: 'freeform' }, { ...node('b'), defaultPosition: 'freeform' }], measured: directAdd(input, parent, { a: relative, b: null }), to: 'flex' })
+    expect(root.layouts.frame?.item.width).toBeUndefined()
+    expect(root.primitiveSizes?.frame?.width).toBe(140)
+    const two = convert({ container: { ...node('frame', parent), parentDisplay: 'block' }, children: [{ ...node('a', relative), defaultPosition: 'freeform' }, { ...node('b', relative), defaultPosition: 'freeform' }], measured: directAdd(input, parent, { a: relative, b: relative }), to: 'flex' })
+    expect(two.layouts.frame?.item.width).toBeUndefined()
+    expect(two.primitiveSizes?.frame?.width).toBe(140)
+  })
+
+  it('PAPER-FLEX-003 gives Fill width to every rounded widest tie in a column', () => {
+    const input: FlexInferenceInput = { containerSize: { width: 160, height: 160 }, directAddLeadingInset: { x: 10, y: 10 }, kind: 'direct-add', isRoot: false, children: [analysisChild('a', 10, 10, 50.4, 20), analysisChild('b', 10, 50, 50.49, 20)] }
+    const result = convert({ container: { ...node('frame'), parentDisplay: null }, children: [{ ...node('a'), defaultPosition: 'freeform' }, { ...node('b'), defaultPosition: 'freeform' }], measured: directAdd(input, null, { a: null, b: null }), to: 'flex' })
+    expect(result.layouts.a?.item.width).toEqual({ value: percent(100) })
+    expect(result.layouts.b?.item.width).toEqual({ value: percent(100) })
+  })
+
+  it('does not accept the old rect-only measurement as Flex authorization', () => {
+    // @ts-expect-error Rectangles do not prove the current document revision and layout generation.
+    const oldMeasurement: DisplayMeasurement = { container: { x: 0, y: 0, width: 100, height: 100 }, children: {} }
+    expect(oldMeasurement).toBeDefined()
+  })
+
+  it('does not consume a Wrap analysis through the direct Add path', () => {
+    const result = convert({
+      container: node('frame'), children: [node('a')], to: 'flex',
+      measured: { boxes: null, flexInput: { containerSize: { width: 100, height: 100 }, directAddLeadingInset: { x: 0, y: 0 }, kind: 'wrap', isRoot: false, children: [{ id: 'a', worldAabb: { x: 0, y: 0, width: 10, height: 10 }, authoredPosition: { x: 0, y: 0 }, authoredSize: { width: 10, height: 10 }, parentLocalCenter: { x: 5, y: 5 }, sourcePosition: 'freeform' }] } },
+    })
+    expect(result).toEqual({ layouts: {}, unsupported: 'Some children have no measured position' })
   })
 })
 
@@ -160,7 +279,7 @@ describe('to Grid', () => {
   it('Flex row with wrap estimates the column count from the measured lines', () => {
     // Lines: a b c on y 0..40 and d e on y 50..90 -> the longest line has 3 items -> 3 columns, ceil(5 / 3) = 2 rows.
     const rect = (x: number, y: number) => ({ x, y, width: 100, height: 40 })
-    const result = convert({ container: node('f', flexWith('row', 'wrap')), children: [...three(), node('d'), node('e')], measured: { container: { x: 0, y: 0, width: 330, height: 90 }, children: { a: rect(0, 0), b: rect(110, 0), c: rect(220, 0), d: rect(0, 50), e: rect(110, 50) } }, to: 'grid' })
+    const result = convert({ container: node('f', flexWith('row', 'wrap')), children: [...three(), node('d'), node('e')], measured: boxes({ container: { x: 0, y: 0, width: 330, height: 90 }, children: { a: rect(0, 0), b: rect(110, 0), c: rect(220, 0), d: rect(0, 50), e: rect(110, 50) } }), to: 'grid' })
     expect(result.layouts.f!.container!.grid).toEqual({ columns: [fr, fr, fr], rows: [auto, auto], autoFlow: 'row' })
   })
 
@@ -178,7 +297,7 @@ describe('to Grid', () => {
     const result = convert({
       container: node('frame'),
       children: [node('d'), node('a'), node('c'), node('b')],
-      measured: { container: { x: 0, y: 0, width: 400, height: 300 }, children: { a: { x: 20, y: 20, width: 150, height: 100 }, b: { x: 194, y: 20, width: 150, height: 100 }, c: { x: 20, y: 142, width: 150, height: 80 }, d: { x: 194, y: 142, width: 150, height: 80 } } },
+      measured: boxes({ container: { x: 0, y: 0, width: 400, height: 300 }, children: { a: { x: 20, y: 20, width: 150, height: 100 }, b: { x: 194, y: 20, width: 150, height: 100 }, c: { x: 20, y: 142, width: 150, height: 80 }, d: { x: 194, y: 142, width: 150, height: 80 } } }),
       to: 'grid',
     })
     expect(result.layouts.frame).toEqual({ item: { position: flow }, container: { display: 'grid', gap: 23, grid: { columns: [fr, fr], rows: [auto, auto], autoFlow: 'row' } }, spacing: { padding: { x: 20, y: 20 } } })
@@ -196,7 +315,7 @@ describe('to Freeform and no-ops', () => {
     const result = convert({
       container: node('f', { item: { position: flow }, container: { display: 'flex', gap: 4, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } }),
       children: [node('a', { item: { position: flow, flex: { grow: 1 }, width: { value: px(50) } } }), node('b')],
-      measured: { container: { x: 100, y: 100, width: 300, height: 200 }, border: { top: 1, right: 1, bottom: 1, left: 1 }, children: { a: { x: 130, y: 130, width: 50, height: 20 } } },
+      measured: boxes({ container: { x: 100, y: 100, width: 300, height: 200 }, border: { top: 1, right: 1, bottom: 1, left: 1 }, children: { a: { x: 130, y: 130, width: 50, height: 20 } } }),
       to: 'freeform',
     })
     expect(result.layouts.f!.container).toEqual({ display: 'freeform' })

@@ -86,7 +86,7 @@ async function run() {
   const fileA = fileIdOf(page)
   const pageA1 = pageIdOf(page)
   const blank = await stored(page, fileA)
-  assert.equal(blank.file.schemaVersion, 7)
+  assert.equal(blank.file.schemaVersion, 8)
   assert.deepEqual(blank.file.pages.map(item => item.id), [pageA1])
   assert.deepEqual(Object.values(blank.file.nodes).map(node => node.type), ['root'])
   assert.deepEqual(blank.file.relationships, {})

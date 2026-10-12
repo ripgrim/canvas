@@ -9,6 +9,7 @@ import { LegacyDocumentPreparationError } from '../src/legacy-assets'
 import {
   collaborationAdmissionProtocolEpoch,
   collaborationAdmissionResponse,
+  collaborationAdmissionWebSocketProtocol,
   createPostgresCollaborationAdmissionAuthority,
   type CollaborationAdmissionAuthority,
 } from '../src/collaboration-admission'
@@ -16,9 +17,12 @@ import {
 const serviceToken = '0123456789abcdef0123456789abcdef'
 const collaborationServiceToken = 'collaboration-admission-0123456789abcdef'
 const collaborationBuildId = 'web-2026.10.10'
+const collaborationOrigin = 'https://app.canvas.test'
 const collaborationOptions = Object.freeze({
   collaborationAdmissionServiceToken: collaborationServiceToken,
   collaborationBuildId,
+  collaborationAllowedOrigins: [collaborationOrigin],
+  allowedOrigins: [collaborationOrigin],
   legacyDocumentExternalizer: Object.freeze({ prepare: vi.fn(async () => undefined) }),
 })
 const registryFingerprint = `sha256-${'A'.repeat(43)}=`
@@ -36,12 +40,18 @@ function auth(): HostedAuth {
   })
 }
 
-function admissionRequest(payload: object, user: 'alpha' | 'beta' | null = 'alpha', token = collaborationServiceToken): Request {
+function admissionRequest(
+  payload: object,
+  user: 'alpha' | 'beta' | null = 'alpha',
+  token = collaborationServiceToken,
+  origin: string | null = collaborationOrigin,
+): Request {
   return new Request('https://api.canvas.test/internal/collaboration/admission', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Canvas-Collaboration-Token': token,
+      ...(origin ? { Origin: origin } : {}),
       ...(user ? { Authorization: `Bearer ${user}` } : {}),
     },
     body: JSON.stringify(payload),
@@ -52,6 +62,7 @@ const admissionBody = (fileId: string, extra: object = {}) => ({
   fileId,
   clientId: 'web-tab-1',
   protocolEpoch: collaborationAdmissionProtocolEpoch,
+  webSocketProtocol: collaborationAdmissionWebSocketProtocol,
   buildId: collaborationBuildId,
   ...extra,
 })
@@ -62,8 +73,8 @@ function fixedAuthority(generationId = randomUUID(), status: 'active' | 'candida
   return Object.freeze({ resolveGeneration: vi.fn(async () => Object.freeze({ generationId, status })) })
 }
 
-describe('epoch-2 collaboration admission', () => {
-  it('CLOUD-SYNC-AUTH-001 rejects invalid trusted-session identity before signing', () => {
+describe('epoch-4 collaboration admission', () => {
+  it('CLOUD-SYNC-AUTH-001-C4-API rejects invalid trusted-session identity before signing', () => {
     const access = { subjectUserId: users.alpha.id, fileId: randomUUID(), role: 'owner' as const, accessEpoch: 1n }
     const generation = { generationId: randomUUID(), status: 'active' as const }
     expect(() => collaborationAdmissionResponse(access, generation, collaborationBuildId, { name: '   ', image: null })).toThrow('Invalid collaboration identity')
@@ -76,7 +87,7 @@ describe('epoch-2 collaboration admission', () => {
     expect(() => collaborationAdmissionResponse(access, generation, collaborationBuildId, { name: 'Alpha', image: `${avatarPrefix}${'a'.repeat(maxCollaborationAvatarUrlBytes - avatarPrefix.length + 1)}` })).toThrow('Invalid collaboration identity')
   })
 
-  it('CLOUD-SYNC-DO-SEC-001 rejects short or shared collaboration credentials at startup', () => {
+  it('CLOUD-SYNC-AUTH-001-C4-API rejects short, shared, or invalid configured collaboration authority', () => {
     const store = createMemoryControlPlane()
     const base = { auth: auth(), store, serviceToken, registryFingerprint, collaborationBuildId, collaborationAuthority: fixedAuthority() }
 
@@ -84,9 +95,13 @@ describe('epoch-2 collaboration admission', () => {
       .toThrow('COLLABORATION_ADMISSION_SERVICE_TOKEN must contain at least 32 bytes.')
     expect(() => createApiApp({ ...base, collaborationAdmissionServiceToken: serviceToken }))
       .toThrow('COLLABORATION_ADMISSION_SERVICE_TOKEN must differ from API_SERVICE_TOKEN.')
+    expect(() => createApiApp({ ...base, collaborationAdmissionServiceToken: collaborationServiceToken, collaborationBuildId: 'bad build id' }))
+      .toThrow('COLLABORATION_BUILD_ID is invalid.')
+    expect(() => createApiApp({ ...base, collaborationAdmissionServiceToken: collaborationServiceToken, collaborationAllowedOrigins: ['https://app.canvas.test/path'] }))
+      .toThrow('Collaboration allowed origin must be an exact HTTP origin.')
   })
 
-  it('CLOUD-SYNC-AUTH-001 returns minimal signer claims for an owner without authority credentials', async () => {
+  it('CLOUD-SYNC-AUTH-001-C4-API and AT-AUTH-002-C4-API preserve signed owner authority with minimal epoch-4 claims', async () => {
     const store = createMemoryControlPlane()
     const file = await store.createFile(users.alpha.id, 'Owner file', null)
     const generationId = randomUUID()
@@ -104,17 +119,17 @@ describe('epoch-2 collaboration admission', () => {
         fileId: file.id,
         role: 'owner',
         generationId,
-        protocolEpoch: 2,
+        protocolEpoch: 4,
         accessEpoch: '1',
       },
       generation: { status: 'candidate' },
-      compatibility: { status: 'compatible', protocolEpoch: 2, buildId: 'web-2026.10.10' },
+      compatibility: { status: 'compatible', protocolEpoch: 4, buildId: 'web-2026.10.10' },
     })
-    expect(authority.resolveGeneration).toHaveBeenCalledWith({ fileId: file.id, protocolEpoch: 2 })
+    expect(authority.resolveGeneration).toHaveBeenCalledWith({ fileId: file.id, protocolEpoch: 4 })
     expect(JSON.stringify(result)).not.toMatch(/fence|lease|database|credential|token|email/i)
   })
 
-  it('CLOUD-SYNC-READONLY-001 preserves viewer role and rejects role injection', async () => {
+  it('CLOUD-SYNC-READONLY-001-C4-API and AT-SHARE-003-C4-API preserve signed-in viewer role and reject role injection', async () => {
     const store = createMemoryControlPlane()
     const file = await store.createFile(users.alpha.id, 'Shared file', null)
     await store.setFileShare(users.alpha.id, file.id, 'view')
@@ -131,7 +146,7 @@ describe('epoch-2 collaboration admission', () => {
     expect(authority.resolveGeneration).toHaveBeenCalledTimes(1)
   })
 
-  it('CLOUD-SYNC-DO-SEC-001 requires the service credential and masks a signed-out private file', async () => {
+  it('CLOUD-SYNC-AUTH-001-C4-API rejects missing and invalid service credentials without leaking them', async () => {
     const store = createMemoryControlPlane()
     const file = await store.createFile(users.alpha.id, 'Protected file', null)
     const authority = fixedAuthority()
@@ -140,6 +155,12 @@ describe('epoch-2 collaboration admission', () => {
     const wrongService = await app(admissionRequest(admissionBody(file.id), 'alpha', 'wrong-but-deliberately-similar-token'))
     expect(wrongService.status).toBe(403)
     expect(await responseBody(wrongService)).toEqual({ error: { code: 'service_forbidden', message: 'Service access denied.' } })
+
+    const missingService = await app(admissionRequest(admissionBody(file.id), 'alpha', ''))
+    expect(missingService.status).toBe(403)
+    const missingServiceBody = await responseBody(missingService)
+    expect(missingServiceBody).toEqual({ error: { code: 'service_forbidden', message: 'Service access denied.' } })
+    expect(JSON.stringify(missingServiceBody)).not.toMatch(/collaboration-admission|0123456789abcdef/i)
 
     const signedOut = await app(admissionRequest(admissionBody(file.id), null))
     expect(signedOut.status).toBe(404)
@@ -154,7 +175,7 @@ describe('epoch-2 collaboration admission', () => {
     expect(unrelatedInternal.status).toBe(403)
   })
 
-  it('UI-COLLAB-ANON-001 admits a signed-out public viewer with a stable non-user identity', async () => {
+  it('CLOUD-SYNC-READONLY-001-C4-API admits an anonymous public viewer with a stable non-user identity', async () => {
     const store = createMemoryControlPlane()
     const file = await store.createFile(users.alpha.id, 'Public file', null)
     await store.setFileShare(users.alpha.id, file.id, 'view')
@@ -176,18 +197,29 @@ describe('epoch-2 collaboration admission', () => {
     expect(authority.resolveGeneration).toHaveBeenCalledTimes(2)
   })
 
-  it('CLOUD-SYNC-AUTH-001 masks private and nonexistent files identically', async () => {
+  it('AT-AUTH-003-C4-API masks revoked private and nonexistent files identically while preserving owner access', async () => {
     const store = createMemoryControlPlane()
     const file = await store.createFile(users.alpha.id, 'Private file', null)
+    await store.setFileShare(users.alpha.id, file.id, 'view')
+    await store.setFileShare(users.alpha.id, file.id, 'private')
     const authority = fixedAuthority()
     const app = createApiApp({ auth: auth(), store, serviceToken, registryFingerprint, ...collaborationOptions, collaborationAuthority: authority })
 
     const privateFile = await app(admissionRequest(admissionBody(file.id), 'beta'))
     const nonexistent = await app(admissionRequest(admissionBody(randomUUID()), 'beta'))
+    const anonymousPrivate = await app(admissionRequest(admissionBody(file.id), null))
+    const anonymousNonexistent = await app(admissionRequest(admissionBody(randomUUID()), null))
     expect(privateFile.status).toBe(404)
     expect(nonexistent.status).toBe(404)
+    expect(anonymousPrivate.status).toBe(404)
+    expect(anonymousNonexistent.status).toBe(404)
     expect(await responseBody(privateFile)).toEqual(await responseBody(nonexistent))
+    expect(await responseBody(anonymousPrivate)).toEqual(await responseBody(anonymousNonexistent))
     expect(authority.resolveGeneration).not.toHaveBeenCalled()
+
+    const owner = await app(admissionRequest(admissionBody(file.id), 'alpha'))
+    expect(owner.status).toBe(200)
+    expect((await responseBody(owner)).claims).toMatchObject({ role: 'owner', accessEpoch: '3' })
   })
 
   it('FILE-ASSET-001 prepares a legacy document before assigning a room generation', async () => {
@@ -232,7 +264,7 @@ describe('epoch-2 collaboration admission', () => {
     expect(reportError).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/internal/collaboration/admission', error: expect.objectContaining({ failure: 'invalid-document' }) }))
   })
 
-  it('CLOUD-SYNC-DO-SEC-001 rejects malformed identities, shapes, and stale protocol before generation resolution', async () => {
+  it('CLOUD-SYNC-SCHEMA-001-C4-API requires the exact epoch, WebSocket protocol, build, and request shape', async () => {
     const store = createMemoryControlPlane()
     const file = await store.createFile(users.alpha.id, 'Validated file', null)
     const authority = fixedAuthority()
@@ -240,7 +272,7 @@ describe('epoch-2 collaboration admission', () => {
 
     for (const payload of [
       admissionBody('not-a-uuid'),
-      { fileId: file.id, protocolEpoch: 2 },
+      { fileId: file.id, protocolEpoch: 4 },
       admissionBody(file.id, { buildId: 'bad build id' }),
       admissionBody(file.id, { generationId: randomUUID() }),
     ]) {
@@ -250,7 +282,7 @@ describe('epoch-2 collaboration admission', () => {
 
     const invalidJson = await app(new Request('https://api.canvas.test/internal/collaboration/admission', {
       method: 'POST',
-      headers: { Authorization: 'Bearer alpha', 'Content-Type': 'application/json', 'X-Canvas-Collaboration-Token': collaborationServiceToken },
+      headers: { Authorization: 'Bearer alpha', 'Content-Type': 'application/json', Origin: collaborationOrigin, 'X-Canvas-Collaboration-Token': collaborationServiceToken },
       body: '{',
     }))
     expect(invalidJson.status).toBe(400)
@@ -258,18 +290,18 @@ describe('epoch-2 collaboration admission', () => {
 
     const wrongMedia = await app(new Request('https://api.canvas.test/internal/collaboration/admission', {
       method: 'POST',
-      headers: { Authorization: 'Bearer alpha', 'Content-Type': 'text/plain', 'X-Canvas-Collaboration-Token': collaborationServiceToken },
+      headers: { Authorization: 'Bearer alpha', 'Content-Type': 'text/plain', Origin: collaborationOrigin, 'X-Canvas-Collaboration-Token': collaborationServiceToken },
       body: JSON.stringify(admissionBody(file.id)),
     }))
     expect(wrongMedia.status).toBe(415)
 
-    const stale = await app(admissionRequest(admissionBody(file.id, { protocolEpoch: 1 })))
+    const stale = await app(admissionRequest(admissionBody(file.id, { protocolEpoch: 3 })))
     expect(stale.status).toBe(426)
     expect(await responseBody(stale)).toEqual({
       error: {
         code: 'unsupported_protocol',
         message: 'Update required.',
-        compatibility: { status: 'incompatible', protocolEpoch: 2, buildId: 'web-2026.10.10' },
+        compatibility: { status: 'incompatible', protocolEpoch: 4, buildId: 'web-2026.10.10' },
       },
     })
     expect(authority.resolveGeneration).not.toHaveBeenCalled()
@@ -280,13 +312,34 @@ describe('epoch-2 collaboration admission', () => {
       error: {
         code: 'unsupported_protocol',
         message: 'Update required.',
-        compatibility: { status: 'incompatible', protocolEpoch: 2, buildId: collaborationBuildId },
+        compatibility: { status: 'incompatible', protocolEpoch: 4, buildId: collaborationBuildId },
       },
     })
     expect(authority.resolveGeneration).not.toHaveBeenCalled()
+
+    const wrongSocketProtocol = await app(admissionRequest(admissionBody(file.id, { webSocketProtocol: 'canvas-sync-v3' })))
+    expect(wrongSocketProtocol.status).toBe(426)
+    expect(authority.resolveGeneration).not.toHaveBeenCalled()
   })
 
-  it('CLOUD-SYNC-DO-SEC-001 fails closed when admission dependencies are absent or fail', async () => {
+  it('CLOUD-SYNC-AUTH-001-C4-API rejects missing, hostile, and login-only origins before credential processing', async () => {
+    const store = createMemoryControlPlane()
+    const file = await store.createFile(users.alpha.id, 'Origin-bound file', null)
+    const authority = fixedAuthority()
+    const app = createApiApp({
+      auth: auth(), store, serviceToken, registryFingerprint, ...collaborationOptions, collaborationAuthority: authority,
+      allowedOrigins: [collaborationOrigin, 'https://login.canvas.test'],
+    })
+
+    for (const origin of [null, 'https://evil.example', 'https://login.canvas.test'] as const) {
+      const response = await app(admissionRequest(admissionBody(file.id), 'alpha', '', origin))
+      expect(response.status).toBe(403)
+      expect(await responseBody(response)).toEqual({ error: { code: 'origin_forbidden', message: 'Origin is not allowed.' } })
+    }
+    expect(authority.resolveGeneration).not.toHaveBeenCalled()
+  })
+
+  it('CLOUD-SYNC-AUTH-001-C4-API fails closed without leaking unavailable authority details', async () => {
     const store = createMemoryControlPlane()
     const file = await store.createFile(users.alpha.id, 'Unavailable file', null)
     const unavailable = createApiApp({ auth: auth(), store, serviceToken, registryFingerprint, ...collaborationOptions })
@@ -307,7 +360,7 @@ describe('epoch-2 collaboration admission', () => {
 })
 
 describe('PostgreSQL collaboration admission authority', () => {
-  it('uses an active epoch-2 generation while treating the proposed identity as unused', async () => {
+  it('CLOUD-SYNC-AUTH-001-C4-API uses an active epoch-4 generation while treating the proposed identity as unused', async () => {
     const fileId = randomUUID()
     const generationId = randomUUID()
     const proposedId = randomUUID()
@@ -315,8 +368,8 @@ describe('PostgreSQL collaboration admission authority', () => {
       resolveAdmissionGeneration: vi.fn(async () => ({ status: 'active' as const, generationId })),
     } satisfies Pick<CollaborationPersistence, 'resolveAdmissionGeneration'>
     const authority = createPostgresCollaborationAdmissionAuthority(persistence, () => proposedId)
-    await expect(authority.resolveGeneration({ fileId, protocolEpoch: 2 })).resolves.toEqual({ generationId, status: 'active' })
-    expect(persistence.resolveAdmissionGeneration).toHaveBeenCalledWith({ fileId, generationId: proposedId, protocolEpoch: 2, candidateTtlMs: 30_000 })
+    await expect(authority.resolveGeneration({ fileId, protocolEpoch: 4 })).resolves.toEqual({ generationId, status: 'active' })
+    expect(persistence.resolveAdmissionGeneration).toHaveBeenCalledWith({ fileId, generationId: proposedId, protocolEpoch: 4, candidateTtlMs: 30_000 })
   })
 
   it('returns the atomic server-selected candidate when no active generation exists', async () => {
@@ -326,8 +379,8 @@ describe('PostgreSQL collaboration admission authority', () => {
       resolveAdmissionGeneration: vi.fn(async input => ({ status: 'candidate' as const, generationId: input.generationId })),
     } satisfies Pick<CollaborationPersistence, 'resolveAdmissionGeneration'>
     const authority = createPostgresCollaborationAdmissionAuthority(persistence, () => generationId)
-    await expect(authority.resolveGeneration({ fileId, protocolEpoch: 2 })).resolves.toEqual({ generationId, status: 'candidate' })
-    expect(persistence.resolveAdmissionGeneration).toHaveBeenCalledWith({ fileId, generationId, protocolEpoch: 2, candidateTtlMs: 30_000 })
+    await expect(authority.resolveGeneration({ fileId, protocolEpoch: 4 })).resolves.toEqual({ generationId, status: 'candidate' })
+    expect(persistence.resolveAdmissionGeneration).toHaveBeenCalledWith({ fileId, generationId, protocolEpoch: 4, candidateTtlMs: 30_000 })
   })
 
   it('fails closed when persistence substitutes another generation identity', async () => {
@@ -337,6 +390,6 @@ describe('PostgreSQL collaboration admission authority', () => {
       resolveAdmissionGeneration: vi.fn(async () => ({ status: 'candidate' as const, generationId: 'invalid' })),
     } satisfies Pick<CollaborationPersistence, 'resolveAdmissionGeneration'>
     const authority = createPostgresCollaborationAdmissionAuthority(persistence, () => generationId)
-    await expect(authority.resolveGeneration({ fileId, protocolEpoch: 2 })).rejects.toThrow('Resolved collaboration generation is invalid.')
+    await expect(authority.resolveGeneration({ fileId, protocolEpoch: 4 })).rejects.toThrow('Resolved collaboration generation is invalid.')
   })
 })

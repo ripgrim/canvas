@@ -148,50 +148,242 @@ export function flowInsertIndex(pointer: Point, siblings: readonly { id: string;
   return { index, axis }
 }
 
-/** Resize from a handle with the opposite side anchored; Alt resizes around the center, Shift keeps the aspect ratio. */
-export function resizeRect(start: Rect, handle: string, delta: Point, options: { symmetric: boolean; proportional: boolean; minimum?: number }): Rect {
-  const minimum = options.minimum ?? 1
-  const horizontal = handle.includes('left') ? -1 : handle.includes('right') ? 1 : 0
-  const vertical = handle.includes('top') ? -1 : handle.includes('bottom') ? 1 : 0
-  const factor = options.symmetric ? 2 : 1
-  let width = Math.max(minimum, start.width + horizontal * delta.x * factor)
-  let height = Math.max(minimum, start.height + vertical * delta.y * factor)
-  if (options.proportional && horizontal !== 0 && vertical !== 0) {
-    const ratio = start.width / Math.max(1, start.height)
-    if (Math.abs(delta.x) >= Math.abs(delta.y)) height = Math.max(minimum, width / ratio)
-    else width = Math.max(minimum, height * ratio)
-  } else if (options.proportional && horizontal !== 0) {
-    height = Math.max(minimum, width / (start.width / Math.max(1, start.height)))
-  } else if (options.proportional && vertical !== 0) {
-    width = Math.max(minimum, height * (start.width / Math.max(1, start.height)))
-  }
-  let x = start.x
-  let y = start.y
-  if (options.symmetric) { x = start.x - (width - start.width) / 2; y = start.y - (height - start.height) / 2 }
-  else {
-    if (horizontal < 0) x = start.x + start.width - width
-    if (vertical < 0) y = start.y + start.height - height
-    if (options.proportional && horizontal !== 0 && vertical === 0) y = start.y - (height - start.height) / 2
-    if (options.proportional && vertical !== 0 && horizontal === 0) x = start.x - (width - start.width) / 2
-  }
-  return { x, y, width, height }
+export type ResizeAxis = 'x' | 'y'
+export type ResizeHandle = 'top-left' | 'top' | 'top-right' | 'right' | 'bottom-right' | 'bottom' | 'bottom-left' | 'left'
+export type ResizeOptions = { symmetric: boolean; proportional: boolean; minimum?: number }
+export type ResizeResult = {
+  rect: Rect
+  /** Pointer movement after it has been projected onto the node's rotated local axes. */
+  localDelta: Point
+  /** Axes directly controlled by the original handle. Shift may derive the other dimension too. */
+  affectedAxes: readonly ResizeAxis[]
+  crossedX: boolean
+  crossedY: boolean
+  /** Local handle identity after crossing. The rotated HUD makes this the effective visual handle. */
+  effectiveHandle: ResizeHandle
 }
 
-/** Resize in local axes, then reposition the bounds so the opposite rotated handle remains fixed on screen. */
-export function resizeRotatedRect(start: Rect, handle: string, delta: Point, rotationDegrees: number, options: { symmetric: boolean; proportional: boolean; minimum?: number }): Rect {
+export type ResizeGesturePhase = 'resize' | 'space-move'
+export type ResizeGestureState = Readonly<{
+  phase: ResizeGesturePhase
+  pointer: Point
+  rect: Rect
+  rotationDegrees: number
+  /** Handle used by the current rebased resize origin. */
+  handle: ResizeHandle
+  /** Handle currently under the pointer after any axis crossings. */
+  effectiveHandle: ResizeHandle
+  resizeOriginPointer: Point
+  resizeOriginRect: Rect
+  spaceOriginPointer: Point
+  spaceOriginRect: Rect
+  /** Alt is sampled once when Space begins; later changes do not replace Paper's chosen rebase anchor. */
+  spaceEntrySymmetric: boolean | null
+  localDelta: Point
+  affectedAxes: readonly ResizeAxis[]
+  crossedX: boolean
+  crossedY: boolean
+}>
+
+export type ResizeGestureSample = Readonly<{
+  pointer: Point
+  spaceHeld: boolean
+  options: ResizeOptions
+}>
+
+type ResizeDirection = -1 | 0 | 1
+
+const resizeDirection = (handle: ResizeHandle, negative: string, positive: string): ResizeDirection => handle.includes(negative) ? -1 : handle.includes(positive) ? 1 : 0
+const positiveResizeLength = (value: number, minimum: number) => Math.max(minimum, Math.abs(value))
+
+function resizeHandle(horizontal: ResizeDirection, vertical: ResizeDirection): ResizeHandle {
+  const x = horizontal < 0 ? 'left' : horizontal > 0 ? 'right' : ''
+  const y = vertical < 0 ? 'top' : vertical > 0 ? 'bottom' : ''
+  return (y && x ? `${y}-${x}` : y || x) as ResizeHandle
+}
+
+/** Exact local handle identity after the dragged side crosses either opposite side. */
+export function effectiveResizeHandle(handle: ResizeHandle, crossedX: boolean, crossedY: boolean): ResizeHandle {
+  const horizontal = resizeDirection(handle, 'left', 'right')
+  const vertical = resizeDirection(handle, 'top', 'bottom')
+  const effectiveHorizontal = horizontal === 0 ? 0 : (horizontal * (crossedX ? -1 : 1)) as ResizeDirection
+  const effectiveVertical = vertical === 0 ? 0 : (vertical * (crossedY ? -1 : 1)) as ResizeDirection
+  return resizeHandle(effectiveHorizontal, effectiveVertical)
+}
+
+/** World-space center of a visual resize handle after applying the node rotation around its center. */
+export function resizeHandleCenter(rect: Rect, handle: ResizeHandle, rotationDegrees: number): Point {
+  const horizontal = resizeDirection(handle, 'left', 'right')
+  const vertical = resizeDirection(handle, 'top', 'bottom')
+  const local = { x: horizontal * rect.width / 2, y: vertical * rect.height / 2 }
   const radians = rotationDegrees * Math.PI / 180
-  const cosine = Math.cos(radians)
-  const sine = Math.sin(radians)
+  const cosine = cardinalTrig(Math.cos(radians))
+  const sine = cardinalTrig(Math.sin(radians))
+  const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+  return { x: center.x + local.x * cosine - local.y * sine, y: center.y + local.x * sine + local.y * cosine }
+}
+
+function resizeLocalRect(start: Rect, handle: ResizeHandle, localDelta: Point, options: ResizeOptions): ResizeResult {
+  const minimum = Math.max(Number.EPSILON, options.minimum ?? Number.EPSILON)
+  const horizontal = resizeDirection(handle, 'left', 'right')
+  const vertical = resizeDirection(handle, 'top', 'bottom')
+  const factor = options.symmetric ? 2 : 1
+  const signedWidth = start.width + horizontal * localDelta.x * factor
+  const signedHeight = start.height + vertical * localDelta.y * factor
+  const crossedX = horizontal !== 0 && signedWidth < 0
+  const crossedY = vertical !== 0 && signedHeight < 0
+  const effectiveHorizontal = horizontal === 0 ? 0 : (horizontal * (crossedX ? -1 : 1)) as ResizeDirection
+  const effectiveVertical = vertical === 0 ? 0 : (vertical * (crossedY ? -1 : 1)) as ResizeDirection
+  let width = horizontal === 0 ? start.width : positiveResizeLength(signedWidth, minimum)
+  let height = vertical === 0 ? start.height : positiveResizeLength(signedHeight, minimum)
+
+  if (options.proportional && (horizontal !== 0 || vertical !== 0)) {
+    const ratio = start.width / Math.max(Number.EPSILON, start.height)
+    if (horizontal !== 0 && vertical !== 0) {
+      const candidateRatio = width / Math.max(Number.EPSILON, height)
+      if (candidateRatio > ratio) height = Math.max(minimum, width / ratio)
+      else width = Math.max(minimum, height * ratio)
+    } else if (horizontal !== 0) height = Math.max(minimum, width / ratio)
+    else width = Math.max(minimum, height * ratio)
+  }
+
+  const localCenter = (direction: ResizeDirection, effectiveDirection: ResizeDirection, startLength: number, nextLength: number) => {
+    if (direction === 0 || options.symmetric) return 0
+    const fixedAnchor = -direction * startLength / 2
+    return fixedAnchor + effectiveDirection * nextLength / 2
+  }
+  const center = {
+    x: localCenter(horizontal, effectiveHorizontal, start.width, width),
+    y: localCenter(vertical, effectiveVertical, start.height, height),
+  }
+  const rect = {
+    x: center.x - width / 2,
+    y: center.y - height / 2,
+    width,
+    height,
+  }
+  const affectedAxes: readonly ResizeAxis[] = options.proportional && (horizontal !== 0 || vertical !== 0)
+    ? ['x', 'y']
+    : [...(horizontal === 0 ? [] : ['x'] as const), ...(vertical === 0 ? [] : ['y'] as const)]
+  return {
+    rect,
+    localDelta,
+    affectedAxes,
+    crossedX,
+    crossedY,
+    effectiveHandle: effectiveResizeHandle(handle, crossedX, crossedY),
+  }
+}
+
+/** Detailed unrotated resize state for HUD identity and crossing-aware gesture integration. */
+export function resizeRectResult(start: Rect, handle: ResizeHandle, delta: Point, options: ResizeOptions): ResizeResult {
+  const localStart = { x: -start.width / 2, y: -start.height / 2, width: start.width, height: start.height }
+  const result = resizeLocalRect(localStart, handle, delta, options)
+  const startCenter = { x: start.x + start.width / 2, y: start.y + start.height / 2 }
+  return { ...result, rect: { ...result.rect, x: startCenter.x + result.rect.x, y: startCenter.y + result.rect.y } }
+}
+
+/** Resize from a handle with the opposite side anchored; Alt resizes around the center, Shift keeps the aspect ratio. */
+export function resizeRect(start: Rect, handle: ResizeHandle, delta: Point, options: ResizeOptions): Rect {
+  return resizeRectResult(start, handle, delta, options).rect
+}
+
+const cardinalTrig = (value: number) => Math.abs(value) < 1e-12 ? 0 : Math.abs(Math.abs(value) - 1) < 1e-12 ? Math.sign(value) : value
+
+/** Detailed rotation-aware resize state. Geometry is calculated in local axes, then projected back to world space. */
+export function resizeRotatedRectResult(start: Rect, handle: ResizeHandle, delta: Point, rotationDegrees: number, options: ResizeOptions): ResizeResult {
+  const radians = rotationDegrees * Math.PI / 180
+  const cosine = cardinalTrig(Math.cos(radians))
+  const sine = cardinalTrig(Math.sin(radians))
   const localDelta = { x: delta.x * cosine + delta.y * sine, y: -delta.x * sine + delta.y * cosine }
   const localStart = { x: -start.width / 2, y: -start.height / 2, width: start.width, height: start.height }
-  const localNext = resizeRect(localStart, handle, localDelta, options)
-  const localCenterShift = { x: localNext.x + localNext.width / 2, y: localNext.y + localNext.height / 2 }
+  const result = resizeLocalRect(localStart, handle, localDelta, options)
+  const localCenter = { x: result.rect.x + result.rect.width / 2, y: result.rect.y + result.rect.height / 2 }
   const worldCenterShift = {
-    x: localCenterShift.x * cosine - localCenterShift.y * sine,
-    y: localCenterShift.x * sine + localCenterShift.y * cosine,
+    x: localCenter.x * cosine - localCenter.y * sine,
+    y: localCenter.x * sine + localCenter.y * cosine,
   }
   const center = { x: start.x + start.width / 2 + worldCenterShift.x, y: start.y + start.height / 2 + worldCenterShift.y }
-  return { x: center.x - localNext.width / 2, y: center.y - localNext.height / 2, width: localNext.width, height: localNext.height }
+  return {
+    ...result,
+    rect: { x: center.x - result.rect.width / 2, y: center.y - result.rect.height / 2, width: result.rect.width, height: result.rect.height },
+  }
+}
+
+/** Compatibility wrapper for callers that only need the next positive-dimension rectangle. */
+export function resizeRotatedRect(start: Rect, handle: ResizeHandle, delta: Point, rotationDegrees: number, options: ResizeOptions): Rect {
+  return resizeRotatedRectResult(start, handle, delta, rotationDegrees, options).rect
+}
+
+const axesForHandle = (handle: ResizeHandle): readonly ResizeAxis[] => [
+  ...(resizeDirection(handle, 'left', 'right') === 0 ? [] : ['x'] as const),
+  ...(resizeDirection(handle, 'top', 'bottom') === 0 ? [] : ['y'] as const),
+]
+
+/** Starts the pure resize/Space-move state machine at the pointer-down sample. */
+export function beginResizeGesture(start: Rect, handle: ResizeHandle, pointer: Point, rotationDegrees: number): ResizeGestureState {
+  return {
+    phase: 'resize', pointer, rect: start, rotationDegrees, handle, effectiveHandle: handle,
+    resizeOriginPointer: pointer, resizeOriginRect: start,
+    spaceOriginPointer: pointer, spaceOriginRect: start,
+    spaceEntrySymmetric: null,
+    localDelta: { x: 0, y: 0 }, affectedAxes: axesForHandle(handle), crossedX: false, crossedY: false,
+  }
+}
+
+/**
+ * Advances Paper's resize gesture without relying on mutable UI state. Holding Space freezes the current size and
+ * translates it in world axes. Releasing Space keeps that exact rectangle and rebases the resize origin, preventing
+ * a jump before subsequent local-axis resizing continues.
+ */
+export function advanceResizeGesture(state: ResizeGestureState, sample: ResizeGestureSample): ResizeGestureState {
+  if (sample.spaceHeld) {
+    const entering = state.phase === 'resize'
+    const originPointer = entering ? state.pointer : state.spaceOriginPointer
+    const originRect = entering ? state.rect : state.spaceOriginRect
+    const delta = { x: sample.pointer.x - originPointer.x, y: sample.pointer.y - originPointer.y }
+    const activeControl = entering ? resizeHandleCenter(state.rect, state.effectiveHandle, state.rotationDegrees) : null
+    const oppositeControl = entering && sample.options.symmetric
+      ? resizeHandleCenter(state.rect, effectiveResizeHandle(state.effectiveHandle, true, true), state.rotationDegrees)
+      : activeControl
+    const resizeOriginPointer = activeControl && oppositeControl
+      ? {
+          x: state.resizeOriginPointer.x + activeControl.x - oppositeControl.x,
+          y: state.resizeOriginPointer.y + activeControl.y - oppositeControl.y,
+        }
+      : state.resizeOriginPointer
+    return {
+      ...state,
+      phase: 'space-move', pointer: sample.pointer,
+      rect: { ...originRect, x: originRect.x + delta.x, y: originRect.y + delta.y },
+      spaceOriginPointer: originPointer, spaceOriginRect: originRect,
+      resizeOriginPointer,
+      spaceEntrySymmetric: entering ? sample.options.symmetric : state.spaceEntrySymmetric,
+    }
+  }
+
+  if (state.phase === 'space-move') {
+    const move = { x: state.pointer.x - state.spaceOriginPointer.x, y: state.pointer.y - state.spaceOriginPointer.y }
+    return {
+      ...state,
+      phase: 'resize', pointer: sample.pointer,
+      handle: state.effectiveHandle,
+      resizeOriginPointer: { x: state.resizeOriginPointer.x + move.x, y: state.resizeOriginPointer.y + move.y },
+      resizeOriginRect: { ...state.resizeOriginRect, x: state.resizeOriginRect.x + move.x, y: state.resizeOriginRect.y + move.y },
+      spaceOriginPointer: sample.pointer, spaceOriginRect: state.rect,
+      spaceEntrySymmetric: null,
+      localDelta: { x: 0, y: 0 }, crossedX: false, crossedY: false,
+    }
+  }
+
+  const delta = { x: sample.pointer.x - state.resizeOriginPointer.x, y: sample.pointer.y - state.resizeOriginPointer.y }
+  const result = resizeRotatedRectResult(state.resizeOriginRect, state.handle, delta, state.rotationDegrees, sample.options)
+  return {
+    ...state,
+    pointer: sample.pointer, rect: result.rect, effectiveHandle: result.effectiveHandle,
+    localDelta: result.localDelta, affectedAxes: result.affectedAxes,
+    crossedX: result.crossedX, crossedY: result.crossedY,
+  }
 }
 
 export const roundRect = (rect: Rect): Rect => ({ x: Math.round(rect.x), y: Math.round(rect.y), width: Math.max(1, Math.round(rect.width)), height: Math.max(1, Math.round(rect.height)) })

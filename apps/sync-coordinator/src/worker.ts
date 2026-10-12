@@ -11,6 +11,6 @@ export { FileSyncRoom, LocalFileSyncRoom } from "./room-container.js"
 export default {
   async fetch(request: Request, env: SyncCoordinatorEnv): Promise<Response> {
     try { return await handleCoordinatorRequest(request, env) }
-    catch { return json("service_unavailable", "Sync is unavailable.", 503) }
+    catch { return json("room_unavailable", "Collaboration service is unavailable.", 503) }
   },
 }

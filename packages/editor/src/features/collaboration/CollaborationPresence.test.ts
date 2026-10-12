@@ -217,7 +217,7 @@ describe('UI-COLLAB-READONLY-001 read-only presentation', () => {
 
   it('renders one bottom notice through the active public file screen', () => {
     documentStore.load({
-      schemaVersion: 7,
+      schemaVersion: 9,
       fileId: 'public-file',
       revision: 1,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

@@ -23,7 +23,7 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomContainer"] }],
   "vars": {
-    "ALLOWED_ORIGINS": "https://staging.canvas.ripgrim.com,https://login-staging.canvas.ripgrim.com",
+    "ALLOWED_ORIGINS": "https://staging.canvas.ripgrim.com",
     "SYNC_CONTAINER_INACTIVITY_MS": "600000"
   }
 }

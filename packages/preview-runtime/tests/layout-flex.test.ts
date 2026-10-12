@@ -5,11 +5,11 @@ import { chromium, type Browser, type Frame, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createPreviewRuntime } from '../src/index.js'
 import { fixtureRegistry } from './fixture-registry.js'
-// Protocol v3: every document node carries its effective theme; the plain light fallback is not explicit.
+// Protocol v4: every document node carries its effective theme; the plain light fallback is not explicit.
 const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false } as const
 
 // LAY-FLEX-001, LAY-FLEX-002, LAY-FLEX-003 and LAY-BLOCK-001 at the DOM level: a Vite preview build of the fixture
-// repository in headless Edge, driven over postMessage protocol v3. The card (`.fixture-card`: padding 28, border 1)
+// repository in headless Edge, driven over postMessage protocol v7. The card (`.fixture-card`: padding 28, border 1)
 // is the only root of a 480 wide host with 24 padding, so it is 432 wide. Its content box starts 1 + 28 = 29 px inside
 // its border box on both axes and is 432 - 2 - 56 = 374 wide, so it ends at x 29 + 374 = 403. The three children are
 // cards too, sized through the five-field placement (border-box, no flex shrink) with their padding set to zero.
@@ -20,7 +20,7 @@ const registry = fixtureRegistry
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false }
 const ids = ['item-a', 'item-b', 'item-c'] as const
 const documentWith = (order: readonly string[]) => ({
-  version: 1, revision: 1, rootIds: ['card-1'], frame: frameSize,
+  version: 2, revision: 1, rootIds: ['card-1'], frame: frameSize,
   nodes: {
     'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: {}, children: { children: [...order] } },
     ...Object.fromEntries(ids.map(id => [id, { id, componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: {}, children: {} }])),
@@ -65,12 +65,12 @@ const domOrder = () => frame.evaluate(() => [...document.querySelector('[data-pr
 /** Sends a layout with a fresh generation, waits for the geometry measured after it landed, then reads positions. */
 async function apply(layoutItems: unknown[]): Promise<Positions> {
   const generation = ++generationCounter
-  await send({ type: 'set-layout', items: layoutItems, layoutGeneration: generation })
+  await send({ type: 'set-layout', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', items: layoutItems, layoutGeneration: generation })
   await waitFor(() => page.evaluate(wanted => (window as unknown as { received: Geometry[] }).received.some(message => (message as { type?: string }).type === 'geometry' && message.layoutGeneration === wanted), generation), found => found)
   return positions()
 }
 async function setOrder(order: readonly string[]) {
-  await send({ type: 'set-document', document: documentWith(order) })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: documentWith(order) })
   await waitFor(domOrder, value => value.join(',') === order.join(','))
 }
 
@@ -100,7 +100,7 @@ beforeAll(async () => {
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
   send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 3, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
     await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
   await setOrder(ids)

@@ -9,7 +9,10 @@ export type SelectionColorGroup = {
   value: ColorValue
   resolved: string
   name: string
+  /** Nodes in the current selection subtree whose colors are edited by this row. */
   nodeIds: string[]
+  /** Every node in the file that uses this exact literal or token identity. */
+  usageNodeIds: string[]
   occurrences: number
 }
 
@@ -59,12 +62,23 @@ export function selectionColorGroups(file: FileDocument, selection: readonly str
     }
   }
   const tokenOrder = new Map(Object.values(file.theme.tokens).sort((left, right) => left.orderKey.localeCompare(right.orderKey)).map((token, index) => [token.id, index]))
+  const usage = new Map<string, Set<string>>()
+  for (const node of Object.values(file.nodes)) {
+    if (node.type === 'root' || !node.appearance) continue
+    for (const value of activeColors(node.appearance)) {
+      const key = keyOf(value)
+      if (!groups.has(key)) continue
+      const matches = usage.get(key) ?? new Set<string>()
+      matches.add(node.id)
+      usage.set(key, matches)
+    }
+  }
   return [...groups].map(([key, group]) => {
     const nodeIds = [...group.nodes]
     const resolved = resolveColorValue(file.theme, group.value, paletteFor(nodeIds[0] ?? ''))
     const name = group.value.kind === 'token' ? file.theme.tokens[group.value.tokenId]?.name ?? group.value.tokenId : colorToHex(group.value.color).replace('#', '').toUpperCase()
-    return { key, value: group.value, resolved: colorToHex(resolved ?? { kind: 'hex', hex: '#000000' }), name, nodeIds, occurrences: group.occurrences }
-  }).sort((left, right) => right.nodeIds.length - left.nodeIds.length
+    return { key, value: group.value, resolved: colorToHex(resolved ?? { kind: 'hex', hex: '#000000' }), name, nodeIds, usageNodeIds: [...(usage.get(key) ?? [])], occurrences: group.occurrences }
+  }).sort((left, right) => right.usageNodeIds.length - left.usageNodeIds.length
     || (left.value.kind === 'token' ? tokenOrder.get(left.value.tokenId) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER) - (right.value.kind === 'token' ? tokenOrder.get(right.value.tokenId) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER)
     || left.key.localeCompare(right.key))
 }

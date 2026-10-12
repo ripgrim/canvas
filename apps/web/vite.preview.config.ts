@@ -11,6 +11,7 @@ import { previewResponseHeaders } from './preview/csp'
 const requireFromPreview = createRequire(import.meta.url)
 const previewRoot = fileURLToPath(new URL('./preview/', import.meta.url))
 const previewRuntimeRoot = fileURLToPath(new URL('../../packages/preview-runtime/dist/', import.meta.url))
+const syncProtocolRoot = fileURLToPath(new URL('../../packages/sync-protocol/dist/', import.meta.url))
 const viteRuntimeRoot = dirname(requireFromPreview.resolve('vite/package.json'))
 const reactPluginPackage = resolve(dirname(requireFromPreview.resolve('@vitejs/plugin-react')), '../package.json')
 const reactRefreshRuntimeRoot = dirname(createRequire(reactPluginPackage).resolve('react-refresh/package.json'))
@@ -30,7 +31,7 @@ export default defineConfig({
       verifiedRegistryPlugin(registry),
       verifiedModuleBoundaryPlugin(
         registry,
-        [previewRoot, previewRuntimeRoot, viteRuntimeRoot, reactRefreshRuntimeRoot],
+        [previewRoot, previewRuntimeRoot, syncProtocolRoot, viteRuntimeRoot, reactRefreshRuntimeRoot],
         ['/@vite/client', '/@react-refresh'],
       ),
       react(),

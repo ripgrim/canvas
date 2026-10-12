@@ -21,7 +21,7 @@ const surfaceFill = (id: string) => ({ fills: [{ id, type: 'solid' as const, col
 
 /** root > card (dark) > inner (inherit) with a surface-bound fill; root > plain (inherit) with the same fill; root > box rectangle (light) bound too. */
 const file = (): FileDocument => validateFileDocument({
-  schemaVersion: 7, fileId: 'file-1', revision: 1,
+  schemaVersion: 9, fileId: 'file-1', revision: 1,
   pages: [{ id: 'page-1', name: 'Home', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },

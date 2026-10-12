@@ -5,8 +5,9 @@ import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { replaceSelectionColor, selectionColorGroups } from './selection-colors'
 
 const literal = (hex: string): ColorValue => ({ kind: 'literal', color: hexColor(hex) })
+const token = (tokenId: string): ColorValue => ({ kind: 'token', tokenId })
 const file = (): FileDocument => ({
-  schemaVersion: 7,
+  schemaVersion: 9,
   fileId: 'file',
   revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
@@ -33,6 +34,32 @@ describe('selection colors', () => {
   it('narrows a deep selection to that node', () => {
     const groups = selectionColorGroups(file(), ['child'], () => ({}))
     expect(groups.map(group => group.resolved)).toEqual(['#0000ff'])
+  })
+
+  it('counts every file node using the selected token identity without widening the edit scope', () => {
+    const source = file()
+    source.theme.tokens.surface = { id: 'surface', type: 'color', name: 'Surface', orderKey: 'a', value: { kind: 'literal', color: hexColor('#ff0000') } }
+    const parent = source.nodes.parent!, sibling = source.nodes.sibling!
+    if (parent.type === 'root' || sibling.type === 'root') throw new Error('Expected styled nodes')
+    parent.appearance!.fills = [{ id: 'fill-parent', type: 'solid', color: token('surface') }]
+    sibling.appearance!.fills = [{ id: 'fill-sibling', type: 'solid', color: token('surface') }]
+
+    const [group] = selectionColorGroups(source, ['parent'], () => ({}))
+
+    expect(group).toMatchObject({ name: 'Surface', nodeIds: ['parent'], usageNodeIds: ['parent', 'sibling'] })
+  })
+
+  it('keeps a literal separate from a token that resolves to the same color', () => {
+    const source = file()
+    source.theme.tokens.surface = { id: 'surface', type: 'color', name: 'Surface', orderKey: 'a', value: { kind: 'literal', color: hexColor('#ff0000') } }
+    const parent = source.nodes.parent!, sibling = source.nodes.sibling!
+    if (parent.type === 'root' || sibling.type === 'root') throw new Error('Expected styled nodes')
+    parent.appearance!.fills = [{ id: 'fill-parent', type: 'solid', color: token('surface') }]
+    sibling.appearance!.fills = [{ id: 'fill-sibling', type: 'solid', color: literal('#ff0000') }]
+
+    const [group] = selectionColorGroups(source, ['parent'], () => ({}))
+
+    expect(group).toMatchObject({ key: 'token:surface', name: 'Surface', usageNodeIds: ['parent'] })
   })
 
   it('changes active colors without mutating an inactive cached paint', () => {

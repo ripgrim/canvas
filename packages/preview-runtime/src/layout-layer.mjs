@@ -21,6 +21,7 @@ export function createLayoutLayer(ownerDocument, container) {
   let transientBounds = new Map()
   let active = false
   let applying = false
+  let externalOverlayPaused = false
 
   const restore = (element, state) => {
     for (const [name, original] of state.originals) {
@@ -118,7 +119,7 @@ export function createLayoutLayer(ownerDocument, container) {
   const number = text => Number.parseFloat(text) || 0
   const intrinsic = value => /^(fit|min|max)-content$/.test(value)
   const apply = () => {
-    if (!active || applying) return
+    if (!active || applying || externalOverlayPaused) return
     applying = true
     try {
       const roots = resolveRoots()
@@ -219,6 +220,7 @@ export function createLayoutLayer(ownerDocument, container) {
     states.clear()
     reports.clear()
     active = false
+    externalOverlayPaused = false
     editorDocument = null
     items = []
     transientBounds = new Map()
@@ -245,6 +247,8 @@ export function createLayoutLayer(ownerDocument, container) {
       apply()
     },
     apply,
+    pauseExternalOverlay: () => { externalOverlayPaused = true },
+    resumeExternalOverlay: () => { if (!externalOverlayPaused) return; externalOverlayPaused = false; apply() },
     /** Per node: whether the projection applied and which controlled longhands a stylesheet forces with !important. */
     report: () => new Map([...reports].map(([id, value]) => [id, { status: value.status, conflicts: [...value.conflicts] }])),
     /** The longhands this layer may control; the geometry observer ignores mutations limited to them while applying. */

@@ -1,14 +1,19 @@
-import { applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, pageRoot, resolveToken, validateFileCommand, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
-import type { ColorToken, FileCommand, FileDocument, FileNode, NodePlacement, Paint, PrimitiveKind, PrimitiveStylePatch, PrimitiveStyles, SourcePalette, TokenValue } from '@canvas/repo-engine/file-document'
+import { applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, legacyTextProperties, pageRoot, resolveToken, validateFileCommand, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
+import type { ColorToken, FileCommand, FileDocument, FileNode, NodePlacement, Paint, PrimitiveKind, PrimitiveStylePatch, PrimitiveStyles, SourcePalette, TextSizing, TextStyle, TokenValue } from '@canvas/repo-engine/file-document'
 import { appearanceLimits, defaultFillColor, imageMimes, nextBorders, validateImageAssetReference } from '@canvas/repo-engine/appearance'
 import { nodeAppearance } from '@canvas/repo-engine/file-document'
 import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAssetReference, ImageExtension, ImageMime, Outline, Stroke } from '@canvas/repo-engine/appearance'
 import type { DocumentNodeLayout } from '@canvas/repo-engine/document'
-import { layoutFromLegacy, legacyLayout } from '@canvas/repo-engine/layout'
+import { intrinsic, layoutFromLegacy, legacyLayout, percent } from '@canvas/repo-engine/layout'
 import type { NodeLayout, SizingMode } from '@canvas/repo-engine/layout'
 import { positionAbsolute, positionFlow, setAspectRatio, setAxisBound, setAxisLength, setAxisSizingMany, setInset, setSpacing, setZIndex } from './layout-commands'
 import { createFlexCommands } from './layout-flex-commands'
 import type { LayoutCommandContext } from './layout-flex-commands'
+import { paperWrapCopy, planPaperWrap } from './layout-wrap-planner'
+import type { PaperWrapFailure, PaperWrapPlanResult } from './layout-wrap-planner'
+import { paperRemoveFlexCopy, planPaperRemoveFlex } from './layout-remove-planner'
+import type { PaperRemoveFlexFailure, PaperRemoveFlexPlanResult } from './layout-remove-planner'
+import type { LayoutGeometry } from './layout-measure'
 import { createGridCommands } from './layout-grid-commands'
 import { layoutWithPose, reparentPose } from './layout-pose'
 import { nodeThemeProjection } from '@canvas/repo-engine/file-preview'
@@ -22,12 +27,16 @@ import type { InsetLength, LayoutLength, NodeSpacing } from '@canvas/repo-engine
 import type { Color } from '@canvas/repo-engine/color'
 import { compareOrder, orderKeyBetween } from '@canvas/repo-engine/order-keys'
 import type { Atom } from './types'
+import { validateFlowDragPresentationStructure } from '@canvas/sync-protocol/flow'
 import { canvasCopy } from './canvas-copy'
 import { canvasElementSizes } from './canvas-drawing'
 import { prepareImageFile } from './image-import'
-import type { CanvasBounds } from './canvas-drawing'
+import { planGestureCommand } from './gesture-command-planner'
+import type { GestureCommandSnapshot, GestureFinalIntent } from './gesture-command-planner'
+import type { GestureAuthoritySnapshot } from './gesture-authority'
+import type { CanvasBounds, CanvasCreationIntent } from './canvas-drawing'
 import { clampZoom, fitCamera, gridVisible, nudgeStep, nudgeStepLarge, screenToWorld, stepZoom, zoomAtPoint } from './canvas-math'
-import type { Camera, Point, Rect, Size, SnapGuide } from './canvas-math'
+import type { Camera, Point, Rect, ResizeAxis, ResizeHandle, Size, SnapGuide } from './canvas-math'
 import { selectChildren, selectParents } from './canvas-scene'
 import type { Scene } from './canvas-scene'
 import { createStore } from 'zustand/vanilla'
@@ -39,7 +48,7 @@ export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text'
 export type CanvasTransient =
   | { kind: 'marquee'; rect: Rect }
   | { kind: 'move'; rects: Record<string, Rect>; offset: Point; guides: SnapGuide[]; targetFrameId: string | null; insertion: { axis: 'x' | 'y'; rect: Rect } | null }
-  | { kind: 'resize'; rects: Record<string, Rect>; starts: Record<string, Rect>; appearances: Record<string, Appearance | undefined>; contentLocked: boolean }
+  | { kind: 'resize'; interactionId: string }
   | { kind: 'draw'; elementKind: PrimitiveKind; rect: Rect; targetFrameId: string | null }
   | { kind: 'pan' }
 export type DocumentState = {
@@ -51,6 +60,8 @@ export type DocumentState = {
   selection: string[]
   hover: string | null
   renaming: string | null
+  /** The one active content-editing transaction. Its token prevents stale DOM events from editing a later session. */
+  textEditing: Readonly<{ sessionId: string; nodeId: string }> | null
   transient: CanvasTransient | null
   viewport: Viewport
   viewportSize: Size
@@ -105,6 +116,26 @@ export type InsertTarget = { parentId: string | null; slot?: string; index?: num
 export type ComponentInsertPoint = { x: number; y: number }
 export type SourceTokenImport = Readonly<{ property: string; name: string; fallback: Color }>
 export type PersistenceCommit = Readonly<{ committed: boolean; persistence: Promise<void> | null }>
+/** Local gestures may omit this. A live collaboration owner supplies it so its exact terminal claim binds the already planned command. */
+export type GesturePersistenceBinder = (command: FileCommand) => EditorPersistenceIntent | null
+export type PaperWrapExecutionResult = PaperWrapFailure | Readonly<{ status: 'written'; wrapperIds: readonly string[] }>
+export type PaperRemoveFlexExecutionResult = PaperRemoveFlexFailure | Readonly<{ status: 'written'; parentIds: readonly string[] }>
+type TextEditSession = Readonly<{
+  sessionId: string
+  nodeId: string
+  before: Readonly<{ file: FileDocument; pageId: string; selection: string[] }>
+  beforeText: string
+  pastBefore: readonly HistoryEntry[]
+  futureBefore: readonly HistoryEntry[]
+  visibleCanUndo: boolean
+  visibleCanRedo: boolean
+  creation?: Readonly<{
+    before: Readonly<{ file: FileDocument; pageId: string; selection: string[] }>
+    pastBefore: readonly HistoryEntry[]
+    futureBefore: readonly HistoryEntry[]
+    insert: Extract<FileCommand, { type: 'node.insert' }>
+  }>
+}>
 type PersistenceReceipt = Readonly<{
   promise: Promise<void>
   resolve(): void
@@ -112,6 +143,100 @@ type PersistenceReceipt = Readonly<{
 }>
 type PendingPersistenceChange = Readonly<{ file: FileDocument; intent: EditorPersistenceIntent; receipt: PersistenceReceipt | null }>
 type AssetPreviewData = Readonly<{ sha256: string; mime: ImageMime; data: string }>
+
+const dataProperty = (value: object, key: PropertyKey): unknown => {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key)
+  return descriptor && descriptor.enumerable && 'value' in descriptor ? descriptor.value : undefined
+}
+
+function exactFrozenRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  try {
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null || !Object.isFrozen(value)) return false
+    const ownKeys = Reflect.ownKeys(value)
+    return ownKeys.length === keys.length && ownKeys.every(key => typeof key === 'string' && keys.includes(key)
+      && Boolean(Object.getOwnPropertyDescriptor(value, key)?.enumerable)
+      && 'value' in Object.getOwnPropertyDescriptor(value, key)!)
+  } catch { return false }
+}
+
+function exactFrozenSingleCommand(value: unknown, command: FileCommand): value is readonly [FileCommand] {
+  if (!Array.isArray(value)) return false
+  try {
+    if (Object.getPrototypeOf(value) !== Array.prototype || !Object.isFrozen(value)) return false
+    const ownKeys = Reflect.ownKeys(value)
+    if (ownKeys.length !== 2 || !ownKeys.includes('0') || !ownKeys.includes('length')) return false
+    const item = Object.getOwnPropertyDescriptor(value, '0')
+    const length = Object.getOwnPropertyDescriptor(value, 'length')
+    return Boolean(item && item.enumerable && 'value' in item && item.value === command
+      && length && !length.enumerable && 'value' in length && length.value === 1)
+  } catch { return false }
+}
+
+function deeplyFrozenData(value: unknown, seen = new WeakSet<object>()): boolean {
+  if (value === null || typeof value !== 'object') return true
+  if (seen.has(value)) return true
+  try {
+    if (!Object.isFrozen(value)) return false
+    seen.add(value)
+    return Reflect.ownKeys(value).every(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return Boolean(descriptor && 'value' in descriptor && deeplyFrozenData(descriptor.value, seen))
+    })
+  } catch { return false }
+}
+
+function freezeData<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== 'object' || seen.has(value)) return value
+  seen.add(value)
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (!descriptor || !('value' in descriptor)) throw new Error('The planned command contains an accessor.')
+    freezeData(descriptor.value, seen)
+  }
+  return Object.freeze(value)
+}
+
+function exactFlowPersistenceBinding(value: unknown): value is NonNullable<EditorPersistenceIntent['flow']> {
+  if (!exactFrozenRecord(value, ['claim', 'terminalPresentation'])) return false
+  const claim = dataProperty(value, 'claim')
+  const presentation = dataProperty(value, 'terminalPresentation')
+  if (!exactFrozenRecord(claim, ['pageId', 'interactionId', 'sourceNodeId', 'localClaimGeneration'])
+    || !deeplyFrozenData(presentation) || presentation === null || typeof presentation !== 'object') return false
+  const pageId = dataProperty(claim, 'pageId')
+  const interactionId = dataProperty(claim, 'interactionId')
+  const sourceNodeId = dataProperty(claim, 'sourceNodeId')
+  const localClaimGeneration = dataProperty(claim, 'localClaimGeneration')
+  const identity = dataProperty(presentation, 'identity')
+  const fence = dataProperty(presentation, 'fence')
+  const original = dataProperty(presentation, 'original')
+  if (typeof pageId !== 'string' || !pageId || typeof interactionId !== 'string' || !interactionId || typeof sourceNodeId !== 'string' || !sourceNodeId
+    || !Number.isSafeInteger(localClaimGeneration) || (localClaimGeneration as number) <= 0
+    || identity === null || typeof identity !== 'object' || fence === null || typeof fence !== 'object' || original === null || typeof original !== 'object') return false
+  const gestureGeneration = dataProperty(identity, 'gestureGeneration')
+  const sampleSequence = dataProperty(identity, 'sampleSequence')
+  const presentationInteractionId = dataProperty(identity, 'interactionId')
+  const presentationPageId = dataProperty(fence, 'pageId')
+  const presentationSourceNodeId = dataProperty(original, 'documentNodeId')
+  if (presentationInteractionId !== interactionId || presentationPageId !== pageId || presentationSourceNodeId !== sourceNodeId
+    || !Number.isSafeInteger(gestureGeneration) || (gestureGeneration as number) < 0
+    || !Number.isSafeInteger(sampleSequence) || (sampleSequence as number) < 0) return false
+  try { structuredClone(presentation) } catch { return false }
+  return validateFlowDragPresentationStructure(presentation, {
+    interactionId,
+    gestureGeneration: gestureGeneration as number,
+    sequence: sampleSequence as number,
+  }, fence as Parameters<typeof validateFlowDragPresentationStructure>[2])
+}
+
+function exactBoundPersistenceIntent(value: unknown, command: FileCommand, flow: boolean): value is EditorPersistenceIntent {
+  const keys = flow ? ['kind', 'commands', 'flow'] : ['kind', 'commands']
+  if (!exactFrozenRecord(value, keys) || dataProperty(value, 'kind') !== 'commands'
+    || !exactFrozenSingleCommand(dataProperty(value, 'commands'), command)) return false
+  if (flow && !exactFlowPersistenceBinding(dataProperty(value, 'flow'))) return false
+  try { structuredClone(value); return true } catch { return false }
+}
 
 function decodedByteLength(data: string): number {
   if (!data || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) throw new Error(canvasCopy.unsupportedImage)
@@ -201,7 +326,7 @@ export function documentOrder(file: FileDocument, pageId: string): string[] {
 
 export const isPrimitive = (node: FileNode | undefined): node is Extract<FileNode, { styles: PrimitiveStyles }> => Boolean(node && node.type !== 'root' && node.type !== 'component')
 
-const emptyDocumentState = (): DocumentState => ({ file: null, pageId: null, atoms: [], selection: [], hover: null, renaming: null, transient: null, viewport: defaultCamera, viewportSize: { width: 0, height: 0 }, gridVisible: false, fitRequested: null, spaceHeld: false, tool: 'move', dirty: false, saving: false, error: null, blocked: false, readOnly: false, canUndo: false, canRedo: false, appearanceOverrides: null, layoutOverrides: null, layoutGeneration: 0 })
+const emptyDocumentState = (): DocumentState => ({ file: null, pageId: null, atoms: [], selection: [], hover: null, renaming: null, textEditing: null, transient: null, viewport: defaultCamera, viewportSize: { width: 0, height: 0 }, gridVisible: false, fitRequested: null, spaceHeld: false, tool: 'move', dirty: false, saving: false, error: null, blocked: false, readOnly: false, canUndo: false, canRedo: false, appearanceOverrides: null, layoutOverrides: null, layoutGeneration: 0 })
 
 const placementCommand = (node: FileNode | undefined, placement: DocumentNodeLayout): FileCommand => ({ type: 'node.setLayout', nodeId: node!.id, layout: layoutFromLegacy(placement, node?.type === 'component' ? node.layout : undefined) })
 export function createDocumentStore(makeId: () => string = () => crypto.randomUUID()) {
@@ -240,6 +365,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   let persistenceRun: Promise<void> | null = null
   let selectionAnchor: string | null = null
   let persistenceBlocked = false
+  let textSession: TextEditSession | null = null
   const noPersistenceCommit: PersistenceCommit = Object.freeze({ committed: false, persistence: null })
   const persistenceReceipt = (): PersistenceReceipt => {
     let resolvePromise: () => void = () => undefined
@@ -333,11 +459,42 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     return receipt?.promise ?? null
   }
   const same = (left: FileDocument, right: FileDocument) => JSON.stringify({ ...left, revision: 0 }) === JSON.stringify({ ...right, revision: 0 })
-  const commitWithPersistence = (projection: ReturnType<typeof applyFileCommandWithHistory>, selection: string[], pageId = backing.getState().pageId!, trackPersistence = false): PersistenceCommit => {
+  const authoritativeGestureSnapshot = (state: DocumentState, snapshot: GestureCommandSnapshot) => Boolean(
+    state.file
+    && state.file.fileId === snapshot.file.fileId
+    && state.file.revision === snapshot.file.revision
+    && same(state.file, snapshot.file)
+    && state.layoutGeneration === snapshot.layoutGeneration
+    && JSON.stringify(state.atoms) === JSON.stringify(snapshot.atoms),
+  )
+  const authoritativeResizeGestureSnapshot = (state: DocumentState, snapshot: GestureCommandSnapshot) => {
+    const resize = snapshot as Partial<GestureAuthoritySnapshot>
+    return authoritativeGestureSnapshot(state, snapshot)
+      && typeof resize.pageId === 'string'
+      && state.pageId === resize.pageId
+      && Array.isArray(resize.selection)
+      && state.selection.length === resize.selection.length
+      && state.selection.every((nodeId, index) => nodeId === resize.selection![index])
+  }
+  const gestureCommitAllowed = (snapshot: GestureCommandSnapshot, resize: boolean) => {
+    const state = backing.getState()
+    return Boolean(
+      state.file
+      && !state.readOnly
+      && !state.blocked
+      && !persistenceBlocked
+      && !textSession
+      && !state.textEditing
+      && (resize ? authoritativeResizeGestureSnapshot(state, snapshot) : authoritativeGestureSnapshot(state, snapshot)),
+    )
+  }
+  const commitWithPersistence = (projection: ReturnType<typeof applyFileCommandWithHistory>, selection: string[], pageId = backing.getState().pageId!, trackPersistence = false, persistenceCommand: FileCommand = projection.redo, preCommitGuard?: () => boolean, persistenceIntent?: EditorPersistenceIntent): PersistenceCommit => {
     const state = backing.getState()
     const next = projection.file
     if (state.readOnly) return noPersistenceCommit
+    const candidateBeforePolicy = preCommitGuard ? JSON.stringify(next) : null
     if (!permits(next)) return noPersistenceCommit
+    if (preCommitGuard && (!preCommitGuard() || JSON.stringify(next) !== candidateBeforePolicy)) return noPersistenceCommit
     if (same(next, state.file!)) return noPersistenceCommit
     const before = currentView()
     const page = next.pages.some(candidate => candidate.id === pageId) ? pageId : next.pages[0]!.id
@@ -345,15 +502,15 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     past.push({ ...before, afterPageId: page, afterSelection: nextSelection, undo: projection.undo, redo: projection.redo })
     if (past.length > 100) past.shift()
     future = []
-    const persistence = changed(next, page, nextSelection, { kind: 'commands', commands: [projection.redo] }, trackPersistence)
+    const persistence = changed(next, page, nextSelection, persistenceIntent ?? { kind: 'commands', commands: [persistenceCommand] }, trackPersistence)
     return Object.freeze({ committed: true, persistence })
   }
   const fail = (error: unknown, title?: string) => report(error, title)
   /** Applies one semantic command (or batch) as one undo step. */
-  const executeWithPersistence = (command: FileCommand, selection?: string[], pageId?: string, trackPersistence = false): PersistenceCommit => {
+  const executeWithPersistence = (command: FileCommand, selection?: string[], pageId?: string, trackPersistence = false, persistenceCommand?: FileCommand, preCommitGuard?: () => boolean, persistenceIntent?: EditorPersistenceIntent): PersistenceCommit => {
     const state = backing.getState()
-    if (!state.file || persistenceBlocked) return noPersistenceCommit
-    try { return commitWithPersistence(applyFileCommandWithHistory(state.file, command, state.atoms, { allowUnavailableBindings: true }), selection ?? state.selection, pageId, trackPersistence) }
+    if (!state.file || persistenceBlocked || textSession) return noPersistenceCommit
+    try { return commitWithPersistence(applyFileCommandWithHistory(state.file, command, state.atoms, { allowUnavailableBindings: true }), selection ?? state.selection, pageId, trackPersistence, persistenceCommand, preCommitGuard, persistenceIntent) }
     catch (error) { fail(error); return noPersistenceCommit }
   }
   const execute = (command: FileCommand, selection?: string[], pageId?: string) => executeWithPersistence(command, selection, pageId).committed
@@ -362,6 +519,116 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     ? executeWithPersistence(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, selection, undefined, true)
     : noPersistenceCommit
   const node = (id: string) => backing.getState().file?.nodes[id]
+  const beginTextEditing = (nodeId: string, creation?: TextEditSession['creation']): string | null => {
+    const state = backing.getState()
+    const target = state.file?.nodes[nodeId]
+    if (textSession || !state.file || !state.pageId || state.readOnly || persistenceBlocked || !target || target.type !== 'text' || typeof target.text !== 'string') return null
+    const sessionId = makeId()
+    textSession = {
+      sessionId,
+      nodeId,
+      before: creation?.before ?? currentView(),
+      beforeText: target.text,
+      pastBefore: creation?.pastBefore ?? [...past],
+      futureBefore: creation?.futureBefore ?? [...future],
+      visibleCanUndo: creation ? creation.pastBefore.length > 0 : state.canUndo,
+      visibleCanRedo: creation ? creation.futureBefore.length > 0 : state.canRedo,
+      ...(creation ? { creation } : {}),
+    }
+    selectionAnchor = nodeId
+    setSelection([nodeId])
+    emit({ renaming: nodeId, textEditing: { sessionId, nodeId } })
+    return sessionId
+  }
+  const updateTextEditing = (sessionId: string, text: string): boolean => {
+    const session = textSession
+    const state = backing.getState()
+    if (!session || session.sessionId !== sessionId || !state.file || state.readOnly || persistenceBlocked) return false
+    const target = state.file.nodes[session.nodeId]
+    if (!target || target.type !== 'text' || target.text === text) return false
+    try {
+      const command: FileCommand = { type: 'node.setText', nodeId: session.nodeId, text }
+      const next = applyFileCommand(state.file, command, state.atoms, { allowUnavailableBindings: true })
+      if (!permits(next)) return false
+      if (text === session.beforeText) {
+        past = [...session.pastBefore]
+        future = [...session.futureBefore]
+      } else if (session.creation) {
+        const inserted = next.nodes[session.nodeId]
+        if (!inserted || inserted.type !== 'text') throw new Error('The new text node is unavailable.')
+        const undo: FileCommand = { type: 'node.delete', nodeIds: [session.nodeId] }
+        const redo: FileCommand = { ...session.creation.insert, node: structuredClone(inserted) }
+        past = [...session.creation.pastBefore, { ...session.creation.before, afterPageId: state.pageId!, afterSelection: [...state.selection], undo, redo }].slice(-100)
+        future = []
+      } else {
+        const undo: FileCommand = { type: 'node.setText', nodeId: session.nodeId, text: session.beforeText }
+        const redo: FileCommand = { type: 'node.setText', nodeId: session.nodeId, text }
+        past = [...session.pastBefore, { ...session.before, afterPageId: state.pageId!, afterSelection: [...state.selection], undo, redo }].slice(-100)
+        future = []
+      }
+      changed(next, state.pageId!, state.selection, { kind: 'commands', commands: [command] })
+      emit({ canUndo: session.visibleCanUndo, canRedo: session.visibleCanRedo })
+      return true
+    } catch (error) { return fail(error) }
+  }
+  const removeCreatedTextEditing = (session: TextEditSession, state: DocumentState): boolean => {
+    if (!session.creation || !state.file || state.readOnly || persistenceBlocked) return false
+    try {
+      const command: FileCommand = { type: 'node.delete', nodeIds: [session.nodeId] }
+      const next = applyFileCommand(state.file, command, state.atoms, { allowUnavailableBindings: true })
+      if (!permits(next)) return false
+      textSession = null
+      past = [...session.creation.pastBefore]
+      future = [...session.creation.futureBefore]
+      const pageId = next.pages.some(page => page.id === session.creation!.before.pageId) ? session.creation.before.pageId : next.pages[0]!.id
+      const selection = session.creation.before.selection.filter(id => selectable(next, pageId, id))
+      changed(next, pageId, selection, { kind: 'commands', commands: [command] })
+      emit({ renaming: null, textEditing: null, canUndo: past.length > 0, canRedo: future.length > 0 })
+      return true
+    } catch (error) { textSession = session; return fail(error) }
+  }
+  const commitTextEditing = (sessionId: string): boolean => {
+    const session = textSession
+    const state = backing.getState()
+    if (!session || session.sessionId !== sessionId || !state.file) return false
+    const target = state.file.nodes[session.nodeId]
+    if (!target || target.type !== 'text' || typeof target.text !== 'string') return false
+    if (session.creation && target.text.trim() === '') return removeCreatedTextEditing(session, state)
+    textSession = null
+    emit({ renaming: null, textEditing: null, canUndo: past.length > 0, canRedo: future.length > 0 })
+    return true
+  }
+  const cancelTextEditing = (sessionId: string): boolean => {
+    const session = textSession
+    const state = backing.getState()
+    if (!session || session.sessionId !== sessionId || !state.file || state.readOnly || persistenceBlocked) return false
+    const target = state.file.nodes[session.nodeId]
+    if (!target || target.type !== 'text' || typeof target.text !== 'string') return false
+    if (session.creation) return removeCreatedTextEditing(session, state)
+    try {
+      textSession = null
+      if (target.text !== session.beforeText) {
+        const command: FileCommand = { type: 'node.setText', nodeId: session.nodeId, text: session.beforeText }
+        const next = applyFileCommand(state.file, command, state.atoms, { allowUnavailableBindings: true })
+        if (!permits(next)) { textSession = session; return false }
+        past = [...session.pastBefore]
+        future = [...session.futureBefore]
+        changed(next, state.pageId!, state.selection, { kind: 'commands', commands: [command] })
+      }
+      emit({ renaming: null, textEditing: null, canUndo: past.length > 0, canRedo: future.length > 0 })
+      return true
+    } catch (error) { textSession = session; return fail(error) }
+  }
+  const focusAdjacentText = (nodeId: string, direction: 'next' | 'previous'): string | null => {
+    const state = backing.getState()
+    if (textSession || !state.file || !state.pageId) return null
+    const textIds = documentOrder(state.file, state.pageId).filter(id => state.file?.nodes[id]?.type === 'text')
+    if (!textIds.length) return null
+    const current = textIds.indexOf(nodeId)
+    const offset = direction === 'next' ? 1 : -1
+    const nextIndex = current < 0 ? direction === 'next' ? 0 : textIds.length - 1 : (current + offset + textIds.length) % textIds.length
+    return beginTextEditing(textIds[nextIndex]!)
+  }
   const styledIds = (ids: readonly string[]) => [...new Set(ids)].filter(id => { const current = node(id); return Boolean(current && current.type !== 'root') })
   const kindOf = (id: string) => { const current = node(id)!; return current.type === 'component' ? 'component' as const : current.type as PrimitiveKind }
   const fillsOf = (id: string) => nodeAppearance(node(id))?.fills ?? []
@@ -406,7 +673,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   }
   const undo = () => {
     const state = backing.getState()
-    if (!state.file || !past.length || persistenceBlocked || state.readOnly) return false
+    if (textSession || !state.file || !past.length || persistenceBlocked || state.readOnly) return false
     const step = past[past.length - 1]!
     try {
       const previous = applyFileCommand(state.file, step.undo, state.atoms, { allowUnavailableBindings: true })
@@ -420,7 +687,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   }
   const redo = () => {
     const state = backing.getState()
-    if (!state.file || !future.length || persistenceBlocked || state.readOnly) return false
+    if (textSession || !state.file || !future.length || persistenceBlocked || state.readOnly) return false
     const step = future[future.length - 1]!
     try {
       const next = applyFileCommand(state.file, step.redo, state.atoms, { allowUnavailableBindings: true })
@@ -515,9 +782,14 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     /** Source palette that resolves this node's bound tokens (its effective theme), or the fallback palette. */
     paletteFor: (nodeId: string): SourcePalette => { const file = backing.getState().file; return file ? nodeThemeProjection(file, nodeId, themeContext()).palette : sources() },
     setEditPolicy: (next: ((file: FileDocument) => void) | undefined) => { editPolicy = next },
-    setReadOnly: (readOnly: boolean) => { if (backing.getState().readOnly !== readOnly) emit({ readOnly, transient: null, renaming: null }) },
+    setReadOnly: (readOnly: boolean) => {
+      if (backing.getState().readOnly === readOnly) return
+      if (readOnly && textSession) commitTextEditing(textSession.sessionId)
+      emit({ readOnly, transient: null, renaming: null, textEditing: null })
+    },
     clear: () => {
       generation++
+      textSession = null
       persistenceRun = null
       rejectPersistenceChanges(pendingPersistenceChanges, new Error('The document closed before the change was saved.'))
       past = []
@@ -611,7 +883,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           const pageId = requested && rebased.pages.some(page => page.id === requested) ? requested : rebased.pages[0]!.id
           updateAssetPreviews()
           persistenceBlocked = false
-          emit({ file: rebased, pageId, atoms, selection: state.selection.filter(id => selectable(rebased, pageId, id)), hover: null, renaming: null, transient: null, dirty: pendingPersistenceChanges.length > 0, error: null, blocked: false, canUndo: past.length > 0, canRedo: future.length > 0 })
+          emit({ file: rebased, pageId, atoms, selection: state.selection.filter(id => selectable(rebased, pageId, id)), hover: null, renaming: textSession?.nodeId ?? null, textEditing: textSession ? { sessionId: textSession.sessionId, nodeId: textSession.nodeId } : null, transient: null, dirty: pendingPersistenceChanges.length > 0, error: null, blocked: false, canUndo: past.length > 0, canRedo: future.length > 0 })
           void schedulePersistence()
         } catch {
           persistenceBlocked = true
@@ -620,7 +892,32 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         }
         return
       }
+      if (textSession && state.file?.fileId === incoming.fileId && !settings.replace) {
+        if (incoming.revision <= savedRevision) { emit({ atoms }); return }
+        const currentText = state.file.nodes[textSession.nodeId]
+        const incomingText = incoming.nodes[textSession.nodeId]
+        if (currentText?.type === 'text' && typeof currentText.text === 'string' && incomingText?.type === 'text' && typeof incomingText.text === 'string') {
+          savedRevision = incoming.revision
+          persistenceBlocked = false
+          const requested = settings.pageId ?? state.pageId
+          const pageId = requested && incoming.pages.some(page => page.id === requested) ? requested : incoming.pages[0]!.id
+          const selection = state.selection.filter(id => selectable(incoming, pageId, id))
+          updateAssetPreviews()
+          if (incomingText.text === currentText.text) {
+            emit({ file: incoming, pageId, atoms, selection, hover: null, renaming: textSession.nodeId, textEditing: { sessionId: textSession.sessionId, nodeId: textSession.nodeId }, transient: null, dirty: false, saving: false, error: null, blocked: false, canUndo: state.canUndo, canRedo: state.canRedo })
+          } else {
+            const command: FileCommand = { type: 'node.setText', nodeId: textSession.nodeId, text: currentText.text }
+            const merged = applyFileCommand(incoming, command, atoms, { allowUnavailableBindings: true })
+            if (!permits(merged)) return
+            emit({ atoms, hover: null, renaming: textSession.nodeId, textEditing: { sessionId: textSession.sessionId, nodeId: textSession.nodeId }, transient: null, saving: false, blocked: false })
+            changed(merged, pageId, selection, { kind: 'commands', commands: [command] })
+            emit({ canUndo: state.canUndo, canRedo: state.canRedo })
+          }
+          return
+        }
+      }
       generation++
+      textSession = null
       persistenceRun = null
       persistenceBlocked = false
       savedRevision = incoming.revision
@@ -632,12 +929,12 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       const requested = settings.pageId ?? state.pageId
       const pageId = requested && incoming.pages.some(page => page.id === requested) ? requested : incoming.pages[0]!.id
       updateAssetPreviews()
-      emit({ file: incoming, pageId, atoms, selection: state.selection.filter(id => selectable(incoming, pageId, id)), hover: null, renaming: null, transient: null, dirty: false, saving: false, error: null, blocked: false, canUndo: past.length > 0, canRedo: future.length > 0 })
+      emit({ file: incoming, pageId, atoms, selection: state.selection.filter(id => selectable(incoming, pageId, id)), hover: null, renaming: null, textEditing: null, transient: null, dirty: false, saving: false, error: null, blocked: false, canUndo: past.length > 0, canRedo: future.length > 0 })
     },
     /** Switches the open page: a view change, not a document change. Selection is page-scoped. */
     setPage: (pageId: string) => {
       const state = backing.getState()
-      if (!state.file || state.pageId === pageId || !state.file.pages.some(page => page.id === pageId)) return false
+      if (textSession || !state.file || state.pageId === pageId || !state.file.pages.some(page => page.id === pageId)) return false
       selectionAnchor = null
       emit({ pageId, selection: [], hover: null, renaming: null, transient: null })
       options.onSelection?.([])
@@ -661,7 +958,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     retryPersistence: () => { persistenceBlocked = false; emit({ error: null, blocked: false }); void schedulePersistence() },
     select: (nodeId: string | null, selectionOptions: { additive?: boolean; range?: boolean } = {}) => {
       const state = backing.getState()
-      if (!state.file || nodeId && !selectable(state.file, state.pageId, nodeId)) return
+      if (textSession || !state.file || nodeId && !selectable(state.file, state.pageId, nodeId)) return
       if (!nodeId) { selectionAnchor = null; setSelection([]); return }
       if (selectionOptions.range && selectionAnchor) {
         const order = documentOrder(state.file, state.pageId!)
@@ -675,14 +972,14 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     },
     selectMany: (nodeIds: string[]) => {
       const state = backing.getState()
-      if (!state.file) return
+      if (textSession || !state.file) return
       const next = [...new Set(nodeIds)].filter(id => selectable(state.file!, state.pageId, id))
       if (JSON.stringify(next) === JSON.stringify(state.selection)) return
       selectionAnchor = next[next.length - 1] ?? null
       setSelection(next)
     },
     setHover: (nodeId: string | null) => { if (backing.getState().hover !== nodeId) emit({ hover: nodeId }) },
-    setRenaming: (nodeId: string | null) => emit({ renaming: nodeId }),
+    setRenaming: (nodeId: string | null) => { if (!textSession) emit({ renaming: nodeId }) },
     setTransient: (transient: CanvasTransient | null) => emit({ transient }),
     setSpaceHeld: (held: boolean) => { if (backing.getState().spaceHeld !== held) emit({ spaceHeld: held }) },
     setTool: (tool: CanvasTool) => { emit({ tool, transient: null }); options.onToolChange?.(tool) },
@@ -752,6 +1049,52 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       rename: (nodeId: string, name: string) => { const next = name.trim(); return next ? execute({ type: 'node.rename', nodeId, name: next }) : false },
       setLocked: (nodeId: string, isLocked: boolean) => execute({ type: 'node.setLocked', nodeId, isLocked }),
       setText: (nodeId: string, text: string) => execute({ type: 'node.setText', nodeId, text }),
+      text: {
+        /** The only typography write seam: style and sizing intent cross validation and history together. */
+        setProperties: (nodeId: string, textStyle: TextStyle, textSizing: TextSizing) => execute({ type: 'node.setTextProperties', nodeId, textStyle, textSizing }),
+        /** One complete typography edit across a selection is one validated revision and one undo step. */
+        setPropertiesMany: (entries: readonly { nodeId: string; textStyle: TextStyle; textSizing: TextSizing }[]) => executeBatch(entries.map(entry => ({ type: 'node.setTextProperties', ...entry }))),
+        /** Paper exposes max lines only with Fit height. Turning it off preserves the current sizing intent. */
+        setMaxLines: (nodeId: string, maxLines: number | undefined) => {
+          const target = node(nodeId)
+          if (!target || target.type !== 'text' || !target.textStyle || !target.textSizing) return false
+          const textStyle = structuredClone(target.textStyle)
+          if (maxLines === undefined) delete textStyle.maxLines
+          else textStyle.maxLines = maxLines
+          const textSizing: TextSizing = maxLines === undefined ? structuredClone(target.textSizing) : { width: structuredClone(target.textSizing.width), height: { mode: 'fit' } }
+          return execute({ type: 'node.setTextProperties', nodeId, textStyle, textSizing })
+        },
+        /** Applies truncation intent to every selected text node atomically. */
+        setMaxLinesMany: (entries: readonly { nodeId: string; maxLines: number | undefined }[]) => {
+          const commands: FileCommand[] = []
+          for (const entry of entries) {
+            const target = node(entry.nodeId)
+            if (!target || target.type !== 'text' || !target.textStyle || !target.textSizing) return false
+            const textStyle = structuredClone(target.textStyle)
+            if (entry.maxLines === undefined) delete textStyle.maxLines
+            else textStyle.maxLines = entry.maxLines
+            const textSizing: TextSizing = entry.maxLines === undefined ? structuredClone(target.textSizing) : { width: structuredClone(target.textSizing.width), height: { mode: 'fit' } }
+            commands.push({ type: 'node.setTextProperties', nodeId: entry.nodeId, textStyle, textSizing })
+          }
+          return executeBatch(commands)
+        },
+        /** Resize-handle shortcuts change sizing intent through the same complete-property command. */
+        setSizingMode: (nodeId: string, axes: readonly ResizeAxis[], mode: 'fit' | 'fill') => {
+          const target = node(nodeId)
+          if (!target || target.type !== 'text' || !target.textStyle || !target.textSizing || !axes.length) return false
+          const textStyle = structuredClone(target.textStyle)
+          const textSizing = structuredClone(target.textSizing)
+          if (axes.includes('x')) textSizing.width = { mode }
+          if (axes.includes('y')) { textSizing.height = { mode }; if (mode !== 'fit') delete textStyle.maxLines }
+          return execute({ type: 'node.setTextProperties', nodeId, textStyle, textSizing })
+        },
+        begin: beginTextEditing,
+        update: updateTextEditing,
+        commit: commitTextEditing,
+        cancel: cancelTextEditing,
+        /** Selects and starts the next text in layer order, wrapping at either end. */
+        focusAdjacent: focusAdjacentText,
+      },
       setStyles: (nodeId: string, styles: PrimitiveStylePatch) => execute({ type: 'node.setStyles', nodeId, styles }),
       /** One primitive geometry/transform edit across a selection is one revision and one undo step. */
       setStylesMany: (entries: Record<string, PrimitiveStylePatch>) => executeBatch(Object.entries(entries).flatMap(([nodeId, styles]): FileCommand[] => isPrimitive(node(nodeId)) ? [{ type: 'node.setStyles', nodeId, styles }] : [])),
@@ -801,6 +1144,28 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       layout: {
         ...createFlexCommands(layoutContext),
         grid: createGridCommands(layoutContext),
+        /** Plans and applies one selection-scoped Paper Wrap command, selecting every generated frame. */
+        wrapSelection: (geometry: LayoutGeometry): PaperWrapExecutionResult => {
+          const state = backing.getState()
+          const plan: PaperWrapPlanResult = state.file
+            ? planPaperWrap({ file: state.file, geometry, selection: state.selection, layoutGeneration: state.layoutGeneration, makeId })
+            : { status: 'unavailable', reason: 'missing', message: paperWrapCopy.missing }
+          if (plan.status !== 'ready') return plan
+          return execute(plan.command, [...plan.wrapperIds])
+            ? { status: 'written', wrapperIds: plan.wrapperIds }
+            : { status: 'unavailable', reason: 'write', message: paperWrapCopy.write }
+        },
+        /** Plans explicit Flex parents while preserving the user's complete current selection as view state. */
+        removeFlexSelection: (geometry: LayoutGeometry, targetIds: readonly string[]): PaperRemoveFlexExecutionResult => {
+          const state = backing.getState()
+          const plan: PaperRemoveFlexPlanResult = state.file
+            ? planPaperRemoveFlex({ file: state.file, geometry, selection: targetIds, layoutGeneration: state.layoutGeneration })
+            : { status: 'unavailable', reason: 'missing', message: paperRemoveFlexCopy.missing }
+          if (plan.status !== 'ready') return plan
+          return execute(plan.command, [...state.selection])
+            ? { status: 'written', parentIds: plan.parentIds }
+            : { status: 'unavailable', reason: 'write', message: paperRemoveFlexCopy.write }
+        },
         /** Stores a full v4 layout record for one node. */
         set: (nodeId: string, layout: NodeLayout) => execute({ type: 'node.setLayout', nodeId, layout }),
         /** Stores layout records for several nodes as one batch and one undo entry. */
@@ -832,6 +1197,19 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         })),
         /** Semantic sizing for one axis across a selection, each node with its own measurement (LAY-SIZE-003). One batch. */
         sizing: (axis: Axis, mode: SizingMode, targets: SizingTarget[]) => executeBatch(Object.entries(setAxisSizingMany(targets.filter(target => node(target.id)?.type === 'component'), axis, mode)).map(([nodeId, layout]): FileCommand => ({ type: 'node.setLayout', nodeId, layout }))),
+        /** Primitive Fixed/Fit/Fill uses styles as fixed authority and layout only for semantic non-pixel sizing. */
+        primitiveSizing: (axis: Axis, mode: 'fixed' | 'hug' | 'fill', targets: readonly { id: string; measuredPx?: number }[]) => executeBatch(targets.flatMap(({ id, measuredPx }): FileCommand[] => {
+          const current = node(id)
+          if (!isPrimitive(current) || current.type === 'text') return []
+          const base = current.layout ?? { item: { position: { mode: 'freeform' as const } } }
+          const nextLayout = setAxisLength(base, axis, mode === 'fixed' ? null : mode === 'hug' ? intrinsic() : percent(100))
+          if (mode !== 'fixed') return [{ type: 'node.setLayout', nodeId: id, layout: nextLayout }]
+          const fixed = typeof measuredPx === 'number' && Number.isFinite(measuredPx) && measuredPx > 0 ? Math.max(1, Math.round(measuredPx)) : current.styles[axis]
+          return [
+            { type: 'node.setLayout', nodeId: id, layout: nextLayout },
+            { type: 'node.setStyles', nodeId: id, styles: { [axis]: fixed } },
+          ]
+        })),
         length: (axis: Axis, length: LayoutLength | null, nodeIds: string[]) => executeBatch(nodeIds.flatMap((id): FileCommand[] => { const current = node(id); return current?.type === 'component' ? [{ type: 'node.setLayout', nodeId: id, layout: setAxisLength(current.layout, axis, length) }] : [] })),
         bound: (axis: Axis, bound: 'min' | 'max', length: LayoutLength | null, nodeIds: string[]) => executeBatch(nodeIds.flatMap((id): FileCommand[] => { const current = node(id); return current?.type === 'component' ? [{ type: 'node.setLayout', nodeId: id, layout: setAxisBound(current.layout, axis, bound, length) }] : [] })),
         aspectRatio: (ratio: number | null, nodeIds: string[]) => executeBatch(nodeIds.flatMap((id): FileCommand[] => { const current = node(id); return current?.type === 'component' ? [{ type: 'node.setLayout', nodeId: id, layout: setAspectRatio(current.layout, ratio) }] : [] })),
@@ -902,8 +1280,39 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         if (!state.file || !state.pageId) return false
         const id = makeId()
         const size = canvasElementSizes[kind]
-        const item: FileNode = { id, type: kind, name: elementNames[kind], styles: { left: Math.round(bounds.x), top: Math.round(bounds.y), width: bounds.width === undefined ? size.width : Math.max(1, Math.round(bounds.width)), height: bounds.height === undefined ? size.height : Math.max(1, Math.round(bounds.height)), ...(kind === 'frame' ? { overflow: 'clip' as const } : {}) }, appearance: defaultAppearance(kind, makeId), ...(kind === 'text' ? { text: 'Text' } : {}) }
+        const item: FileNode = { id, type: kind, name: elementNames[kind], styles: { left: Math.round(bounds.x), top: Math.round(bounds.y), width: bounds.width === undefined ? size.width : Math.max(1, Math.round(bounds.width)), height: bounds.height === undefined ? size.height : Math.max(1, Math.round(bounds.height)), ...(kind === 'frame' ? { overflow: 'clip' as const } : {}) }, appearance: defaultAppearance(kind, makeId), ...(kind === 'text' ? { text: 'Text', ...legacyTextProperties() } : {}) }
         return execute({ type: 'node.insert', node: item, placement: { parentId: bounds.parentId ?? root(state)! } }, [id])
+      },
+      /** Creates Paper-style empty text and starts one grouped creation/edit transaction. */
+      insertCanvasText: (intent: CanvasCreationIntent, bounds: { x: number; y: number; parentId?: string | null } & Partial<Pick<CanvasBounds, 'width' | 'height'>>) => {
+        const state = backing.getState()
+        if (!state.file || !state.pageId || textSession) return false
+        if (intent === 'drag' && (bounds.width === undefined || bounds.height === undefined)) return false
+        const id = makeId()
+        const textSizing: TextSizing = intent === 'point'
+          ? { width: { mode: 'fit' }, height: { mode: 'fit' } }
+          : { width: { mode: 'fixed' }, height: { mode: 'fixed' } }
+        const item: FileNode = {
+          id,
+          type: 'text',
+          name: elementNames.text,
+          text: '',
+          textStyle: legacyTextProperties().textStyle,
+          textSizing,
+          styles: {
+            left: Math.round(bounds.x),
+            top: Math.round(bounds.y),
+            // The schema requires positive measured bounds. Fit/Fit, not this floor, owns point-text layout.
+            width: intent === 'point' ? 1 : Math.max(1, Math.round(bounds.width!)),
+            height: intent === 'point' ? 1 : Math.max(1, Math.round(bounds.height!)),
+          },
+          appearance: defaultAppearance('text', makeId),
+        }
+        const placement = { parentId: bounds.parentId ?? root(state)! }
+        const insert: Extract<FileCommand, { type: 'node.insert' }> = { type: 'node.insert', node: item, placement }
+        const creation = { before: currentView(), pastBefore: [...past], futureBefore: [...future], insert }
+        if (!execute(insert, [id])) return false
+        return beginTextEditing(id, creation) !== null
       },
       /** Reparents a primitive (null parent means the page root) keeping its world position. */
       reparent: (nodeId: string, parentId: string | null) => {
@@ -912,6 +1321,27 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         const target = parentId ?? root(state)!
         if (parentId && state.file.nodes[parentId]?.type !== 'frame') return false
         return execute({ type: 'node.reparent', nodeId, placement: { parentId: target }, preserveWorldPosition: true })
+      },
+      /** Plans one final gesture against its captured authority fences, then commits that exact batch once. */
+      commitGesture: (snapshot: GestureCommandSnapshot, intents: readonly GestureFinalIntent[], bindPersistence?: GesturePersistenceBinder): PersistenceCommit => {
+        const strict = intents.some(intent => intent?.kind === 'resize' || intent?.kind === 'paper-flow-terminal')
+        const flow = intents.some(intent => intent?.kind === 'paper-flow-terminal')
+        if (!gestureCommitAllowed(snapshot, strict)) return noPersistenceCommit
+        const plan = planGestureCommand(snapshot, intents, () => makeId())
+        if (!plan || !gestureCommitAllowed(snapshot, strict)) return noPersistenceCommit
+        let plannedCommand: FileCommand
+        try { plannedCommand = freezeData(structuredClone(plan.command)) }
+        catch { return noPersistenceCommit }
+        let persistenceIntent: EditorPersistenceIntent | undefined
+        if (bindPersistence) {
+          try {
+            const bound = bindPersistence(plannedCommand)
+            if (!exactBoundPersistenceIntent(bound, plannedCommand, flow)) return noPersistenceCommit
+            persistenceIntent = bound
+          } catch { return noPersistenceCommit }
+          if (!gestureCommitAllowed(snapshot, strict)) return noPersistenceCommit
+        }
+        return executeWithPersistence(plannedCommand, [...plan.selection], undefined, true, plannedCommand, strict ? () => gestureCommitAllowed(snapshot, true) : undefined, persistenceIntent)
       },
       /** Commits freeform moves in world coordinates as one history step. Primitives may change parent; component roots leave the host flow. */
       commitMove: (moves: MoveCommit[]): PersistenceCommit => {
@@ -934,41 +1364,6 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           commands.push(placementCommand(item, { ...placement, ...baked, mode: 'absolute', x: Math.round(move.x), y: Math.round(move.y) }))
         }
         return executeBatchWithPersistence(commands)
-      },
-      /** Commits bounds and any image crop as one undo step. Mod-resize also holds direct freeform children in world space. */
-      commitResize: (id: string, world: Rect, appearance?: Appearance, contentLocked = false, start?: Rect): PersistenceCommit => {
-        const state = backing.getState()
-        const item = state.file?.nodes[id]
-        if (!state.file || !item) return noPersistenceCommit
-        const batch: FileCommand[] = []
-        if (isPrimitive(item)) {
-          const parent = parentOf(id)
-          const parentWorld = parent && parent !== root(state) ? worldPosition(state.file, parent) : { x: 0, y: 0 }
-          batch.push({ type: 'node.setStyles', nodeId: id, styles: { left: Math.round(world.x - parentWorld.x), top: Math.round(world.y - parentWorld.y), width: Math.max(1, Math.round(world.width)), height: Math.max(1, Math.round(world.height)) } })
-          if (contentLocked && start && item.type === 'frame') {
-            const offset = { x: start.x - world.x, y: start.y - world.y }
-            for (const childId of childrenOf(state.file, id)) {
-              const child = state.file.nodes[childId]
-              if (child && isPrimitive(child)) batch.push({ type: 'node.setStyles', nodeId: childId, styles: { left: Math.round(child.styles.left + offset.x), top: Math.round(child.styles.top + offset.y) } })
-            }
-          } else if (start && item.type === 'frame') {
-            const scale = { x: world.width / start.width, y: world.height / start.height }
-            for (const childId of descendantsOf(state.file, id)) {
-              const child = state.file.nodes[childId]
-              if (child && isPrimitive(child)) batch.push({ type: 'node.setStyles', nodeId: childId, styles: { left: Math.round(child.styles.left * scale.x), top: Math.round(child.styles.top * scale.y), width: Math.max(1, Math.round(child.styles.width * scale.x)), height: Math.max(1, Math.round(child.styles.height * scale.y)) } })
-            }
-          }
-          if (appearance) batch.push({ type: 'node.setAppearance', nodeId: id, appearance })
-          return executeBatchWithPersistence(batch)
-        }
-        if (item.type !== 'component') return noPersistenceCommit
-        const layout = legacyLayout(item.layout)
-        const next: DocumentNodeLayout = isRootChild(id)
-          ? { ...layout, mode: 'absolute', x: Math.round(world.x), y: Math.round(world.y), width: Math.max(1, Math.round(world.width)), height: Math.max(1, Math.round(world.height)) }
-          : { ...layout, width: Math.max(1, Math.round(world.width)), height: Math.max(1, Math.round(world.height)) }
-        batch.push(placementCommand(item, next))
-        if (appearance) batch.push({ type: 'node.setAppearance', nodeId: id, appearance })
-        return executeBatchWithPersistence(batch)
       },
       // Pages ------------------------------------------------------------------------------------------------------
       /** Creates a page. With `activate: false` the open page stays put so a router can push the new page as its own history entry. */
@@ -1056,7 +1451,8 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       if (plain && event.shiftKey && (key === '!' || key === '1')) { emit({ fitRequested: 'all' }); return true }
       if (plain && event.shiftKey && (key === '@' || key === '2')) { emit({ fitRequested: 'selection' }); return true }
       if (plain && (key === 'delete' || key === 'backspace')) { if (state.selection.length) deleteSelection(state.selection); return true }
-      if (plain && key === 'escape') { if (state.renaming) emit({ renaming: null }); else setSelection([]); return true }
+      if (plain && key === 'escape') { if (textSession) cancelTextEditing(textSession.sessionId); else if (state.renaming) emit({ renaming: null }); else setSelection([]); return true }
+      if (plain && !event.shiftKey && key === 'enter' && state.selection.length === 1 && state.file?.nodes[state.selection[0]!]?.type === 'text') { beginTextEditing(state.selection[0]!); return true }
       if (plain && key === 'enter' && state.selection.length && scene) { setSelection(event.shiftKey ? selectParents(scene, state.selection) : selectChildren(scene, state.selection)); return true }
       if (plain && key.startsWith('arrow') && state.selection.length) {
         const step = event.shiftKey ? nudgeStepLarge : nudgeStep
@@ -1070,6 +1466,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     },
     dispose: () => {
       generation++
+      textSession = null
       persistenceRun = null
       rejectPersistenceChanges(pendingPersistenceChanges, new Error('The document store was disposed before the change was saved.'))
       pendingPersistenceChanges = []

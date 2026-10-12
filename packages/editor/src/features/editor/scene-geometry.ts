@@ -1,19 +1,19 @@
 import { createStore } from 'zustand/vanilla'
+import type { PrimitiveKind } from '@canvas/repo-engine/file-document'
 import type { Rect } from './canvas-math'
-import type { LayoutStatus, PreviewBoxMeasure, PreviewGridMeasure, PreviewLayoutReport, PreviewMatrix, PreviewOffsetMeasure, PreviewThemeStatus } from '@canvas/preview-runtime/protocol'
+import type { LayoutStatus, PreviewBoxMeasure, PreviewGridMeasure, PreviewLayoutReport, PreviewMatrix, PreviewOffsetMeasure, PreviewTextMeasure, PreviewThemeStatus } from '@canvas/preview-runtime/protocol'
 
 /**
- * Measured world rectangles for mounted component nodes, plus what the runtime learned about each root: its mounted
- * parent, whether it is a direct DOM child of that parent, its own transform, resolved Grid tracks, and whether the
- * authored layout applied. Primitive nodes derive geometry from the document instead.
+ * Measured world rectangles for mounted component roots and native canvas nodes. Component measurements also carry
+ * topology and layout reports. Native measurements let intrinsic text sizing use the DOM's actual used dimensions.
  */
-export type MeasuredNode = { componentId: string; rect: Rect; box?: PreviewBoxMeasure; offset?: PreviewOffsetMeasure; offsetParentInstanceId?: string | null; parentInstanceId?: string | null; directChild?: boolean; transform?: PreviewMatrix; layout?: PreviewLayoutReport; grid?: PreviewGridMeasure; theme?: PreviewThemeStatus }
-export type SceneGeometry = { nodes: Record<string, MeasuredNode>; revision: number; layoutGeneration: number | null; /** Nodes whose authored layout could not be applied and that have no measurable root. */ unsupported: Record<string, LayoutStatus>; /** Theme statuses of nodes without a measurable root, and portal roots that appeared without an owner. */ themeUnsupported: Record<string, PreviewThemeStatus>; unownedPortals: number }
-const empty: SceneGeometry = { nodes: {}, revision: 0, layoutGeneration: null, unsupported: {}, themeUnsupported: {}, unownedPortals: 0 }
+export type MeasuredNode = { componentId?: string; canvasKind?: PrimitiveKind; documentRevision?: number; layoutGeneration?: number; rect: Rect; worldAabb?: Rect; box?: PreviewBoxMeasure; offset?: PreviewOffsetMeasure; offsetParentNodeId?: string | null; offsetParentToRoot?: PreviewMatrix; offsetParentInstanceId?: string | null; parentInstanceId?: string | null; directChild?: boolean; transform?: PreviewMatrix; layout?: PreviewLayoutReport; grid?: PreviewGridMeasure; text?: PreviewTextMeasure; theme?: PreviewThemeStatus }
+export type SceneGeometry = { nodes: Record<string, MeasuredNode>; revision: number; documentRevision: number | null; layoutGeneration: number | null; /** Nodes whose authored layout could not be applied and that have no measurable root. */ unsupported: Record<string, LayoutStatus>; /** Theme statuses of nodes without a measurable root, and portal roots that appeared without an owner. */ themeUnsupported: Record<string, PreviewThemeStatus>; unownedPortals: number }
+const empty: SceneGeometry = { nodes: {}, revision: 0, documentRevision: null, layoutGeneration: null, unsupported: {}, themeUnsupported: {}, unownedPortals: 0 }
 const backing = createStore<SceneGeometry>(() => empty)
 export const sceneGeometry = {
   getSnapshot: backing.getState,
   subscribe: (listener: () => void) => backing.subscribe(listener),
-  update: (nodes: Record<string, MeasuredNode>, layoutGeneration: number | null = null, unsupported: Record<string, LayoutStatus> = {}, theme: { themeUnsupported: Record<string, PreviewThemeStatus>; unownedPortals: number } = { themeUnsupported: {}, unownedPortals: 0 }) => backing.setState(state => ({ nodes, revision: state.revision + 1, layoutGeneration, unsupported, ...theme }), true),
-  clear: () => backing.setState(state => (Object.keys(state.nodes).length || state.layoutGeneration !== null || Object.keys(state.unsupported).length || Object.keys(state.themeUnsupported).length || state.unownedPortals ? { nodes: {}, revision: state.revision + 1, layoutGeneration: null, unsupported: {}, themeUnsupported: {}, unownedPortals: 0 } : state), true),
+  update: (nodes: Record<string, MeasuredNode>, projection: { documentRevision: number; layoutGeneration: number; measurementRevision: number } | null = null, unsupported: Record<string, LayoutStatus> = {}, theme: { themeUnsupported: Record<string, PreviewThemeStatus>; unownedPortals: number } = { themeUnsupported: {}, unownedPortals: 0 }) => backing.setState(state => ({ nodes, revision: projection?.measurementRevision ?? state.revision + 1, documentRevision: projection?.documentRevision ?? null, layoutGeneration: projection?.layoutGeneration ?? null, unsupported, ...theme }), true),
+  clear: () => backing.setState(state => (Object.keys(state.nodes).length || state.revision !== 0 || state.documentRevision !== null || state.layoutGeneration !== null || Object.keys(state.unsupported).length || Object.keys(state.themeUnsupported).length || state.unownedPortals ? empty : state), true),
 }

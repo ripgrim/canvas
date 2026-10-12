@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { authSessionView } from '@canvas/auth'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
-import type { EditorCollaborationSnapshot, EditorProjectFailure } from './capabilities'
-import { bindAuthFileClear, bindProjectFailures, bindShareAuthority } from './bootstrap'
+import type { EditorCollaborationSnapshot, EditorProjectFailure, EditorProjectSnapshot } from './capabilities'
+import { bindAuthFileClear, bindProjectFailures, bindProjectFileUpdates, bindShareAuthority } from './bootstrap'
 import { createDocumentStore } from './features/editor/document-store'
 import { createEditorStore } from './features/editor/store'
 import type { DesignEditorApi, ProjectSnapshot } from './features/editor/types'
@@ -76,10 +76,27 @@ describe('ERROR-VISIBILITY-001 project failure binding', () => {
   })
 })
 
+describe('CLOUD-SYNC-READONLY-001 project file binding', () => {
+  it('clears rendered private content when the adapter revokes the current file', () => {
+    const listeners = new Set<(snapshot: EditorProjectSnapshot | null) => void>()
+    const target = { receiveExternalSnapshot: vi.fn(), clearFile: vi.fn() }
+    const stop = bindProjectFileUpdates({
+      subscribeFile: listener => { listeners.add(listener); return () => listeners.delete(listener) },
+    }, target)
+
+    for (const listener of listeners) listener(null)
+
+    expect(target.clearFile).toHaveBeenCalledOnce()
+    expect(target.receiveExternalSnapshot).not.toHaveBeenCalled()
+    stop()
+    expect(listeners.size).toBe(0)
+  })
+})
+
 describe('AT-AUTH-003 authenticated file boundary', () => {
   it('clears the rendered file before the browser reloads after sign-out', async () => {
     const file: FileDocument = {
-      schemaVersion: 7,
+      schemaVersion: 9,
       fileId: 'file-auth',
       revision: 1,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

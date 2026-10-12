@@ -5,6 +5,16 @@ import type { PreviewSnapshot } from '@canvas/preview-runtime/browser-contracts'
 import type { ConnectedRepository, GitHubCloneRequest } from '@canvas/repository'
 import type { ShadcnComponentCatalog, ShadcnScan } from '@canvas/scanner/contracts'
 import type { AuthSessionView } from '@canvas/auth'
+import type { Atom } from '@canvas/repo-engine/contracts'
+import type {
+  FlowDragDenialCode,
+  FlowDragLane,
+  FlowDragPresentation,
+  InteractionReleasedMessage,
+  InteractionResultMessage,
+  InteractionRosterEntry,
+  InteractionSampleAcceptedMessage,
+} from '@canvas/sync-protocol'
 
 export type CapabilityState = Readonly<{ available: boolean; reason: string }>
 export type EditorFile = Readonly<{ id: string; name: string; location: string; updatedAt?: string; thumbnailUrl?: string }>
@@ -67,10 +77,52 @@ export type EditorCollaborationPatch = Readonly<{
   cursor?: EditorCollaborationPoint | null
   interaction?: EditorCollaborationInteraction | null
 }>
+export type EditorCollaborationFlowClaim = Readonly<{
+  pageId: string
+  interactionId: string
+  sourceNodeId: string
+  localClaimGeneration: number
+}>
+export type EditorCollaborationFlowRequest = Readonly<{
+  claim: EditorCollaborationFlowClaim
+  result: Promise<InteractionResultMessage>
+}>
+export type EditorCollaborationFlowClaimSnapshot = Readonly<{
+  claim: EditorCollaborationFlowClaim
+  leaseId: string | null
+  reservationGeneration: number
+  currentTargetLane: FlowDragLane | null
+  latestAcceptedPresentation: FlowDragPresentation | null
+  sampleSequence: number
+  pendingRelease: boolean
+  boundMutationIds: readonly string[]
+}>
+export type EditorCollaborationRemoteFlowEvent =
+  | Readonly<{ type: 'sample'; source: 'live' | 'roster'; sample: InteractionSampleAcceptedMessage | InteractionRosterEntry }>
+  | Readonly<{ type: 'released'; release: InteractionReleasedMessage }>
+export type EditorCollaborationFlowAuthority = Readonly<{
+  file: FileDocument
+  atoms: readonly Atom[]
+  pageId: string
+  pageRootId: string
+  documentRevision: number
+  layoutGeneration: number
+}>
+export type EditorCollaborationFlowDenial = Readonly<{ status: 'denied'; code: FlowDragDenialCode | 'read_only' | 'stale_room' | 'transport_failure' }>
+export type EditorCollaborationFlowGrant = Readonly<{ status: 'granted'; result: InteractionResultMessage }>
+export type EditorCollaborationFlowOutcome = EditorCollaborationFlowGrant | EditorCollaborationFlowDenial
 export type EditorCollaborationApi = Readonly<{
   subscribe(listener: () => void): () => void
   getSnapshot(): EditorCollaborationSnapshot
   updateAwareness(patch: EditorCollaborationPatch, options?: Readonly<{ immediate?: boolean }>): void
+  updateFlowAuthority?(authority: EditorCollaborationFlowAuthority | null): void
+  getFlowClaims?(): readonly EditorCollaborationFlowClaimSnapshot[]
+  subscribeInteractionResults?(listener: (result: InteractionResultMessage) => void): () => void
+  subscribeRemoteFlow?(listener: (event: EditorCollaborationRemoteFlowEvent) => void): () => void
+  acquireFlow?(input: Readonly<{ presentation: FlowDragPresentation; leaseId?: string }>): EditorCollaborationFlowRequest
+  reserveFlow?(input: Readonly<{ claim: EditorCollaborationFlowClaim; targetLane: FlowDragLane; presentation: FlowDragPresentation }>): Promise<InteractionResultMessage>
+  sampleFlow?(input: Readonly<{ claim: EditorCollaborationFlowClaim; presentation: FlowDragPresentation }>): void
+  releaseFlow?(input: Readonly<{ claim: EditorCollaborationFlowClaim; terminalSampleSequence: number; reason: 'committed' | 'cancelled' | 'failed' | 'disconnecting' }>): Promise<InteractionResultMessage>
   /** Re-enters authorization and admission after a recoverable terminal state. */
   retry?(): void
   /** Leaves the current file after a terminal state without retaining rendered file data. */
@@ -98,7 +150,11 @@ export type EditorProjectFailure = Readonly<{ operation: 'asset_hydration'; erro
 /** Snapshot of an open file: the normalized design file plus source metadata, verified render sidecars, and the running preview. Pages and view state are not adapter concerns. */
 export type EditorProjectSnapshot = ProjectSnapshot & { fileId?: string; assetPreviews?: readonly EditorAssetPreview[]; preview: PreviewSnapshot }
 export type EditorSaveResult = Omit<SaveResult, 'snapshot'> & { snapshot: EditorProjectSnapshot }
-export type EditorPersistenceIntent = Readonly<{ kind: 'commands'; commands: readonly FileCommand[] }>
+export type EditorFlowPersistenceBinding = Readonly<{
+  claim: EditorCollaborationFlowClaim
+  terminalPresentation: FlowDragPresentation
+}>
+export type EditorPersistenceIntent = Readonly<{ kind: 'commands'; commands: readonly FileCommand[]; flow?: EditorFlowPersistenceBinding }>
 export type EditorRepositoryConnection = Readonly<{ repository: ConnectedRepository; scan: ShadcnScan; registry: ShadcnComponentCatalog }>
 export type EditorAuthApi = Readonly<{
   /** Hosted public-file routes may keep the read-only workspace mounted while the account is signed out. */
@@ -119,8 +175,8 @@ export type EditorProjectApi = Readonly<{
   openFile?(fileId: string): Promise<EditorProjectSnapshot>
   /** Opens only a server-authorized public view. A private or missing file returns null without revealing which it was. */
   openSharedFile?(fileId: string): Promise<EditorProjectSnapshot | null>
-  /** Publishes newer snapshots for the currently open file. The consumer owns and must call the returned disposer. */
-  subscribeFile?(listener: (snapshot: EditorProjectSnapshot) => void): () => void
+  /** Publishes newer snapshots for the current file. Null revokes the rendered file immediately. The consumer owns and must call the returned disposer. */
+  subscribeFile?(listener: (snapshot: EditorProjectSnapshot | null) => void): () => void
   getFileShare?(fileId: string): Promise<EditorFileShare>
   setFileShare?(fileId: string, access: EditorFileShare['access']): Promise<EditorFileShare>
   shareUrl?(fileId: string): string

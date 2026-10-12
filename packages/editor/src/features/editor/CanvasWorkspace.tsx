@@ -49,7 +49,7 @@ export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcu
       <CanvasPixelGrid visible={state.gridVisible} size={grid.size} position={grid.position} lineWidth={grid.lineWidth} />
       <CanvasWorldOrigin camera={state.viewport} />
       <CanvasStage active={connected} readOnly={readOnly} onOpenContextMenu={setContextMenu} onDismissContextMenu={() => setContextMenu(null)} />
-      {connected && <><CanvasHudCanvas attach={attachHud} />{!readOnly && <SelectionHud mobile={mobile} />}<CollaborationCanvasPresence /></>}
+      {connected && <><CanvasHudCanvas attach={attachHud} /><SelectionHud /><CollaborationCanvasPresence /></>}
       <CollaborationFollowIndicator />
     </CanvasViewport>
     {(!src || !ready) && placeholder}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyFileCommand, applyFileCommandWithHistory, applyHostedFileCommand, createBlankFile, nodeIsLocked, validateFileCommand } from '../src/file-document.js'
-import type { FileCommand, FileDocument } from '../src/file-document.js'
+import type { FileCommand, FileDocument, NodeRemoveFlexGroup } from '../src/file-document.js'
 import { hostedComponentCatalog } from '../src/hosted-catalog.js'
 import type { Atom } from '../src/types.js'
 
@@ -11,6 +11,8 @@ const page = { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' } as const
 const node = { id: 'node-2', type: 'rectangle', name: 'Rectangle', styles: { left: 0, top: 0, width: 10, height: 10 } } as const
 const token = { id: 'token-2', type: 'color', name: 'Accent', orderKey: 'V', value: literal } as const
 const layout = { item: { position: { mode: 'flow' } } } as const
+const removedFlexGroup = { parent: { nodeId: 'frame-1', relationship: { parentId: 'root-1', orderKey: 'V' }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'freeform' } } }, children: [] } satisfies NodeRemoveFlexGroup
+const sourceFlexGroup = { parent: { nodeId: 'frame-1', relationship: { parentId: 'root-1', orderKey: 'V' }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } }, children: [] } satisfies NodeRemoveFlexGroup
 
 const commands = [
   { type: 'page.create', page, index: 0 },
@@ -24,6 +26,24 @@ const commands = [
   { type: 'node.setLocked', nodeId: 'node-1', isLocked: true },
   { type: 'node.setStyles', nodeId: 'node-1', styles: { width: 20, rotation: null, flipX: true } },
   { type: 'node.setText', nodeId: 'node-1', text: 'Hello' },
+  {
+    type: 'node.setTextProperties',
+    nodeId: 'node-1',
+    textStyle: {
+      fontFamily: 'Inter',
+      fontStyle: 'normal',
+      fontWeight: 400,
+      fontSize: 16,
+      lineHeight: { kind: 'normal' },
+      letterSpacing: 0,
+      horizontalAlign: 'left',
+      verticalAlign: 'top',
+      case: 'none',
+      wrap: 'normal',
+      keepWords: false,
+    },
+    textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+  },
   { type: 'node.setAppearance', nodeId: 'node-1', appearance: { fills: [solid] } },
   { type: 'node.setBlending', nodeId: 'node-1', visible: false, opacity: 0.5, blendMode: 'multiply' },
   { type: 'node.fill.add', nodeId: 'node-1' },
@@ -42,6 +62,25 @@ const commands = [
   { type: 'node.setThemeMode', nodeId: 'node-1', themeMode: 'dark' },
   { type: 'node.reparent', nodeId: 'node-1', placement: { parentId: 'root-1', orderKey: 'V' }, preserveWorldPosition: true },
   { type: 'node.reorder', nodeId: 'node-1', index: 0 },
+  { type: 'node.restoreRelationship', nodeId: 'node-1', expected: { parentId: 'root-1', orderKey: 'V' }, source: { parentId: 'root-1', orderKey: 'W' } },
+  {
+    type: 'node.resizePresentation',
+    entries: [{
+      expected: { nodeId: 'node-1', relationship: { parentId: 'root-1', orderKey: 'V' }, primitiveGeometry: { left: 0, top: 0, width: 10, height: 10 } },
+      source: { nodeId: 'node-1', relationship: { parentId: 'root-1', orderKey: 'V' }, primitiveGeometry: { left: 5, top: 6, width: 20, height: 30 } },
+    }],
+  },
+  {
+    type: 'node.wrap',
+    groups: [{
+      wrapper: { id: 'wrapper-1', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 10, height: 10, overflow: 'visible' }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+      parentId: 'root-1',
+      children: [{ nodeId: 'node-1', targetLayout: layout }],
+    }],
+  },
+  { type: 'node.unwrap', groups: [{ wrapperId: 'wrapper-1', children: [{ nodeId: 'node-1', relationship: { parentId: 'root-1', orderKey: 'V' }, layout: null }] }] },
+  { type: 'node.removeFlex', groups: [removedFlexGroup] },
+  { type: 'node.restoreFlex', groups: [{ expected: removedFlexGroup, source: sourceFlexGroup }] },
   { type: 'node.delete', nodeIds: ['node-1'] },
   { type: 'node.duplicate', nodeId: 'node-1', ids: { 'node-1': 'node-2' }, offset: { x: 10, y: -10 } },
   { type: 'token.create', token },

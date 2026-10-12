@@ -23,7 +23,7 @@ const fileId = 'layout-l2-file'
 const px = value => ({ kind: 'px', value })
 /** Hand-built v5 file: a Grid card with two buttons, a legacy-only absolute card, one page. */
 const file = {
-  schemaVersion: 7, fileId, revision: 3,
+  schemaVersion: 9, fileId, revision: 3,
   pages: [{ id: 'page-1', name: 'Layout', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },

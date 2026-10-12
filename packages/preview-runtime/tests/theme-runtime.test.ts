@@ -9,7 +9,7 @@ import { fixtureRegistry } from './fixture-registry.js'
 
 // CC-NT-010 through CC-NT-014 and CC-NT-016 through the real boundary: Vite preview builds of the fixture repository
 // (with its verified theme adapter `src/preview-theme-adapter.tsx`) loaded cross-origin in headless Edge and driven
-// over postMessage with protocol v3. Every expected color comes from `fixtures/component-repo/src/globals.css`:
+// over postMessage with protocol v7. Every expected color comes from `fixtures/component-repo/src/globals.css`:
 //   :root                 --surface: #ffffff  --ink: #202124
 //   [data-theme='dark']   --surface: #242427  --ink: #eeeeef
 //   .fixture-card         background: var(--surface); color: var(--ink)
@@ -71,7 +71,7 @@ async function openPreview(binding: PreviewBinding, ready: string): Promise<Prev
   await frame.waitForSelector(ready)
   const target = page
   const send = async (payload: Record<string, unknown>) => {
-    const command = { channel: 'design-editor-preview', version: 3, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
     await target.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
   return { page, frame, send, close }
@@ -80,7 +80,7 @@ async function openPreview(binding: PreviewBinding, ready: string): Promise<Prev
 /** Sends a layout with a fresh generation; the geometry tagged with it was measured after every earlier command landed. */
 async function probe(preview: Preview, items: unknown[] = []): Promise<Geometry> {
   const generation = ++layoutGeneration
-  await preview.send({ type: 'set-layout', items, layoutGeneration: generation })
+  await preview.send({ type: 'set-layout', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', items, layoutGeneration: generation })
   return waitFor(() => preview.page.evaluate(wanted => (window as unknown as { received: Geometry[] }).received.filter(message => message.type === 'geometry' && message.layoutGeneration === wanted).at(-1) ?? null, generation), value => value !== null) as Promise<Geometry>
 }
 const clearReceived = (preview: Preview) => preview.page.evaluate(() => { (window as unknown as { received: unknown[] }).received.length = 0 })
@@ -125,7 +125,7 @@ describe('per-node theme layer in composition mode', () => {
   let preview: Preview
   // card-1 holds a nested card-2 and button-1; card-3 is a light sibling control. card-1 may move under card-3 (remount).
   const compose = (themes: Partial<Record<'card-1' | 'card-2' | 'card-3' | 'button-1', PreviewNodeTheme>> = {}, options: { moved?: boolean; cardAppearance?: boolean } = {}): PreviewDocument => ({
-    version: 1, revision: 1, rootIds: options.moved ? ['card-3'] : ['card-1', 'card-3'], frame: frameSize,
+    version: 2, revision: 1, rootIds: options.moved ? ['card-3'] : ['card-1', 'card-3'], frame: frameSize,
     nodes: {
       'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', props: {}, children: { children: ['card-2', 'button-1'] }, theme: themes['card-1'] ?? light, ...(options.cardAppearance ? { appearance: { opacity: 0.5 } } : {}) },
       'card-2': { id: 'card-2', componentId: 'atom-card', exportName: 'Card', props: { heading: 'Nested' }, children: {}, theme: themes['card-2'] ?? light },
@@ -138,7 +138,7 @@ describe('per-node theme layer in composition mode', () => {
 
   beforeAll(async () => {
     preview = await openPreview({ componentId: 'fixture-login', entryPath: 'src/PreviewLogin.tsx', exportName: 'PreviewLogin', styles: ['src/globals.css'], registry, themeAdapters }, '.fixture-input')
-    await preview.send({ type: 'set-document', document: compose(), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: compose(), theme: lightTheme })
     await waitFor(() => preview.frame.evaluate(() => document.querySelectorAll('[data-preview-instance]').length), count => count === 4)
   }, 90_000)
   afterAll(async () => { await preview?.close() }, 30_000)
@@ -151,7 +151,7 @@ describe('per-node theme layer in composition mode', () => {
     expect(before.card).toMatchObject({ tag: 'section', theme: null, inline: '', background: 'rgb(255, 255, 255)', hostParent: true })
     await keep(preview.frame, 'card', instance('card-1'))
 
-    await preview.send({ type: 'set-document', document: darkCard(), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: darkCard(), theme: lightTheme })
     const geometry = await probe(preview)
     const card = await readRoot(preview.frame, instance('card-1'))
     expect(await sameAsKept(preview.frame, 'card', instance('card-1'))).toBe(true)
@@ -167,7 +167,7 @@ describe('per-node theme layer in composition mode', () => {
     expect(measured['card-2']!.theme).toBeUndefined()
     expect(geometry.theme).toBeUndefined()
 
-    await preview.send({ type: 'set-document', document: compose(), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: compose(), theme: lightTheme })
     await probe(preview)
     expect(await readRoot(preview.frame, instance('card-1'))).toMatchObject({ theme: null, inline: '', background: 'rgb(255, 255, 255)' })
     expect(await readRoot(preview.frame, instance('card-2'))).toMatchObject({ background: 'rgb(255, 255, 255)' })
@@ -175,7 +175,7 @@ describe('per-node theme layer in composition mode', () => {
 
   it('CC-NT-012: the adapter boundary receives each claimed instance and its effective theme without adding DOM', async () => {
     await preview.frame.evaluate(() => { (window as unknown as FrameHooks).__adapterCalls = [] })
-    await preview.send({ type: 'set-document', document: darkCard(), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: darkCard(), theme: lightTheme })
     await probe(preview)
     const calls = await preview.frame.evaluate(() => [...(window as unknown as FrameHooks).__adapterCalls!].sort((left, right) => left.instanceId.localeCompare(right.instanceId)))
     // One render: every atom-card node once with its own theme; button-1 is not a component the adapter claims.
@@ -188,36 +188,36 @@ describe('per-node theme layer in composition mode', () => {
     expect(await readRoot(preview.frame, instance('card-2'))).toMatchObject({ parentInstance: 'card-1' })
     expect(await readRoot(preview.frame, instance('button-1'))).toMatchObject({ parentInstance: 'card-1' })
     expect(await elementCount(preview.frame)).toBe(5)
-    await preview.send({ type: 'set-document', document: compose(), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: compose(), theme: lightTheme })
     await probe(preview)
   })
 
   it('CC-NT-016: a theme update leaves layout and appearance declarations on the same root untouched', async () => {
     const layout = [{ nodeId: 'card-1', mode: 'flow', x: 0, y: 0, order: 0, declarations: { 'padding-top': '12px', 'row-gap': '4px' } }]
-    await preview.send({ type: 'set-document', document: compose({}, { cardAppearance: true }), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: compose({}, { cardAppearance: true }), theme: lightTheme })
     await probe(preview, layout)
     const baseline = await inlineMap(preview.frame, instance('card-1'))
     // Appearance opacity 0.5 and the two layout longhands are present before any theme is involved.
     expect(baseline).toMatchObject({ opacity: '0.5', 'padding-top': '12px', 'row-gap': '4px' })
     expect(baseline['color-scheme']).toBeUndefined()
 
-    await preview.send({ type: 'set-document', document: darkCard({ cardAppearance: true }), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: darkCard({ cardAppearance: true }), theme: lightTheme })
     await probe(preview, layout)
     expect(await inlineMap(preview.frame, instance('card-1'))).toEqual({ ...baseline, 'color-scheme': 'dark' })
     const themed = await preview.frame.evaluate(() => { const element = document.querySelector<HTMLElement>('[data-preview-instance="card-1"]')!; const style = getComputedStyle(element); return { theme: element.getAttribute('data-theme'), opacity: style.opacity, paddingTop: style.paddingTop, rowGap: style.rowGap, background: style.backgroundColor } })
     expect(themed).toEqual({ theme: 'dark', opacity: '0.5', paddingTop: '12px', rowGap: '4px', background: 'rgb(36, 36, 39)' })
 
-    await preview.send({ type: 'set-document', document: compose({}, { cardAppearance: true }), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: compose({}, { cardAppearance: true }), theme: lightTheme })
     await probe(preview, layout)
     expect(await inlineMap(preview.frame, instance('card-1'))).toEqual(baseline)
     expect((await readRoot(preview.frame, instance('card-1'))).theme).toBeNull()
-    await preview.send({ type: 'set-document', document: compose(), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: compose(), theme: lightTheme })
     await probe(preview, [])
     expect(await readRoot(preview.frame, instance('card-1'))).toMatchObject({ inline: '' })
   })
 
   it('CC-NT-014: an ambiguous or missing root is reported and left alone; unclaimed body children count as unowned portals', async () => {
-    await preview.send({ type: 'set-document', document: darkCard(), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: darkCard(), theme: lightTheme })
     expect(byId(await probe(preview))['card-1']!.theme).toBe('applied')
     await preview.frame.evaluate(() => { const fake = document.createElement('div'); fake.id = 'fake-card'; fake.setAttribute('data-preview-instance', 'card-1'); fake.setAttribute('data-preview-component', 'atom-card'); document.querySelector('[data-preview-host]')!.append(fake) })
     const ambiguous = await probe(preview)
@@ -249,7 +249,7 @@ describe('per-node theme layer in composition mode', () => {
     const cleared = await probe(preview)
     expect(unowned(cleared)).toBe(0)
     expect(cleared.theme).toBeUndefined()
-    await preview.send({ type: 'set-document', document: compose(), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: compose(), theme: lightTheme })
     await probe(preview)
   })
 
@@ -259,30 +259,30 @@ describe('per-node theme layer in composition mode', () => {
     await probe(preview)
     expect(await readRoot(preview.frame, instance('card-1'))).toMatchObject({ theme: 'paper', inline: 'color-scheme: light !important;' })
 
-    await preview.send({ type: 'set-document', document: darkCard(), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: darkCard(), theme: lightTheme })
     await probe(preview)
     // The prior inline value was important, so the override keeps that priority.
     expect(await readRoot(preview.frame, instance('card-1'))).toMatchObject({ theme: 'dark', inline: 'color-scheme: dark !important;', background: 'rgb(36, 36, 39)' })
 
-    await preview.send({ type: 'set-document', document: compose(), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: compose(), theme: lightTheme })
     await probe(preview)
     expect(await readRoot(preview.frame, instance('card-1'))).toMatchObject({ theme: 'paper', inline: 'color-scheme: light !important;', background: 'rgb(255, 255, 255)' })
 
     // Moving card-1 under card-3 makes React mount a new section; the old one is restored, the new one is stamped fresh.
-    await preview.send({ type: 'set-document', document: darkCard(), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: darkCard(), theme: lightTheme })
     await probe(preview)
-    await preview.send({ type: 'set-document', document: darkCard({ moved: true }), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: darkCard({ moved: true }), theme: lightTheme })
     await probe(preview)
     expect(await sameAsKept(preview.frame, 'first', instance('card-1'))).toBe(false)
     expect(await kept(preview.frame, 'first')).toEqual({ connected: false, theme: 'paper', inline: 'color-scheme: light !important;' })
     expect(await readRoot(preview.frame, instance('card-1'))).toMatchObject({ theme: 'dark', inline: 'color-scheme: dark;', parentInstance: 'card-3', background: 'rgb(36, 36, 39)' })
 
-    await preview.send({ type: 'set-document', document: compose({}, { moved: true }), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: compose({}, { moved: true }), theme: lightTheme })
     await probe(preview)
     expect(await readRoot(preview.frame, instance('card-1'))).toMatchObject({ theme: null, inline: '' })
     await setPrior(preview.frame, instance('card-1'))
     await keep(preview.frame, 'last', instance('card-1'))
-    await preview.send({ type: 'set-document', document: darkCard({ moved: true }), theme: lightTheme })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: darkCard({ moved: true }), theme: lightTheme })
     await probe(preview)
     expect(await readRoot(preview.frame, instance('card-1'))).toMatchObject({ theme: 'dark', inline: 'color-scheme: dark !important;' })
     await preview.send({ type: 'dispose' })
@@ -295,7 +295,7 @@ describe('portal ownership through the verified adapter in source mode', () => {
   let preview: Preview
   // The bound PreviewLogin: one Card holding two labelled inputs and the Sign in button that opens the dialog portal.
   const source = (themes: Partial<Record<'card-1' | 'button-1', PreviewNodeTheme>> = {}, rest: PreviewNodeTheme = light): PreviewDocument => ({
-    version: 1, revision: 1, rootIds: ['card-1'], frame: frameSize,
+    version: 2, revision: 1, rootIds: ['card-1'], frame: frameSize,
     nodes: {
       'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', props: {}, children: { children: ['label-email', 'input-email', 'label-password', 'input-password', 'button-1'] }, theme: themes['card-1'] ?? light },
       'label-email': { id: 'label-email', componentId: 'atom-label', exportName: 'Label', props: { htmlFor: 'email', children: 'Email' }, children: {}, theme: rest },
@@ -327,14 +327,14 @@ describe('portal ownership through the verified adapter in source mode', () => {
     document.revision = 2
     document.rootIds = [...document.rootIds, 'card-added']
     document.nodes['card-added'] = { id: 'card-added', componentId: 'atom-card', exportName: 'Card', props: { heading: 'Added card' }, children: {}, theme: light }
-    await preview.send({ type: 'set-document', document })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document })
     await preview.frame.waitForSelector('section[data-preview-instance="card-added"][data-preview-component="atom-card"]')
     const inserted = await preview.frame.locator('[data-preview-instance="card-added"]').evaluate(element => ({ tag: element.tagName.toLowerCase(), className: element.className, text: element.textContent }))
     expect(inserted).toEqual({ tag: 'section', className: 'fixture-card', text: 'Added card' })
   })
 
   it('CC-NT-013: a dialog portal opened from a dark card takes its owner theme, a child override wins, and releasing the claim restores the root', async () => {
-    await preview.send({ type: 'set-document', document: darkLogin() })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: darkLogin() })
     await probe(preview)
     expect(await readRoot(preview.frame, instance('card-1'))).toMatchObject({ tag: 'section', theme: 'dark', inline: 'color-scheme: dark;', background: 'rgb(36, 36, 39)' })
     expect(await preview.frame.locator(dialog).count()).toBe(0)
@@ -350,7 +350,7 @@ describe('portal ownership through the verified adapter in source mode', () => {
     expect((await readRoot(preview.frame, instance('button-1'))).theme).toBeNull()
 
     // The child's own light override wins over the card for the portal it owns; the card stays dark.
-    await preview.send({ type: 'set-document', document: overrideLogin() })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: overrideLogin() })
     await probe(preview)
     expect(await readRoot(preview.frame, dialog)).toMatchObject({ theme: null, inline: 'color-scheme: light;', colorScheme: 'light', surface: '#ffffff' })
     expect(await readRoot(preview.frame, instance('button-1'))).toMatchObject({ theme: null, inline: 'color-scheme: light;' })
@@ -372,7 +372,7 @@ describe('portal ownership through the verified adapter in source mode', () => {
   })
 
   it('CC-NT-014: two owners with different themes make a conflicting portal that is left untouched', async () => {
-    await preview.send({ type: 'set-document', document: darkLogin() })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: darkLogin() })
     expect(await hooks('claim', 'button-1')).toEqual(['button-1'])
     expect(await hooks('claim', 'card-1')).toEqual(['button-1', 'card-1'])
     // Negative control: both owners resolve to the same dark theme, so the root is styled and nothing conflicts.
@@ -381,7 +381,7 @@ describe('portal ownership through the verified adapter in source mode', () => {
     expect(byId(agreeing)['card-1']!.theme).toBe('applied')
     expect(byId(agreeing)['button-1']!.theme).toBeUndefined()
 
-    await preview.send({ type: 'set-document', document: overrideLogin() })
+    await preview.send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: overrideLogin() })
     const conflicting = await probe(preview)
     expect(byId(conflicting)['card-1']!.theme).toBe('conflicting-portal')
     expect(byId(conflicting)['button-1']!.theme).toBe('conflicting-portal')

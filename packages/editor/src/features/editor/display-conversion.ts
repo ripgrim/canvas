@@ -1,29 +1,46 @@
 /**
- * Semantic display conversions between Freeform, Block, Flex and Grid (the observed Wonder transitions). A conversion
+ * Semantic display conversions between Freeform, Block, Flex and Grid. A conversion
  * rewrites the container and its children together: order, margins, padding, gaps and child placement change so the
  * result keeps the measured appearance where the target mode can express it. Pure: measurements come from the caller.
  */
 import { inferFlexLayout } from '@canvas/repo-engine/flex-inference'
-import { normalizeContainer, normalizeLayout, spacingSides } from '@canvas/repo-engine/layout'
-import type { DisplayMode, FlexContainer, GridContainer, LayoutContainer, LayoutGap, LayoutItem, NodeLayout } from '@canvas/repo-engine/layout'
+import type { FlexInferenceInput } from '@canvas/repo-engine/flex-inference'
+import { availableSizingModes, normalizeContainer, normalizeLayout, spacingSides } from '@canvas/repo-engine/layout'
+import type { DisplayMode, FlexContainer, FlexDirection, GridContainer, LayoutContainer, LayoutGap, LayoutItem, NodeLayout } from '@canvas/repo-engine/layout'
+import { planPaperAddSizing, reconcilePaperSizing } from '@canvas/repo-engine/paper-sizing'
+import type { PaperSizingCapabilities, PaperSizingParent, PaperSizingSnapshot } from '@canvas/repo-engine/paper-sizing'
+import type { NodePrimitiveSize, NodeTextProperties } from '@canvas/repo-engine/file-document'
 import type { GridTrack } from '@canvas/repo-engine/grid-tracks'
 import type { Rect } from './canvas-math'
 import type { MeasuredChildren } from './layout-flex-commands'
+import type { PaperDirectAddGeometry } from './layout-measure'
 
-export type ConversionNode = { id: string; layout: NodeLayout | undefined }
+export type ConversionNode = { id: string; layout: NodeLayout | undefined; defaultPosition?: LayoutItem['position']['mode'] }
+export type DisplayMeasurement = {
+  /** Border boxes retained for Block, Grid and legacy Freeform conversions. */
+  boxes: MeasuredChildren | null
+  /** Legacy field retained for non-Direct callers while Direct Add uses one closed capture. */
+  flexInput?: FlexInferenceInput | null
+  /** Exact, revision-bound inference and sizing capture for Paper Direct Add. */
+  directAdd?: PaperDirectAddGeometry | null
+}
 export type DisplayConversionInput = {
-  container: ConversionNode & { parentDisplay?: DisplayMode | null }
+  container: ConversionNode & { parentDisplay?: DisplayMode | null; parentFlexDirection?: FlexDirection; hasNonRootParent?: boolean }
   /** Modeled children in document order. */
   children: readonly ConversionNode[]
-  /** World (or any shared frame) rectangles of the container border box and its children. */
-  measured: MeasuredChildren | null
+  measured: DisplayMeasurement | null
   to: DisplayMode
 }
-/** `layouts` holds every node the conversion rewrote; `order` is present only when the child order changes. */
-export type DisplayConversion = { layouts: Record<string, NodeLayout>; order?: string[]; unsupported?: string }
+/** Each target map is independent because text may require all three authorities in the same transaction. */
+export type DisplayConversion = {
+  layouts: Record<string, NodeLayout>
+  primitiveSizes?: Record<string, NodePrimitiveSize>
+  textProperties?: Record<string, NodeTextProperties>
+  order?: string[]
+  unsupported?: string
+}
 
 export const conversionCopy = {
-  notReproducible: 'Flex cannot reproduce this layout exactly',
   unmeasured: 'Some children have no measured position',
   tooManyTracks: 'Too many rows or columns for a Grid',
 } as const
@@ -34,7 +51,7 @@ const maxTracks = 200
 const round4 = (value: number) => Math.round(value / bucket) * bucket
 const fr: GridTrack = { kind: 'fr', value: 1 }
 const autoTrack: GridTrack = { kind: 'auto' }
-const emptyLayout = (): NodeLayout => ({ item: { position: { mode: 'flow' } } })
+const emptyLayout = (position: LayoutItem['position']['mode'] = 'flow'): NodeLayout => ({ item: { position: { mode: position } } })
 
 export const displayOf = (layout: NodeLayout | undefined): DisplayMode => layout?.container?.display ?? 'freeform'
 const rowGapOf = (gap: LayoutGap | undefined) => gap === undefined ? 0 : typeof gap === 'number' ? gap : gap.y
@@ -98,17 +115,36 @@ function withoutGridStarts(item: LayoutItem): LayoutItem {
   return next
 }
 
+const explicitCapabilities = (fit: boolean, fill: boolean, relative: boolean, constrained: boolean): PaperSizingCapabilities => ({
+  width: { fit, fill, relative, constrained },
+  height: { fit, fill, relative, constrained },
+})
+const flexChildCapabilities = (snapshot: PaperSizingSnapshot): PaperSizingCapabilities => snapshot.kind === 'text'
+  ? explicitCapabilities(true, true, true, false)
+  : explicitCapabilities(true, true, true, true)
+function parentCapabilities(hasParent: boolean): PaperSizingCapabilities {
+  const modes = availableSizingModes({ hasParent, intrinsicContent: true })
+  return explicitCapabilities(modes.includes('hug'), modes.includes('fill'), modes.includes('relative'), true)
+}
+function surroundingParent(input: DisplayConversionInput): PaperSizingParent {
+  const display = input.container.parentDisplay ?? 'freeform'
+  return display === 'flex'
+    ? { display, flexDirection: input.container.parentFlexDirection ?? 'row' }
+    : { display }
+}
+
 export function convertDisplay(input: DisplayConversionInput): DisplayConversion {
   const from = displayOf(input.container.layout)
   const to = input.to
   if (from === to) return { layouts: {} }
-  const base = input.container.layout ?? emptyLayout()
+  const boxes = input.measured?.boxes ?? null
+  const base = input.container.layout ?? emptyLayout(input.container.defaultPosition)
   const previous: LayoutContainer = base.container ?? { display: 'freeform' }
   const overflow = previous.overflow !== undefined ? { overflow: previous.overflow } : {}
   const documentOrder = input.children.map(child => child.id)
-  const children = new Map(input.children.map(child => [child.id, child.layout ?? emptyLayout()]))
-  const box = paddingBox(input.measured)
-  const rectOf = (id: string) => { const rect = input.measured?.children[id]; return validRect(rect) ? rect : null }
+  const children = new Map(input.children.map(child => [child.id, child.layout ?? emptyLayout(child.defaultPosition)]))
+  const box = paddingBox(boxes)
+  const rectOf = (id: string) => { const rect = boxes?.children[id]; return validRect(rect) ? rect : null }
   const measured = input.children.flatMap(child => { const rect = rectOf(child.id); return rect ? [{ id: child.id, rect }] : [] })
   const unmeasured = documentOrder.filter(id => !rectOf(id))
   let container: NodeLayout = base
@@ -148,15 +184,68 @@ export function convertDisplay(input: DisplayConversionInput): DisplayConversion
     for (const id of documentOrder) children.set(id, toFlowIfFreeform(from, children.get(id)!))
   } else if (to === 'flex') {
     if (from === 'freeform') {
-      const inference = box ? inferFlexLayout({ container: box, children: measured.map(child => ({ id: child.id, ...child.rect })) }) : null
-      if (inference) {
-        container = withContainer(base, { display: 'flex', ...overflow, flex: { direction: inference.direction, wrap: inference.wrap, justify: inference.justify, align: inference.align }, ...(inference.gap > 0 ? { gap: inference.gap } : {}) })
-        container = withPadding(container, inference.padding)
-        order = [...inference.order, ...unmeasured]
-        if (!inference.reproducible) issues.push(`${conversionCopy.notReproducible}: ${inference.reasons.join(', ').toLowerCase()}`)
-      } else container = withContainer(base, { display: 'flex', ...overflow, flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } })
-      if (unmeasured.length) issues.push(conversionCopy.unmeasured)
-      for (const id of documentOrder) children.set(id, toFlow(children.get(id)!))
+      const capture = input.measured?.directAdd ?? null
+      if (!capture || capture.input.kind !== 'direct-add' || capture.input.isRoot) return { layouts: {}, unsupported: conversionCopy.unmeasured }
+      const inference = inferFlexLayout(capture.input)
+      const plans = new Map(inference.synthetic.children.map(child => [child.id, child]))
+      const snapshots = documentOrder.map(id => capture.childSnapshots[id])
+      if (capture.parentSnapshot.nodeId !== input.container.id || plans.size !== documentOrder.length || documentOrder.some(id => !plans.has(id)) || inference.order.length !== documentOrder.length || snapshots.some(snapshot => !snapshot)) return { layouts: {}, unsupported: conversionCopy.unmeasured }
+      try {
+        const targetParent = surroundingParent(input)
+        const parentCaps = parentCapabilities(input.container.hasNonRootParent ?? input.container.parentDisplay !== null)
+        const sizingPlan = planPaperAddSizing({
+          parent: capture.parentSnapshot,
+          direction: inference.direction.startsWith('row') ? 'row' : 'column',
+          inferred: { width: inference.synthetic.container.width, height: inference.synthetic.container.height },
+          parentIsFlexChild: targetParent.display === 'flex' && capture.parentSnapshot.sourcePosition.mode === 'flow',
+          parentCapabilities: parentCaps,
+          children: snapshots.map(snapshot => ({ snapshot: snapshot!, capabilities: flexChildCapabilities(snapshot!) })),
+        })
+        const parentTarget = reconcilePaperSizing({
+          operation: 'add',
+          snapshot: capture.parentSnapshot,
+          targetPosition: capture.parentSnapshot.sourcePosition,
+          targetParent,
+          capabilities: parentCaps,
+          overrides: sizingPlan.parentAxes,
+        })
+        container = withPadding(withContainer(parentTarget.layout, {
+          display: 'flex',
+          ...overflow,
+          gap: inference.gap,
+          flex: { direction: inference.direction, wrap: inference.wrap, justify: inference.justify, align: inference.align },
+        }), inference.padding)
+        const layouts: Record<string, NodeLayout> = { [input.container.id]: container }
+        const primitiveSizes: Record<string, NodePrimitiveSize> = {}
+        const textProperties: Record<string, NodeTextProperties> = {}
+        if (parentTarget.styles) primitiveSizes[input.container.id] = parentTarget.styles
+        if (parentTarget.textProperties) textProperties[input.container.id] = parentTarget.textProperties
+        const childAxes = new Map(sizingPlan.childAxes.map(child => [child.nodeId, child.axes]))
+        const flexParent: PaperSizingParent = { display: 'flex', flexDirection: inference.direction }
+        for (const snapshot of snapshots as PaperSizingSnapshot[]) {
+          const target = reconcilePaperSizing({
+            operation: 'add',
+            snapshot,
+            targetPosition: plans.get(snapshot.nodeId)!.position === 'absolute' ? snapshot.sourcePosition : { mode: 'flow' },
+            targetParent: flexParent,
+            capabilities: flexChildCapabilities(snapshot),
+            ...(childAxes.get(snapshot.nodeId) ? { overrides: childAxes.get(snapshot.nodeId)! } : {}),
+          })
+          layouts[snapshot.nodeId] = target.layout
+          if (target.styles) primitiveSizes[snapshot.nodeId] = target.styles
+          if (target.textProperties) textProperties[snapshot.nodeId] = target.textProperties
+        }
+        order = [...inference.order]
+        const changedOrder = order.some((id, index) => id !== documentOrder[index])
+        return {
+          layouts,
+          ...(Object.keys(primitiveSizes).length ? { primitiveSizes } : {}),
+          ...(Object.keys(textProperties).length ? { textProperties } : {}),
+          ...(changedOrder ? { order } : {}),
+        }
+      } catch {
+        return { layouts: {}, unsupported: conversionCopy.unmeasured }
+      }
     } else if (from === 'grid') {
       container = withContainer(base, { display: 'flex', ...overflow, flex: { direction: 'row', wrap: 'wrap', justify: 'start', align: 'start' }, ...(previous.gap !== undefined ? { gap: previous.gap } : {}) })
     } else {

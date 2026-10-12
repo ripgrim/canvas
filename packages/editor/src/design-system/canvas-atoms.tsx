@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from 'react'
 import { Icon } from './atoms'
 import type { IconName } from './atoms'
@@ -32,7 +32,7 @@ export function CanvasStageSurface({ label, cursor, inactive, onDoubleClick, onC
   return <div className="canvas-stage" role="application" tabIndex={-1} aria-label={label} data-cursor={cursor} data-inactive={inactive || undefined} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu} onKeyDown={onKeyDown} onDragOver={onDragOver} onDrop={onDrop} {...handlers} />
 }
 
-export function CanvasHud({ children }: { children: ReactNode }) { return <div className="canvas-hud" aria-hidden="true">{children}</div> }
+export function CanvasHud({ children, generation }: { children: ReactNode; generation?: number }) { return <div className="canvas-hud" data-hud-generation={generation}>{children}</div> }
 
 /** The 2D overlay every outline, marquee, guide and handle visual is painted on. Pointer events pass through it. */
 export function CanvasHudCanvas({ attach }: { attach: (element: HTMLCanvasElement | null) => void }) {
@@ -49,17 +49,23 @@ export function MobileCanvasPanelToggle({ label, active, icon, onClick }: { labe
   return <button type="button" className="mobile-canvas-panel-toggle" aria-label={label} title={label} aria-pressed={active} onClick={onClick}><Icon name={icon} /></button>
 }
 
-export function MobileSelectionActions({ children, label, position, phase, visible }: { children: ReactNode; label: string; position: { x: number; y: number }; phase: 'idle' | 'moving' | 'resizing'; visible: boolean }) { return <div className="mobile-selection-actions" role="toolbar" aria-label={label} aria-hidden={!visible || undefined} inert={!visible ? true : undefined} data-phase={phase} data-visible={visible || undefined} style={{ '--mobile-quick-actions-x': `${position.x}px`, '--mobile-quick-actions-y': `${position.y}px` } as CSSProperties}>{children}</div> }
+export function MobileSelectionActions({ children, label, position, phase, visible, generation }: { children: ReactNode; label: string; position: { x: number; y: number }; phase: 'idle' | 'moving' | 'resizing'; visible: boolean; generation?: number }) { return <div className="mobile-selection-actions" role="toolbar" aria-label={label} aria-hidden={!visible || undefined} inert={!visible ? true : undefined} data-phase={phase} data-visible={visible || undefined} data-hud-generation={generation} style={{ '--mobile-quick-actions-x': `${position.x}px`, '--mobile-quick-actions-y': `${position.y}px` } as CSSProperties}>{children}</div> }
 
 export type HandleName = 'top-left' | 'top' | 'top-right' | 'right' | 'bottom-right' | 'bottom' | 'bottom-left' | 'left'
-const handlePositions: Record<HandleName, { left: string; top: string; cursor: string }> = {
-  'top-left': { left: '0%', top: '0%', cursor: 'nwse-resize' }, top: { left: '50%', top: '0%', cursor: 'ns-resize' }, 'top-right': { left: '100%', top: '0%', cursor: 'nesw-resize' }, right: { left: '100%', top: '50%', cursor: 'ew-resize' },
-  'bottom-right': { left: '100%', top: '100%', cursor: 'nwse-resize' }, bottom: { left: '50%', top: '100%', cursor: 'ns-resize' }, 'bottom-left': { left: '0%', top: '100%', cursor: 'nesw-resize' }, left: { left: '0%', top: '50%', cursor: 'ew-resize' },
+export type RotationHandleName = 'top-left' | 'top-right' | 'bottom-right' | 'bottom-left'
+export type ResizeHandlePose = Readonly<{ handle: HandleName; center: Readonly<{ x: number; y: number }>; angle: number; cursor: CSSProperties['cursor']; active: boolean }>
+export type RotationHandlePose = Readonly<{ handle: RotationHandleName; center: Readonly<{ x: number; y: number }> }>
+/** Literal projected point/edge targets. Visible squares remain on Canvas2D; DOM supplies screen-sized interaction zones. */
+export function ResizeHandles({ id, generation, labelFor, poses, onHandlePointerDown, onHandleDoubleClick, onPointerMove, onPointerUp, onPointerCancel }: { id: string; generation: number; labelFor: (handle: HandleName) => string; poses: readonly ResizeHandlePose[]; onHandlePointerDown: (event: PointerEvent<HTMLButtonElement>, handle: HandleName) => void; onHandleDoubleClick?: (event: MouseEvent<HTMLButtonElement>, handle: HandleName) => void; onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void; onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void; onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void }) {
+  return <div className="resize-handles" data-handles-for={id} data-hud-generation={generation}>
+    {poses.map(pose => <button key={pose.handle} type="button" className="resize-handle" data-handle={pose.handle} data-edge={pose.handle.includes('-') ? undefined : 'true'} data-active={pose.active || undefined} aria-label={labelFor(pose.handle)} tabIndex={-1} style={{ left: pose.center.x, top: pose.center.y, cursor: pose.cursor, transform: `translate(-50%, -50%) rotate(${pose.angle}rad)` }} onPointerDown={event => onHandlePointerDown(event, pose.handle)} onDoubleClick={event => onHandleDoubleClick?.(event, pose.handle)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} />)}
+  </div>
 }
-/** Four visible corner squares plus invisible edge zones, all screen-sized regardless of zoom. */
-export function ResizeHandles({ id, rect, rotation, labelFor, handles, onHandlePointerDown, onPointerMove, onPointerUp, onPointerCancel }: { id: string; rect: ScreenRect; rotation: number; labelFor: (handle: HandleName) => string; handles: readonly HandleName[]; onHandlePointerDown: (event: PointerEvent<HTMLButtonElement>, handle: HandleName) => void; onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void; onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void; onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void }) {
-  return <div className="resize-handles" data-handles-for={id} style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height, transform: `rotate(${rotation}deg)` }}>
-    {handles.map(handle => <button key={handle} type="button" className="resize-handle" data-handle={handle} data-edge={handle.includes('-') ? undefined : 'true'} aria-label={labelFor(handle)} tabIndex={-1} style={{ left: handlePositions[handle].left, top: handlePositions[handle].top, cursor: handlePositions[handle].cursor }} onPointerDown={event => onHandlePointerDown(event, handle)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} />)}
+
+/** Corner-adjacent rotation targets. The painted outline stays on Canvas2D and these targets appear only as cursor hit areas. */
+export function RotationHandles({ id, generation, labelFor, poses, onHandlePointerDown, onPointerMove, onPointerUp, onPointerCancel }: { id: string; generation: number; labelFor: (handle: RotationHandleName) => string; poses: readonly RotationHandlePose[]; onHandlePointerDown: (event: PointerEvent<HTMLButtonElement>, handle: RotationHandleName) => void; onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void; onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void; onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void }) {
+  return <div className="rotation-handles" data-rotation-handles-for={id} data-hud-generation={generation}>
+    {poses.map(pose => <button key={pose.handle} type="button" className="rotation-handle" data-rotation-handle={pose.handle} aria-label={labelFor(pose.handle)} tabIndex={-1} style={{ left: pose.center.x, top: pose.center.y }} onPointerDown={event => onHandlePointerDown(event, pose.handle)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} />)}
   </div>
 }
 
@@ -67,15 +73,95 @@ export function NodeLabel({ id, pose, name, selected, locked, onPointerDown, onP
   return <button type="button" className="node-label node-label-hit" data-node-label={id} data-selected={selected || undefined} data-locked={locked || undefined} disabled={locked} tabIndex={-1} title={name} style={{ left: pose.x, top: pose.y, width: pose.width, transformOrigin: '0 100%', transform: `rotate(${pose.angle}rad) translateY(-100%)` }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onDoubleClick={onDoubleClick}>{name}</button>
 }
 
-export function NodeLabelEditor({ id, rect, value, label, multiline, onCommit, onCancel }: { id: string; rect: ScreenRect; value: string; label: string; multiline: boolean; onCommit: (value: string) => void; onCancel: () => void }) {
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    event.stopPropagation()
-    if (event.key === 'Enter' && !(multiline && event.shiftKey)) { event.preventDefault(); onCommit(event.currentTarget.value) }
-    if (event.key === 'Escape') { event.preventDefault(); onCancel() }
+export function createTextEditorFinisher() {
+  let finished = false
+  return (action: () => void) => {
+    if (finished) return false
+    finished = true
+    action()
+    return true
   }
-  const shared = { className: 'node-label-editor', 'aria-label': label, 'data-editing': id, defaultValue: value, autoFocus: true, maxLength: multiline ? 10000 : 128, onKeyDown, onBlur: (event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => onCommit(event.currentTarget.value), onFocus: (event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => event.currentTarget.select() }
-  if (multiline) return <textarea {...shared} style={{ left: rect.x, top: rect.y, width: Math.max(80, rect.width), height: Math.max(24, rect.height) }} />
-  return <input {...shared} type="text" style={{ left: rect.x, top: rect.y, width: Math.max(80, rect.width) }} />
+}
+
+export function NodeNameEditor({ id, pose, value, label, onCommit, onCancel }: { id: string; pose: { x: number; y: number; width: number; angle: number }; value: string; label: string; onCommit: (value: string) => void; onCancel: () => void }) {
+  const [finish] = useState(createTextEditorFinisher)
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    event.stopPropagation()
+    if (event.key === 'Enter') { event.preventDefault(); finish(() => onCommit(event.currentTarget.value)) }
+    if (event.key === 'Escape') { event.preventDefault(); finish(onCancel) }
+  }
+  return <input className="node-label-editor" aria-label={label} data-editing={id} defaultValue={value} autoFocus maxLength={128} type="text" style={{ left: pose.x, top: pose.y, width: Math.max(80, pose.width), transformOrigin: '0 100%', transform: `rotate(${pose.angle}rad) translateY(-100%)` }} onKeyDown={onKeyDown} onBlur={event => finish(() => onCommit(event.currentTarget.value))} onFocus={event => event.currentTarget.select()} />
+}
+
+export type CanvasTextKeyAction = 'continue' | 'newline' | 'commit' | 'cancel' | 'next' | 'previous'
+export function canvasTextKeyAction(event: Pick<KeyboardEvent<HTMLElement>, 'key' | 'ctrlKey' | 'metaKey'> & Partial<Pick<KeyboardEvent<HTMLElement>, 'shiftKey'> & { isComposing: boolean }>): CanvasTextKeyAction {
+  if (event.isComposing) return 'continue'
+  if (event.key === 'Escape') return 'cancel'
+  if (event.key === 'Tab') return event.shiftKey ? 'previous' : 'next'
+  if (event.key === 'Enter') return event.ctrlKey || event.metaKey ? 'commit' : 'newline'
+  return 'continue'
+}
+
+function selectEditableText(element: HTMLElement) {
+  const selection = window.getSelection()
+  if (!selection) return
+  const range = document.createRange()
+  range.selectNodeContents(element)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function placeEditableCaretAtEnd(element: HTMLElement) {
+  const selection = window.getSelection()
+  if (!selection) return
+  const range = document.createRange()
+  range.selectNodeContents(element)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+/** Chromium keeps one terminal LF as the caret sentinel after Enter. Paste has no sentinel and must stay byte-for-byte. */
+export function normalizeEditablePlainText(value: string, inputType: string): string {
+  const normalized = value.replace(/\r\n?/g, '\n')
+  return (inputType === 'insertParagraph' || inputType === 'insertLineBreak') && normalized.endsWith('\n\n') ? normalized.slice(0, -1) : normalized
+}
+
+const editablePlainText = (element: HTMLElement, inputType: string) => normalizeEditablePlainText(element.innerText, inputType)
+
+/** Paper-style text editing: native caret and selection over one transparent DOM text layer; the preview remains the visible paint. */
+export function CanvasTextEditor({ id, value, label, style, onUpdate, onCommit, onCancel, onTraverse }: { id: string; value: string; label: string; style: CSSProperties; onUpdate: (value: string) => boolean; onCommit: () => void; onCancel: () => void; onTraverse: (direction: 'next' | 'previous') => void }) {
+  const initialized = useRef(false)
+  const acceptedValue = useRef(value)
+  const [finish] = useState(createTextEditorFinisher)
+  const attach = (element: HTMLDivElement | null) => {
+    if (!element || initialized.current) return
+    initialized.current = true
+    element.textContent = value
+  }
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    event.stopPropagation()
+    const action = canvasTextKeyAction({
+      key: event.key,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
+      isComposing: event.nativeEvent.isComposing,
+    })
+    if (action === 'continue' || action === 'newline') return
+    event.preventDefault()
+    if (action === 'cancel') finish(onCancel)
+    else if (action === 'commit') finish(onCommit)
+    else finish(() => onTraverse(action))
+  }
+  const update = (element: HTMLDivElement, inputType: string) => {
+    const next = editablePlainText(element, inputType)
+    if (onUpdate(next)) { acceptedValue.current = next; return }
+    if (next === acceptedValue.current) return
+    element.textContent = acceptedValue.current
+    placeEditableCaretAtEnd(element)
+  }
+  return <div ref={attach} className="canvas-text-editor" role="textbox" aria-label={label} aria-multiline="true" data-editing={id} contentEditable="plaintext-only" suppressContentEditableWarning autoFocus style={style} onFocus={event => selectEditableText(event.currentTarget)} onInput={event => update(event.currentTarget, (event.nativeEvent as InputEvent).inputType)} onKeyDown={onKeyDown} onBlur={() => finish(onCommit)} />
 }
 
 export function DimensionBadge({ rect, children }: { rect: ScreenRect; children: ReactNode }) {

@@ -8,11 +8,11 @@ import type { ContentDistribution, GridItem, NodeLayout } from '../../repo-engin
 import { gridCellAt, gridOverlay } from '../../editor/src/features/editor/grid-overlay'
 import { createPreviewRuntime } from '../src/index.js'
 import { fixtureRegistry } from './fixture-registry.js'
-// Protocol v3: every document node carries its effective theme; the plain light fallback is not explicit.
+// Protocol v4: every document node carries its effective theme; the plain light fallback is not explicit.
 const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false } as const
 
 // LAY-GRID-007 and LAY-GRID-006 at the DOM level: a Vite preview build of the fixture repository in headless Edge,
-// driven over postMessage protocol v3. The card's Grid comes from the real v4 projection (`layoutDeclarations`), the
+// driven over postMessage protocol v7. The card's Grid comes from the real projection (`layoutDeclarations`), the
 // preview measures it, the editor overlay predicts every cell from that measurement, and the real child boxes must sit
 // on the predicted cells within 1 px.
 //
@@ -32,7 +32,7 @@ const registry = fixtureRegistry
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false }
 const labels = ['label-a', 'label-b', 'label-c', 'label-d']
 const previewDocument = {
-  version: 1, revision: 1, rootIds: ['card-1'], frame: frameSize,
+  version: 2, revision: 1, rootIds: ['card-1'], frame: frameSize,
   nodes: {
     'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: {}, children: { children: labels } },
     ...Object.fromEntries(labels.map(id => [id, { id, componentId: 'atom-label', exportName: 'Label', theme: lightTheme, props: { children: id.slice(-1).toUpperCase() }, children: {} }])),
@@ -85,7 +85,7 @@ async function waitFor<T>(read: () => Promise<T>, predicate: (value: T) => boole
 }
 async function applyLayout(layoutItems: unknown[]): Promise<{ geometry: Geometry; dom: Dom }> {
   const generation = ++generationCounter
-  await send({ type: 'set-layout', items: layoutItems, layoutGeneration: generation })
+  await send({ type: 'set-layout', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', items: layoutItems, layoutGeneration: generation })
   const geometry = await waitFor(() => page.evaluate(wanted => {
     const all = (window as unknown as { received: (Geometry & { type: string })[] }).received
     return all.filter(message => message.type === 'geometry' && message.layoutGeneration === wanted).at(-1) ?? null
@@ -123,10 +123,10 @@ beforeAll(async () => {
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
   send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 3, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
     await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
-  await send({ type: 'set-document', document: previewDocument })
+  await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument })
   await waitFor(() => frame.evaluate(() => document.querySelectorAll('[data-preview-instance="card-1"] > [data-preview-instance]').length), count => count === 4)
 }, 90_000)
 

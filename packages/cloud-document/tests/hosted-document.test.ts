@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { externalizeHostedFileDocument, validateHostedFileDocument } from '../src/index.js'
 
 const blank = () => ({
-  schemaVersion: 7,
+  schemaVersion: 9,
   fileId: 'file-1',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -19,6 +19,20 @@ describe('hosted document validation', () => {
   it('upgrades an asset-free version 6 document and rejects inline asset migration', () => {
     expect(validateHostedFileDocument({ ...blank(), schemaVersion: 6 })).toEqual(blank())
     expect(() => validateHostedFileDocument({ ...blank(), schemaVersion: 6, assets: { photo: { data: 'inline' } } })).toThrow('externalization')
+  })
+
+  it('PAPER-FLEX-001 upgrades schema v8 to v9 without synthesizing primitive layout', () => {
+    const current = blank()
+    const source = {
+      ...current,
+      schemaVersion: 8,
+      nodes: { ...current.nodes, frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 10, top: 20, width: 300, height: 200 }, themeMode: 'inherit' } },
+      relationships: { frame: { parentId: 'root-1', orderKey: 'V' } },
+    }
+    const upgraded = validateHostedFileDocument(source)
+    expect(upgraded).toEqual({ ...source, schemaVersion: 9 })
+    expect(upgraded.nodes.frame).not.toHaveProperty('layout')
+    expect(source.schemaVersion).toBe(8)
   })
 
   it('checks the complete primitive graph instead of only the envelope', () => {
@@ -55,7 +69,7 @@ describe('hosted document validation', () => {
     expect(() => validateHostedFileDocument(input)).toThrow('Component identity is inconsistent')
   })
 
-  it('FILE-ASSET-001 externalizes every validated version 6 image before returning schema 7', async () => {
+  it('FILE-ASSET-001 externalizes every validated version 6 image before returning the current schema', async () => {
     const source = {
       ...blank(),
       schemaVersion: 6,

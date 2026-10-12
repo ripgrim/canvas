@@ -24,12 +24,17 @@ export type RoomNetworkServer = Readonly<{
 type Route = Readonly<{ fileId: string; generationId: string; clientId: string; connectionNonce: string }>
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const routeQueryKeys = Object.freeze(['clientId', 'connectionNonce'] as const)
 
 function routeOf(request: IncomingMessage): Route | null {
   let url: URL
   try { url = new URL(request.url ?? '/', 'http://sync-room.local') } catch { return null }
   const match = /^\/sync\/([^/]+)\/([^/]+)$/.exec(url.pathname)
   if (!match) return null
+  const queryKeys = [...url.searchParams.keys()]
+  if (queryKeys.length !== routeQueryKeys.length
+    || queryKeys.some(key => !routeQueryKeys.includes(key as (typeof routeQueryKeys)[number]))
+    || routeQueryKeys.some(key => url.searchParams.getAll(key).length !== 1)) return null
   let fileId: string
   let generationId: string
   try { fileId = decodeURIComponent(match[1]!); generationId = decodeURIComponent(match[2]!) } catch { return null }

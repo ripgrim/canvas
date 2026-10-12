@@ -12,6 +12,7 @@
     "./auth": "./src/auth.ts",
     "./updates": "./src/updates.ts",
     "./capabilities": "./src/capabilities.ts",
+    "./flow-drag-relay": "./src/features/collaboration/flow-drag-relay.ts",
     "./theme.css": "./src/design-system/theme.css",
     "./styles.css": "./src/design-system/styles.css"
   },
@@ -26,6 +27,7 @@
     "@canvas/repo-engine": "workspace:*",
     "@canvas/repository": "workspace:*",
     "@canvas/scanner": "workspace:*",
+    "@canvas/sync-protocol": "workspace:*",
     "@canvas/tracking": "workspace:*",
     "heic-to": "1.6.5",
     "react": "^19.2.0",

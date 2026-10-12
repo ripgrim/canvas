@@ -46,7 +46,7 @@ function machineAt(target: ClientLifecycleState): Machine {
   if (target === 'opening') return state
   state.transition('authorizing')
   if (target === 'authorizing') return state
-  if (target === 'capacity-refused') { state.transition(target); return state }
+  if (target === 'capacity-refused' || target === 'connection-failed') { state.transition(target); return state }
   if (target === 'hydrating-local') { state.transition(target); return state }
   state.acceptAdmissionQueued({ requestId: 'request-1', socketEpoch: 1 })
   if (target === 'admission-queued') return state
@@ -191,7 +191,7 @@ describe('unit coverage for CLOUD-SYNC-STATE-001 collaboration state', () => {
   it('rejects room messages in every non-accepting lifecycle state', () => {
     const rejecting: readonly ClientLifecycleState[] = [
       'cold', 'opening', 'authorizing', 'hydrating-local', 'offline-clean', 'offline-dirty', 'reconnecting', 'parked', 'access-revoked',
-      'incompatible-build', 'capacity-refused', 'draining', 'closing', 'closed',
+      'incompatible-build', 'capacity-refused', 'connection-failed', 'draining', 'closing', 'closed',
     ]
     for (const lifecycle of rejecting) {
       const state = machineAt(lifecycle)
@@ -221,7 +221,7 @@ describe('unit coverage for CLOUD-SYNC-STATE-001 collaboration state', () => {
   })
 
   it('does not let terminal states reconnect', () => {
-    const terminal: readonly ClientLifecycleState[] = ['access-revoked', 'incompatible-build', 'capacity-refused', 'closing', 'closed']
+    const terminal: readonly ClientLifecycleState[] = ['access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed', 'closing', 'closed']
     for (const lifecycle of terminal) {
       const state = machineAt(lifecycle)
       expect(() => state.transition('reconnecting'), lifecycle).toThrow(`Invalid collaboration state transition from ${lifecycle} to reconnecting.`)

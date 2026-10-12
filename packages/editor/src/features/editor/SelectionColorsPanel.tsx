@@ -31,7 +31,7 @@ export function SelectionColorsPanel({ file, selection, mode, disabled }: { file
     {shown.map((group, index) => <AppearanceLine key={group.key} layout="value-actions">
       <InspectorColorField id={`selection-color-${index}`} label={copy.selectionColor(group.name)} opacityLabel={copy.selectionColorOpacity(group.name)} value={group.resolved} disabled={disabled} swatch={<ColorPicker variant="swatch" label={copy.selectionColor(group.name)} value={group.resolved} mode={mode} disabled={disabled} onChange={value => commit(group.key, group.nodeIds, literal(value))} />} onCommit={value => commit(group.key, group.nodeIds, literal(value))} />
       <TokenChooser id={`selection-color-${index}-token`} label={copy.selectionColorToken(group.name)} placeholder={copy.colorTokens} options={options} disabled={disabled} onChoose={tokenId => commit(group.key, group.nodeIds, { kind: 'token', tokenId })} />
-      <InspectorCountButton label={copy.selectColorLayers(group.nodeIds.length, group.name)} count={group.nodeIds.length} disabled={disabled} onClick={() => documentStore.selectMany(group.nodeIds)} />
+      <InspectorCountButton label={copy.selectColorLayers(group.usageNodeIds.length, group.name)} count={group.usageNodeIds.length} disabled={disabled} onClick={() => documentStore.selectMany(group.usageNodeIds)} />
     </AppearanceLine>)}
     {!expanded && groups.length > 10 && <InspectorTextButton wide label={copy.showAllColors(groups.length)} onClick={() => setExpanded(true)} />}
   </AppearanceSection>

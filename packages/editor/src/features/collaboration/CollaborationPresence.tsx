@@ -138,8 +138,8 @@ export function CollaborationCanvasPresence() {
   const document = useSyncExternalStore(documentStore.subscribe, documentStore.getSnapshot, documentStore.getSnapshot)
   const geometry = useSyncExternalStore(sceneGeometry.subscribe, sceneGeometry.getSnapshot, sceneGeometry.getSnapshot)
   if (!document.file || !document.pageId) return null
-  const scene = buildScene(document.file, document.pageId, geometry.nodes)
-  const localTransientRects: Record<string, Rect> = document.transient?.kind === 'move' || document.transient?.kind === 'resize' ? document.transient.rects : {}
+  const scene = buildScene(document.file, document.pageId, geometry.nodes, document.layoutGeneration)
+  const localTransientRects: Record<string, Rect> = document.transient?.kind === 'move' ? document.transient.rects : {}
   return <>{remotePeopleOnPage(collaboration.participants, collaboration.localClientId, document.pageId).map(participant => {
     const awareness = participant.awareness
     const color = participantColor(participant)

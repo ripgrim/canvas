@@ -7,10 +7,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { RoomAuthorization, RoomIdentity, RoomTicketVerifier } from '../src/contracts.js'
 import { createMultiRoomHost } from '../src/host.js'
 import type { HostedCollaborationRoom, MultiRoomHost, MultiRoomHostOptions } from '../src/host.js'
+import { createSemanticProjector } from '../src/projector.js'
 import { CollaborationRoomCore } from '../src/room-core.js'
 import type { RoomPeer, RoomPhase } from '../src/room-core.js'
 import { HmacRoomTicketVerifier } from '../src/tickets.js'
-import { checkpoints, clientId, connectionNonce, deferred, FakePersistence, fileId, generationId, projector } from './support.js'
+import { checkpoints, clientId, connectionNonce, deferred, FakePersistence, fileId, flowDocument, flowPresentation, generationId, projection, projector } from './support.js'
 
 const origin = 'http://127.0.0.1:4317'
 const secondFileId = '11111111-1111-4111-8111-111111111111'
@@ -63,7 +64,7 @@ function signedTicket(identity: RoomIdentity, nonce = connectionNonce, client = 
     fileId: identity.fileId,
     role: 'owner',
     generationId: identity.generationId,
-    protocolEpoch: 2,
+    protocolEpoch: 4,
     buildId: 'test-build',
     expiresAtUnixMs: Date.now() + 60_000,
     accessEpoch: '1',
@@ -80,7 +81,7 @@ function socketUrl(port: number, identity: RoomIdentity, nonce = connectionNonce
 }
 
 function roomOpen(identity: RoomIdentity, client = clientId, requestId = 'request-1') {
-  return { type: 'room.open', protocolEpoch: 2, schemaVersion: 1, requestId, fileId: identity.fileId, clientId: client, buildId: 'test-build' }
+  return { type: 'room.open', protocolEpoch: 4, schemaVersion: 1, requestId, fileId: identity.fileId, clientId: client, buildId: 'test-build' }
 }
 
 type HostOverrides = Partial<Pick<MultiRoomHostOptions, 'handshakeTimeoutMs' | 'maxPendingUpgrades' | 'maxRooms' | 'shutdownTimeoutMs' | 'startupTimeoutMs'>> & Readonly<{ tickets?: RoomTicketVerifier }>
@@ -111,6 +112,29 @@ async function openSocket(port: number, identity: RoomIdentity, nonce = connecti
   return socket
 }
 
+async function waitForHostWire(messages: readonly string[], predicate: (value: Record<string, unknown>) => boolean): Promise<Record<string, unknown>> {
+  const expiresAt = Date.now() + 1_000
+  while (Date.now() < expiresAt) {
+    const match = messages.map(message => JSON.parse(message) as Record<string, unknown>).find(predicate)
+    if (match) return match
+    await new Promise<void>(resolve => setImmediate(resolve))
+  }
+  throw new Error('Expected host WebSocket message was not received')
+}
+
+async function openObservedHostSocket(port: number, identity: RoomIdentity, nonce: string, socketClientId: string, requestId: string): Promise<Readonly<{ socket: WebSocket; messages: string[] }>> {
+  const socket = new WebSocket(socketUrl(port, identity, nonce, socketClientId), {
+    origin,
+    headers: { Authorization: `Bearer ${signedTicket(identity, nonce, socketClientId)}` },
+  })
+  const messages: string[] = []
+  socket.on('message', value => messages.push(value.toString()))
+  await once(socket, 'open')
+  socket.send(JSON.stringify(roomOpen(identity, socketClientId, requestId)))
+  await waitForHostWire(messages, value => value.type === 'presence.roster')
+  return Object.freeze({ socket, messages })
+}
+
 async function rejectedStatus(port: number, identity: RoomIdentity, token: string, nonce = connectionNonce, client = clientId): Promise<string> {
   const socket = new WebSocket(socketUrl(port, identity, nonce, client), { origin, headers: { Authorization: `Bearer ${token}` } })
   const [error] = await once(socket, 'error')
@@ -125,9 +149,33 @@ describe('local multi-room host', () => {
     let creations = 0
     host = createHost(identity => { creations += 1; return new FakeHostedRoom(identity) })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
 
     await expect(rejectedStatus(address.port, identity, 'X'.repeat(64))).resolves.toContain('401')
+    expect(creations).toBe(0)
+    expect(host.roomCount).toBe(0)
+  })
+
+  it('CLOUD-SYNC-DO-SEC-001 rejects extra, duplicate, missing, and malformed route query authority before room allocation', async () => {
+    let creations = 0
+    host = createHost(identity => { creations += 1; return new FakeHostedRoom(identity) })
+    const address = await host.listen(0)
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
+    const base = socketUrl(address.port, identity)
+    const invalid = [
+      `${base}&role=owner`,
+      `${base}&clientId=client-2`,
+      `${base}&connectionNonce=${'x'.repeat(24)}`,
+      `ws://127.0.0.1:${address.port}/sync/${fileId}/${generationId}?connectionNonce=${connectionNonce}`,
+      `ws://127.0.0.1:${address.port}/sync/${fileId}/${generationId}?clientId=${clientId}`,
+      `ws://127.0.0.1:${address.port}/sync/${fileId}/${generationId}?clientId=%20client-1&connectionNonce=${connectionNonce}`,
+      `ws://127.0.0.1:${address.port}/sync/${fileId}/${generationId}?clientId=${clientId}&connectionNonce=short`,
+    ]
+    for (const candidate of invalid) {
+      const socket = new WebSocket(candidate, { origin, headers: { Authorization: `Bearer ${signedTicket(identity)}` } })
+      const [error] = await once(socket, 'error')
+      expect(String(error), candidate).toContain('404')
+    }
     expect(creations).toBe(0)
     expect(host.roomCount).toBe(0)
   })
@@ -139,7 +187,7 @@ describe('local multi-room host', () => {
       return room
     })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     const maxClientId = 'c'.repeat(128)
     const maxNonce = 'n'.repeat(maxCollaborationConnectionNonceLength)
     const avatarPrefix = 'https://images.example/'
@@ -167,7 +215,7 @@ describe('local multi-room host', () => {
       return room
     }, { tickets: verifier })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     const socket = new WebSocket(socketUrl(address.port, identity), { origin, headers: { Authorization: `Bearer ${signedTicket(identity)}` } })
     const messages: string[] = []
     socket.on('message', value => messages.push(value.toString()))
@@ -184,6 +232,94 @@ describe('local multi-room host', () => {
     expect(room?.activeConnections).toBe(0)
   })
 
+  it('CLOUD-SYNC-GESTURE-001-C2-LIVE and CLOUD-SYNC-SCHEMA-001-C2-LIVE carry flow leases through the multi-room host WebSocket', async () => {
+    const verifier = new HmacRoomTicketVerifier(secret, { async resolve() { return { role: 'owner', accessEpoch: 1n } } })
+    host = createHost(identity => {
+      const persistence = new FakePersistence()
+      persistence.current = projection(flowDocument())
+      return new CollaborationRoomCore(
+        { identity, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000 },
+        { persistence, tickets: verifier, projector: createSemanticProjector(), checkpoints },
+      )
+    }, { tickets: verifier })
+    const address = await host.listen(0)
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
+    const owner = await openObservedHostSocket(address.port, identity, connectionNonce, clientId, 'host-live-owner')
+    const observer = await openObservedHostSocket(address.port, identity, 'T'.repeat(24), 'host-live-observer-client', 'host-live-observer')
+    owner.messages.length = 0
+    observer.messages.length = 0
+
+    owner.socket.send(JSON.stringify({ type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation() }))
+    const grant = await waitForHostWire(owner.messages, value => value.type === 'interaction.result')
+    expect(grant).toMatchObject({ action: 'acquire', status: 'granted', interactionId: 'flow-interaction', denialCode: null })
+    const leaseId = String(grant.leaseId)
+    await expect(waitForHostWire(observer.messages, value => value.type === 'interaction.sample')).resolves.toMatchObject({ leaseId, presentation: { identity: { interactionId: `lease:${leaseId}`, sampleSequence: 1 } } })
+
+    owner.messages.length = 0
+    observer.messages.length = 0
+    owner.socket.send(JSON.stringify({
+      type: 'interaction.reserve', pageId: 'page-1', leaseId, localClaimGeneration: 1, reservationGeneration: 2,
+      targetLane: { parentId: 'disjoint-frame', slot: { presence: 'absent' } },
+      presentation: flowPresentation({ sequence: 2, targetParentId: 'disjoint-frame' }),
+    }))
+    await expect(waitForHostWire(owner.messages, value => value.type === 'interaction.result')).resolves.toMatchObject({ action: 'reserve', status: 'retained', leaseId, reservationGeneration: 2 })
+    await expect(waitForHostWire(observer.messages, value => value.type === 'interaction.sample')).resolves.toMatchObject({ leaseId, presentation: { identity: { interactionId: `lease:${leaseId}`, sampleSequence: 2 } } })
+
+    owner.messages.length = 0
+    observer.messages.length = 0
+    owner.socket.send(JSON.stringify({
+      type: 'interaction.sample', pageId: 'page-1', leaseId, localClaimGeneration: 1, reservationGeneration: 2,
+      presentation: flowPresentation({ sequence: 3, targetParentId: 'disjoint-frame' }),
+    }))
+    await expect(waitForHostWire(observer.messages, value => value.type === 'interaction.sample')).resolves.toMatchObject({ leaseId, presentation: { identity: { interactionId: `lease:${leaseId}`, sampleSequence: 3 } } })
+    expect(owner.messages).toEqual([])
+
+    owner.socket.send(JSON.stringify({
+      type: 'interaction.release', pageId: 'page-1', leaseId, interactionId: 'flow-interaction',
+      localClaimGeneration: 1, reservationGeneration: 2, terminalSampleSequence: 3, reason: 'cancelled',
+    }))
+    await expect(waitForHostWire(owner.messages, value => value.type === 'interaction.result')).resolves.toMatchObject({ action: 'release', status: 'released', interactionId: 'flow-interaction' })
+
+    const malformed = await openObservedHostSocket(address.port, identity, 'U'.repeat(24), 'host-live-malformed-client', 'host-live-malformed')
+    const malformedClosed = once(malformed.socket, 'close')
+    malformed.socket.send('{')
+    const [malformedCode, malformedReason] = await malformedClosed
+    expect(malformedCode).toBe(1007)
+    expect(malformedReason.toString()).toBe('Invalid collaboration message')
+
+    const topology = await openObservedHostSocket(address.port, identity, 'V'.repeat(24), 'host-live-topology-client', 'host-live-topology')
+    topology.messages.length = 0
+    topology.socket.send(JSON.stringify({
+      type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1,
+      presentation: flowPresentation({ interactionId: 'host-missing-source', sourceNodeId: 'host-missing-source-node' }),
+    }))
+    await expect(waitForHostWire(topology.messages, value => value.type === 'interaction.result')).resolves.toMatchObject({ status: 'denied', denialCode: 'missing_node', leaseId: null })
+    topology.messages.length = 0
+    topology.socket.send(JSON.stringify({ type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 2, presentation: flowPresentation({ interactionId: 'host-after-topology-denial' }) }))
+    const topologyRecovery = await waitForHostWire(topology.messages, value => value.type === 'interaction.result')
+    expect(topologyRecovery).toMatchObject({ status: 'granted', denialCode: null })
+    topology.socket.send(JSON.stringify({
+      type: 'interaction.release', pageId: 'page-1', leaseId: topologyRecovery.leaseId, interactionId: 'host-after-topology-denial',
+      localClaimGeneration: 2, reservationGeneration: 1, terminalSampleSequence: 1, reason: 'cancelled',
+    }))
+    await waitForHostWire(topology.messages, value => value.type === 'interaction.result' && value.action === 'release')
+
+    const reservedSocket = await openObservedHostSocket(address.port, identity, 'W'.repeat(24), 'host-live-reserved-client', 'host-live-reserved')
+    const reservedClosed = once(reservedSocket.socket, 'close')
+    reservedSocket.socket.send(JSON.stringify({
+      type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1,
+      presentation: flowPresentation({ interactionId: 'lease:44444444-4444-4444-8444-444444444444' }),
+    }))
+    const [reservedCode, reservedReason] = await reservedClosed
+    expect(reservedCode).toBe(1007)
+    expect(reservedReason.toString()).toBe('Invalid collaboration message')
+
+    const recovery = await openObservedHostSocket(address.port, identity, 'X'.repeat(24), 'host-live-reserved-recovery-client', 'host-live-reserved-recovery')
+    recovery.messages.length = 0
+    recovery.socket.send(JSON.stringify({ type: 'interaction.acquire', pageId: 'page-1', localClaimGeneration: 1, presentation: flowPresentation({ interactionId: 'host-after-reserved-rejection' }) }))
+    await expect(waitForHostWire(recovery.messages, value => value.type === 'interaction.result')).resolves.toMatchObject({ status: 'granted', denialCode: null })
+  })
+
   it('CLOUD-SYNC-AUTH-001 rejects an exact signed capability replay after disconnect', async () => {
     const verifier = new HmacRoomTicketVerifier(secret, { async resolve() { return { role: 'owner', accessEpoch: 1n } } })
     let room: CollaborationRoomCore | undefined
@@ -192,7 +328,7 @@ describe('local multi-room host', () => {
       return room
     }, { tickets: verifier })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     const token = signedTicket(identity)
     const first = new WebSocket(socketUrl(address.port, identity), { origin, headers: { Authorization: `Bearer ${token}` } })
     await once(first, 'open')
@@ -219,7 +355,7 @@ describe('local multi-room host', () => {
       return room
     }, { tickets: verifier })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     const socket = new WebSocket(socketUrl(address.port, identity), { origin, headers: { Authorization: `Bearer ${signedTicket(identity)}` } })
     const messages: string[] = []
     socket.on('message', value => messages.push(value.toString()))
@@ -241,7 +377,7 @@ describe('local multi-room host', () => {
       return room
     })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     const socket = new WebSocket(socketUrl(address.port, identity), { origin, headers: { Authorization: `Bearer ${signedTicket(identity)}` } })
     await once(socket, 'open')
     const closed = once(socket, 'close')
@@ -261,7 +397,7 @@ describe('local multi-room host', () => {
       return room
     }, { handshakeTimeoutMs: 25, maxPendingUpgrades: 1 })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     const silent = new WebSocket(socketUrl(address.port, identity), { origin, headers: { Authorization: `Bearer ${signedTicket(identity)}` } })
     await once(silent, 'open')
     const [code, reason] = await once(silent, 'close')
@@ -284,7 +420,7 @@ describe('local multi-room host', () => {
       return room
     })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     const socket = new WebSocket(socketUrl(address.port, identity), { origin, headers: { Authorization: `Bearer ${signedTicket(identity)}` } })
     await once(socket, 'open')
     socket.close()
@@ -301,7 +437,7 @@ describe('local multi-room host', () => {
       return room
     })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     const socket = new WebSocket(socketUrl(address.port, identity), { origin, headers: { Authorization: `Bearer ${signedTicket(identity)}` } })
     await once(socket, 'open')
     const closed = once(socket, 'close')
@@ -321,7 +457,7 @@ describe('local multi-room host', () => {
       return room
     })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     const socket = new WebSocket(socketUrl(address.port, identity), { origin, headers: { Authorization: `Bearer ${signedTicket(identity)}` } })
     await once(socket, 'open')
     const closed = once(socket, 'close')
@@ -338,8 +474,8 @@ describe('local multi-room host', () => {
     const rooms: FakeHostedRoom[] = []
     host = createHost(identity => { const room = new FakeHostedRoom(identity); rooms.push(room); return room })
     const address = await host.listen(0)
-    const first = { fileId, generationId, protocolEpoch: 2 as const }
-    const second = { fileId: secondFileId, generationId: secondGenerationId, protocolEpoch: 2 as const }
+    const first = { fileId, generationId, protocolEpoch: 4 as const }
+    const second = { fileId: secondFileId, generationId: secondGenerationId, protocolEpoch: 4 as const }
 
     const firstSocket = await openSocket(address.port, first)
     const secondSocket = await openSocket(address.port, second, 'C'.repeat(24), 'client-2')
@@ -362,7 +498,7 @@ describe('local multi-room host', () => {
       return room
     })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     const first = new WebSocket(socketUrl(address.port, identity), { origin, headers: { Authorization: `Bearer ${signedTicket(identity)}` } })
     const secondNonce = 'D'.repeat(24)
     const second = new WebSocket(socketUrl(address.port, identity, secondNonce, 'client-2'), { origin, headers: { Authorization: `Bearer ${signedTicket(identity, secondNonce, 'client-2')}` } })
@@ -387,7 +523,7 @@ describe('local multi-room host', () => {
       return room
     }, { handshakeTimeoutMs: 25, maxPendingUpgrades: 1 })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     const first = new WebSocket(socketUrl(address.port, identity), { origin, headers: { Authorization: `Bearer ${signedTicket(identity)}` } })
     await once(first, 'open')
     first.send(JSON.stringify(roomOpen(identity, clientId, 'snapshot-request')))
@@ -416,7 +552,7 @@ describe('local multi-room host', () => {
       return room
     })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
 
     await expect(rejectedStatus(address.port, identity, signedTicket(identity))).resolves.toContain('503')
     expect(host.roomCount).toBe(0)
@@ -438,7 +574,7 @@ describe('local multi-room host', () => {
       return room
     }, { startupTimeoutMs: 25 })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
 
     await expect(rejectedStatus(address.port, identity, signedTicket(identity))).resolves.toContain('503')
     expect(host.roomCount).toBe(0)
@@ -464,7 +600,7 @@ describe('local multi-room host', () => {
       return room
     }, { startupTimeoutMs: 25 })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
 
     await expect(rejectedStatus(address.port, identity, signedTicket(identity))).resolves.toContain('503')
     const retryNonce = 'J'.repeat(24)
@@ -481,8 +617,8 @@ describe('local multi-room host', () => {
     const rooms: FakeHostedRoom[] = []
     host = createHost(identity => { const room = new FakeHostedRoom(identity); rooms.push(room); return room })
     const address = await host.listen(0)
-    const firstIdentity = { fileId, generationId, protocolEpoch: 2 as const }
-    const replacementIdentity = { fileId, generationId: alternateGenerationId, protocolEpoch: 2 as const }
+    const firstIdentity = { fileId, generationId, protocolEpoch: 4 as const }
+    const replacementIdentity = { fileId, generationId: alternateGenerationId, protocolEpoch: 4 as const }
     const first = await openSocket(address.port, firstIdentity)
     rooms[0]!.phase = 'failed'
 
@@ -500,8 +636,8 @@ describe('local multi-room host', () => {
     const rooms: FakeHostedRoom[] = []
     host = createHost(identity => { const room = new FakeHostedRoom(identity); rooms.push(room); return room }, { maxRooms: 1 })
     const address = await host.listen(0)
-    const firstIdentity = { fileId, generationId, protocolEpoch: 2 as const }
-    const secondIdentity = { fileId: secondFileId, generationId: secondGenerationId, protocolEpoch: 2 as const }
+    const firstIdentity = { fileId, generationId, protocolEpoch: 4 as const }
+    const secondIdentity = { fileId: secondFileId, generationId: secondGenerationId, protocolEpoch: 4 as const }
     const first = await openSocket(address.port, firstIdentity)
     rooms[0]!.phase = 'stopped'
 
@@ -516,8 +652,8 @@ describe('local multi-room host', () => {
   it('CLOUD-SYNC-CONTAINER-001 rejects a concurrent losing generation for an active file', async () => {
     host = createHost(identity => new FakeHostedRoom(identity))
     const address = await host.listen(0)
-    const winner = { fileId, generationId, protocolEpoch: 2 as const }
-    const loser = { fileId, generationId: alternateGenerationId, protocolEpoch: 2 as const }
+    const winner = { fileId, generationId, protocolEpoch: 4 as const }
+    const loser = { fileId, generationId: alternateGenerationId, protocolEpoch: 4 as const }
     const winnerSocket = await openSocket(address.port, winner)
 
     const loserNonce = 'F'.repeat(24)
@@ -530,8 +666,8 @@ describe('local multi-room host', () => {
     const rooms: FakeHostedRoom[] = []
     host = createHost(identity => { const room = new FakeHostedRoom(identity); rooms.push(room); return room })
     const address = await host.listen(0)
-    const first = { fileId, generationId, protocolEpoch: 2 as const }
-    const second = { fileId: secondFileId, generationId: secondGenerationId, protocolEpoch: 2 as const }
+    const first = { fileId, generationId, protocolEpoch: 4 as const }
+    const second = { fileId: secondFileId, generationId: secondGenerationId, protocolEpoch: 4 as const }
     await openSocket(address.port, first)
     await openSocket(address.port, second, 'G'.repeat(24), 'client-2')
 
@@ -544,7 +680,7 @@ describe('local multi-room host', () => {
     const never = new Promise<void>(() => undefined)
     host = createHost(identity => new FakeHostedRoom(identity, async () => undefined, async () => undefined, () => never), { shutdownTimeoutMs: 25 })
     const address = await host.listen(0)
-    const identity = { fileId, generationId, protocolEpoch: 2 as const }
+    const identity = { fileId, generationId, protocolEpoch: 4 as const }
     await openSocket(address.port, identity)
 
     await expect(Promise.race([

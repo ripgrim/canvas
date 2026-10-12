@@ -21,8 +21,8 @@
     "test:postgres": "node scripts/test-postgres.mjs",
     "test:production": "node scripts/test-production-surfaces.mjs",
     "test:service-topology": "node --test scripts/dev-process-lifecycle.test.mjs && node scripts/test-service-topology.mjs",
-    "registry:prepare": "pnpm --filter @canvas/scanner build && pnpm --filter @canvas/preview-runtime build && node scripts/local-registry.mjs",
-    "test:local-registry": "pnpm --filter @canvas/scanner build && pnpm --filter @canvas/preview-runtime build && node --test scripts/local-registry.test.mjs",
+    "registry:prepare": "pnpm --filter @canvas/scanner build && pnpm --filter @canvas/sync-protocol... build && pnpm --filter @canvas/preview-runtime build && node scripts/local-registry.mjs",
+    "test:local-registry": "pnpm --filter @canvas/scanner build && pnpm --filter @canvas/sync-protocol... build && pnpm --filter @canvas/preview-runtime build && node --test scripts/local-registry.test.mjs",
     "vercel:check": "node scripts/vercel-projects.mjs",
     "vercel:setup": "node scripts/vercel-projects.mjs --apply",
     "vercel:env:staging:check": "node scripts/vercel-staging-env.mjs",
@@ -70,6 +70,7 @@
     "@types/node": "^24.0.0",
     "auth": "1.7.7",
     "dotenv": "18.0.7",
+    "happy-dom": "^21.0.1",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   },

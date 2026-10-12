@@ -31,7 +31,7 @@ class ScriptedSocket implements CollaborationWebSocket {
 
 const durableStore: CollaborationDurableStore = Object.freeze({
   load: async () => null, repair: async () => undefined, enqueue: async () => undefined, checkpoint: async () => undefined,
-  acknowledge: async () => undefined, markRecoverable: async () => undefined, clearCheckpoint: async () => undefined, purgeAccount: async () => undefined,
+  acknowledge: async () => undefined, markRecoverable: async () => undefined, markAllRecoverable: async () => undefined, reconcileReplayScope: async () => undefined, clearCheckpoint: async () => undefined, purgeAccount: async () => undefined,
 })
 
 function scriptedRoom(socket: ScriptedSocket, initial: typeof document) {
@@ -42,7 +42,7 @@ function scriptedRoom(socket: ScriptedSocket, initial: typeof document) {
     const message = raw as CollaborationClientMessage
     if (message.type === 'room.open') {
       requestId = message.requestId
-      socket.server({ type: 'room.assigned', envelope, requestId, role: 'owner' })
+      socket.server({ type: 'room.assigned', envelope, requestId, role: 'owner', replayScopeId: 'a'.repeat(64) })
       const bytes = new TextEncoder().encode(JSON.stringify(initial))
       const digest = createHash('sha256').update(bytes).digest('hex')
       socket.server({ type: 'load.phase', envelope, requestId, phase: 'stream' })

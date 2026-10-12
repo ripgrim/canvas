@@ -10,7 +10,7 @@ describe('large room memory boundary', () => {
     persistence.current = projection(payload)
     const events: Readonly<Record<string, string | number | boolean | null>>[] = []
     const room = new CollaborationRoomCore({
-      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 10_000,
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 10_000,
     }, { persistence, tickets: tickets(), projector, checkpoints, logger: { event(value) { events.push(value) } } })
     await room.start()
     let chunks = 0
@@ -27,7 +27,7 @@ describe('large room memory boundary', () => {
     await room.admit({
       peer,
       ticketContext: { token: ticket, fileId, generationId, clientId, connectionNonce, nowUnixMs: Date.now() },
-      open: { type: 'room.open', protocolEpoch: 2, schemaVersion: 1, requestId: 'memory-request', fileId, clientId, buildId: 'test-build' },
+      open: { type: 'room.open', protocolEpoch: 4, schemaVersion: 1, requestId: 'memory-request', fileId, clientId, buildId: 'test-build' },
     })
     const delta = process.memoryUsage().rss - baseline
     expect(chunks).toBeGreaterThan(300)

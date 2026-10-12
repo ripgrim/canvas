@@ -16,16 +16,19 @@ importers:
         version: 24.19.1
       auth:
         specifier: 1.7.7
-        version: 1.7.7(@better-fetch/fetch@1.3.2)(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0))
+        version: 1.7.7(@better-fetch/fetch@1.3.2)(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0))
       dotenv:
         specifier: 18.0.7
         version: 18.0.7
+      happy-dom:
+        specifier: ^21.0.1
+        version: 21.0.1
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   apps/api:
     dependencies:
@@ -59,7 +62,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   apps/desktop:
     dependencies:
@@ -216,7 +219,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   apps/sync-coordinator:
     dependencies:
@@ -232,7 +235,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
       wrangler:
         specifier: 4.149.0
         version: 4.149.0(@types/node@24.19.1)
@@ -269,16 +272,20 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   apps/sync-runtime:
+    dependencies:
+      '@canvas/sync-protocol':
+        specifier: workspace:*
+        version: link:../../packages/sync-protocol
     devDependencies:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
       wrangler:
         specifier: 4.149.0
         version: 4.149.0(@types/node@24.19.1)
@@ -294,7 +301,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
       wrangler:
         specifier: 4.149.0
         version: 4.149.0(@types/node@24.19.1)
@@ -325,7 +332,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   apps/thumbnail-renderer:
     dependencies:
@@ -368,7 +375,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
       wrangler:
         specifier: 4.149.0
         version: 4.149.0(@types/node@24.19.1)
@@ -454,7 +461,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
       wrangler:
         specifier: 4.149.0
         version: 4.149.0(@types/node@24.19.1)
@@ -501,10 +508,10 @@ importers:
     dependencies:
       '@better-auth/electron':
         specifier: 1.7.7
-        version: 1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-auth@1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(better-call@1.4.0(zod@4.6.5))(conf@15.1.0)(electron@40.10.6)
+        version: 1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-auth@1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(better-call@1.4.0(zod@4.6.5))(conf@15.1.0)(electron@40.10.6)
       better-auth:
         specifier: 1.7.7
-        version: 1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0))
+        version: 1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0))
       conf:
         specifier: 15.1.0
         version: 15.1.0
@@ -529,7 +536,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/cloud-client:
     devDependencies:
@@ -538,7 +545,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/cloud-document:
     dependencies:
@@ -551,7 +558,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/database:
     dependencies:
@@ -573,7 +580,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/editor:
     dependencies:
@@ -595,6 +602,9 @@ importers:
       '@canvas/scanner':
         specifier: workspace:*
         version: link:../scanner
+      '@canvas/sync-protocol':
+        specifier: workspace:*
+        version: link:../sync-protocol
       '@canvas/tracking':
         specifier: workspace:*
         version: link:../tracking
@@ -625,7 +635,7 @@ importers:
         version: 7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/files:
     dependencies:
@@ -638,7 +648,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/github-app:
     devDependencies:
@@ -650,10 +660,13 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/preview-runtime:
     dependencies:
+      '@canvas/sync-protocol':
+        specifier: workspace:*
+        version: link:../sync-protocol
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
@@ -666,7 +679,7 @@ importers:
         version: 24.19.1
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/repo-engine:
     dependencies:
@@ -694,7 +707,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/repository:
     devDependencies:
@@ -706,7 +719,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/scanner:
     dependencies:
@@ -725,7 +738,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/sync-client:
     dependencies:
@@ -741,7 +754,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
       ws:
         specifier: ^8.18.3
         version: 8.22.0
@@ -757,7 +770,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/thumbnail-capture:
     devDependencies:
@@ -766,7 +779,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
   packages/tracking:
     dependencies:
@@ -785,7 +798,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
 packages:
 
@@ -2315,6 +2328,9 @@ packages:
   '@types/responselike@1.0.3':
     resolution: {integrity: sha512-H/+L+UkTV33uf49PH5pCAUBVPNj2nDBXTN+qS1dOwyyg24l3CcicicCA7ca+HMvJBZcFgl5r8e+RR6elsb4Lyw==}
 
+  '@types/whatwg-mimetype@3.0.2':
+    resolution: {integrity: sha512-c2AKvDT8ToxLIOUlN51gTiHXflsfIFisS4pO7pDPoKouJCESkhZnEy623gwP9laCy5lnLDAw1vAzu2vM2YLOrA==}
+
   '@types/ws@8.18.2':
     resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
@@ -2558,6 +2574,10 @@ packages:
 
   buffer-from@1.1.2:
     resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
+
+  buffer-image-size@0.6.4:
+    resolution: {integrity: sha512-nEh+kZOPY1w+gcCMobZ6ETUp9WfibndnosbpwB1iJk/8Gt5ZF2bhS6+B6bPYz424KtwsR6Rflc3tCz1/ghX2dQ==}
+    engines: {node: '>=4.0'}
 
   builder-util-runtime@9.7.0:
     resolution: {integrity: sha512-g/kR520giAFYkSXTzcmF3kqQq7wi8F6N6SzeDgZrqTBN+VHdmgWOyTdD1yD7AATDId/yXLvuP34CxW46/BwCdw==}
@@ -2899,6 +2919,10 @@ packages:
 
   end-of-stream@1.4.5:
     resolution: {integrity: sha512-ooEGc6HP26xXq/N+GCGOT0JKCLDGrq2bQUZrQ7gyrJiZANJ/8YDTxTpQBXGMn+WbIQXNVpyWymm7KYVICQnyOg==}
+
+  entities@7.0.1:
+    resolution: {integrity: sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==}
+    engines: {node: '>=0.12'}
 
   env-paths@2.2.1:
     resolution: {integrity: sha512-+h1lkLKhZMTYjog1VEpJNG7NZJWcuc2DDk/qsqSTRRCOXiLjeQ1d1/udrUGhqMxUgAlwKNZ0cf2uqan5GLuS2A==}
@@ -3286,6 +3310,10 @@ packages:
     peerDependenciesMeta:
       crossws:
         optional: true
+
+  happy-dom@21.0.1:
+    resolution: {integrity: sha512-pRBs/u9fhrncyByOl58DMex0R2uAj6ZPKWIjV5j5yNGZBqLw3P6BTRhlc0DD5b/Ht4/6JYTMuE2LJhUWRC6SGw==}
+    engines: {node: '>=20.0.0'}
 
   has-flag@4.0.0:
     resolution: {integrity: sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==}
@@ -4526,6 +4554,10 @@ packages:
   webpack-virtual-modules@0.6.2:
     resolution: {integrity: sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ==}
 
+  whatwg-mimetype@3.0.0:
+    resolution: {integrity: sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q==}
+    engines: {node: '>=12'}
+
   when-exit@2.1.5:
     resolution: {integrity: sha512-VGkKJ564kzt6Ms1dbgPP/yuIoQCrsFAnRbptpC5wOEsDaNsbCB2bnfnaA8i/vRs5tjUSEOtIuvl9/MyVsvQZCg==}
 
@@ -4958,12 +4990,12 @@ snapshots:
       '@better-auth/core': 1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
       '@better-auth/utils': 0.4.2
 
-  '@better-auth/electron@1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-auth@1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(better-call@1.4.0(zod@4.6.5))(conf@15.1.0)(electron@40.10.6)':
+  '@better-auth/electron@1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-auth@1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(better-call@1.4.0(zod@4.6.5))(conf@15.1.0)(electron@40.10.6)':
     dependencies:
       '@better-auth/core': 1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
       '@better-auth/utils': 0.4.2
       '@better-fetch/fetch': 1.3.2
-      better-auth: 1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0))
+      better-auth: 1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0))
       better-call: 1.4.0(zod@4.6.5)
       zod: 4.6.5
     optionalDependencies:
@@ -6062,6 +6094,8 @@ snapshots:
     dependencies:
       '@types/node': 24.19.1
 
+  '@types/whatwg-mimetype@3.0.2': {}
+
   '@types/ws@8.18.2':
     dependencies:
       '@types/node': 24.19.1
@@ -6226,7 +6260,7 @@ snapshots:
       stubborn-fs: 2.0.0
       when-exit: 2.1.5
 
-  auth@1.7.7(@better-fetch/fetch@1.3.2)(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)):
+  auth@1.7.7(@better-fetch/fetch@1.3.2)(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)):
     dependencies:
       '@babel/core': 7.29.7
       '@babel/preset-react': 7.29.7(@babel/core@7.29.7)
@@ -6236,7 +6270,7 @@ snapshots:
       '@better-auth/utils': 0.4.2
       '@clack/prompts': 1.8.1
       '@mrleebo/prisma-ast': 0.16.0
-      better-auth: 1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0))
+      better-auth: 1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0))
       c12: 4.0.0-rc.2(dotenv@17.4.2)(jiti@2.7.0)
       chalk: 5.6.2
       commander: 15.0.0
@@ -6299,7 +6333,7 @@ snapshots:
 
   baseline-browser-mapping@2.11.27: {}
 
-  better-auth@1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)):
+  better-auth@1.7.7(@tanstack/react-start@1.168.60(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rollup@4.64.0)(vite@7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)):
     dependencies:
       '@better-auth/core': 1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
       '@better-auth/drizzle-adapter': 1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)
@@ -6323,7 +6357,7 @@ snapshots:
       pg: 8.23.1
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
-      vitest: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
+      vitest: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
     transitivePeerDependencies:
       - '@opentelemetry/api'
 
@@ -6380,6 +6414,10 @@ snapshots:
       update-browserslist-db: 1.3.3(browserslist@4.29.3)
 
   buffer-from@1.1.2: {}
+
+  buffer-image-size@0.6.4:
+    dependencies:
+      '@types/node': 24.19.1
 
   builder-util-runtime@9.7.0:
     dependencies:
@@ -6763,6 +6801,8 @@ snapshots:
     dependencies:
       once: 1.4.0
 
+  entities@7.0.1: {}
+
   env-paths@2.2.1: {}
 
   env-paths@3.0.0: {}
@@ -7145,6 +7185,19 @@ snapshots:
     dependencies:
       rou3: 0.8.1
       srvx: 0.11.22
+
+  happy-dom@21.0.1:
+    dependencies:
+      '@types/node': 24.19.1
+      '@types/whatwg-mimetype': 3.0.2
+      '@types/ws': 8.18.2
+      buffer-image-size: 0.6.4
+      entities: 7.0.1
+      whatwg-mimetype: 3.0.0
+      ws: 8.22.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
 
   has-flag@4.0.0: {}
 
@@ -8250,7 +8303,7 @@ snapshots:
     optionalDependencies:
       vite: 7.3.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)
 
-  vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0):
+  vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.19.1)(happy-dom@21.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.7
@@ -8278,6 +8331,7 @@ snapshots:
     optionalDependencies:
       '@types/debug': 4.1.13
       '@types/node': 24.19.1
+      happy-dom: 21.0.1
     transitivePeerDependencies:
       - jiti
       - less
@@ -8303,6 +8357,8 @@ snapshots:
       tslib: 2.8.1
 
   webpack-virtual-modules@0.6.2: {}
+
+  whatwg-mimetype@3.0.0: {}
 
   when-exit@2.1.5: {}
 

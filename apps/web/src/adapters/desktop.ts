@@ -62,7 +62,7 @@ export function createDesktopAdapter(bridge: DesktopBridge): EditorProjectApi {
     createFile: () => bridge.createFile(),
     openFile: fileId => bridge.openFile(fileId),
     openProject: () => bridge.inspectFixture(), refresh: () => bridge.refresh(),
-    subscribeFile: listener => bridge.onFileChanged(listener),
+    subscribeFile: listener => bridge.onFileChanged(snapshot => listener(snapshot)),
     pickLocalRepository: () => bridge.pickLocalRepository(),
     cloneGitHubRepository: input => bridge.cloneGitHubRepository(input),
     getConnectedRepository: () => bridge.getConnectedRepository(),

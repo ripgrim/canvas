@@ -143,7 +143,7 @@ describe('real source transactions', () => {
     const pageId = `page-${projectId}`
     const rootId = `root:${pageId}`
     const cardId = `${composition.id}:card`
-    expect(file).toMatchObject({ schemaVersion: 7, fileId: projectId, revision: 0, pages: [{ id: pageId, name: 'Page 1', rootNodeId: rootId }] })
+    expect(file).toMatchObject({ schemaVersion: 9, fileId: projectId, revision: 0, pages: [{ id: pageId, name: 'Page 1', rootNodeId: rootId }] })
     expect(composition.children.map(child => child.exportName)).toEqual(['Label', 'Input', 'Label', 'Input', 'Button'])
     expect(Object.keys(file.nodes).sort()).toEqual([rootId, cardId, ...composition.children.map(child => child.id)].sort())
     expect(file.nodes[cardId]).toMatchObject({ type: 'component', exportName: 'Card', props: { heading: 'Welcome back' } })
@@ -170,7 +170,7 @@ describe('real source transactions', () => {
     expect(componentNode(saved.file, button.id).props.children).toBe('Continue')
     const bytes = await readFile(documentPath(root), 'utf8')
     const stored = JSON.parse(bytes)
-    expect(stored).toMatchObject({ schemaVersion: 7, fileId: initial.projectId, revision: 1 })
+    expect(stored).toMatchObject({ schemaVersion: 9, fileId: initial.projectId, revision: 1 })
     expect(stored.nodes[button.id].props.children).toBe('Continue')
     expect(await readFile(path.join(root, 'src/atoms/Label.tsx'), 'utf8')).toBe(originalLabel)
     await expect(engine.savePrepared(patch.id, patch.approvalDigest)).rejects.toThrow('Approval')
@@ -202,7 +202,7 @@ describe('real source transactions', () => {
     const engine = await createValidatedEngine(root)
     const opened = await engine.inspectFixture()
     const pageId = `page-${first.projectId}`
-    expect(opened.file).toMatchObject({ schemaVersion: 7, fileId: first.projectId, revision: 3, pages: [{ id: pageId, name: 'Legacy page', rootNodeId: `root:${pageId}` }] })
+    expect(opened.file).toMatchObject({ schemaVersion: 9, fileId: first.projectId, revision: 3, pages: [{ id: pageId, name: 'Legacy page', rootNodeId: `root:${pageId}` }] })
     expect(opened.file.nodes['legacy-button']).toEqual({ id: 'legacy-button', type: 'component', componentId: buttonId, exportName: 'Button', props: { children: 'Legacy label' }, themeMode: 'inherit' })
     expect(opened.file.nodes['legacy-rect']).toEqual({ id: 'legacy-rect', type: 'rectangle', name: 'Swatch', styles: { left: 10, top: 20, width: 30, height: 40 }, appearance: { fills: [{ id: 'legacy-rect:fill:1', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#ff0000' } } }] }, themeMode: 'inherit' })
     expect(opened.file.relationships['legacy-rect']?.parentId).toBe(`root:${pageId}`)
@@ -218,7 +218,7 @@ describe('real source transactions', () => {
     expect(saved.file.revision).toBe(4)
     expect(await readFile(backupPath(root), 'utf8')).toBe(original)
     const stored = JSON.parse(await readFile(documentPath(root), 'utf8'))
-    expect(stored).toMatchObject({ schemaVersion: 7, fileId: first.projectId, revision: 4 })
+    expect(stored).toMatchObject({ schemaVersion: 9, fileId: first.projectId, revision: 4 })
     expect(stored).not.toHaveProperty('version')
     expect(stored.nodes['legacy-button'].props.children).toBe('Migrated label')
     const again = structuredClone(saved.file)
@@ -239,7 +239,7 @@ describe('real source transactions', () => {
     expect(opened.file.pages).toEqual([{ id: `page-${first.projectId}`, name: 'Page 1', rootNodeId: `root:page-${first.projectId}` }])
     await engine.saveFile(opened.file, 0)
     expect(await readFile(backupPath(root), 'utf8')).toBe('earlier backup\n')
-    expect(JSON.parse(await readFile(documentPath(root), 'utf8'))).toMatchObject({ schemaVersion: 7, revision: 1 })
+    expect(JSON.parse(await readFile(documentPath(root), 'utf8'))).toMatchObject({ schemaVersion: 9, revision: 1 })
   })
 
   it('discovers only configured atoms, keeps IDs on source edits and reopen, and reads real prop types', async () => {

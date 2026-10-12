@@ -44,11 +44,11 @@ describe('collaboration persistence schema', () => {
 
 describe('collaboration operation identity', () => {
   it('CLOUD-SYNC-PG-001 persistence slice produces a stable digest independent of object key order', () => {
-    const first = collaborationOperationDigest({ protocolEpoch: 2, operationType: 'document.edit', operationPayload: { z: 2, a: 1 } })
-    const reordered = collaborationOperationDigest({ protocolEpoch: 2, operationType: 'document.edit', operationPayload: { a: 1, z: 2 } })
-    const changed = collaborationOperationDigest({ protocolEpoch: 2, operationType: 'document.edit', operationPayload: { a: 1, z: 3 } })
+    const first = collaborationOperationDigest({ protocolEpoch: 3, operationType: 'document.edit', operationPayload: { z: 2, a: 1 } })
+    const reordered = collaborationOperationDigest({ protocolEpoch: 3, operationType: 'document.edit', operationPayload: { a: 1, z: 2 } })
+    const changed = collaborationOperationDigest({ protocolEpoch: 3, operationType: 'document.edit', operationPayload: { a: 1, z: 3 } })
 
-    expect(first).toBe('a72f9bec115d14c3b2c44a8b2afd919176d34f8ad93410345f63817f282cd8cc')
+    expect(first).toBe('951cbf737ad56f04a75dde96edcdb6754f3208b9e8c28ee776008aadd3b6eb7b')
     expect(reordered).toBe(first)
     expect(changed).not.toBe(first)
   })
@@ -61,7 +61,7 @@ describe('collaboration operation identity', () => {
     expect(() => canonicalCollaborationJson({ value: 1n } as unknown as CollaborationJson)).toThrow('bigint values')
     expect(() => canonicalCollaborationJson(new Date() as unknown as CollaborationJson)).toThrow('plain prototype')
     expect(() => canonicalCollaborationJson(new Proxy({ value: 1 }, {}) as CollaborationJson)).toThrow('proxy objects')
-    expect(() => collaborationOperationDigest({ protocolEpoch: 2, operationType: 'document.edit', operationPayload: [] as unknown as Record<string, never> })).toThrow('must be a JSON object')
+    expect(() => collaborationOperationDigest({ protocolEpoch: 3, operationType: 'document.edit', operationPayload: [] as unknown as Record<string, never> })).toThrow('must be a JSON object')
     expect(() => canonicalCollaborationJson(JSON.parse('{"__proto__":{"polluted":true}}') as CollaborationJson)).toThrow('__proto__ key')
 
     const symbolObject = { value: 1 } as Record<PropertyKey, unknown>
@@ -91,7 +91,7 @@ describe('collaboration operation identity', () => {
   })
 
   it('CLOUD-SYNC-PG-001 bootstraps one sequence-zero snapshot without overwriting room authority', async () => {
-    const document = { schemaVersion: 7, fileId, revision: 4 }
+    const document = { schemaVersion: 9, fileId, revision: 4 }
     const client = scriptedClient((sql) => {
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return result()
       if (sql.includes('FROM app_file WHERE id') && sql.includes('FOR UPDATE')) return result([{ id: fileId }])
@@ -128,10 +128,58 @@ describe('collaboration operation identity', () => {
     expect(authoritativeClient.statements.some(sql => sql.includes('INSERT INTO app_collaboration_projection'))).toBe(false)
   })
 
+  it('PAPER-FLEX-001 CLOUD-SYNC-SCHEMA-001 migrates an existing schema 8 room projection before returning it under schema 9', async () => {
+    const source = { schemaVersion: 8, fileId, revision: 4 }
+    const migrated = { ...source, schemaVersion: 9 }
+    const client = scriptedClient((sql, parameters) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return result()
+      if (sql.includes('FROM app_file WHERE id') && sql.includes('FOR UPDATE')) return result([{ id: fileId }])
+      if (sql.includes('FROM app_collaboration_lease') && sql.includes('FOR UPDATE')) return result([{ file_id: fileId }])
+      if (sql.includes('FROM app_collaboration_projection') && sql.includes('FOR UPDATE')) return result([projectionRow({ document: source, sequence: '2', authority: 'room' })])
+      if (sql.startsWith('UPDATE app_collaboration_projection')) {
+        expect(parameters?.[1]).toBe(9)
+        expect(JSON.parse(String(parameters?.[2]))).toEqual(migrated)
+        expect(parameters?.slice(4)).toEqual(['2', 8, 'd'.repeat(64)])
+        return result([projectionRow({ document: migrated, sequence: '2', authority: 'room' })])
+      }
+      throw new Error(`Unexpected query: ${sql}`)
+    })
+    const persistence = createPostgresCollaborationPersistence(poolWith(client), {
+      migrateLegacyDocument(document, targetSchemaVersion) {
+        expect(document).toEqual(source)
+        expect(targetSchemaVersion).toBe(9)
+        return { status: 'migrated', document: migrated }
+      },
+      validateLegacyDocument(input) {
+        expect(input).toEqual({ sourceDocument: source, document: migrated, targetSchemaVersion: 9 })
+        return { status: 'valid' }
+      },
+    })
+
+    await expect(persistence.bootstrapProjectionFromLegacy(bootstrapInput())).resolves.toMatchObject({
+      status: 'existing-projection',
+      cutoverAuthority: 'room-authority',
+      projection: { documentSchemaVersion: 9, document: migrated },
+    })
+    expect(client.statements.at(-1)).toBe('COMMIT')
+    expect(client.statements.some(sql => sql.includes('app_file_document'))).toBe(false)
+
+    const refusedClient = scriptedClient((sql) => {
+      if (sql === 'BEGIN' || sql === 'ROLLBACK') return result()
+      if (sql.includes('FROM app_file WHERE id') && sql.includes('FOR UPDATE')) return result([{ id: fileId }])
+      if (sql.includes('FROM app_collaboration_lease') && sql.includes('FOR UPDATE')) return result([{ file_id: fileId }])
+      if (sql.includes('FROM app_collaboration_projection') && sql.includes('FOR UPDATE')) return result([projectionRow({ document: source, sequence: '2', authority: 'room' })])
+      throw new Error(`Unexpected query: ${sql}`)
+    })
+    await expect(createPostgresCollaborationPersistence(poolWith(refusedClient)).bootstrapProjectionFromLegacy(bootstrapInput())).resolves.toEqual({ status: 'invalid-source', reason: 'schema-version' })
+    expect(refusedClient.statements.some(sql => sql.startsWith('UPDATE app_collaboration_projection'))).toBe(false)
+    expect(refusedClient.statements.at(-1)).toBe('ROLLBACK')
+  })
+
   it('CLOUD-SYNC-SCHEMA-001 fences, validates, and persists an asset-free schema 6 migration before seeding the room', async () => {
     const source = legacyVersion6Document()
     const { assets: _assets, ...assetFreeSource } = source
-    const expected = { ...assetFreeSource, schemaVersion: 7 }
+    const expected = { ...assetFreeSource, schemaVersion: 9 }
     const client = scriptedClient((sql, parameters) => {
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return result()
       if (sql.includes('FROM app_file WHERE id') && sql.includes('FOR UPDATE')) return result([{ id: fileId }])
@@ -156,18 +204,18 @@ describe('collaboration operation identity', () => {
     const persistence = createPostgresCollaborationPersistence(poolWith(client), {
       migrateLegacyDocument(document, targetSchemaVersion) {
         expect(document).toEqual(source)
-        expect(targetSchemaVersion).toBe(7)
+        expect(targetSchemaVersion).toBe(9)
         return { status: 'migrated', document: expected }
       },
       validateLegacyDocument(input) {
-        expect(input).toEqual({ sourceDocument: source, document: expected, targetSchemaVersion: 7 })
+        expect(input).toEqual({ sourceDocument: source, document: expected, targetSchemaVersion: 9 })
         return { status: 'valid' }
       },
     })
 
     await expect(persistence.bootstrapProjectionFromLegacy(bootstrapInput())).resolves.toMatchObject({
       status: 'seeded',
-      projection: { documentSchemaVersion: 7, document: expected },
+      projection: { documentSchemaVersion: 9, document: expected },
     })
     expect(client.statements.findIndex(sql => sql.startsWith('UPDATE app_file_document'))).toBeLessThan(
       client.statements.findIndex(sql => sql.includes('INSERT INTO app_collaboration_projection')),
@@ -176,7 +224,7 @@ describe('collaboration operation identity', () => {
   })
 
   it('CLOUD-SYNC-SCHEMA-001 fails closed when a current document has no validator or is rejected', async () => {
-    const document = { schemaVersion: 7, fileId, revision: 0, pages: [] }
+    const document = { schemaVersion: 9, fileId, revision: 0, pages: [] }
     const makeClient = () => scriptedClient((sql) => {
       if (sql === 'BEGIN' || sql === 'ROLLBACK') return result()
       if (sql.includes('FROM app_file WHERE id') && sql.includes('FOR UPDATE')) return result([{ id: fileId }])
@@ -193,7 +241,7 @@ describe('collaboration operation identity', () => {
     const rejectedClient = makeClient()
     const rejected = createPostgresCollaborationPersistence(poolWith(rejectedClient), {
       validateLegacyDocument: input => {
-        expect(input).toEqual({ sourceDocument: document, document, targetSchemaVersion: 7 })
+        expect(input).toEqual({ sourceDocument: document, document, targetSchemaVersion: 9 })
         return { status: 'invalid', reason: 'document-invalid' }
       },
     })
@@ -204,7 +252,7 @@ describe('collaboration operation identity', () => {
 
   it('CLOUD-SYNC-SCHEMA-001 rejects a semantically different migrator result before either write', async () => {
     const source = legacyVersion6Document()
-    const migrated = { ...source, schemaVersion: 7, revision: 999 }
+    const migrated = { ...source, schemaVersion: 9, revision: 999 }
     const client = scriptedClient((sql) => {
       if (sql === 'BEGIN' || sql === 'ROLLBACK') return result()
       if (sql.includes('FROM app_file WHERE id') && sql.includes('FOR UPDATE')) return result([{ id: fileId }])
@@ -216,7 +264,7 @@ describe('collaboration operation identity', () => {
     const persistence = createPostgresCollaborationPersistence(poolWith(client), {
       migrateLegacyDocument: () => ({ status: 'migrated', document: migrated }),
       validateLegacyDocument: input => {
-        expect(input).toEqual({ sourceDocument: source, document: migrated, targetSchemaVersion: 7 })
+        expect(input).toEqual({ sourceDocument: source, document: migrated, targetSchemaVersion: 9 })
         return { status: 'invalid', reason: 'document-invalid' }
       },
     })
@@ -241,7 +289,7 @@ describe('collaboration operation identity', () => {
     const persistence = createPostgresCollaborationPersistence(poolWith(client), {
       migrateLegacyDocument(document) {
         const mutable = document as { schemaVersion: number; revision: number }
-        mutable.schemaVersion = 7
+        mutable.schemaVersion = 9
         mutable.revision = 999
         return { status: 'migrated', document }
       },
@@ -293,7 +341,7 @@ describe('collaboration operation identity', () => {
     })
     const persistence = createPostgresCollaborationPersistence(poolWith(client), {
       migrateLegacyDocument(document) {
-        return { status: 'migrated', document: { ...document, schemaVersion: 7, fileId: '55555555-5555-4555-8555-555555555555' } }
+        return { status: 'migrated', document: { ...document, schemaVersion: 9, fileId: '55555555-5555-4555-8555-555555555555' } }
       },
     })
 
@@ -319,7 +367,7 @@ describe('collaboration operation identity', () => {
       if (sql.includes('FROM app_file WHERE id') && sql.includes('FOR UPDATE')) return result([{ id: fileId }])
       if (sql.includes('FROM app_collaboration_lease') && sql.includes('FOR UPDATE')) return result([{ file_id: fileId }])
       if (sql.includes('FROM app_collaboration_projection') && sql.includes('FOR UPDATE')) return result()
-      if (sql.includes('FROM app_file_document')) return result([{ file_id: fileId, document: { schemaVersion: 7, fileId: crypto.randomUUID() } }])
+      if (sql.includes('FROM app_file_document')) return result([{ file_id: fileId, document: { schemaVersion: 9, fileId: crypto.randomUUID() } }])
       throw new Error(`Unexpected query: ${sql}`)
     })
     const malformed = createPostgresCollaborationPersistence(poolWith(malformedClient))
@@ -361,7 +409,7 @@ describe('collaboration operation identity', () => {
     })
     const persistence = createPostgresCollaborationPersistence(poolWith(client))
 
-    await expect(persistence.acquireLease({ fileId, generationId, protocolEpoch: 2, leaseDurationMs: 30_000 })).resolves.toMatchObject({
+    await expect(persistence.acquireLease({ fileId, generationId, protocolEpoch: 3, leaseDurationMs: 30_000 })).resolves.toMatchObject({
       status: 'acquired',
       lease: { generationId, fencingToken: 8n },
     })
@@ -369,7 +417,7 @@ describe('collaboration operation identity', () => {
   })
 
   it('CLOUD-SYNC-PG-001 persistence slice rolls back an appended operation when projection persistence fails', async () => {
-    const operationDigest = collaborationOperationDigest({ protocolEpoch: 2, operationType: 'document.edit', operationPayload: { kind: 'rename', name: 'Card' } })
+    const operationDigest = collaborationOperationDigest({ protocolEpoch: 3, operationType: 'document.edit', operationPayload: { kind: 'rename', name: 'Card' } })
     const client = scriptedClient((sql, parameters) => {
       if (sql === 'BEGIN' || sql === 'ROLLBACK') return result()
       if (sql === 'COMMIT') return result()
@@ -382,7 +430,7 @@ describe('collaboration operation identity', () => {
         return result([operationRow(operationDigest)])
       }
       if (sql.includes('INSERT INTO app_collaboration_projection')) {
-        expect(parameters?.[7]).toBe(`{"fileId":"${fileId}","revision":1,"schemaVersion":7}`)
+        expect(parameters?.[7]).toBe(`{"fileId":"${fileId}","revision":1,"schemaVersion":9}`)
         throw new Error('projection write failed')
       }
       throw new Error(`Unexpected query: ${sql}`)
@@ -472,14 +520,14 @@ describe('collaboration operation identity', () => {
     await expect(persistence.commitVerifiedCheckpoint({
       fileId,
       generationId,
-      protocolEpoch: 2,
+      protocolEpoch: 3,
       fencingToken: 4n,
       sequence: 1n,
       objectKey: `checkpoints/${fileId}/1.zst`,
       objectDigest: 'a'.repeat(64),
       documentDigest: 'b'.repeat(64),
       compressedBytes: 128n,
-      documentSchemaVersion: 7,
+      documentSchemaVersion: 9,
     })).resolves.toEqual({ status: 'stale-fence' })
     expect(client.statements.some(sql => sql.includes('INSERT INTO app_collaboration_checkpoint'))).toBe(false)
     expect(client.statements.some(sql => sql.includes('app_collaboration_checkpoint_head'))).toBe(false)
@@ -499,14 +547,14 @@ describe('collaboration operation identity', () => {
     await expect(persistence.commitVerifiedCheckpoint({
       fileId,
       generationId,
-      protocolEpoch: 2,
+      protocolEpoch: 3,
       fencingToken: 4n,
       sequence: 1n,
       objectKey: `checkpoints/${fileId}/1.zst`,
       objectDigest: 'a'.repeat(64),
       documentDigest,
       compressedBytes: 128n,
-      documentSchemaVersion: 7,
+      documentSchemaVersion: 9,
     })).resolves.toMatchObject({ status: 'replayed', checkpoint: { sequence: 1n } })
     expect(client.statements.some(sql => sql.includes('app_collaboration_projection'))).toBe(false)
     expect(client.statements.some(sql => sql.includes('app_collaboration_checkpoint_head'))).toBe(false)
@@ -520,7 +568,7 @@ describe('collaboration operation identity', () => {
       if (sql.includes('FROM app_collaboration_lease') && sql.includes('FOR UPDATE')) return result([{ file_id: fileId }])
       if (sql.includes('FROM app_collaboration_checkpoint') && sql.includes('checkpoint_sequence')) return result()
       if (sql.includes('FROM app_collaboration_projection') && sql.includes('FOR UPDATE')) {
-        return result([projectionRow({ document: { schemaVersion: 7, fileId, revision: 0 }, sequence: '0', authority: 'legacy-seed', documentDigest })])
+        return result([projectionRow({ document: { schemaVersion: 9, fileId, revision: 0 }, sequence: '0', authority: 'legacy-seed', documentDigest })])
       }
       throw new Error(`Unexpected query: ${sql}`)
     })
@@ -583,7 +631,7 @@ describe('collaboration admission generation resolution', () => {
     })
     const persistence = createPostgresCollaborationPersistence(poolWith(client))
 
-    await expect(persistence.resolveAdmissionGeneration({ fileId, generationId: crypto.randomUUID(), protocolEpoch: 2, candidateTtlMs: 30_000 }))
+    await expect(persistence.resolveAdmissionGeneration({ fileId, generationId: crypto.randomUUID(), protocolEpoch: 3, candidateTtlMs: 30_000 }))
       .resolves.toEqual({ status: 'active', generationId })
     const fileLock = client.statements.findIndex(sql => sql.includes('FROM app_file WHERE id') && sql.includes('FOR UPDATE'))
     const leaseLock = client.statements.findIndex(sql => sql.includes('FROM app_collaboration_lease') && sql.includes('FOR UPDATE'))
@@ -599,7 +647,7 @@ describe('collaboration admission generation resolution', () => {
       if (sql.startsWith('INSERT INTO app_collaboration_lease')) return result()
       if (sql.includes('FROM app_collaboration_lease') && sql.includes('FOR UPDATE')) return result([emptyLeaseRow()])
       if (sql.startsWith('UPDATE app_collaboration_generation')) {
-        expect(parameters).toEqual([fileId, 2, 30_000])
+        expect(parameters).toEqual([fileId, 3, 30_000])
         return result()
       }
       if (sql.startsWith('SELECT file_id, generation_id') && sql.includes("status = 'candidate'")) return result([candidateGenerationRow()])
@@ -608,7 +656,7 @@ describe('collaboration admission generation resolution', () => {
     const persistence = createPostgresCollaborationPersistence(poolWith(client))
     const proposed = crypto.randomUUID()
 
-    await expect(persistence.resolveAdmissionGeneration({ fileId, generationId: proposed, protocolEpoch: 2, candidateTtlMs: 30_000 }))
+    await expect(persistence.resolveAdmissionGeneration({ fileId, generationId: proposed, protocolEpoch: 3, candidateTtlMs: 30_000 }))
       .resolves.toEqual({ status: 'candidate', generationId })
     expect(client.statements.filter(sql => sql.startsWith('INSERT INTO app_collaboration_generation'))).toHaveLength(0)
   })
@@ -623,14 +671,14 @@ describe('collaboration admission generation resolution', () => {
       if (sql.startsWith('UPDATE app_collaboration_generation')) return result()
       if (sql.startsWith('SELECT file_id, generation_id') && sql.includes("status = 'candidate'")) return result()
       if (sql.startsWith('INSERT INTO app_collaboration_generation')) {
-        expect(parameters).toEqual([fileId, proposed, 2])
+        expect(parameters).toEqual([fileId, proposed, 3])
         return result([candidateGenerationRow(proposed)])
       }
       throw new Error(`Unexpected query: ${sql}`)
     })
     const persistence = createPostgresCollaborationPersistence(poolWith(client))
 
-    await expect(persistence.resolveAdmissionGeneration({ fileId, generationId: proposed, protocolEpoch: 2, candidateTtlMs: 30_000 }))
+    await expect(persistence.resolveAdmissionGeneration({ fileId, generationId: proposed, protocolEpoch: 3, candidateTtlMs: 30_000 }))
       .resolves.toEqual({ status: 'candidate', generationId: proposed })
   })
 })
@@ -639,7 +687,7 @@ function appendInput() {
   return {
     fileId,
     generationId,
-    protocolEpoch: 2,
+    protocolEpoch: 3,
     fencingToken: 4n,
     expectedSubjectId: 'user-1',
     expectedAccessEpoch: 1n,
@@ -648,7 +696,7 @@ function appendInput() {
     operationType: 'document.edit',
     operationPayload: { kind: 'rename', name: 'Card' } as const,
     baseSequence: 0n,
-    projection: { documentSchemaVersion: 7, document: { schemaVersion: 7, fileId, revision: 1 } as const },
+    projection: { documentSchemaVersion: 9, document: { schemaVersion: 9, fileId, revision: 1 } as const },
   }
 }
 
@@ -657,11 +705,11 @@ function authorizedFileRow({ ownerUserId = 'user-1', accessEpoch = '1' }: { owne
 }
 
 function pruneInput() {
-  return { fileId, generationId, protocolEpoch: 2, fencingToken: 4n, throughSequence: 2n }
+  return { fileId, generationId, protocolEpoch: 3, fencingToken: 4n, throughSequence: 2n }
 }
 
 function bootstrapInput() {
-  return { fileId, generationId, protocolEpoch: 2, fencingToken: 4n, documentSchemaVersion: 7 }
+  return { fileId, generationId, protocolEpoch: 3, fencingToken: 4n, documentSchemaVersion: 9 }
 }
 
 function legacyVersion6Document(assets: Record<string, CollaborationJson> = {}) {
@@ -683,7 +731,7 @@ function projectionRow({ document, sequence, authority, documentDigest = 'd'.rep
   return {
     file_id: fileId,
     sequence,
-    document_schema_version: 7,
+    document_schema_version: Number(document.schemaVersion),
     document,
     document_digest: documentDigest,
     generation_id: generationId,
@@ -697,14 +745,14 @@ function checkpointInput({ sequence = 1n, documentDigest = 'b'.repeat(64) }: { s
   return {
     fileId,
     generationId,
-    protocolEpoch: 2,
+    protocolEpoch: 3,
     fencingToken: 4n,
     sequence,
     objectKey: `checkpoints/${fileId}/${sequence}.zst`,
     objectDigest: 'a'.repeat(64),
     documentDigest,
     compressedBytes: 128n,
-    documentSchemaVersion: 7,
+    documentSchemaVersion: 9,
   }
 }
 
@@ -713,7 +761,7 @@ function operationRow(contentDigest: string) {
     file_id: fileId,
     sequence: '1',
     generation_id: generationId,
-    protocol_epoch: 2,
+    protocol_epoch: 3,
     fencing_token: '4',
     subject_id: 'user-1',
     client_id: 'client-1',
@@ -729,7 +777,7 @@ function generationRow(fencingToken: string) {
   return {
     file_id: fileId,
     generation_id: generationId,
-    protocol_epoch: 2,
+    protocol_epoch: 3,
     status: 'active',
     fencing_token: fencingToken,
     created_at: new Date('2026-10-10T00:00:00.000Z'),
@@ -742,7 +790,7 @@ function candidateGenerationRow(candidateGenerationId = generationId) {
   return {
     file_id: fileId,
     generation_id: candidateGenerationId,
-    protocol_epoch: 2,
+    protocol_epoch: 3,
     status: 'candidate',
     fencing_token: null,
     created_at: new Date('2026-10-10T00:00:00.000Z'),
@@ -767,7 +815,7 @@ function leaseRow(fencingToken: string) {
   return {
     file_id: fileId,
     active_generation_id: generationId,
-    protocol_epoch: 2,
+    protocol_epoch: 3,
     fencing_token: fencingToken,
     lease_expires_at: new Date('2026-10-10T00:01:00.000Z'),
     renewed_at: new Date('2026-10-10T00:00:01.000Z'),
@@ -782,7 +830,7 @@ function checkpointRow(documentDigest: string) {
     object_digest: 'a'.repeat(64),
     document_digest: documentDigest,
     compressed_bytes: '128',
-    document_schema_version: 7,
+    document_schema_version: 9,
     generation_id: generationId,
     fencing_token: '4',
     committed_at: new Date('2026-10-10T00:00:02.000Z'),

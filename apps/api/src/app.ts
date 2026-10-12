@@ -8,6 +8,7 @@ import { LegacyDocumentPreparationError, type LegacyDocumentExternalizer } from 
 import {
   collaborationAdmissionProtocolEpoch,
   collaborationAdmissionResponse,
+  collaborationAdmissionWebSocketProtocol,
   type CollaborationAdmissionAuthority,
 } from './collaboration-admission.js'
 
@@ -17,6 +18,7 @@ export type ApiAppOptions = Readonly<{
   serviceToken: string
   collaborationAdmissionServiceToken?: string
   collaborationBuildId?: string
+  collaborationAllowedOrigins?: readonly string[]
   registryFingerprint: string
   thumbnailServiceToken?: string
   allowedOrigins?: readonly string[]
@@ -39,6 +41,7 @@ const jsonHeaders = Object.freeze({ 'Content-Type': 'application/json; charset=u
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const fileAccessValues = new Set(['read', 'write', 'sync'])
 const requestIdPattern = /^[A-Za-z0-9:._-]{1,128}$/
+const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 
 function requestId(request: Request): string {
   const supplied = request.headers.get('X-Canvas-Request-Id')
@@ -72,6 +75,17 @@ export function createApiApp(options: ApiAppOptions): ApiApp {
     && options.collaborationAdmissionServiceToken === options.serviceToken) {
     throw new Error('COLLABORATION_ADMISSION_SERVICE_TOKEN must differ from API_SERVICE_TOKEN.')
   }
+  if (options.collaborationBuildId !== undefined && !identifierPattern.test(options.collaborationBuildId)) {
+    throw new Error('COLLABORATION_BUILD_ID is invalid.')
+  }
+  const collaborationOrigins = new Set(options.collaborationAllowedOrigins ?? [])
+  for (const origin of collaborationOrigins) {
+    let parsed: URL
+    try { parsed = new URL(origin) } catch { throw new Error('Collaboration allowed origin is invalid.') }
+    if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || parsed.origin !== origin) {
+      throw new Error('Collaboration allowed origin must be an exact HTTP origin.')
+    }
+  }
   if (!/^sha256-[A-Za-z0-9+/]{43}=$/.test(options.registryFingerprint)) throw new Error('CANVAS_VERIFIED_REGISTRY_FINGERPRINT is invalid.')
   if (options.thumbnailServiceToken !== undefined && new TextEncoder().encode(options.thumbnailServiceToken).byteLength < 32) throw new Error('THUMBNAIL_SERVICE_TOKEN must contain at least 32 bytes.')
   const origins = new Set(options.allowedOrigins ?? [])
@@ -88,7 +102,7 @@ export function createApiApp(options: ApiAppOptions): ApiApp {
         ? json({ ok: true })
         : url.pathname === '/api/auth' || url.pathname.startsWith('/api/auth/')
           ? await options.auth.handler(request)
-          : await routeApi(request, url, options, reference)
+          : await routeApi(request, url, options, reference, collaborationOrigins)
     } catch (error) {
       if (error instanceof ApiInputError) response = json(errorBody(error.code, error.message), error.status)
       else if (error instanceof LegacyDocumentPreparationError) {
@@ -107,8 +121,8 @@ export function createApiApp(options: ApiAppOptions): ApiApp {
   }
 }
 
-async function routeApi(request: Request, url: URL, options: ApiAppOptions, reference: string): Promise<Response> {
-  if (url.pathname === '/internal/collaboration/admission' && request.method === 'POST') return internalCollaborationAdmission(request, options, reference)
+async function routeApi(request: Request, url: URL, options: ApiAppOptions, reference: string, collaborationOrigins: ReadonlySet<string>): Promise<Response> {
+  if (url.pathname === '/internal/collaboration/admission' && request.method === 'POST') return internalCollaborationAdmission(request, options, reference, collaborationOrigins)
   if (url.pathname === '/internal/file-access' && request.method === 'POST') return internalFileAccess(request, options)
   if (url.pathname === '/internal/thumbnail-source' && request.method === 'POST') return internalThumbnailSource(request, options)
   if (url.pathname === '/internal/thumbnail-access' && request.method === 'POST') return internalThumbnailAccess(request, options)
@@ -365,7 +379,11 @@ async function internalFileAccess(request: Request, options: ApiAppOptions): Pro
   return json({ userId: user.id })
 }
 
-async function internalCollaborationAdmission(request: Request, options: ApiAppOptions, reference: string): Promise<Response> {
+async function internalCollaborationAdmission(request: Request, options: ApiAppOptions, reference: string, collaborationOrigins: ReadonlySet<string>): Promise<Response> {
+  const origin = request.headers.get('Origin')
+  if (!origin || !collaborationOrigins.has(origin)) {
+    return json(errorBody('origin_forbidden', 'Origin is not allowed.'), 403)
+  }
   const admissionToken = options.collaborationAdmissionServiceToken
   const supportedBuildId = options.collaborationBuildId
   if (!admissionToken || !supportedBuildId || !options.collaborationAuthority || !options.legacyDocumentExternalizer) {
@@ -375,13 +393,15 @@ async function internalCollaborationAdmission(request: Request, options: ApiAppO
     return json(errorBody('service_forbidden', 'Service access denied.'), 403)
   }
   const input = await readObject(request, 16_384)
-  if (Object.keys(input).sort().join(',') !== 'buildId,clientId,fileId,protocolEpoch') {
+  if (Object.keys(input).sort().join(',') !== 'buildId,clientId,fileId,protocolEpoch,webSocketProtocol') {
     throw new ApiInputError('invalid_admission_request', 'Admission request is invalid.')
   }
   const fileId = readId(input.fileId, 'fileId')
   const buildId = readIdentifier(input.buildId, 'buildId')
   const clientId = readIdentifier(input.clientId, 'clientId')
-  if (input.protocolEpoch !== collaborationAdmissionProtocolEpoch || buildId !== supportedBuildId) {
+  if (input.protocolEpoch !== collaborationAdmissionProtocolEpoch
+    || input.webSocketProtocol !== collaborationAdmissionWebSocketProtocol
+    || buildId !== supportedBuildId) {
     return json({
       error: {
         code: 'unsupported_protocol',
@@ -530,7 +550,7 @@ function readId(value: unknown, field: string): string {
 }
 
 function readIdentifier(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)) throw new ApiInputError('invalid_identifier', `${field} is invalid.`)
+  if (typeof value !== 'string' || !identifierPattern.test(value)) throw new ApiInputError('invalid_identifier', `${field} is invalid.`)
   return value
 }
 

@@ -251,7 +251,7 @@ function equalJson(left: unknown, right: unknown): boolean {
 }
 
 function isPersistedCurrentDocument(value: unknown): boolean {
-  if (!record(value) || value.schemaVersion !== 7) return false
+  if (!record(value) || value.schemaVersion !== 9) return false
   try {
     validateHostedFileDocument(value)
     return true

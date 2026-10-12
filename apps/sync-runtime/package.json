@@ -8,6 +8,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@canvas/sync-protocol": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.9.0",
     "vitest": "^3.2.0",

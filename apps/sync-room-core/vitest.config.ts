@@ -9,6 +9,7 @@ export default defineConfig({
       '@canvas/database/collaboration': `${workspace}/packages/database/src/collaboration.ts`,
       '@canvas/database/postgres': `${workspace}/packages/database/src/postgres.ts`,
       '@canvas/database': `${workspace}/packages/database/src/index.ts`,
+      '@canvas/sync-protocol/flow': `${workspace}/packages/sync-protocol/src/flow.ts`,
       '@canvas/sync-protocol': `${workspace}/packages/sync-protocol/src/index.ts`,
     },
   },

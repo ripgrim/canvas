@@ -15,7 +15,7 @@ const percent = (value: number) => ({ kind: 'percent' as const, value })
 const label = (id: string, text: string): ComponentNode => ({ id, type: 'component', componentId: 'label-component', exportName: 'Label', props: { children: text } })
 /** card (flex row container) holds a, b, c; d is an absolute root with width 200. */
 const fixture = (): FileDocument => ({
-  schemaVersion: 7, fileId: 'file-1', revision: 0,
+  schemaVersion: 9, fileId: 'file-1', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },

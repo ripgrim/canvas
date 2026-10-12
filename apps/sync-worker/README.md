@@ -1,6 +1,6 @@
 # Sync Worker
 
-Public collaboration admission edge for protocol epoch 2. It validates a complete RFC6455 request, exchanges the browser session with the API admission endpoint, signs a short-lived internal admission envelope, and forwards the upgrade through the coordinator's cross-script Durable Object binding.
+Public collaboration admission edge for protocol epoch 4. After the Fetch platform canonicalizes legal surrounding header whitespace, it accepts exactly one `canvas-sync-v4` token, validates a complete RFC6455 request and exact editor origin, exchanges the browser session with the API admission endpoint, signs a short-lived internal admission envelope, and forwards the upgrade through the coordinator's cross-script Durable Object binding. Absent, empty, structurally ambiguous, earlier, unknown, or mixed protocol offers fail before admission and are never retried or downgraded.
 
 This process holds the dedicated API admission token. It does not hold the room-ticket secret, runtime address, database URL, repository credential, or source credential. Browser credentials are removed before crossing the coordinator boundary.
 

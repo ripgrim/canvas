@@ -17,6 +17,39 @@ export function hostOrigin(frame) {
 const number = value => String(Number(value.toFixed(4)))
 const percent = value => `${number(value * 100)}%`
 const imageSizes = { cover: 'cover', contain: 'contain', stretch: '100% 100%', tile: 'auto' }
+const horizontalTextAlignment = { left: 'left', center: 'center', right: 'right', justify: 'justify' }
+const verticalTextAlignment = { top: 'start', middle: 'center', bottom: 'end' }
+const textTransform = { none: 'none', uppercase: 'uppercase', lowercase: 'lowercase', capitalize: 'capitalize' }
+
+function lineHeightCss(value) {
+  if (value.kind === 'normal') return 'normal'
+  if (value.kind === 'source') return `var(${value.property}, ${lineHeightCss(value.fallback)})`
+  if (value.kind === 'percent') return `${number(value.value)}%`
+  if (value.kind === 'px') return `${number(value.value)}px`
+  if (value.kind === 'em') return `${number(value.value)}em`
+  return number(value.value)
+}
+
+const declarationProperty = name => name.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase())
+export function primitiveLayoutStyle(layout) {
+  if (!layout) return {}
+  const style = Object.fromEntries(Object.entries(layout.declarations).map(([name, value]) => [declarationProperty(name), value]))
+  // Flow participants remain in layout while also establishing the containing block for an absolute primitive child.
+  if (layout.mode === 'flow') style.position = 'relative'
+  return style
+}
+
+/**
+ * Freeform text has no layout-parent sizing context. Paper's strongest observable contract is intrinsic no-wrap for a
+ * Fit width and intrinsic growth for a Fit height, so Fit maps to max-content here. Fill and Relative are retained for
+ * frame children; the flex projection can replace this mapping once it supplies explicit parent-axis context.
+ */
+export function freeformTextAxisSize(axis, fallback) {
+  if (axis.mode === 'fixed') return `${fallback}px`
+  if (axis.mode === 'fit') return 'max-content'
+  if (axis.mode === 'fill') return '100%'
+  return `${number(axis.value)}%`
+}
 
 /** Stops as `color pos%`; a stop's midpoint other than 0.5 adds a color hint inside the segment that follows it. */
 function stopList(stops) {
@@ -125,10 +158,67 @@ export function appearanceStyle(appearance, assets, kind) {
 
 export function canvasElementStyle(element, assets = undefined, offset = { x: 0, y: 0 }) {
   const transforms = [...(element.rotation ? [`rotate(${element.rotation}deg)`] : []), ...(element.flipX || element.flipY ? [`scale(${element.flipX ? -1 : 1}, ${element.flipY ? -1 : 1})`] : [])]
-  const style = { position: 'absolute', left: `${element.x - offset.x}px`, top: `${element.y - offset.y}px`, width: `${element.width}px`, height: `${element.height}px`, boxSizing: 'border-box', pointerEvents: 'none', margin: 0, transformOrigin: 'center', transform: transforms.length ? transforms.join(' ') : undefined }
+  const mode = element.layout?.mode ?? 'freeform'
+  const declarations = element.layout?.declarations ?? {}
+  const rightAnchored = mode === 'absolute' && Object.hasOwn(declarations, 'right') && !Object.hasOwn(declarations, 'left')
+  const bottomAnchored = mode === 'absolute' && Object.hasOwn(declarations, 'bottom') && !Object.hasOwn(declarations, 'top')
+  const style = {
+    position: mode === 'flow' ? 'relative' : 'absolute',
+    left: mode === 'flow' || rightAnchored ? undefined : `${element.x - offset.x}px`,
+    top: mode === 'flow' || bottomAnchored ? undefined : `${element.y - offset.y}px`,
+    width: `${element.width}px`,
+    height: `${element.height}px`,
+    boxSizing: 'border-box',
+    pointerEvents: 'none',
+    margin: 0,
+    transformOrigin: 'center',
+    transform: transforms.length ? transforms.join(' ') : undefined,
+    ...primitiveLayoutStyle(element.layout),
+  }
   const appearance = appearanceStyle(element.appearance, assets, element.kind)
   if (element.kind === 'frame') return { ...style, ...appearance, overflow: element.clip === false ? 'visible' : 'hidden' }
   if (element.kind === 'rectangle' || element.kind === 'shader') return { ...style, ...appearance }
   if (element.kind === 'shape') return { ...style, ...appearance, borderRadius: '50%' }
-  return { ...style, ...appearance, fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontSize: '16px', lineHeight: '1.25', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', overflow: 'hidden' }
+  const text = element.textStyle
+  const sizing = element.textSizing
+  const widthFitsContent = sizing.width.mode === 'fit'
+  const heightFitsContent = sizing.height.mode === 'fit'
+  const authoredLeft = element.x - offset.x
+  const authoredTextAnchor = mode === 'freeform'
+  const anchorOffset = authoredTextAnchor && widthFitsContent && text.horizontalAlign === 'center'
+    ? 'translateX(-50%)'
+    : authoredTextAnchor && widthFitsContent && text.horizontalAlign === 'right'
+      ? 'translateX(-100%)'
+      : null
+  const anchoredLeft = !authoredTextAnchor
+    ? null
+    : widthFitsContent && text.horizontalAlign === 'center'
+    ? authoredLeft + element.width / 2
+    : widthFitsContent && text.horizontalAlign === 'right'
+      ? authoredLeft + element.width
+      : authoredLeft
+  const textTransforms = [...(anchorOffset ? [anchorOffset] : []), ...transforms]
+  return {
+    ...style,
+    ...appearance,
+    ...(anchoredLeft === null ? {} : { left: `${number(anchoredLeft)}px` }),
+    transform: textTransforms.length ? textTransforms.join(' ') : undefined,
+    width: freeformTextAxisSize(sizing.width, element.width),
+    height: freeformTextAxisSize(sizing.height, element.height),
+    fontFamily: text.fontFamily,
+    fontStyle: text.fontStyle,
+    fontWeight: text.fontWeight,
+    fontSize: `${number(text.fontSize)}px`,
+    lineHeight: lineHeightCss(text.lineHeight),
+    letterSpacing: `${number(text.fontSize) * number(text.letterSpacing) / 100}px`,
+    textAlign: horizontalTextAlignment[text.horizontalAlign],
+    alignContent: verticalTextAlignment[text.verticalAlign],
+    textTransform: textTransform[text.case],
+    whiteSpace: widthFitsContent ? 'pre' : 'pre-wrap',
+    textWrap: widthFitsContent ? 'nowrap' : text.wrap === 'normal' ? 'wrap' : text.wrap,
+    overflowWrap: text.keepWords ? 'normal' : 'anywhere',
+    wordBreak: 'normal',
+    overflow: heightFitsContent ? 'visible' : 'hidden',
+    ...(text.maxLines !== undefined ? { display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: String(text.maxLines), overflow: 'hidden' } : {}),
+  }
 }

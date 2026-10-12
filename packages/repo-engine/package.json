@@ -64,6 +64,10 @@
       "types": "./dist/flex-inference.d.ts",
       "import": "./dist/flex-inference.js"
     },
+    "./paper-sizing": {
+      "types": "./dist/paper-sizing.d.ts",
+      "import": "./dist/paper-sizing.js"
+    },
     "./layout-matrix": {
       "types": "./dist/layout-matrix.d.ts",
       "import": "./dist/layout-matrix.js"

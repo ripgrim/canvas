@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { legacyTextProperties } from '@canvas/repo-engine/file-document'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { buildScene, clickTarget, containingFrameAt, displayName, drillTarget, hitTest, marqueeTargets, selectChildren, selectParents, symmetricDifference } from './canvas-scene'
 
 const appearance = { fills: [{ id: 'white-fill', type: 'solid' as const, color: { kind: 'literal' as const, color: { kind: 'hex' as const, hex: '#ffffff' } } }] }
 /** Page 1: card > button (measured components), frame (300,0) > inner (+20,+20) > text (+10,+10), loose rectangle. */
 const file = (innerOverflow: 'clip' | 'visible' = 'clip'): FileDocument => ({
-  schemaVersion: 7, fileId: 'file-a', revision: 0,
+  schemaVersion: 9, fileId: 'file-a', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -14,7 +15,7 @@ const file = (innerOverflow: 'clip' | 'visible' = 'clip'): FileDocument => ({
     button: { id: 'button', type: 'component', componentId: 'atom-button', exportName: 'Button', props: { children: 'Sign in' } },
     frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 300, top: 0, width: 200, height: 200, overflow: 'clip' }, appearance },
     inner: { id: 'inner', type: 'frame', name: 'Inner', styles: { left: 20, top: 20, width: 100, height: 100, overflow: innerOverflow }, appearance },
-    text: { id: 'text', type: 'text', name: 'Text', styles: { left: 10, top: 10, width: 300, height: 40 }, appearance, text: '  Welcome   back to the workspace today ' },
+    text: { id: 'text', type: 'text', name: 'Text', styles: { left: 10, top: 10, width: 300, height: 40 }, appearance, text: '  Welcome   back to the workspace today ', ...legacyTextProperties() },
     loose: { id: 'loose', type: 'rectangle', name: 'Rectangle', styles: { left: -600, top: -600, width: 50, height: 50 }, appearance },
     elsewhere: { id: 'elsewhere', type: 'rectangle', name: 'Elsewhere', styles: { left: 0, top: 0, width: 10, height: 10 }, appearance },
   },
@@ -57,6 +58,64 @@ describe('AT-CAN scene identity and geometry', () => {
     expect(ids(buildScene(file(), 'page-1', {}).nodes)).toEqual(['frame', 'inner', 'text', 'loose'])
     const rebound = { ...measured, button: { componentId: 'atom-other', rect: measured.button.rect } }
     expect(ids(buildScene(file(), 'page-1', rebound).nodes)).toEqual(['card', 'frame', 'inner', 'text', 'loose'])
+    const generated = { ...measured, card: { ...measured.card, layoutGeneration: 4 }, button: { ...measured.button, layoutGeneration: 4 } }
+    expect(ids(buildScene(file(), 'page-1', generated, 4).nodes)).toEqual(ids(scene.nodes))
+    expect(ids(buildScene(file(), 'page-1', generated, 5).nodes)).toEqual(['frame', 'inner', 'text', 'loose'])
+  })
+
+  it('uses measured used dimensions only for intrinsic text axes and preserves the authored alignment anchor', () => {
+    const source = file()
+    const text = source.nodes.text
+    if (!text || text.type !== 'text' || !text.textStyle || !text.textSizing) throw new Error('Text fixture is missing')
+    text.textSizing = { width: { mode: 'fit' }, height: { mode: 'fit' } }
+    text.textStyle = { ...text.textStyle, horizontalAlign: 'center' }
+    const geometry = { ...measured, text: { canvasKind: 'text' as const, documentRevision: source.revision, layoutGeneration: 2, rect: { x: 390, y: 30, width: 180, height: 24 }, offset: { x: 160, y: 10, width: 180, height: 24, origin: { x: 90, y: 12 } } } }
+    expect(buildScene(source, 'page-1', geometry, 2).byId.get('text')?.rect).toEqual({ x: 390, y: 30, width: 180, height: 24 })
+
+    text.textStyle = { ...text.textStyle, horizontalAlign: 'right' }
+    expect(buildScene(source, 'page-1', geometry, 2).byId.get('text')?.rect).toEqual({ x: 450, y: 30, width: 180, height: 24 })
+  })
+
+  it('ignores native measurements for fixed text and every non-text primitive', () => {
+    const hostile = {
+      ...measured,
+      text: { canvasKind: 'text' as const, rect: { x: 999, y: 999, width: 1, height: 1 }, offset: { x: 999, y: 999, width: 1, height: 1, origin: { x: 0, y: 0 } } },
+      loose: { canvasKind: 'rectangle' as const, rect: { x: 999, y: 999, width: 1, height: 1 }, offset: { x: 999, y: 999, width: 1, height: 1, origin: { x: 0, y: 0 } } },
+    }
+    const fixed = buildScene(file(), 'page-1', hostile)
+    expect(fixed.byId.get('text')?.rect).toEqual({ x: 330, y: 30, width: 300, height: 40 })
+    expect(fixed.byId.get('loose')?.rect).toEqual({ x: -600, y: -600, width: 50, height: 50 })
+  })
+
+  it('PAPER-FLEX-001/002 uses only current DOM geometry for flow and absolute primitives', () => {
+    const source = file()
+    const frame = source.nodes.frame
+    const inner = source.nodes.inner
+    if (!frame || frame.type !== 'frame' || !inner || inner.type !== 'frame') throw new Error('Frame fixtures are missing')
+    frame.layout = { container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } }, item: { position: { mode: 'freeform' } } }
+    inner.layout = { container: { display: 'freeform' }, item: { position: { mode: 'flow' } } }
+
+    const deferred = buildScene(source, 'page-1', measured)
+    expect(deferred.byId.has('inner')).toBe(false)
+    expect(deferred.byId.has('text')).toBe(false)
+    const current = { ...measured, inner: { canvasKind: 'frame' as const, documentRevision: source.revision, layoutGeneration: 2, rect: { x: 410, y: 25, width: 120, height: 80 } } }
+    expect(buildScene(source, 'page-1', current, 2).byId.get('inner')?.rect).toEqual({ x: 410, y: 25, width: 120, height: 80 })
+    const stale = { ...current, inner: { ...current.inner, documentRevision: source.revision - 1 } }
+    expect(buildScene(source, 'page-1', stale, 2).byId.has('inner')).toBe(false)
+    expect(buildScene(source, 'page-1', current, 3).byId.has('inner')).toBe(false)
+    const { layoutGeneration: _generation, ...withoutGeneration } = current.inner
+    expect(buildScene(source, 'page-1', { ...current, inner: withoutGeneration }, 2).byId.has('inner')).toBe(false)
+  })
+
+  it('PAPER-FLEX-002 keeps one unrotated measured box and one authored rotation for semantic primitives', () => {
+    const source = file()
+    const inner = source.nodes.inner
+    if (!inner || inner.type !== 'frame') throw new Error('Inner frame fixture is missing')
+    inner.layout = { container: { display: 'freeform' }, item: { position: { mode: 'absolute', right: { kind: 'px', value: 12 }, bottom: { kind: 'px', value: 8 } } } }
+    inner.styles = { ...inner.styles, rotation: 90 }
+    const geometry = { ...measured, inner: { canvasKind: 'frame' as const, documentRevision: source.revision, layoutGeneration: 4, rect: { x: 440, y: 50, width: 120, height: 80 } } }
+    const node = buildScene(source, 'page-1', geometry, 4).byId.get('inner')
+    expect(node).toMatchObject({ rect: { x: 440, y: 50, width: 120, height: 80 }, rotation: 90 })
   })
 
   it('names nodes by content, name, or export name and truncates text at 20 characters', () => {

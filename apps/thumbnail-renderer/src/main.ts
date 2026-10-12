@@ -5,7 +5,7 @@ import { validateFileDocument } from '@canvas/repo-engine/file-document'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { PreviewPageDocument } from '@canvas/repo-engine/file-preview'
 import type { Atom } from '@canvas/repo-engine'
-import type { PreviewEvent } from '@canvas/preview-runtime/protocol'
+import { protocolVersion, type PreviewEvent } from '@canvas/preview-runtime/protocol'
 import { RegistryEntry, RegistryProvider, registry, registryContract, registryProviderProps, registryThemeAdapters } from 'virtual:canvas-verified-component-registry'
 
 type ThumbnailSource = Readonly<{ file: unknown; pageId: string; fileId: string; revision: number; registryFingerprint: string }>
@@ -70,7 +70,7 @@ function camera(content: ReturnType<typeof bounds>): Readonly<{ x: number; y: nu
 }
 
 function command(message: Record<string, unknown>): void {
-  window.postMessage({ channel: 'design-editor-preview', version: 3, generation: 1, ...message }, window.location.origin)
+  window.postMessage({ channel: 'design-editor-preview', version: protocolVersion, generation: 1, ...message }, window.location.origin)
 }
 
 function propType(rule: { kind: 'string' | 'number' | 'boolean' } | { kind: 'enum'; values: readonly (string | number | boolean)[] }): string {

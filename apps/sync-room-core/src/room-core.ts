@@ -1,9 +1,17 @@
-import { randomUUID } from 'node:crypto'
-import { defaultMaxCollaborationMessageBytes, encodeCollaborationMessage, encodeSemanticCommandForPersistence, maxCollaborationIdentifierLength, maxPresenceParticipants, maxSnapshotBytes, maxSnapshotChunkBytes } from '@canvas/sync-protocol'
+import { createHash, randomUUID } from 'node:crypto'
+import { collaborationProtocolEpoch, defaultMaxCollaborationMessageBytes, encodeCollaborationMessage, encodeSemanticCommandForPersistence, maxCollaborationIdentifierLength, maxPresenceParticipants, maxSnapshotBytes, maxSnapshotChunkBytes, validateFlowDragPresentation } from '@canvas/sync-protocol'
 import { canonicalCollaborationJson } from '@canvas/database/collaboration'
+import { fileSchemaVersion } from '@canvas/repo-engine/file-document'
 import type {
   CollaborationClientMessage,
   CollaborationServerMessage,
+  FlowDragDenialCode,
+  FlowDragPresentation,
+  InteractionAcquireMessage,
+  InteractionReleaseMessage,
+  InteractionReserveMessage,
+  InteractionResultAction,
+  InteractionSampleMessage,
   OperationSubmitMessage,
   PresenceParticipant,
   PresencePatch,
@@ -17,6 +25,9 @@ import type {
 } from '@canvas/sync-protocol'
 import type { CollaborationProjection, CollaborationPayload, CollaborationLease } from '@canvas/database/collaboration'
 import type { RoomAuthorization, RoomCoreDependencies, RoomCoreOptions, RoomTicketContext } from './contracts.js'
+import { createFlowTopologyAuthority, flowTargetDenial, sourcePositionMode } from './flow-authority.js'
+import { canonicalPeerFlowPresentation, containsReservedPeerFlowInteractionId, FlowReservationAuthority, peerFlowInteractionId } from './flow-reservations.js'
+import type { FlowLease, FlowLeaseOwner } from './flow-reservations.js'
 
 export type RoomPhase = 'cold' | 'starting' | 'accepting' | 'draining' | 'stopped' | 'failed'
 
@@ -70,6 +81,18 @@ const reservedPresenceParticipant: PresenceParticipant = Object.freeze({
   data: emptyPresence,
 })
 
+function replayScopeId(claims: VerifiedRoomTicketClaims): string {
+  return createHash('sha256')
+    .update(claims.subjectId)
+    .update('\0')
+    .update(claims.fileId)
+    .update('\0')
+    .update(claims.role)
+    .update('\0')
+    .update(claims.accessEpoch)
+    .digest('hex')
+}
+
 class RoomCapacityError extends Error {
   constructor(message: string) { super(message); this.name = 'RoomCapacityError' }
 }
@@ -81,126 +104,14 @@ function mergePresence(current: PresenceState, patch: PresencePatch): PresenceSt
   const selection = Object.hasOwn(patch, 'selection') ? patch.selection! : pageChanged ? null : current.selection
   const camera = Object.hasOwn(patch, 'camera') ? patch.camera! : pageChanged ? null : current.camera
   const cursor = Object.hasOwn(patch, 'cursor') ? patch.cursor! : pageChanged ? null : current.cursor
-  const interaction = Object.hasOwn(patch, 'interaction') ? patch.interaction! : pageChanged ? null : current.interaction ?? null
-  if ((selection && selection.pageId !== pageId) || (camera && camera.pageId !== pageId) || (cursor && cursor.pageId !== pageId) || (interaction && interaction.pageId !== pageId)) return null
+  if ((selection && selection.pageId !== pageId) || (camera && camera.pageId !== pageId) || (cursor && cursor.pageId !== pageId)) return null
   return Object.freeze({
     pageId,
     focused: Object.hasOwn(patch, 'focused') ? patch.focused! : current.focused,
     selection: selection ? Object.freeze({ ...selection, nodeIds: Object.freeze([...selection.nodeIds]) }) : null,
     camera: camera ? Object.freeze({ ...camera }) : null,
     cursor: cursor ? Object.freeze({ ...cursor }) : null,
-    interaction: interaction ? Object.freeze({ ...interaction, nodeIds: Object.freeze([...interaction.nodeIds]), transforms: Object.freeze(interaction.transforms.map(transform => Object.freeze({ ...transform }))) }) : null,
   })
-}
-
-function sameInteractionLock(left: NonNullable<PresenceState['interaction']>, right: NonNullable<PresenceState['interaction']>): boolean {
-  return left.interactionId === right.interactionId
-    && left.pageId === right.pageId
-    && left.kind === right.kind
-    && left.nodeIds.length === right.nodeIds.length
-    && left.nodeIds.every((nodeId, index) => nodeId === right.nodeIds[index])
-}
-
-function interactionTransformsAreScoped(interaction: NonNullable<PresenceState['interaction']>): boolean {
-  const locked = new Set(interaction.nodeIds)
-  return interaction.transforms.every(transform => locked.has(transform.nodeId))
-}
-
-type CommandScope = Readonly<{ nodeIds: ReadonlySet<string>; pageIds: ReadonlySet<string> }>
-
-function pageRootIds(document: CollaborationPayload): ReadonlySet<string> {
-  if (!Array.isArray(document.pages)) return new Set()
-  return new Set(document.pages.flatMap(page => page && typeof page === 'object' && typeof (page as Record<string, unknown>).rootNodeId === 'string' ? [(page as Record<string, unknown>).rootNodeId as string] : []))
-}
-
-function addStructuralParent(document: CollaborationPayload, nodeIds: Set<string>, nodeId: string): void {
-  if (!pageRootIds(document).has(nodeId)) nodeIds.add(nodeId)
-}
-
-function commandScope(document: CollaborationPayload, command: SemanticFileCommand, nodeIds = new Set<string>(), pageIds = new Set<string>()): CommandScope {
-  if (command.type === 'batch') {
-    for (const nested of command.commands) commandScope(document, nested, nodeIds, pageIds)
-    return { nodeIds, pageIds }
-  }
-  if (command.type === 'node.insert') {
-    nodeIds.add(command.node.id)
-    addStructuralParent(document, nodeIds, command.placement.parentId)
-    return { nodeIds, pageIds }
-  }
-  if (command.type === 'node.delete') {
-    for (const nodeId of command.nodeIds) {
-      nodeIds.add(nodeId)
-      const parent = parentId(document, nodeId)
-      if (parent) addStructuralParent(document, nodeIds, parent)
-    }
-    return { nodeIds, pageIds }
-  }
-  if (command.type === 'node.reparent') {
-    nodeIds.add(command.nodeId)
-    const sourceParent = parentId(document, command.nodeId)
-    if (sourceParent) addStructuralParent(document, nodeIds, sourceParent)
-    addStructuralParent(document, nodeIds, command.placement.parentId)
-    return { nodeIds, pageIds }
-  }
-  if (command.type === 'node.reorder' || command.type === 'node.duplicate') {
-    nodeIds.add(command.nodeId)
-    const parent = parentId(document, command.nodeId)
-    if (parent) addStructuralParent(document, nodeIds, parent)
-    return { nodeIds, pageIds }
-  }
-  if (command.type === 'page.delete') pageIds.add(command.pageId)
-  if ('nodeId' in command && typeof command.nodeId === 'string') nodeIds.add(command.nodeId)
-  return { nodeIds, pageIds }
-}
-
-function parentId(document: CollaborationPayload, nodeId: string): string | null {
-  const relationships = document.relationships
-  if (!relationships || typeof relationships !== 'object' || Array.isArray(relationships)) return null
-  const relationship = (relationships as Record<string, unknown>)[nodeId]
-  if (!relationship || typeof relationship !== 'object' || Array.isArray(relationship)) return null
-  const parent = (relationship as Record<string, unknown>).parentId
-  return typeof parent === 'string' ? parent : null
-}
-
-function interactionTargetsProjection(document: CollaborationPayload, interaction: NonNullable<PresenceState['interaction']>): boolean {
-  if (!Array.isArray(document.pages)) return false
-  const page = document.pages.find(candidate => candidate && typeof candidate === 'object' && (candidate as Record<string, unknown>).id === interaction.pageId) as Record<string, unknown> | undefined
-  if (!page || typeof page.rootNodeId !== 'string') return false
-  const nodes = document.nodes
-  if (!nodes || typeof nodes !== 'object' || Array.isArray(nodes)) return false
-  const records = nodes as Record<string, unknown>
-  for (const nodeId of interaction.nodeIds) {
-    if (!records[nodeId] || nodeId === page.rootNodeId) return false
-    const visited = new Set<string>()
-    let current: string | null = nodeId
-    while (current && current !== page.rootNodeId && !visited.has(current)) {
-      visited.add(current)
-      current = parentId(document, current)
-    }
-    if (current !== page.rootNodeId) return false
-  }
-  return true
-}
-
-function nodeScopeContains(document: CollaborationPayload, nodeIds: ReadonlySet<string>, nodeId: string): boolean {
-  const visited = new Set<string>()
-  let current: string | null = nodeId
-  while (current && !visited.has(current)) {
-    if (nodeIds.has(current)) return true
-    visited.add(current)
-    current = parentId(document, current)
-  }
-  return false
-}
-
-function nodeScopesOverlap(document: CollaborationPayload, left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
-  for (const nodeId of left) if (nodeScopeContains(document, right, nodeId)) return true
-  for (const nodeId of right) if (nodeScopeContains(document, left, nodeId)) return true
-  return false
-}
-
-function scopeTouchesInteraction(document: CollaborationPayload, scope: CommandScope, interaction: NonNullable<PresenceState['interaction']>): boolean {
-  return scope.pageIds.has(interaction.pageId) || nodeScopesOverlap(document, scope.nodeIds, new Set(interaction.nodeIds))
 }
 
 export class RoomNotAcceptingError extends Error {
@@ -224,14 +135,14 @@ export class CollaborationRoomCore {
   #projection: CollaborationProjection | null = null
   #mutationTail: Promise<void> = Promise.resolve()
   #presenceTail: Promise<void> = Promise.resolve()
-  #pendingMutationScope: CommandScope | null = null
+  readonly #flow = new FlowReservationAuthority()
   #renewal: NodeJS.Timeout | null = null
   #renewalTask: Promise<void> | null = null
   #shutdownTimedOut = false
   #drain: Promise<Readonly<{ status: 'stopped' | 'checkpoint-failed' | 'timeout' }>> | null = null
 
   constructor(options: RoomCoreOptions, dependencies: RoomCoreDependencies) {
-    if (options.identity.protocolEpoch !== 2) throw new Error('Room core requires collaboration protocol epoch 2.')
+    if (options.identity.protocolEpoch !== collaborationProtocolEpoch) throw new Error(`Room core requires collaboration protocol epoch ${collaborationProtocolEpoch}.`)
     if (!Number.isSafeInteger(options.leaseDurationMs) || options.leaseDurationMs < 1) throw new Error('Lease duration must be positive.')
     if (!Number.isSafeInteger(options.leaseRenewalMs) || options.leaseRenewalMs < 1 || options.leaseRenewalMs >= options.leaseDurationMs) throw new Error('Lease renewal must be positive and shorter than the lease duration.')
     if (!Number.isSafeInteger(options.drainTimeoutMs) || options.drainTimeoutMs < 1) throw new Error('Drain timeout must be positive.')
@@ -258,7 +169,7 @@ export class CollaborationRoomCore {
       const bootstrapped = await this.#dependencies.persistence.bootstrapProjectionFromLegacy({
         ...identity,
         fencingToken: acquired.lease.fencingToken,
-        documentSchemaVersion: 7,
+        documentSchemaVersion: fileSchemaVersion,
       })
       if (bootstrapped.status === 'stale-fence' || bootstrapped.status === 'source-not-found' || bootstrapped.status === 'invalid-source') throw new Error(`Room projection bootstrap failed: ${bootstrapped.status}.`)
       this.#projection = bootstrapped.projection
@@ -285,7 +196,7 @@ export class CollaborationRoomCore {
     const authorization = await this.#dependencies.tickets.verify(ticketContext)
     const claims = authorization?.claims
     if (!authorization || !claims
-      || claims.protocolEpoch !== 2
+      || claims.protocolEpoch !== collaborationProtocolEpoch
       || claims.fileId !== this.#options.identity.fileId
       || claims.generationId !== this.#options.identity.generationId
       || claims.clientId !== ticketContext.clientId
@@ -310,7 +221,7 @@ export class CollaborationRoomCore {
         if (this.#phase !== 'accepting') throw new RoomNotAcceptingError()
         const currentClaims = await this.#dependencies.tickets.consume(authorization, { nowUnixMs: Date.now(), buildId: open.buildId })
         if (!currentClaims
-          || currentClaims.protocolEpoch !== 2
+          || currentClaims.protocolEpoch !== collaborationProtocolEpoch
           || currentClaims.fileId !== this.#options.identity.fileId
           || currentClaims.generationId !== this.#options.identity.generationId
           || currentClaims.expiresAtUnixMs <= Date.now()) return rejectAdmission('capability')
@@ -337,6 +248,7 @@ export class CollaborationRoomCore {
           envelope,
           requestId: session.requestId,
           role: currentClaims.role,
+          replayScopeId: replayScopeId(currentClaims),
         }
         const plannedRoster: Extract<CollaborationServerMessage, { type: 'presence.roster' }> = {
           type: 'presence.roster',
@@ -356,6 +268,10 @@ export class CollaborationRoomCore {
         if ((await this.#verifyCurrentClaims(currentClaims)).status !== 'current') return rejectAdmission('access')
         await this.#streamProjection(peer, projectionStream)
         await this.#send(peer, plannedRoster)
+        const interactions = this.#flow.roster()
+        if (interactions.length) await this.#send(peer, {
+          type: 'interaction.roster', envelope: this.#envelope(), interactions: interactions.map(lease => this.#flowRosterEntry(lease)),
+        })
         this.#sessions.set(peer.connectionId, session)
         this.#connectionNonces.add(session.connectionNonce)
         await this.#broadcastPresence({ type: 'presence.join', envelope: this.#envelope(), participant: this.#participant(session) }, session.peer.connectionId)
@@ -368,13 +284,14 @@ export class CollaborationRoomCore {
   disconnect(connectionId: string): void {
     const session = this.#removeSession(connectionId)
     if (session) {
-      void this.#enqueuePresence(() => this.#broadcastPresence({
-        type: 'presence.leave',
-        envelope: this.#envelope(),
-        presenceId: session.presenceId,
-        subjectId: session.claims.subjectId,
-        clientId: session.claims.clientId,
-      })).catch(error => {
+      void this.#serialize(async () => {
+        const released = this.#flow.releaseConnection(connectionId)
+        for (const lease of released) await this.#broadcastFlowReleased(lease, 'disconnecting')
+        await this.#enqueuePresence(() => this.#broadcastPresence({
+          type: 'presence.leave', envelope: this.#envelope(), presenceId: session.presenceId,
+          subjectId: session.claims.subjectId, clientId: session.claims.clientId,
+        }))
+      }).catch(error => {
         this.#log('presence_leave_failed', { connectionId, error: errorMessage(error) })
       })
     }
@@ -393,6 +310,11 @@ export class CollaborationRoomCore {
     if (message.type === 'presence.update') {
       if (this.#phase !== 'accepting') return this.#roomError(session, 'draining', 'Room is draining.', 'reconnect', undefined, 250)
       return this.#enqueuePresence(() => this.#presence(session, message))
+    }
+    if (message.type === 'interaction.acquire' || message.type === 'interaction.reserve'
+      || message.type === 'interaction.sample' || message.type === 'interaction.release') {
+      if (this.#phase !== 'accepting') return this.#roomError(session, 'draining', 'Room is draining.', 'reconnect', undefined, 250)
+      return this.#enqueueMutation(() => this.#interaction(session, message))
     }
     if (message.type === 'room.resume') {
       if (message.requestId !== session.requestId) return this.#rejectScope(session)
@@ -429,17 +351,36 @@ export class CollaborationRoomCore {
     const lease = this.#lease
     if (!projection || !lease) throw new Error('Room authority is unavailable.')
     await this.#presenceTail
-    const scope = commandScope(projection.document, message.operation.command)
-    if (this.#commandTouchesForeignInteraction(session, scope, projection.document)) {
-      await this.#roomError(session, 'invalid_operation', 'Node is being edited in another session.', 'none', message.operation.mutationId)
+    const baseSequence = BigInt(message.operation.baseSequence)
+    if (baseSequence !== projection.sequence && message.operation.flowBinding) {
+      await this.#send(session.peer, { type: 'operation.rebase_required', envelope: this.#envelope(), mutationId: message.operation.mutationId, baseSequence: message.operation.baseSequence, authoritativeSequence: projection.sequence.toString(), retry: 'resync' })
       return
     }
-    const baseSequence = BigInt(message.operation.baseSequence)
+    const flowOwner = this.#flowOwner(session)
+    const flowPlan = this.#flow.operationPreflight(projection.document, flowOwner, message.operation.mutationId, message.operation.command, message.operation.flowBinding)
+    if (flowPlan.status === 'denied') {
+      await this.#roomError(session, 'invalid_operation', `Flow operation denied: ${flowPlan.code}.`, 'none', message.operation.mutationId)
+      return
+    }
     let projected: CollaborationPayload
     try { projected = baseSequence === projection.sequence ? this.#dependencies.projector.apply(projection.document, message.operation.command) : projection.document }
-    catch { await this.#roomError(session, 'invalid_operation', 'Operation is invalid.', 'none', message.operation.mutationId); return }
+    catch {
+      if (flowPlan.lease) await this.#settleFailedFlow(flowPlan.lease, message.operation.mutationId)
+      await this.#roomError(session, 'invalid_operation', 'Operation is invalid.', 'none', message.operation.mutationId)
+      return
+    }
+    if (flowPlan.lease && (!flowPlan.expectedPostLanes
+      || !this.#flow.operationPostflight(projected, flowPlan.lease.leaseId, message.operation.mutationId, flowPlan.expectedPostLanes)
+      || !this.#flow.reservationsCurrent(projected, flowPlan.lease.leaseId))) {
+      await this.#settleFailedFlow(flowPlan.lease, message.operation.mutationId)
+      await this.#roomError(session, 'invalid_operation', 'Flow operation topology does not match its reservation.', 'none', message.operation.mutationId)
+      return
+    }
+    if (!flowPlan.lease && !this.#flow.reservationsCurrent(projected)) {
+      await this.#roomError(session, 'invalid_operation', 'Operation would change a reserved flow topology.', 'none', message.operation.mutationId)
+      return
+    }
     const persisted = encodeSemanticCommandForPersistence(message.operation.command)
-    this.#pendingMutationScope = scope
     let result
     try {
       result = await this.#dependencies.persistence.appendOperation({
@@ -452,13 +393,15 @@ export class CollaborationRoomCore {
         operationType: persisted.operationType,
         operationPayload: persisted.operationPayload,
         baseSequence,
-        projection: { documentSchemaVersion: 7, document: projected },
+        projection: { documentSchemaVersion: fileSchemaVersion, document: projected },
       })
       if (result.status === 'committed') this.#projection = result.projection
-    } finally {
-      this.#pendingMutationScope = null
+    } catch (error) {
+      if (flowPlan.lease) await this.#settleFailedFlow(flowPlan.lease, message.operation.mutationId)
+      throw error
     }
     if (result.status === 'committed') {
+      if (flowPlan.lease) await this.#settleCommittedFlow(flowPlan.lease, message.operation.mutationId)
       try { await this.#send(session.peer, { type: 'operation.ack', envelope: this.#envelope(), mutationId: message.operation.mutationId, sequence: result.operation.sequence.toString(), status: 'applied' }) }
       catch { session.peer.close(1011, 'Acknowledgement failed'); this.disconnect(session.peer.connectionId) }
       const applied: CollaborationServerMessage = { type: 'operation.applied', envelope: this.#envelope(), mutationId: message.operation.mutationId, sequence: result.operation.sequence.toString(), subjectId: session.claims.subjectId, command: message.operation.command }
@@ -482,19 +425,23 @@ export class CollaborationRoomCore {
       return
     }
     if (result.status === 'replayed') {
+      if (flowPlan.lease) await this.#settleCommittedFlow(flowPlan.lease, message.operation.mutationId)
       await this.#send(session.peer, { type: 'operation.ack', envelope: this.#envelope(), mutationId: message.operation.mutationId, sequence: result.operation.sequence.toString(), status: 'duplicate' })
       return
     }
     if (result.status === 'sequence-conflict') {
+      if (flowPlan.lease) await this.#settleFailedFlow(flowPlan.lease, message.operation.mutationId)
       await this.#send(session.peer, { type: 'operation.rebase_required', envelope: this.#envelope(), mutationId: message.operation.mutationId, baseSequence: message.operation.baseSequence, authoritativeSequence: result.currentSequence.toString(), retry: 'resync' })
       return
     }
     if (result.status === 'access-revoked' || result.status === 'access-conflict') {
+      if (flowPlan.lease) await this.#settleFailedFlow(flowPlan.lease, message.operation.mutationId)
       await this.#roomError(session, 'access_revoked', 'File access changed.', 'none', message.operation.mutationId)
       session.peer.close(4403, 'File access changed')
       this.disconnect(session.peer.connectionId)
       return
     }
+    if (flowPlan.lease) await this.#settleFailedFlow(flowPlan.lease, message.operation.mutationId)
     await this.#roomError(
       session,
       result.status === 'mutation-conflict' ? 'mutation_id_reused' : 'internal_error',
@@ -502,6 +449,163 @@ export class CollaborationRoomCore {
       result.status === 'stale-fence' ? 'reconnect' : 'none',
       message.operation.mutationId,
     )
+  }
+
+  async #interaction(session: Session, message: InteractionAcquireMessage | InteractionReserveMessage | InteractionSampleMessage | InteractionReleaseMessage): Promise<void> {
+    const projection = this.#projection
+    if (!projection) throw new Error('Room projection is unavailable.')
+    const owner = this.#flowOwner(session)
+    if (message.type !== 'interaction.release') {
+      const claims = await this.#refreshClaims(session)
+      if (claims.status !== 'current') {
+        await this.#rejectClaims(session, claims.status)
+        this.disconnect(session.peer.connectionId)
+        return
+      }
+      if (claims.claims.role !== 'owner') {
+        await this.#interactionResult(session, 'acquire', 'denied', message.presentation, null, message.localClaimGeneration, 1, 'read_only')
+        return
+      }
+      const candidateLease = 'leaseId' in message ? this.#flow.find(message.leaseId) : null
+      const ownedCandidateLease = candidateLease?.owner.connectionId === session.peer.connectionId
+        && candidateLease.owner.presenceId === session.presenceId
+        && candidateLease.owner.subjectId === session.claims.subjectId
+        && candidateLease.owner.clientId === session.claims.clientId
+        && candidateLease.interactionId === message.presentation.identity.interactionId
+        && candidateLease.localClaimGeneration <= message.localClaimGeneration
+        ? candidateLease : null
+      const presentationDenial = this.#presentationDenial(projection.document, message.presentation, ownedCandidateLease)
+      if (presentationDenial) {
+        await this.#interactionResult(session, message.type === 'interaction.acquire' ? 'acquire' : 'reserve', 'denied', message.presentation, 'leaseId' in message ? message.leaseId : null, message.localClaimGeneration, 'reservationGeneration' in message ? message.reservationGeneration : 1, presentationDenial)
+        if (message.type !== 'interaction.acquire') {
+          const invalidated = this.#flow.invalidate(owner, message.leaseId, message.presentation.identity.interactionId, message.localClaimGeneration)
+          if (invalidated) await this.#broadcastFlowReleased(invalidated, 'failed')
+        }
+        return
+      }
+    }
+    if (message.type === 'interaction.acquire') {
+      const decision = this.#flow.acquire(projection.document, owner, message.localClaimGeneration, message.presentation, message.leaseId)
+      await this.#interactionResult(session, 'acquire', decision.status, decision.lease?.presentation ?? message.presentation, decision.lease?.leaseId ?? null, decision.lease?.localClaimGeneration ?? message.localClaimGeneration, decision.lease?.reservationGeneration ?? 1, decision.denialCode)
+      if (decision.lease && decision.status === 'granted') await this.#broadcastFlowSample(decision.lease)
+      return
+    }
+    if (message.type === 'interaction.reserve') {
+      const decision = this.#flow.reserve(projection.document, owner, message.leaseId, message.localClaimGeneration, message.reservationGeneration, message.targetLane, message.presentation)
+      await this.#interactionResult(session, 'reserve', decision.status, decision.lease?.presentation ?? message.presentation, decision.lease?.leaseId ?? message.leaseId, decision.lease?.localClaimGeneration ?? message.localClaimGeneration, decision.lease?.reservationGeneration ?? message.reservationGeneration, decision.denialCode)
+      if (decision.lease && decision.status !== 'denied') await this.#broadcastFlowSample(decision.lease)
+      else if (decision.denialCode === 'invalid_topology' || decision.denialCode === 'component_slot_unverified') {
+        const invalidated = this.#flow.invalidate(owner, message.leaseId, message.presentation.identity.interactionId, message.localClaimGeneration)
+        if (invalidated) await this.#broadcastFlowReleased(invalidated, 'failed')
+      }
+      return
+    }
+    if (message.type === 'interaction.sample') {
+      const decision = this.#flow.sample(projection.document, owner, message.leaseId, message.localClaimGeneration, message.reservationGeneration, message.presentation)
+      if (decision.lease && decision.status !== 'denied') await this.#broadcastFlowSample(decision.lease)
+      else await this.#interactionResult(session, 'reserve', 'denied', message.presentation, message.leaseId, message.localClaimGeneration, message.reservationGeneration, decision.denialCode)
+      if (decision.status === 'denied' && decision.denialCode === 'invalid_topology') {
+        const invalidated = this.#flow.invalidate(owner, message.leaseId, message.presentation.identity.interactionId, message.localClaimGeneration)
+        if (invalidated) await this.#broadcastFlowReleased(invalidated, 'failed')
+      }
+      return
+    }
+    const decision = this.#flow.release(owner, message.pageId, message.leaseId, message.interactionId, message.localClaimGeneration, message.reservationGeneration, message.terminalSampleSequence, message.reason)
+    await this.#send(session.peer, {
+      type: 'interaction.result', envelope: this.#envelope(), pageId: decision.lease?.pageId ?? message.pageId, action: 'release', status: decision.status,
+      interactionId: decision.lease?.interactionId ?? message.interactionId, leaseId: decision.lease?.leaseId ?? message.leaseId,
+      localClaimGeneration: decision.lease?.localClaimGeneration ?? message.localClaimGeneration, reservationGeneration: decision.lease?.reservationGeneration ?? message.reservationGeneration,
+      sampleSequence: decision.lease?.latestSequence ?? message.terminalSampleSequence, denialCode: decision.denialCode,
+    })
+    if (decision.status === 'released' && decision.lease) await this.#broadcastFlowReleased(decision.lease, message.reason)
+  }
+
+  #presentationDenial(document: CollaborationPayload, presentation: FlowDragPresentation, existingLease: FlowLease | null = null): FlowDragDenialCode | null {
+    if (containsReservedPeerFlowInteractionId(presentation)) return 'invalid_topology'
+    if (existingLease) {
+      const initialFence = existingLease.presentation.fence
+      const fence = presentation.fence
+      if (fence.fileId !== initialFence.fileId || fence.fileRevision !== initialFence.fileRevision
+        || fence.measurementRevision !== initialFence.measurementRevision || fence.documentRevision !== initialFence.documentRevision
+        || fence.layoutGeneration !== initialFence.layoutGeneration || fence.pageId !== initialFence.pageId
+        || fence.pageRootId !== initialFence.pageRootId) return 'invalid_topology'
+    }
+    const authority = createFlowTopologyAuthority(document, presentation.fence.pageId, existingLease?.presentation.fence.fileRevision)
+    if (!authority) return 'missing_page'
+    if (presentation.target) {
+      const targetDenial = flowTargetDenial(document, {
+        pageId: presentation.fence.pageId, pageRootId: presentation.fence.pageRootId,
+        sourceNodeId: presentation.original.documentNodeId,
+        sourceLane: { parentId: presentation.original.sourceRelationship.parentId, slot: presentation.original.sourceRelationship.slot },
+        targetLane: { parentId: presentation.target.parentId, slot: presentation.target.slot },
+        rawIndex: presentation.target.rawIndex, semanticIndex: presentation.target.semanticIndex, line: presentation.target.line,
+      })
+      if (targetDenial) return targetDenial
+    }
+    const storedMode = sourcePositionMode(document, presentation.original.documentNodeId)
+    if (storedMode === null || (storedMode === 'flow' ? presentation.original.mode !== 'flow' : presentation.original.mode !== 'absolute')) return 'invalid_topology'
+    return validateFlowDragPresentation(presentation, {
+      interactionId: presentation.identity.interactionId,
+      gestureGeneration: presentation.identity.gestureGeneration,
+      sequence: presentation.identity.sampleSequence,
+    }, presentation.fence, authority) ? null : 'invalid_topology'
+  }
+
+  #flowOwner(session: Session): FlowLeaseOwner {
+    return Object.freeze({ connectionId: session.peer.connectionId, presenceId: session.presenceId, subjectId: session.claims.subjectId, clientId: session.claims.clientId })
+  }
+
+  #flowRosterEntry(lease: FlowLease): Extract<CollaborationServerMessage, { type: 'interaction.roster' }>['interactions'][number] {
+    return Object.freeze({
+      pageId: lease.pageId, presenceId: lease.owner.presenceId, subjectId: lease.owner.subjectId, clientId: lease.owner.clientId,
+      leaseId: lease.leaseId, localClaimGeneration: lease.localClaimGeneration,
+      reservationGeneration: lease.reservationGeneration, presentation: canonicalPeerFlowPresentation(lease.presentation, lease.leaseId),
+    })
+  }
+
+  #interactionResult(
+    session: Session,
+    action: InteractionResultAction,
+    status: 'granted' | 'retained' | 'released' | 'denied',
+    presentation: FlowDragPresentation,
+    leaseId: string | null,
+    localClaimGeneration: number,
+    reservationGeneration: number,
+    denialCode: FlowDragDenialCode | null,
+  ): Promise<void> {
+    return this.#send(session.peer, {
+      type: 'interaction.result', envelope: this.#envelope(), pageId: presentation.fence.pageId, action, status,
+      interactionId: presentation.identity.interactionId, leaseId, localClaimGeneration, reservationGeneration,
+      sampleSequence: presentation.identity.sampleSequence, denialCode,
+    })
+  }
+
+  #broadcastFlowSample(lease: FlowLease): Promise<void> {
+    return this.#broadcastPresence({
+      type: 'interaction.sample', envelope: this.#envelope(), pageId: lease.pageId,
+      presenceId: lease.owner.presenceId, subjectId: lease.owner.subjectId, clientId: lease.owner.clientId,
+      leaseId: lease.leaseId, localClaimGeneration: lease.localClaimGeneration,
+      reservationGeneration: lease.reservationGeneration, presentation: canonicalPeerFlowPresentation(lease.presentation, lease.leaseId),
+    }, lease.owner.connectionId)
+  }
+
+  #broadcastFlowReleased(lease: FlowLease, reason: InteractionReleaseMessage['reason']): Promise<void> {
+    return this.#broadcastPresence({
+      type: 'interaction.released', envelope: this.#envelope(), pageId: lease.pageId,
+      presenceId: lease.owner.presenceId, subjectId: lease.owner.subjectId, clientId: lease.owner.clientId,
+      interactionId: peerFlowInteractionId(lease.leaseId), leaseId: lease.leaseId, localClaimGeneration: lease.localClaimGeneration,
+      reservationGeneration: lease.reservationGeneration, terminalSampleSequence: lease.latestSequence, reason,
+    }, lease.owner.connectionId)
+  }
+
+  async #settleCommittedFlow(lease: FlowLease, mutationId: string): Promise<void> {
+    const settled = this.#flow.settleMutation(lease.leaseId, mutationId, true)
+    if (settled) await this.#broadcastFlowReleased(lease, 'committed')
+  }
+
+  async #settleFailedFlow(lease: FlowLease, mutationId: string): Promise<void> {
+    const settled = this.#flow.settleMutation(lease.leaseId, mutationId, true)
+    if (settled) await this.#broadcastFlowReleased(lease, 'failed')
   }
 
   async #presence(session: Session, message: PresenceUpdateMessage): Promise<void> {
@@ -522,12 +626,6 @@ export class CollaborationRoomCore {
       await this.#roomError(current, 'invalid_operation', 'Presence update is invalid.', 'none')
       return
     }
-    const previousInteraction = current.presence.interaction ?? null
-    const nextInteraction = presence.interaction ?? null
-    if (nextInteraction && !interactionTransformsAreScoped(nextInteraction)) return
-    if (nextInteraction && (!this.#projection || !interactionTargetsProjection(this.#projection.document, nextInteraction))) return
-    if (previousInteraction && nextInteraction && !sameInteractionLock(previousInteraction, nextInteraction)) return
-    if (!previousInteraction && nextInteraction && this.#interactionConflicts(current, nextInteraction)) return
     const updated = Object.freeze({ ...current, presenceSequence: message.sequence, presence })
     const changed: CollaborationServerMessage = { type: 'presence.changed', envelope: this.#envelope(), participant: this.#participant(updated) }
     const currentParticipants = [...this.#sessions.values()].map(candidate => this.#participant(candidate))
@@ -543,32 +641,7 @@ export class CollaborationRoomCore {
       return
     }
     this.#sessions.set(session.peer.connectionId, updated)
-    const interactionTransition = Boolean(previousInteraction) !== Boolean(nextInteraction)
-    await this.#broadcastPresence(changed, interactionTransition ? undefined : session.peer.connectionId)
-  }
-
-  #interactionConflicts(session: Session, interaction: NonNullable<PresenceState['interaction']>): boolean {
-    const requested = new Set(interaction.nodeIds)
-    const document = this.#projection?.document
-    if (!document) return true
-    if (this.#pendingMutationScope && scopeTouchesInteraction(document, this.#pendingMutationScope, interaction)) return true
-    for (const candidate of this.#sessions.values()) {
-      if (candidate.peer.connectionId === session.peer.connectionId) continue
-      const active = candidate.presence.interaction
-      if (!active || active.pageId !== interaction.pageId) continue
-      if (nodeScopesOverlap(document, requested, new Set(active.nodeIds))) return true
-    }
-    return false
-  }
-
-  #commandTouchesForeignInteraction(session: Session, scope: CommandScope, document: CollaborationPayload): boolean {
-    if (scope.nodeIds.size === 0 && scope.pageIds.size === 0) return false
-    for (const candidate of this.#sessions.values()) {
-      if (candidate.peer.connectionId === session.peer.connectionId) continue
-      const active = candidate.presence.interaction
-      if (active && scopeTouchesInteraction(document, scope, active)) return true
-    }
-    return false
+    await this.#broadcastPresence(changed, session.peer.connectionId)
   }
 
   #participant(session: Session): PresenceParticipant {
@@ -613,7 +686,11 @@ export class CollaborationRoomCore {
         this.#log('room_error_delivery_failed', { connectionId: session.peer.connectionId, error: errorMessage(error) })
       })
       const stale = this.#removeSession(session.peer.connectionId)
-      if (stale) removed.push(stale)
+      if (stale) {
+        const released = this.#flow.releaseConnection(stale.peer.connectionId)
+        for (const lease of released) await this.#broadcastFlowReleased(lease, 'disconnecting')
+        removed.push(stale)
+      }
     }
     for (const session of removed) {
       await this.#broadcastPresence({
@@ -703,7 +780,7 @@ export class CollaborationRoomCore {
   }
 
   #localClaimsCheck(expected: VerifiedRoomTicketClaims, nowUnixMs = Date.now()): ClaimsCheck['status'] {
-    if (expected.protocolEpoch !== 2
+    if (expected.protocolEpoch !== collaborationProtocolEpoch
       || expected.fileId !== this.#options.identity.fileId
       || expected.generationId !== this.#options.identity.generationId) return 'revoked'
     return expected.expiresAtUnixMs > nowUnixMs ? 'current' : 'refresh-required'
@@ -746,7 +823,7 @@ export class CollaborationRoomCore {
 
   #envelope(): ServerRoomEnvelope {
     if (!this.#lease) throw new Error('Room lease is unavailable.')
-    return { protocolEpoch: 2, schemaVersion: 1, room: { fileId: this.#options.identity.fileId, generationId: this.#options.identity.generationId }, fenceToken: this.#lease.fencingToken.toString() }
+    return { protocolEpoch: collaborationProtocolEpoch, schemaVersion: 1, room: { fileId: this.#options.identity.fileId, generationId: this.#options.identity.generationId }, fenceToken: this.#lease.fencingToken.toString() }
   }
 
   #removeSession(connectionId: string): Session | null {
@@ -784,7 +861,7 @@ export class CollaborationRoomCore {
     const envelope = this.#envelope()
     this.#assertMessageFits({ type: 'load.phase', envelope, requestId, phase: 'stream' })
     this.#assertMessageFits({
-      type: 'snapshot.begin', envelope, requestId, snapshotId, documentSchemaVersion: 7,
+      type: 'snapshot.begin', envelope, requestId, snapshotId, documentSchemaVersion: fileSchemaVersion,
       baseSequence: projection.sequence.toString(), compression: 'none', contentEncoding: 'utf-8',
       storedByteLength: document.byteLength, documentByteLength: document.byteLength,
       objectDigest: projection.documentDigest, documentDigest: projection.documentDigest, chunkCount,
@@ -804,7 +881,7 @@ export class CollaborationRoomCore {
     const { requestId, role, projection, snapshotId, document, chunkCount, envelope } = plan
     await this.#send(peer, { type: 'load.phase', envelope, requestId, phase: 'stream' })
     await this.#send(peer, {
-      type: 'snapshot.begin', envelope, requestId, snapshotId, documentSchemaVersion: 7,
+      type: 'snapshot.begin', envelope, requestId, snapshotId, documentSchemaVersion: fileSchemaVersion,
       baseSequence: projection.sequence.toString(), compression: 'none', contentEncoding: 'utf-8',
       storedByteLength: document.byteLength, documentByteLength: document.byteLength,
       objectDigest: projection.documentDigest, documentDigest: projection.documentDigest, chunkCount,
@@ -850,6 +927,7 @@ export class CollaborationRoomCore {
 
   #closeAll(code: number, reason: string): void {
     for (const session of this.#sessions.values()) session.peer.close(code, reason)
+    this.#flow.invalidateAll()
     this.#sessions.clear()
     this.#connectionNonces.clear()
   }

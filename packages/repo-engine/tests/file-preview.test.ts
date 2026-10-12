@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateFileDocument } from '../src/file-document.js'
+import { legacyTextProperties, validateFileDocument } from '../src/file-document.js'
 import type { Appearance, ColorValue, ComponentNode, FileDocument, ImageAssetReference, Paint, PrimitiveNode } from '../src/file-document.js'
 import { projectPreviewPage } from '../src/file-preview.js'
 import type { Atom } from '../src/types.js'
@@ -22,7 +22,7 @@ const pixel = (id: string, sha256 = 'a'.repeat(64)): ImageAssetReference => ({ i
  * a half-opacity instance appearance with a red border on every side; caption has no appearance.
  */
 const fixture = (): FileDocument => validateFileDocument({
-  schemaVersion: 7,
+  schemaVersion: 9,
   fileId: 'file-1',
   revision: 9,
   pages: [{ id: 'page-1', name: 'Landing', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Empty', rootNodeId: 'root-2' }],
@@ -37,7 +37,7 @@ const fixture = (): FileDocument => validateFileDocument({
     outer: primitive('outer', 'frame', { left: -50, top: 60, width: 400, height: 300, overflow: 'visible' }, { fills: [solid('outer:fill:1', tok('surface'))] }),
     inner: primitive('inner', 'frame', { left: 12, top: 18, width: 100, height: 80 }, { fills: [solid('inner:fill:1', lit('#ABCDEF'))] }),
     dot: primitive('dot', 'shape', { left: 4, top: 6, width: 8, height: 8, rotation: 45, flipX: true }, { fills: [{ id: 'dot:fill:1', type: 'gradient', shape: 'linear', angle: 90, center, length: 1, interpolation: 'srgb', stops: [{ id: 'b', position: 1, color: tok('surface') }, { id: 'a', position: 0, color: lit('#000000') }] }] }),
-    caption: { ...primitive('caption', 'text', { left: 0, top: 400, width: 200, height: 24 }), text: 'Welcome' },
+    caption: { ...primitive('caption', 'text', { left: 0, top: 400, width: 200, height: 24 }), text: 'Welcome', ...legacyTextProperties() },
   },
   relationships: {
     card: { parentId: 'root-1', orderKey: 'U' },
@@ -61,7 +61,7 @@ const ramp = (end: string) => ({ fills: [{ type: 'gradient', shape: 'linear', an
 describe('preview projection', () => {
   it('lists component children of the root in order as root ids, with slot children per slot and instance appearance', () => {
     const { document } = projectPreviewPage(fixture(), 'page-1')!
-    expect(document.version).toBe(1)
+    expect(document.version).toBe(2)
     expect(document.revision).toBe(9)
     expect(document.rootIds).toEqual(['card', 'solo'])
     const red = { color: '#ff0000', width: 2, style: 'solid' }
@@ -109,9 +109,35 @@ describe('preview projection', () => {
       { id: 'outer', kind: 'frame', name: 'outer name', x: -50, y: 60, width: 400, height: 300, rotation: 0, appearance: flat('#ffffff'), parentId: null, clip: false },
       { id: 'inner', kind: 'frame', name: 'inner name', x: 12, y: 18, width: 100, height: 80, rotation: 0, appearance: flat('#abcdef'), parentId: 'outer', clip: true },
       { id: 'dot', kind: 'shape', name: 'dot name', x: 4, y: 6, width: 8, height: 8, rotation: 45, flipX: true, appearance: ramp('#ffffff'), parentId: 'inner' },
-      { id: 'caption', kind: 'text', name: 'caption name', x: 0, y: 400, width: 200, height: 24, rotation: 0, text: 'Welcome', parentId: null },
+      { id: 'caption', kind: 'text', name: 'caption name', x: 0, y: 400, width: 200, height: 24, rotation: 0, text: 'Welcome', ...legacyTextProperties(), parentId: null },
     ])
     expect(document).not.toHaveProperty('assets')
+  })
+
+  it('PAPER-FLEX-001/002 projects primitive flex participation without changing legacy freeform nodes or transform authority', () => {
+    const file = fixture()
+    ;(file.nodes.outer as PrimitiveNode).layout = {
+      item: { position: { mode: 'freeform' } },
+      container: { display: 'flex', gap: { x: 8, y: 10 }, flex: { direction: 'row', wrap: 'wrap', justify: 'start', align: 'center' } },
+      spacing: { padding: { x: 12, y: 16 } },
+    }
+    ;(file.nodes.inner as PrimitiveNode).layout = {
+      item: { position: { mode: 'flow' }, flex: { shrink: 0 } },
+      container: { display: 'freeform' },
+    }
+    ;(file.nodes.dot as PrimitiveNode).layout = { item: { position: { mode: 'absolute', left: { kind: 'px', value: 7 }, top: { kind: 'percent', value: 25 } } } }
+    const { document } = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!
+    const byId = Object.fromEntries(document.canvas.elements.map(element => [element.id, element]))
+
+    expect(document.version).toBe(2)
+    expect(byId.outer!.layout).toStrictEqual({
+      mode: 'freeform',
+      declarations: { display: 'flex', 'flex-direction': 'row', 'flex-wrap': 'wrap', 'justify-content': 'flex-start', 'align-items': 'center', 'column-gap': '8px', 'row-gap': '10px', 'padding-top': '16px', 'padding-right': '12px', 'padding-bottom': '16px', 'padding-left': '12px' },
+    })
+    expect(byId.inner!.layout).toStrictEqual({ mode: 'flow', declarations: { 'flex-shrink': '0' } })
+    expect(byId.dot!.layout).toStrictEqual({ mode: 'absolute', declarations: { position: 'absolute', left: '7px', top: '25%' } })
+    expect(byId.dot).toMatchObject({ rotation: 45, flipX: true })
+    expect(byId.caption).not.toHaveProperty('layout')
   })
 
   it('resolves source tokens against the supplied palette', () => {
@@ -158,7 +184,7 @@ describe('preview projection', () => {
   })
 
   it('projects an empty page and returns null for an unknown page', () => {
-    expect(projectPreviewPage(fixture(), 'page-2')).toStrictEqual({ document: { version: 1, revision: 9, rootIds: [], nodes: {}, frame: { name: 'Empty', width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [] } }, layout: [], themeDiagnostics: [] })
+    expect(projectPreviewPage(fixture(), 'page-2')).toStrictEqual({ document: { version: 2, revision: 9, rootIds: [], nodes: {}, frame: { name: 'Empty', width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [] } }, layout: [], themeDiagnostics: [] })
     expect(projectPreviewPage(fixture(), 'page-x')).toBeNull()
   })
 })
