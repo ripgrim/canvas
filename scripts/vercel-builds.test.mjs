@@ -54,3 +54,13 @@ test('the preview Vercel build is integrity-bound to a generated registry', () =
   assert.match(script, /prepareLocalRegistry/)
   assert.match(script, /localRegistryEnvironment/)
 })
+
+test('the local registry build prepares sync protocol before preview runtime', () => {
+  const script = readFileSync(resolve(root, 'scripts/with-local-registry.mjs'), 'utf8')
+  const syncProtocol = script.indexOf("'@canvas/sync-protocol...'")
+  const previewRuntime = script.indexOf("'@canvas/preview-runtime'")
+
+  assert.notEqual(syncProtocol, -1)
+  assert.notEqual(previewRuntime, -1)
+  assert.ok(syncProtocol < previewRuntime)
+})
