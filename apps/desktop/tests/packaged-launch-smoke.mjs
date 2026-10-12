@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const mode = process.argv[2]
+const mode = process.argv.slice(2).find(argument => argument !== '--')
 assert.ok(mode === 'local' || mode === 'staging' || mode === 'production', 'Pass the packaged desktop mode to the smoke test.')
 
 const executable = resolve(desktopRoot, 'release', mode, 'win-unpacked', 'Comp Canvas.exe')
