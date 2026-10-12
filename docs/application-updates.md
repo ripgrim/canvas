@@ -42,13 +42,15 @@ Before installing, the renderer waits for any active gesture and document persis
 
 Each channel has a private R2 bucket behind the read-only update Worker. Installers and blockmaps are immutable versioned objects. `latest.yml` or `nightly.yml` is the only mutable pointer and is uploaded last. The Worker rejects writes and arbitrary object paths, supports byte ranges, disables caching for channel manifests, and caches versioned artifacts immutably.
 
-The updater validates the SHA-512 recorded by electron-builder and the Windows Authenticode publisher. The release workflow refuses to publish without the certificate, password, expected publisher, R2 bucket, and scoped Cloudflare credentials.
+The updater validates the SHA-512 recorded by electron-builder and the Windows Authenticode publisher. When the certificate, password, and expected publisher are all configured, the workflow requires the R2 bucket and scoped Cloudflare credentials before advancing the automatic update channel. A partially configured signing identity fails closed.
+
+Until a Windows certificate is configured, the workflow may publish an unsigned manual-download installer to GitHub Releases. That build contains no updater provider metadata, never advances R2, and cannot be offered through automatic updates.
 
 ## Release sequence
 
 1. A non-draft pull request into `staging` or `main` runs database validation and creates an unsigned, non-updatable review installer.
 2. Only an owner-triggered merge is eligible for release. Production must come from `staging`.
-3. The merged revision is packaged with its channel version, generic update metadata, and protected signing identity.
+3. The merged revision is packaged with its channel version. A complete signing identity adds generic update metadata; an unsigned build remains manual-download only.
 4. The channel database migration completes.
 5. GitHub Release publishes the exact workflow artifact.
 6. The same installer and blockmap bytes are uploaded to R2.
