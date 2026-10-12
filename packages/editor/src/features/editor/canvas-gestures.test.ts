@@ -166,6 +166,19 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
     expect(interactions.endInteraction).toHaveBeenCalledOnce()
   })
 
+  it('AT-CAN-006 resizes the visible side of a 180-degree node without moving its opposite corner', () => {
+    const { store, gestures } = setup()
+    expect(store.commands.setStyles('frame', { rotation: 180 })).toBe(true)
+
+    gestures.handlePointerDown(pointer(550, 450), 'frame', 'top-left')
+    gestures.pointerMove(pointer(560, 470))
+
+    expect(store.getSnapshot().transient).toMatchObject({
+      kind: 'resize',
+      rects: { frame: { x: 0, y: 0, width: 250, height: 200 } },
+    })
+  })
+
   it('AT-CAN-005 releases the transient preview and interaction when a semantic commit throws', () => {
     const interactions: CanvasInteractionController = {
       beginInteraction: vi.fn(() => 'interaction-1'),

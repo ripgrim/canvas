@@ -241,7 +241,7 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
       else { context.fillRect(Math.round(screen.x), Math.round(screen.y), Math.round(screen.width), Math.round(screen.height)); context.restore(); strokeRect(context, screen, palette.selection, chrome.outlineWidth); context.save() }
       context.restore()
     }
-    const showHandles = selected.length === 1 && (state.tool === 'move' || state.tool === 'scale') && (!transient || transient.kind === 'resize') && state.renaming === null
+    const showHandles = selected.length === 1 && !scene.byId.get(selected[0]!)?.locked && (state.tool === 'move' || state.tool === 'scale') && (!transient || transient.kind === 'resize') && state.renaming === null
     if (showHandles && selectedGeometry[0]) {
       painted.handles = selected[0]!
       const half = chrome.handleSize / 2

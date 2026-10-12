@@ -32,6 +32,20 @@ function collaboration(initial: EditorCollaborationSnapshot) {
 }
 
 describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
+  it('keeps local canvas interactions editable when no collaboration transport is configured', async () => {
+    const docs = documents()
+    const service = createCollaborationService(docs.api, fakeWindow, animationClock().clock)
+    service.start()
+    const interactionId = service.beginInteraction('move', ['node-1'])
+    expect(interactionId).toBeTypeOf('string')
+    expect(service.updateInteraction(interactionId!, [{ nodeId: 'node-1', dx: 8, dy: 5 }])).toBe(true)
+    expect(service.canCommitInteraction(interactionId!)).toBe(true)
+    await expect(service.waitForCommitInteraction(interactionId!)).resolves.toBe(true)
+    service.endInteraction(interactionId!)
+    expect(service.canCommitInteraction(interactionId!)).toBe(false)
+    service.stop()
+  })
+
   it('publishes every transform immediately and releases the node lock', () => {
     const docs = documents()
     const local = participant('local', 'tab-local')

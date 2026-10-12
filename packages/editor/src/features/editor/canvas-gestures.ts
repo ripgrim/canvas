@@ -7,7 +7,7 @@ import { sceneGeometry } from './scene-geometry'
 import { ancestors, buildScene, childrenOf, clickTarget, containingFrameAt, descendants, drillTarget, marqueeTargets, symmetricDifference } from './canvas-scene'
 import type { Scene, SceneNode } from './canvas-scene'
 import { canvasCreationBounds } from './canvas-drawing'
-import { dragThresholdCss, flowInsertIndex, handleDragThresholdCss, normalizeRect, resizeRect, roundRect, screenToWorld, snapRect, snapThresholdCss } from './canvas-math'
+import { dragThresholdCss, flowInsertIndex, handleDragThresholdCss, normalizeRect, resizeRotatedRect, roundRect, screenToWorld, snapRect, snapThresholdCss } from './canvas-math'
 import type { Camera, Point, Rect, Size } from './canvas-math'
 import { flexInsertIndex } from './flex-reorder'
 import { collaborationService } from '../collaboration/collaboration-service'
@@ -36,7 +36,7 @@ type Gesture =
   | (Base & { kind: 'press'; target: SceneNode; dragTarget: SceneNode; deferred: boolean })
   | (Base & { kind: 'move'; ids: string[]; startRects: Record<string, Rect>; flow: { id: string; parentId: string } | null })
   | (Base & { kind: 'draw'; elementKind: PrimitiveKind })
-  | (Base & { kind: 'resize'; id: string; handle: ResizeHandle; startRect: Rect })
+  | (Base & { kind: 'resize'; id: string; handle: ResizeHandle; startRect: Rect; rotation: number })
 
 /**
  * One gesture state machine for selection, marquee, freeform drag, flow reorder, nesting, drawing, resizing, and panning.
@@ -57,7 +57,7 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
   const worldAt = (base: Base, event: Pick<PointerLike, 'clientX' | 'clientY'>) => screenToWorld(viewportPoint(event), base.camera, base.size)
   const distance = (base: Base, event: Pick<PointerLike, 'clientX' | 'clientY'>) => Math.hypot(event.clientX - base.startClient.x, event.clientY - base.startClient.y)
   const deep = (event: Pick<PointerLike, 'ctrlKey' | 'metaKey'>) => event.ctrlKey || event.metaKey
-  const movable = (scene: Scene, id: string) => { const node = scene.byId.get(id); return Boolean(node && !node.flow) }
+  const movable = (scene: Scene, id: string) => { const node = scene.byId.get(id); return Boolean(node && !node.flow && !node.locked) }
   const setTransient = (transient: CanvasTransient | null) => store.setTransient(transient)
   const syncInteraction = () => {
     const state = store.getSnapshot()
@@ -247,7 +247,7 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
       if (!state.file || state.blocked || event.button !== 0) return false
       const base = snapshot(event)
       const node = base.scene.byId.get(id)
-      if (!node) return false
+      if (!node || node.locked) return false
       if (!state.selection.includes(id)) store.select(id, { additive: event.shiftKey })
       gesture = { ...base, kind: 'press', target: node, dragTarget: node, deferred: state.selection.includes(id) }
       return true
@@ -257,12 +257,12 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
       if (!state.file || state.blocked || event.button !== 0) return false
       const base = snapshot(event)
       const node = base.scene.byId.get(id)
-      if (!node) return false
+      if (!node || node.locked) return false
       const lockedIds = [id, ...descendants(base.scene, id).map(descendant => descendant.id)]
       const acquired = interactions.beginInteraction('resize', lockedIds)
       if (!acquired) return false
       interactionId = acquired
-      gesture = { ...base, kind: 'resize', id, handle, startRect: node.rect }
+      gesture = { ...base, kind: 'resize', id, handle, startRect: node.rect, rotation: node.rotation }
       return true
     },
     pointerMove: (event: PointerLike) => {
@@ -315,7 +315,7 @@ export function createCanvasGestures(store = documentStore, geometry = sceneGeom
         current.moved = true
         const world = worldAt(current, event)
         const delta = { x: world.x - current.startWorld.x, y: world.y - current.startWorld.y }
-        const rect = roundRect(resizeRect(current.startRect, current.handle, delta, { symmetric: event.altKey, proportional: event.shiftKey }))
+        const rect = roundRect(resizeRotatedRect(current.startRect, current.handle, delta, current.rotation, { symmetric: event.altKey, proportional: event.shiftKey }))
         const contentLocked = deep(event)
         setTransient({ kind: 'resize', rects: { [current.id]: rect }, starts: { [current.id]: current.startRect }, appearances: { [current.id]: resizedAppearance(current.id, current.startRect, rect, contentLocked) }, contentLocked })
         if (!syncInteraction()) cancel()

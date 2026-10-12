@@ -2,9 +2,24 @@ import { Container } from "@cloudflare/containers"
 import { validateCoordinatorEnv } from "./config.js"
 import type { SyncCoordinatorEnv } from "./config.js"
 import { proxyRoomUpgrade } from "./index.js"
+import type { DurableObjectContext } from "./platform.js"
 
 const roomContainerPort = 4325
 type ContainerContext = ConstructorParameters<typeof Container<SyncCoordinatorEnv>>[0]
+
+export class LocalFileSyncRoom {
+  readonly #context: DurableObjectContext
+  readonly #env: SyncCoordinatorEnv
+
+  constructor(context: DurableObjectContext, env: SyncCoordinatorEnv) {
+    this.#context = context
+    this.#env = env
+  }
+
+  fetch(request: Request): Promise<Response> {
+    return proxyRoomUpgrade({ request, env: this.#env, storage: this.#context.storage })
+  }
+}
 
 export class FileSyncRoom extends Container<SyncCoordinatorEnv> {
   readonly #context: ContainerContext

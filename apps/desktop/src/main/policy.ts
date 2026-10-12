@@ -1,4 +1,6 @@
-import type { AuthRequest, RepositoryConnectionRequest, RepositoryRequest } from '../preload/contracts'
+import type { AuthRequest, CollaborationRequest, RepositoryConnectionRequest, RepositoryRequest, UpdateRequest } from '../preload/contracts'
+import type { EditorCollaborationInteraction, EditorCollaborationPatch, EditorCollaborationPoint, EditorCollaborationSelection, EditorCollaborationTransform, EditorPersistenceIntent } from '@canvas/editor/capabilities'
+import { validateFileCommand } from '@canvas/repo-engine/file-document'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { parseGitHubCloneRequest } from '@canvas/repository'
 
@@ -61,7 +63,7 @@ export function parseRepositoryRequest(value: unknown): RepositoryRequest {
   const { method, args } = candidate
   if (typeof method !== 'string' || !Array.isArray(args)) throw new Error('Invalid command.')
   if (method === 'saveFile') {
-    if (args.length !== 2 || !Number.isSafeInteger(args[1]) || args[1] < 0 || args[1] >= Number.MAX_SAFE_INTEGER) throw new Error('Invalid command.')
+    if ((args.length !== 2 && args.length !== 3) || !Number.isSafeInteger(args[1]) || args[1] < 0 || args[1] >= Number.MAX_SAFE_INTEGER) throw new Error('Invalid command.')
     const file = args[0]
     if (!file || typeof file !== 'object' || Array.isArray(file) || Object.keys(file).sort().join(',') !== 'fileId,nodes,pages,relationships,revision,schemaVersion,theme') throw new Error('Invalid command.')
     const stack: { value: unknown; depth: number }[] = [{ value: file, depth: 0 }]
@@ -86,7 +88,15 @@ export function parseRepositoryRequest(value: unknown): RepositoryRequest {
       } else if (typeof entry.value !== 'boolean') throw new Error('Invalid command.')
       if (characters > 4_000_000) throw new Error('Invalid command.')
     }
-    return { method, args: [file as FileDocument, args[1]] }
+    let intent: EditorPersistenceIntent | undefined
+    if (args.length === 3) {
+      const candidateIntent = args[2]
+      if (!candidateIntent || typeof candidateIntent !== 'object' || Array.isArray(candidateIntent) || Object.keys(candidateIntent).sort().join(',') !== 'commands,kind') throw new Error('Invalid command.')
+      const record = candidateIntent as { kind?: unknown; commands?: unknown }
+      if (record.kind !== 'commands' || !Array.isArray(record.commands) || record.commands.length > 256) throw new Error('Invalid command.')
+      intent = { kind: 'commands', commands: record.commands.map(command => validateFileCommand(command)) }
+    }
+    return intent ? { method, args: [file as FileDocument, args[1] as number, intent] } : { method, args: [file as FileDocument, args[1] as number] }
   }
   if (args.length > 2 || args.some((arg) => typeof arg !== 'string' || arg.length > 128)) throw new Error('Invalid command.')
   if ((method === 'listFiles' || method === 'createFile' || method === 'inspectFixture' || method === 'refresh' || method === 'scanShadcn') && args.length === 0) return { method, args: [] }
@@ -97,6 +107,63 @@ export function parseRepositoryRequest(value: unknown): RepositoryRequest {
   if ((method === 'prepareUndo' || method === 'prepareRedo') && args.length === 1 && /^[A-Za-z0-9_-]{1,128}$/.test(args[0])) return { method, args: [args[0]] }
   if (method === 'savePrepared' && args.length === 2 && /^[A-Za-z0-9_-]{1,128}$/.test(args[0]) && /^[\da-f]{64}$/.test(args[1])) return { method, args: [args[0], args[1]] }
   throw new Error('Invalid command.')
+}
+
+const collaborationId = /^[A-Za-z0-9:._-]{1,128}$/
+const exact = (value: Record<string, unknown>, keys: readonly string[]) => Object.keys(value).sort().join(',') === [...keys].sort().join(',')
+const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value) && [Object.prototype, null].includes(Object.getPrototypeOf(value))
+const coordinate = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 10_000_000
+const identifier = (value: unknown): value is string => typeof value === 'string' && collaborationId.test(value)
+
+function point(value: unknown): EditorCollaborationPoint {
+  if (!record(value) || !exact(value, ['pageId', 'x', 'y']) || !identifier(value.pageId) || !coordinate(value.x) || !coordinate(value.y)) throw new Error('Invalid collaboration command.')
+  return value as EditorCollaborationPoint
+}
+
+function selection(value: unknown): EditorCollaborationSelection {
+  if (!record(value) || !exact(value, ['pageId', 'nodeIds']) || !identifier(value.pageId) || !Array.isArray(value.nodeIds) || value.nodeIds.length > 512 || value.nodeIds.some(nodeId => !identifier(nodeId))) throw new Error('Invalid collaboration command.')
+  return { pageId: value.pageId, nodeIds: [...value.nodeIds] as string[] }
+}
+
+function transform(value: unknown): EditorCollaborationTransform {
+  if (!record(value) || !identifier(value.nodeId) || !coordinate(value.dx) || !coordinate(value.dy) || !exact(value, ['nodeId', 'dx', 'dy', ...(Object.hasOwn(value, 'width') ? ['width'] : []), ...(Object.hasOwn(value, 'height') ? ['height'] : [])])) throw new Error('Invalid collaboration command.')
+  if ((Object.hasOwn(value, 'width') && (!coordinate(value.width) || (value.width as number) < 0)) || (Object.hasOwn(value, 'height') && (!coordinate(value.height) || (value.height as number) < 0))) throw new Error('Invalid collaboration command.')
+  return value as EditorCollaborationTransform
+}
+
+function interaction(value: unknown): EditorCollaborationInteraction {
+  if (!record(value) || !exact(value, ['interactionId', 'pageId', 'kind', 'nodeIds', 'transforms']) || !identifier(value.interactionId) || !identifier(value.pageId) || (value.kind !== 'move' && value.kind !== 'resize') || !Array.isArray(value.nodeIds) || !value.nodeIds.length || value.nodeIds.length > 256 || value.nodeIds.some(nodeId => !identifier(nodeId)) || !Array.isArray(value.transforms) || value.transforms.length > 256) throw new Error('Invalid collaboration command.')
+  return { interactionId: value.interactionId, pageId: value.pageId, kind: value.kind, nodeIds: [...value.nodeIds] as string[], transforms: value.transforms.map(transform) }
+}
+
+function collaborationPatch(value: unknown): EditorCollaborationPatch {
+  if (!record(value)) throw new Error('Invalid collaboration command.')
+  const allowed = new Set(['pageId', 'focused', 'selection', 'camera', 'cursor', 'interaction'])
+  if (!Object.keys(value).length || Object.keys(value).some(key => !allowed.has(key))) throw new Error('Invalid collaboration command.')
+  const patch: Record<string, unknown> = {}
+  if (Object.hasOwn(value, 'pageId')) { if (value.pageId !== null && !identifier(value.pageId)) throw new Error('Invalid collaboration command.'); patch.pageId = value.pageId }
+  if (Object.hasOwn(value, 'focused')) { if (typeof value.focused !== 'boolean') throw new Error('Invalid collaboration command.'); patch.focused = value.focused }
+  if (Object.hasOwn(value, 'selection')) patch.selection = value.selection === null ? null : selection(value.selection)
+  if (Object.hasOwn(value, 'cursor')) patch.cursor = value.cursor === null ? null : point(value.cursor)
+  if (Object.hasOwn(value, 'camera')) {
+    if (value.camera === null) patch.camera = null
+    else {
+      if (!record(value.camera) || !exact(value.camera, ['pageId', 'x', 'y', 'zoom']) || !coordinate(value.camera.zoom) || (value.camera.zoom as number) <= 0) throw new Error('Invalid collaboration command.')
+      point({ pageId: value.camera.pageId, x: value.camera.x, y: value.camera.y })
+      patch.camera = value.camera
+    }
+  }
+  if (Object.hasOwn(value, 'interaction')) patch.interaction = value.interaction === null ? null : interaction(value.interaction)
+  return patch as EditorCollaborationPatch
+}
+
+export function parseCollaborationRequest(value: unknown): CollaborationRequest {
+  if (!record(value) || !exact(value, ['method', 'args']) || typeof value.method !== 'string' || !Array.isArray(value.args)) throw new Error('Invalid collaboration command.')
+  if ((value.method === 'getSnapshot' || value.method === 'retry' || value.method === 'leave') && value.args.length === 0) return { method: value.method, args: [] }
+  if (value.method !== 'updateAwareness' || value.args.length !== 2) throw new Error('Invalid collaboration command.')
+  const options = value.args[1]
+  if (options !== undefined && (!record(options) || !exact(options, ['immediate']) || typeof options.immediate !== 'boolean')) throw new Error('Invalid collaboration command.')
+  return { method: 'updateAwareness', args: [collaborationPatch(value.args[0]), options as Readonly<{ immediate?: boolean }> | undefined] }
 }
 
 export function parseRepositoryConnectionRequest(value: unknown): RepositoryConnectionRequest {
@@ -116,4 +183,10 @@ export function parseAuthRequest(value: unknown): AuthRequest {
   if (Object.keys(candidate).sort().join(',') !== 'args,method' || !Array.isArray(candidate.args) || candidate.args.length !== 0) throw new Error('Invalid auth command.')
   if (candidate.method === 'getSession' || candidate.method === 'signInWithGitHub' || candidate.method === 'signOut') return { method: candidate.method, args: [] }
   throw new Error('Invalid auth command.')
+}
+
+export function parseUpdateRequest(value: unknown): UpdateRequest {
+  if (!record(value) || !exact(value, ['method', 'args']) || !Array.isArray(value.args) || value.args.length !== 0) throw new Error('Invalid update command.')
+  if (value.method === 'getSnapshot' || value.method === 'check' || value.method === 'download' || value.method === 'install') return { method: value.method, args: [] }
+  throw new Error('Invalid update command.')
 }

@@ -21,4 +21,5 @@ export const canvasCopy = {
   dimensions: (width: number, height: number) => `${Math.round(width)} x ${Math.round(height)}`,
   collapse: (name: string) => `Collapse ${name}`, expand: (name: string) => `Expand ${name}`,
   showLayer: (name: string) => `Show ${name}`, hideLayer: (name: string) => `Hide ${name}`,
+  lockLayer: (name: string) => `Lock ${name}`, unlockLayer: (name: string) => `Unlock ${name}`, lockedByParent: (name: string) => `${name} is locked by a parent`,
 } as const

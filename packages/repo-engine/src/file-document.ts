@@ -26,8 +26,8 @@ export type RootNode = { id: string; type: 'root' }
  * `themeMode` is the stored per-node theme choice (schema v5). Migration and insertion write it explicitly; a node
  * without the field (hand-built or pre-migration data) reads as `inherit` through `nodeThemeMode`.
  */
-export type PrimitiveNode = { id: string; type: PrimitiveKind; name: string; styles: PrimitiveStyles; appearance?: Appearance; text?: string; themeMode?: NodeThemeMode }
-export type ComponentNode = { id: string; type: 'component'; name?: string; componentId: string; exportName: string; props: Record<string, DocumentValue>; layout?: NodeLayout; appearance?: Appearance; themeMode?: NodeThemeMode }
+export type PrimitiveNode = { id: string; type: PrimitiveKind; name: string; styles: PrimitiveStyles; appearance?: Appearance; text?: string; themeMode?: NodeThemeMode; isLocked?: boolean }
+export type ComponentNode = { id: string; type: 'component'; name?: string; componentId: string; exportName: string; props: Record<string, DocumentValue>; layout?: NodeLayout; appearance?: Appearance; themeMode?: NodeThemeMode; isLocked?: boolean }
 export type FileNode = RootNode | PrimitiveNode | ComponentNode
 /** Parent plus sibling order; `slot` names the component slot when the parent is a component instance. */
 export type NodeRelationship = { parentId: string; orderKey: string; slot?: string }
@@ -121,8 +121,9 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
     if (!record(node) || !validId(key) || node.id !== key || forbiddenKeys.has(key)) throw invalid('Invalid node identity')
     if (node.type === 'root') { fields(node, ['id', 'type'], 'root node'); continue }
     if (node.type === 'component') {
-      fields(node, ['id', 'type', 'componentId', 'exportName', 'props', ...(own(node, 'name') ? ['name'] : []), ...(own(node, 'layout') ? ['layout'] : []), ...(own(node, 'appearance') ? ['appearance'] : []), ...(own(node, 'themeMode') ? ['themeMode'] : [])], 'component node')
+      fields(node, ['id', 'type', 'componentId', 'exportName', 'props', ...(own(node, 'name') ? ['name'] : []), ...(own(node, 'layout') ? ['layout'] : []), ...(own(node, 'appearance') ? ['appearance'] : []), ...(own(node, 'themeMode') ? ['themeMode'] : []), ...(own(node, 'isLocked') ? ['isLocked'] : [])], 'component node')
       if (own(node, 'themeMode') && !isNodeThemeMode(node.themeMode)) throw invalid('Invalid node theme mode')
+      if (own(node, 'isLocked') && typeof node.isLocked !== 'boolean') throw invalid('Invalid node lock')
       if (!validId(node.componentId) || typeof node.exportName !== 'string') throw invalid('Invalid component identity')
       if (own(node, 'name') && !validName(node.name)) throw invalid('Invalid component name')
       const atom = atoms.find(candidate => candidate.componentId === node.componentId)
@@ -132,8 +133,9 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
       continue
     }
     if (!(primitiveKinds as readonly string[]).includes(node.type as string)) throw invalid('Unsupported node type')
-    fields(node, ['id', 'type', 'name', 'styles', ...(own(node, 'appearance') ? ['appearance'] : []), ...(own(node, 'text') ? ['text'] : []), ...(own(node, 'themeMode') ? ['themeMode'] : [])], 'node')
+    fields(node, ['id', 'type', 'name', 'styles', ...(own(node, 'appearance') ? ['appearance'] : []), ...(own(node, 'text') ? ['text'] : []), ...(own(node, 'themeMode') ? ['themeMode'] : []), ...(own(node, 'isLocked') ? ['isLocked'] : [])], 'node')
     if (own(node, 'themeMode') && !isNodeThemeMode(node.themeMode)) throw invalid('Invalid node theme mode')
+    if (own(node, 'isLocked') && typeof node.isLocked !== 'boolean') throw invalid('Invalid node lock')
     if (!validName(node.name)) throw invalid('Invalid node name')
     if (!validateStyles(node.styles, node.type)) throw invalid('Invalid node geometry')
     if (own(node, 'appearance')) validateAppearance(node.appearance, node.type)
@@ -269,6 +271,20 @@ export function descendantsOf(file: FileDocument, nodeId: string): string[] {
   visit(nodeId)
   return result
 }
+
+/** A direct lock also locks every descendant, matching the interaction model used by the canvas and layer tree. */
+export function nodeIsLocked(file: FileDocument, nodeId: string): boolean {
+  const visited = new Set<string>()
+  let current: string | undefined = nodeId
+  while (current && !visited.has(current)) {
+    visited.add(current)
+    const node = file.nodes[current]
+    if (!node) return false
+    if (node.type !== 'root' && node.isLocked === true) return true
+    current = file.relationships[current]?.parentId
+  }
+  return false
+}
 /** World position of a primitive or absolutely placed component: parent-local offsets accumulated up to the page root. */
 export function worldPosition(file: FileDocument, nodeId: string): { x: number; y: number } {
   let x = 0, y = 0
@@ -387,6 +403,7 @@ export type FileCommand =
   | { type: 'page.duplicate'; pageId: string; page: FilePage; ids: Record<string, string> }
   | { type: 'node.insert'; node: FileNode; placement: NodePlacement }
   | { type: 'node.rename'; nodeId: string; name: string | null }
+  | { type: 'node.setLocked'; nodeId: string; isLocked: boolean }
   /** Partial geometry update; `null` removes an optional stored style such as `rotation`. */
   | { type: 'node.setStyles'; nodeId: string; styles: PrimitiveStylePatch }
   | { type: 'node.setText'; nodeId: string; text: string }
@@ -489,17 +506,17 @@ function commandToken(value: unknown): value is ColorToken {
 function commandNode(value: unknown): value is FileNode {
   if (!record(value) || !validId(value.id) || value.type === 'root') return false
   if (value.type === 'component') {
-    if (!commandFields(value, ['id', 'type', 'componentId', 'exportName', 'props'], ['name', 'layout', 'appearance', 'themeMode']) || !validId(value.componentId) || typeof value.exportName !== 'string' || !commandProps(value.props)) return false
+    if (!commandFields(value, ['id', 'type', 'componentId', 'exportName', 'props'], ['name', 'layout', 'appearance', 'themeMode', 'isLocked']) || !validId(value.componentId) || typeof value.exportName !== 'string' || !commandProps(value.props)) return false
     if (own(value, 'name') && !validName(value.name)) return false
     if (own(value, 'layout') && !validateLayout(value.layout)) return false
     if (own(value, 'appearance')) validateAppearance(value.appearance, 'component')
-    return !own(value, 'themeMode') || isNodeThemeMode(value.themeMode)
+    return (!own(value, 'themeMode') || isNodeThemeMode(value.themeMode)) && (!own(value, 'isLocked') || typeof value.isLocked === 'boolean')
   }
   if (!(primitiveKinds as readonly unknown[]).includes(value.type)) return false
-  if (!commandFields(value, ['id', 'type', 'name', 'styles'], ['appearance', 'text', 'themeMode']) || !validName(value.name) || !validateStyles(value.styles, value.type as PrimitiveKind)) return false
+  if (!commandFields(value, ['id', 'type', 'name', 'styles'], ['appearance', 'text', 'themeMode', 'isLocked']) || !validName(value.name) || !validateStyles(value.styles, value.type as PrimitiveKind)) return false
   if (own(value, 'appearance')) validateAppearance(value.appearance, value.type as PrimitiveKind)
   if (value.type === 'text' ? typeof value.text !== 'string' || value.text.length > 10_000 : own(value, 'text')) return false
-  return !own(value, 'themeMode') || isNodeThemeMode(value.themeMode)
+  return (!own(value, 'themeMode') || isNodeThemeMode(value.themeMode)) && (!own(value, 'isLocked') || typeof value.isLocked === 'boolean')
 }
 
 function commandAppearance(value: unknown): value is Appearance {
@@ -526,6 +543,7 @@ function validateCommandShape(value: unknown, limitsValue: Required<FileCommandV
     case 'page.duplicate': return commandFields(value, ['type', 'pageId', 'page', 'ids']) && validId(value.pageId) && commandPage(value.page) && commandStringMap(value.ids, true)
     case 'node.insert': return commandFields(value, ['type', 'node', 'placement']) && commandNode(value.node) && commandPlacement(value.placement)
     case 'node.rename': return commandFields(value, ['type', 'nodeId', 'name']) && validId(value.nodeId) && (value.name === null || validName(value.name))
+    case 'node.setLocked': return commandFields(value, ['type', 'nodeId', 'isLocked']) && validId(value.nodeId) && typeof value.isLocked === 'boolean'
     case 'node.setStyles': {
       if (!commandFields(value, ['type', 'nodeId', 'styles']) || !validId(value.nodeId) || !record(value.styles) || Object.keys(value.styles).length === 0) return false
       const styles = value.styles
@@ -779,6 +797,13 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       if (!node || node.type === 'root' || (command.name !== null && !validName(command.name)) || (command.name === null && node.type !== 'component')) throw invalid('Invalid node name')
       if (command.name === null) delete node.name
       else node.name = command.name
+      return file
+    }
+    case 'node.setLocked': {
+      const node = file.nodes[command.nodeId]
+      if (!node || node.type === 'root') throw invalid('Select an existing node')
+      if (command.isLocked) node.isLocked = true
+      else delete node.isLocked
       return file
     }
     case 'node.setStyles': {
@@ -1117,6 +1142,11 @@ function inverseHistoryLeaf(before: FileDocument, after: FileDocument, command: 
       const node = before.nodes[command.nodeId]
       if (!node || node.type === 'root') throw invalid('History references a missing node')
       return { type: 'node.rename', nodeId: command.nodeId, name: node.type === 'component' ? node.name ?? null : node.name }
+    }
+    case 'node.setLocked': {
+      const node = before.nodes[command.nodeId]
+      if (!node || node.type === 'root') throw invalid('History references a missing node')
+      return { type: 'node.setLocked', nodeId: command.nodeId, isLocked: node.isLocked === true }
     }
     case 'node.setStyles': {
       const node = before.nodes[command.nodeId]

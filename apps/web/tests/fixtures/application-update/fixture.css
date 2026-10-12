@@ -1,0 +1,2 @@
+.fixture-canvas { position: fixed; inset: 0; overflow: hidden; background: var(--neutral-2); }
+.fixture-frame { position: absolute; left: 50%; top: 50%; width: 280px; height: 180px; border-radius: var(--radius-m); background: var(--neutral-1); box-shadow: var(--border-shadow-s); transform: translate(-50%, -58%); }

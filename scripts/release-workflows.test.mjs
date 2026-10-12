@@ -1,0 +1,110 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { readFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createBuilderArguments, createPackageEnvironment } from './package-desktop.mjs'
+import { evaluateReleasePolicy } from './release-policy.mjs'
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const pullRequestWorkflow = await readFile(resolve(root, '.github/workflows/desktop-build.yml'), 'utf8')
+const releaseWorkflow = await readFile(resolve(root, '.github/workflows/release.yml'), 'utf8')
+const stagingTemplate = await readFile(resolve(root, '.env.staging.example'), 'utf8')
+const productionTemplate = await readFile(resolve(root, '.env.production.example'), 'utf8')
+
+test('RELEASE-SECURITY-001 keeps secrets and migrations out of pull request builds', () => {
+  assert.match(pullRequestWorkflow, /pull_request:[\s\S]*- staging[\s\S]*- main/)
+  assert.match(pullRequestWorkflow, /Validate database migrations/)
+  assert.match(pullRequestWorkflow, /Build unsigned desktop installer/)
+  assert.doesNotMatch(pullRequestWorkflow, /secrets\.|DATABASE_URL|\bmigrate\b/)
+})
+
+const releaseInput = {
+  actor: 'ripgrim',
+  triggeringActor: 'ripgrim',
+  branch: 'staging',
+  sha: 'a'.repeat(40),
+  runNumber: '41',
+  rootVersion: '0.1.0',
+  desktopVersion: '0.1.0',
+  pulls: [{ number: 73, merged_at: '2026-10-11T12:00:00Z', base: { ref: 'staging' }, head: { ref: 'feature/mobile' } }],
+}
+
+test('RELEASE-SECURITY-002 accepts only an owner-triggered merged pull request', () => {
+  assert.match(releaseWorkflow, /push:[\s\S]*- staging[\s\S]*- main/)
+  assert.match(releaseWorkflow, /node scripts\/release-policy\.mjs/)
+
+  assert.deepEqual(evaluateReleasePolicy(releaseInput), {
+    channel: 'staging',
+    environment: 'staging',
+    tag: 'v0.1.0-nightly.41',
+    version: '0.1.0-nightly.41',
+    title: `Comp Canvas Nightly 0.1.0 (${'a'.repeat(7)})`,
+    pull_request: '73',
+  })
+})
+
+test('RELEASE-SECURITY-003 rejects unauthorized, direct, and wrong-source releases', () => {
+  assert.throws(() => evaluateReleasePolicy({ ...releaseInput, actor: 'collaborator' }), /Only ripgrim/)
+  assert.throws(() => evaluateReleasePolicy({ ...releaseInput, pulls: [] }), /not associated with a merged pull request/)
+  assert.throws(() => evaluateReleasePolicy({
+    ...releaseInput,
+    branch: 'main',
+    pulls: [{ number: 74, merged_at: '2026-10-11T13:00:00Z', base: { ref: 'main' }, head: { ref: 'feature/bypass' } }],
+  }), /must come from the staging branch/)
+  assert.throws(() => evaluateReleasePolicy({ ...releaseInput, rootVersion: '0.1.0\nchannel=production' }), /semantic versioning/)
+})
+
+test('RELEASE-PIPELINE-001 gates publication on channel migration and the merged build', () => {
+  assert.match(releaseWorkflow, /node scripts\/release-policy\.mjs/)
+  assert.match(releaseWorkflow, /environment: \$\{\{ needs\.authorize\.outputs\.environment \}\}/)
+  assert.match(releaseWorkflow, /DATABASE_URL: \$\{\{ secrets\.DATABASE_URL \}\}/)
+  assert.doesNotMatch(releaseWorkflow, /STAGING_DATABASE_URL|PRODUCTION_DATABASE_URL/)
+  assert.match(releaseWorkflow, /name: Apply database migrations[\s\S]*pnpm --filter @canvas\/database migrate/)
+  assert.match(releaseWorkflow, /name: Publish[\s\S]*needs:[\s\S]*- build[\s\S]*- migrate/)
+  assert.match(releaseWorkflow, /--prerelease/)
+  assert.match(releaseWorkflow, /Require production signing identity/)
+  assert.match(releaseWorkflow, /WINDOWS_CERTIFICATE/)
+  assert.match(releaseWorkflow, /DESIGN_EDITOR_UPDATABLE: 1/)
+  assert.match(releaseWorkflow, /Require update publishing credentials/)
+  assert.ok(releaseWorkflow.indexOf('Publish GitHub release') < releaseWorkflow.indexOf('Advance update channel'))
+
+  const production = evaluateReleasePolicy({
+    ...releaseInput,
+    branch: 'main',
+    pulls: [{ number: 75, merged_at: '2026-10-11T14:00:00Z', base: { ref: 'main' }, head: { ref: 'staging' } }],
+  })
+  assert.equal(production.channel, 'production')
+  assert.equal(production.tag, 'v0.1.0')
+  assert.equal(production.version, '0.1.0')
+})
+
+test('RELEASE-DESKTOP-001 packages staging and production with isolated public origins', () => {
+  const staging = Object.fromEntries(stagingTemplate.trim().split(/\r?\n/).map(line => line.split('=').map(value => value.replace(/^"|"$/g, ''))))
+  const production = Object.fromEntries(productionTemplate.trim().split(/\r?\n/).map(line => line.split('=').map(value => value.replace(/^"|"$/g, ''))))
+  const stagingEnvironment = createPackageEnvironment({ PATH: 'test', npm_execpath: 'pnpm.cjs' }, staging, 'staging')
+  const productionEnvironment = createPackageEnvironment({ PATH: 'test', npm_execpath: 'pnpm.cjs' }, production, 'production')
+
+  assert.equal(stagingEnvironment.DESIGN_EDITOR_PACKAGE_MODE, 'staging')
+  assert.equal(stagingEnvironment.VITE_APP_URL, 'https://staging.canvas.ripgrim.com')
+  assert.equal(stagingEnvironment.DESIGN_EDITOR_LOGIN_URL, 'https://login-staging.canvas.ripgrim.com')
+  assert.equal(productionEnvironment.DESIGN_EDITOR_PACKAGE_MODE, 'production')
+  assert.equal(productionEnvironment.VITE_APP_URL, 'https://canvas.ripgrim.com')
+  assert.equal(productionEnvironment.DESIGN_EDITOR_LOGIN_URL, 'https://login.canvas.ripgrim.com')
+  assert.equal(stagingEnvironment.DATABASE_URL, undefined)
+  assert.equal(productionEnvironment.DATABASE_URL, undefined)
+  assert.equal(stagingEnvironment.DESIGN_EDITOR_UPDATE_URL, 'https://updates-staging.canvas.ripgrim.com/windows/x64')
+  assert.equal(productionEnvironment.DESIGN_EDITOR_UPDATE_URL, 'https://updates.canvas.ripgrim.com/windows/x64')
+})
+
+test('RELEASE-DESKTOP-002 keeps previews out of update feeds and isolates nightly metadata', () => {
+  const preview = createBuilderArguments('staging', { DESIGN_EDITOR_UPDATE_URL: 'https://updates.test' })
+  assert.equal(preview.some(value => value.includes('publish.provider')), false)
+  assert.equal(preview.some(value => value.includes('extraMetadata.version')), false)
+
+  const nightly = createBuilderArguments('staging', { DESIGN_EDITOR_UPDATABLE: '1', DESIGN_EDITOR_RELEASE_VERSION: '0.1.0-nightly.41', DESIGN_EDITOR_UPDATE_URL: 'https://updates.test', DESIGN_EDITOR_WINDOWS_PUBLISHER: 'Comp Canvas, LLC' })
+  assert.ok(nightly.includes('--config.extraMetadata.version=0.1.0-nightly.41'))
+  assert.ok(nightly.includes('--config.publish.channel=nightly'))
+  assert.ok(nightly.includes('--config.appId=com.comp-canvas.desktop.nightly'))
+  assert.ok(nightly.includes('--config.win.publisherName=Comp Canvas, LLC'))
+})

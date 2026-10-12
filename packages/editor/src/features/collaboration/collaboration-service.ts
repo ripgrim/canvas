@@ -301,19 +301,22 @@ export function createCollaborationService(
       const pageId = documents.getSnapshot().pageId
       const uniqueNodeIds = Object.freeze([...new Set(nodeIds)])
       if (!pageId || !uniqueNodeIds.length) return null
+      const localOnly = !api
       if (localInteraction) {
         const sameNodes = localInteraction.nodeIds.length === uniqueNodeIds.length && uniqueNodeIds.every(nodeId => localInteraction?.nodeIds.includes(nodeId))
         if (!localInteractionConfirmed || localInteraction.pageId !== pageId || localInteraction.kind !== kind || !sameNodes || remoteInteractions(uniqueNodeIds).length) return null
         localInteraction = Object.freeze({ ...localInteraction, transforms: Object.freeze([]) })
         localInteractionClaims += 1
+        if (localOnly) return localInteraction.interactionId
         if (publishInteraction(localInteraction)) return localInteraction.interactionId
         clearInteraction(localInteraction.interactionId)
         return null
       }
       if (remoteInteractions(uniqueNodeIds).length) return null
       localInteraction = Object.freeze({ interactionId: crypto.randomUUID(), pageId, kind, nodeIds: uniqueNodeIds, transforms: Object.freeze([]) })
-      localInteractionConfirmed = false
+      localInteractionConfirmed = localOnly
       localInteractionClaims = 1
+      if (localOnly) return localInteraction.interactionId
       if (publishInteraction(localInteraction)) return localInteraction.interactionId
       localInteraction = null
       localInteractionClaims = 0
@@ -323,6 +326,7 @@ export function createCollaborationService(
       if (!localInteraction || localInteraction.interactionId !== interactionId) return false
       if (remoteInteractions(localInteraction.nodeIds).length > 0) { clearInteraction(); return false }
       localInteraction = Object.freeze({ ...localInteraction, transforms: Object.freeze(transforms.map(transform => Object.freeze({ ...transform }))) })
+      if (!api) return true
       if (publishInteraction(localInteraction)) return true
       clearInteraction()
       return false

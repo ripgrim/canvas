@@ -12,6 +12,7 @@ export const collaborationCopy = Object.freeze({
   accessRemoved: 'Access removed',
   updateRequired: 'Update required',
   fileBusy: 'File is busy',
+  connectionFailed: 'Connection failed',
   tryAgain: 'Try again',
   leaveFile: 'Leave file',
 })

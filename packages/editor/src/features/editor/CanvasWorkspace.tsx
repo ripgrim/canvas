@@ -34,10 +34,9 @@ export type CanvasWorkspaceProps = {
 
 const attachViewport = (element: HTMLDivElement | null) => { canvasViewportService.attach(element); canvasGestures.attach(element) }
 const attachHud = (element: HTMLCanvasElement | null) => canvasHudPainter.attach(element)
-
 export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcuts, onHome, placeholder, status, theme, readOnly = false, mobile = false, panels }: CanvasWorkspaceProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
-  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  const state = useSyncExternalStore(store.subscribe, store.getViewSnapshot, store.getViewSnapshot)
   const connected = Boolean(src && ready)
   const availability = Object.fromEntries(editorTools.map(tool => [tool, !state.file ? { available: false, reason: copy.openFileForTools } : !connected ? { available: false, reason: copy.connectPreviewForTools } : { available: true, reason: '' }])) as unknown as EditorToolAvailability
   const selectTool = (tool: EditorTool) => store.setTool(tool)
@@ -50,7 +49,7 @@ export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcu
       <CanvasPixelGrid visible={state.gridVisible} size={grid.size} position={grid.position} lineWidth={grid.lineWidth} />
       <CanvasWorldOrigin camera={state.viewport} />
       <CanvasStage active={connected} readOnly={readOnly} onOpenContextMenu={setContextMenu} onDismissContextMenu={() => setContextMenu(null)} />
-      {connected && <><CanvasHudCanvas attach={attachHud} />{!readOnly && <SelectionHud />}<CollaborationCanvasPresence /></>}
+      {connected && <><CanvasHudCanvas attach={attachHud} />{!readOnly && <SelectionHud mobile={mobile} />}<CollaborationCanvasPresence /></>}
       <CollaborationFollowIndicator />
     </CanvasViewport>
     {(!src || !ready) && placeholder}

@@ -6,7 +6,7 @@ const json = (code: string, message: string, status: number): Response => new Re
   headers: { "Cache-Control": "no-store", "Content-Type": "application/json; charset=utf-8", "X-Content-Type-Options": "nosniff" },
 })
 
-export { FileSyncRoom } from "./room-container.js"
+export { FileSyncRoom, LocalFileSyncRoom } from "./room-container.js"
 
 export default {
   async fetch(request: Request, env: SyncCoordinatorEnv): Promise<Response> {

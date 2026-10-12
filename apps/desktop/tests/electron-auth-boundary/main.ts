@@ -54,6 +54,7 @@ const client: ElectronAuthClient = Object.freeze({
   getUser: async () => storage.getItem(cookieKey) ? unsafeUser : null,
   signOut: async () => { storage.setItem(cookieKey, '{}') },
   request: async () => new Response(null, { status: 404 }),
+  createWebSocket: () => { throw new Error('Not used by the auth boundary test.') },
 })
 const service = new DesktopAuthService({ client, target: callbackTarget, now: () => 1_000 })
 const reports: RendererReport[] = []

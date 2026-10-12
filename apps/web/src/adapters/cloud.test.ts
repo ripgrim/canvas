@@ -44,6 +44,7 @@ describe('UI-COLLAB-STATE-001 collaboration shell state', () => {
     expect(collaborationShellState('access-revoked')).toBe('access-removed')
     expect(collaborationShellState('incompatible-build')).toBe('update-required')
     expect(collaborationShellState('capacity-refused')).toBe('file-busy')
+    expect(collaborationShellState('closed')).toBeNull()
     expect(collaborationShellState('live')).toBeNull()
     expect(collaborationShellState('read-only')).toBeNull()
   })

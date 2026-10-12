@@ -1,10 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, session } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { dirname, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { authChannel, authSessionChangedChannel, repositoryChannel, repositoryConnectionChannel } from '../preload/contracts'
-import type { AuthResponse, RepositoryConnectionResponse, RepositoryResponse } from '../preload/contracts'
-import { contentSecurityPolicy, hostedContentSecurityPolicy, isTrustedSender, parseAuthRequest, parseRepositoryConnectionRequest, parseRepositoryRequest, secureWebPreferences } from './policy'
+import { authChannel, authSessionChangedChannel, collaborationChangedChannel, collaborationChannel, fileChangedChannel, repositoryChannel, repositoryConnectionChannel, updateChangedChannel, updateChannel } from '../preload/contracts'
+import type { AuthResponse, CollaborationResponse, RepositoryConnectionResponse, RepositoryResponse, UpdateResponse } from '../preload/contracts'
+import { contentSecurityPolicy, hostedContentSecurityPolicy, isTrustedSender, parseAuthRequest, parseCollaborationRequest, parseRepositoryConnectionRequest, parseRepositoryRequest, parseUpdateRequest, secureWebPreferences } from './policy'
 import { localCapabilityArguments, resolveEditorTarget } from './web-target'
 import { RepositoryProcess } from './repo-process'
 import { bundledAssetResponse, bundledScriptHashes } from './assets'
@@ -21,6 +22,8 @@ import { DesktopCloudFiles } from './cloud-files'
 import { desktopPackageEnvironment } from './package-environment'
 import { ConnectedPreviewService } from './connected-preview'
 import { shadcnPreviewPropRule } from '@canvas/scanner/preview-registry'
+import { createDesktopCollaborationStore, desktopCollaborationClientId } from './collaboration-store'
+import { DesktopUpdateService } from './update-service'
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'design-editor', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }])
 
@@ -34,6 +37,9 @@ const environment: NodeJS.ProcessEnv = desktopPackageEnvironment
       DESIGN_EDITOR_LOGIN_URL: desktopPackageEnvironment.loginURL,
       DESIGN_EDITOR_PREVIEW_URL: desktopPackageEnvironment.previewURL,
       DESIGN_EDITOR_ASSETS_URL: desktopPackageEnvironment.assetsURL,
+      VITE_APP_URL: desktopPackageEnvironment.appURL,
+      VITE_SYNC_ORIGIN: desktopPackageEnvironment.syncURL,
+      VITE_COLLABORATION_BUILD_ID: desktopPackageEnvironment.collaborationBuildId,
     }
   : process.env
 const smoke = process.env.DESIGN_EDITOR_SMOKE === '1'
@@ -44,6 +50,7 @@ let cloudFiles: DesktopCloudFiles | undefined
 let editorWindow: BrowserWindow | undefined
 let preview: ReturnType<typeof createPreviewRuntime> | undefined
 let connectedPreview: ConnectedPreviewService | undefined
+let desktopUpdate: DesktopUpdateService | undefined
 let shutdown: Promise<void> | undefined
 let shutdownComplete = false
 const retiredPreviews = new Map<number, string>()
@@ -109,7 +116,9 @@ function disposeServices(): Promise<void> {
   repositoryConnections = undefined
   authService?.dispose()
   authService = undefined
+  cloudFiles?.dispose()
   cloudFiles = undefined
+  desktopUpdate?.stop()
   const activePreview = preview
   preview = undefined
   const activeConnectedPreview = connectedPreview
@@ -234,21 +243,52 @@ async function createEditor(): Promise<void> {
     },
   })
   editorWindow = window
+  desktopUpdate = new DesktopUpdateService({
+    updater: autoUpdater,
+    currentVersion: app.getVersion(),
+    channel: desktopPackageEnvironment?.updateChannel ?? 'stable',
+    feedURL: desktopPackageEnvironment?.updateURL.trim() || null,
+    enabled: app.isPackaged && desktopPackageEnvironment?.updateChannel !== null,
+    prepareInstall: disposeServices,
+  })
+  desktopUpdate.subscribe(snapshot => { if (!window.isDestroyed()) window.webContents.send(updateChangedChannel, snapshot) })
+  desktopUpdate.start()
+  window.on('focus', () => desktopUpdate?.checkIfStale())
   const authOptions = desktopAuthClientOptions(environment, development || localPackage)
   const authClient = authOptions ? createElectronAuthClient(authOptions) : null
   authService = new DesktopAuthService({
     client: authClient,
     target: { scheme: desktopAuthScheme, path: desktopAuthCallbackPath },
   })
-  if (authClient && authOptions) cloudFiles = new DesktopCloudFiles(
-    authClient,
-    authOptions.baseURL,
-    target.origin,
-    cloudPreviewOrigin,
-    environment.DESIGN_EDITOR_ASSETS_URL?.trim() || (development || localPackage ? 'http://127.0.0.1:4322' : undefined),
-    connectedPreview,
-  )
-  authService.subscribe(value => { if (!window.isDestroyed()) window.webContents.send(authSessionChangedChannel, value) })
+  if (authClient && authOptions) {
+    const syncOrigin = environment.VITE_SYNC_ORIGIN?.trim() || (development || localPackage ? 'ws://127.0.0.1:4321' : '')
+    const buildId = environment.VITE_COLLABORATION_BUILD_ID?.trim() || (development || localPackage ? app.getVersion() : '')
+    const requestOrigin = environment.VITE_APP_URL?.trim() || (target.origin.startsWith('http') ? target.origin : '')
+    if (!syncOrigin || !buildId || !requestOrigin) throw new Error('Desktop collaboration configuration is incomplete.')
+    const userData = app.getPath('userData')
+    cloudFiles = new DesktopCloudFiles(
+      authClient,
+      authOptions.baseURL,
+      target.origin,
+      cloudPreviewOrigin,
+      environment.DESIGN_EDITOR_ASSETS_URL?.trim() || (development || localPackage ? 'http://127.0.0.1:4322' : undefined),
+      connectedPreview,
+      {
+        syncOrigin,
+        buildId,
+        requestOrigin: new URL(requestOrigin).origin,
+        clientId: await desktopCollaborationClientId(resolve(userData, 'collaboration-client-id')),
+        accountId: () => authService?.getSession().user?.id ?? null,
+        durableStore: createDesktopCollaborationStore(resolve(userData, 'collaboration-cache')),
+      },
+    )
+    cloudFiles.subscribeFile(snapshot => { if (!window.isDestroyed()) window.webContents.send(fileChangedChannel, snapshot) })
+    cloudFiles.subscribeCollaboration(() => { if (!window.isDestroyed() && cloudFiles) window.webContents.send(collaborationChangedChannel, cloudFiles.collaborationSnapshot()) })
+  }
+  authService.subscribe(value => {
+    if (!window.isDestroyed()) window.webContents.send(authSessionChangedChannel, value)
+    if (value.status === 'signed-out' || value.status === 'revoked') void cloudFiles?.signOut().catch(error => ipcFailure('collaboration_sign_out', error, 'Collaboration cleanup could not finish.'))
+  })
   await authService.start()
   window.removeMenu()
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -273,6 +313,8 @@ async function createEditor(): Promise<void> {
   ipcMain.removeHandler(repositoryChannel)
   ipcMain.removeHandler(repositoryConnectionChannel)
   ipcMain.removeHandler(authChannel)
+  ipcMain.removeHandler(collaborationChannel)
+  ipcMain.removeHandler(updateChannel)
   if (target.localCapabilities) ipcMain.handle(repositoryChannel, async (event, payload: unknown): Promise<RepositoryResponse> => {
     const frame = event.senderFrame
     if (!frame || !isTrustedSender({ webContentsId: event.sender.id, isMainFrame: frame === window.webContents.mainFrame, url: frame.url }, window.webContents.id, editorUrl)) {
@@ -291,10 +333,10 @@ async function createEditor(): Promise<void> {
       }
       if (request.method === 'openFile' && cloudFiles?.accepts(request.args[0])) return { ok: true, value: await cloudFiles.open(request.args[0]) }
       if (request.method === 'refresh' && cloudFiles?.hasActive()) return { ok: true, value: await cloudFiles.refresh() }
-      if (request.method === 'saveFile' && cloudFiles?.isActive(request.args[0].fileId)) return { ok: true, value: await cloudFiles.save(request.args[0], request.args[1]) }
+      if (request.method === 'saveFile' && cloudFiles?.isActive(request.args[0].fileId)) return { ok: true, value: await cloudFiles.save(request.args[0], request.args[1], request.args[2]) }
       if (!repository) throw new Error('No repository grant.')
       if (request.method === 'openFile' && request.args[0] !== 'fixture-project') throw new Error('Unknown file.')
-      const value = await repository.execute(request.method === 'openFile' ? { method: 'inspectFixture', args: [] } : request)
+      const value = await repository.execute(request.method === 'openFile' ? { method: 'inspectFixture', args: [] } : request.method === 'saveFile' ? { method: 'saveFile', args: [request.args[0], request.args[1]] } : request)
       if (request.method === 'inspectFixture' || request.method === 'openFile' || request.method === 'refresh' || request.method === 'saveFile') {
         const snapshot = value as ProjectSnapshot
         if (request.method === 'refresh') await rebuildPreview(snapshot)
@@ -348,6 +390,37 @@ async function createEditor(): Promise<void> {
       return ipcFailure('auth', error, 'The account command could not finish.')
     }
   })
+  if (target.localCapabilities) ipcMain.handle(collaborationChannel, async (event, payload: unknown): Promise<CollaborationResponse> => {
+    const frame = event.senderFrame
+    if (!frame || !isTrustedSender({ webContentsId: event.sender.id, isMainFrame: frame === window.webContents.mainFrame, url: frame.url }, window.webContents.id, editorUrl)) return { ok: false, error: 'This window cannot access collaboration.' }
+    try {
+      const request = parseCollaborationRequest(payload)
+      const service = cloudFiles
+      if (!service) throw new Error('Collaboration is unavailable.')
+      if (request.method === 'getSnapshot') return { ok: true, value: service.collaborationSnapshot() }
+      if (request.method === 'updateAwareness') { service.updateAwareness(request.args[0], request.args[1]); return { ok: true, value: null } }
+      if (request.method === 'retry') { service.retry(); return { ok: true, value: null } }
+      service.leave()
+      return { ok: true, value: null }
+    } catch (error) {
+      return ipcFailure('collaboration', error, 'The collaboration command could not finish.')
+    }
+  })
+  if (target.localCapabilities) ipcMain.handle(updateChannel, async (event, payload: unknown): Promise<UpdateResponse> => {
+    const frame = event.senderFrame
+    if (!frame || !isTrustedSender({ webContentsId: event.sender.id, isMainFrame: frame === window.webContents.mainFrame, url: frame.url }, window.webContents.id, editorUrl)) return { ok: false, error: 'This window cannot access updates.', reference: randomUUID() }
+    try {
+      const request = parseUpdateRequest(payload)
+      const service = desktopUpdate
+      if (!service) throw new Error('The update service is unavailable.')
+      if (request.method === 'check') return { ok: true, value: await service.check() }
+      if (request.method === 'download') return { ok: true, value: await service.download() }
+      if (request.method === 'install') return { ok: true, value: await service.install() }
+      return { ok: true, value: service.getSnapshot() }
+    } catch (error) {
+      return ipcFailure('update', error, 'The update command could not finish.')
+    }
+  })
   const showEditor = () => {
     if (!window.isDestroyed() && !window.isVisible()) window.show()
   }
@@ -356,6 +429,8 @@ async function createEditor(): Promise<void> {
     ipcMain.removeHandler(repositoryChannel)
     ipcMain.removeHandler(repositoryConnectionChannel)
     ipcMain.removeHandler(authChannel)
+    ipcMain.removeHandler(collaborationChannel)
+    ipcMain.removeHandler(updateChannel)
     editorWindow = undefined
     void disposeServices()
   })
@@ -366,6 +441,7 @@ async function createEditor(): Promise<void> {
 
 app.on('window-all-closed', () => app.quit())
 app.on('before-quit', (event) => {
+  if (desktopUpdate?.isInstalling()) return
   if (shutdownComplete) return
   event.preventDefault()
   void disposeServices().finally(() => { shutdownComplete = true; app.quit() })

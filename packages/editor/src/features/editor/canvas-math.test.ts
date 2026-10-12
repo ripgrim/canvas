@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fitCamera, flowInsertIndex, gridBackground, gridVisible, resizeRect, screenToWorld, snapRect, stepZoom, wheelPanDelta, wheelZoomFactor, worldToScreen, zoomAtPoint, zoomPresets } from './canvas-math'
+import { fitCamera, flowInsertIndex, gridBackground, gridVisible, resizeRect, resizeRotatedRect, screenToWorld, snapRect, stepZoom, wheelPanDelta, wheelZoomFactor, worldToScreen, zoomAtPoint, zoomPresets } from './canvas-math'
 
 const size = { width: 1200, height: 800 }
 
@@ -87,5 +87,17 @@ describe('snapping, flow insertion, and resizing', () => {
     expect(resizeRect(start, 'right', { x: 20, y: 0 }, { symmetric: false, proportional: true })).toEqual({ x: 0, y: -5, width: 120, height: 60 })
     expect(resizeRect(start, 'bottom', { x: 0, y: 25 }, { symmetric: false, proportional: true })).toEqual({ x: -25, y: 0, width: 150, height: 75 })
     expect(resizeRect(start, 'right', { x: 20, y: 0 }, { symmetric: true, proportional: true })).toEqual({ x: -20, y: -10, width: 140, height: 70 })
+  })
+
+  it('keeps the opposite visual corner fixed while resizing rotated nodes', () => {
+    const start = { x: 0, y: 0, width: 100, height: 50 }
+    expect(resizeRotatedRect(start, 'top-left', { x: 10, y: 20 }, 180, { symmetric: false, proportional: false })).toEqual({ x: 0, y: 0, width: 110, height: 70 })
+    expect(resizeRotatedRect(start, 'top-left', { x: 10, y: -20 }, 90, { symmetric: false, proportional: false })).toEqual({ x: -5, y: -15, width: 120, height: 60 })
+  })
+
+  it('keeps the node center fixed for symmetric rotated resize', () => {
+    const resized = resizeRotatedRect({ x: 10, y: 20, width: 100, height: 50 }, 'right', { x: 0, y: 20 }, 90, { symmetric: true, proportional: false })
+    expect(resized).toEqual({ x: -10, y: 20, width: 140, height: 50 })
+    expect({ x: resized.x + resized.width / 2, y: resized.y + resized.height / 2 }).toEqual({ x: 60, y: 45 })
   })
 })

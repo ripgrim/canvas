@@ -20,9 +20,12 @@
     }
   ],
   "durable_objects": {
-    "bindings": [{ "name": "SYNC_ROOMS", "class_name": "FileSyncRoom" }]
+    "bindings": [{ "name": "SYNC_ROOMS", "class_name": "LocalFileSyncRoom" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FileSyncRoom"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["FileSyncRoom"] },
+    { "tag": "v2", "new_sqlite_classes": ["LocalFileSyncRoom"] }
+  ],
   "vars": {
     "SYNC_ROOM_RUNTIME_ORIGIN": "http://127.0.0.1:4325",
     "SYNC_ROOM_TICKET_TTL_MS": "300000",

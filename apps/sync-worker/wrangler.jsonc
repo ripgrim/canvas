@@ -9,7 +9,7 @@
     "port": 4321
   },
   "durable_objects": {
-    "bindings": [{ "name": "SYNC_ROOMS", "class_name": "FileSyncRoom", "script_name": "comp-canvas-sync-coordinator" }]
+    "bindings": [{ "name": "SYNC_ROOMS", "class_name": "LocalFileSyncRoom", "script_name": "comp-canvas-sync-coordinator" }]
   },
   "vars": {
     "API_ORIGIN": "http://127.0.0.1:4320",

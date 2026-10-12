@@ -10,6 +10,11 @@ const admissionHeader = "X-Canvas-Sync-Admission"
 const roomHeader = "X-Canvas-Sync-Room"
 const requestIdHeader = "X-Canvas-Request-Id"
 const json = (code: string, message: string, status: number): Response => new Response(JSON.stringify({ error: { code, message } }), { status, headers: { "Cache-Control": "no-store", "Content-Type": "application/json; charset=utf-8", "X-Content-Type-Options": "nosniff" } })
+const runtimeRejection = (status: number): Response => {
+  if (status === 401 || status === 403) return json("forbidden", "Room runtime rejected the request.", 403)
+  if (status === 429) return json("capacity_refused", "Room capacity is unavailable.", 429)
+  return json("room_unavailable", "Collaboration service is unavailable.", 503)
+}
 
 async function verifiedAdmission(request: Request, env: SyncCoordinatorEnv, nowUnixMs: number) {
   const configuration = validateCoordinatorEnv(env)
@@ -51,5 +56,5 @@ export async function proxyRoomUpgrade(input: Readonly<{ request: Request; env: 
   const runtimeFetch = input.runtimeFetch ?? (request => fetch(request))
   const response = await runtimeFetch(new Request(runtimeUrl, { method: "GET", headers }))
   if (response.status !== 101) console.warn(JSON.stringify({ event: "room_runtime_rejected", status: response.status, requestId: verified.admission.requestId }))
-  return response.status === 101 ? response : json("room_unavailable", "File is busy.", 503)
+  return response.status === 101 ? response : runtimeRejection(response.status)
 }

@@ -1,9 +1,11 @@
+import { readFileSync } from 'node:fs'
 import { createElement as h } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { Text } from '../../design-system/atoms'
+import { MobileSelectionActions } from '../../design-system/canvas-atoms'
 import { EditorWorkArea } from './Editor'
-import { mobilePanelVisibility, mobileQuickActionsPosition, toggleMobilePanel } from './mobile-editor'
+import { mobilePanelVisibility, mobileQuickActionsPhase, mobileQuickActionsPosition, toggleMobilePanel } from './mobile-editor'
 
 describe('UI-MOBILE-001 editor sheets', () => {
   it('keeps one mobile panel open at a time and removes Design for read-only viewers', () => {
@@ -43,5 +45,25 @@ describe('UI-MOBILE-002 selected-node quick actions', () => {
     expect(below).toEqual({ x: 20, y: 216 })
     expect(below.y).toBeGreaterThanOrEqual(selection.y + selection.height + 28)
     expect(mobileQuickActionsPosition({ x: 360, y: 790, width: 80, height: 40 }, { width: 390, height: 844 })).toEqual({ x: 202, y: 738 })
+  })
+})
+
+describe('UI-MOBILE-004 quick-action drag fade', () => {
+  it('derives the hidden gesture phases from document interaction state', () => {
+    expect(mobileQuickActionsPhase(null)).toBe('idle')
+    expect(mobileQuickActionsPhase({ kind: 'pan' })).toBe('idle')
+    expect(mobileQuickActionsPhase({ kind: 'move', rects: {}, offset: { x: 0, y: 0 }, guides: [], targetFrameId: null, insertion: null })).toBe('moving')
+    expect(mobileQuickActionsPhase({ kind: 'resize', rects: {}, starts: {}, appearances: {}, contentLocked: false })).toBe('resizing')
+  })
+
+  it('hides and disables the toolbar during a gesture while retaining its stable position', () => {
+    const html = renderToStaticMarkup(h(MobileSelectionActions, { label: 'Quick actions', phase: 'moving', visible: false, position: { x: 24, y: 80 }, children: h(Text, null, 'Actions') }))
+    expect(html).toContain('data-phase="moving"')
+    expect(html).toContain('aria-hidden="true"')
+    expect(html).toContain('inert=""')
+    expect(html).toContain('--mobile-quick-actions-x:24px')
+    const css = readFileSync(new URL('../../design-system/canvas.css', import.meta.url), 'utf8')
+    expect(css).toMatch(/transform: translate3d\(var\(--mobile-quick-actions-x\), var\(--mobile-quick-actions-y\), 0\)/)
+    expect(css).toMatch(/\.mobile-selection-actions:not\(\[data-visible\]\) \{ opacity: 0; pointer-events: none; \}/)
   })
 })

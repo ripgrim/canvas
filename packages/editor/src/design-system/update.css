@@ -1,0 +1,10 @@
+.update-region { position: fixed; left: 50%; bottom: var(--space-l); z-index: 1000; width: min(520px, calc(100vw - 2 * var(--space-l))); transform: translateX(-50%); color: var(--neutral-10); font-family: var(--font-ui); }
+.update-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-s); padding: var(--space-s); border-radius: var(--radius-m); background: var(--neutral-1); box-shadow: var(--border-shadow-s), var(--shadow-l); }
+.update-card-icon { display: inline-flex; color: var(--color-1); }
+.update-card-icon .icon { width: var(--size-l); height: var(--size-l); }
+.update-card-copy { display: flex; min-width: 0; flex-direction: column; gap: var(--space-xxs); }
+.update-card-actions { display: flex; align-items: center; gap: var(--space-xxs); }
+.update-progress { width: 100%; height: var(--space-xxs); border: 0; border-radius: var(--radius-full); overflow: hidden; accent-color: var(--color-1); }
+.update-progress::-webkit-progress-bar { background: var(--neutral-3); }
+.update-progress::-webkit-progress-value { background: var(--color-1); }
+@media (max-width: 560px) { .update-region { bottom: calc(56px + var(--space-l)); } .update-card { grid-template-columns: auto minmax(0, 1fr); } .update-card-actions { grid-column: 1 / -1; justify-content: flex-end; } }

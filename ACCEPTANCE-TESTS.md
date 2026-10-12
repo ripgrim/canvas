@@ -164,6 +164,8 @@ Apply one compatible edit and one incompatible tree edit. Verify compatible stat
 
 Verify shallow select, deep select, parent and child traversal, multiselect, lock, hide, duplicate, reorder, frame selection, ungroup, and exact layer-tree targeting using mouse and keyboard.
 
+Layer visibility and lock actions appear on row hover or their own keyboard focus. A hidden node remains identified by reduced name and type-icon opacity. A direct lock also locks descendants, removes canvas hit targets and resize controls, and prevents layer drag reorder for that node. The locked node remains selectable from Layers and its inspector properties remain editable.
+
 ### AT-CAN-002: Layout and snap
 
 Verify fixed, fit, fill, padding, gap, direction, alignment, wrap, absolute position, clipping, snap guides, align, distribute, nudge, large nudge, and frame resize.
@@ -184,7 +186,7 @@ Verify mouse, touchpad, pointer capture, and keyboard-only manipulation. Draggin
 
 ### AT-CAN-006: Live resize modifiers
 
-The rendered node, not only its outline, follows every resize pointer frame. Shift preserves the starting aspect ratio for corner and side handles. Alt resizes around the center. Ctrl on Windows and Command on macOS changes the bounds while keeping image pixels and direct freeform children fixed in world space. Modifier combinations compose, pointer cancel restores the pointer-down state, and pointer-up creates one undo entry.
+The rendered node, not only its outline, follows every resize pointer frame. Shift preserves the starting aspect ratio for corner and side handles. Alt resizes around the center. Ctrl on Windows and Command on macOS changes the bounds while keeping image pixels and direct freeform children fixed in world space. A rotated node resizes in its local axes while the opposite visible handle remains fixed, so 90- and 180-degree rotation never inverts the side under the pointer. Modifier combinations compose, pointer cancel restores the pointer-down state, and pointer-up creates one undo entry.
 
 Negative control: a test that advances only HUD geometry while rendered bounds remain unchanged must fail.
 
@@ -199,6 +201,10 @@ Select a node near every viewport edge. A toolbar with no more than four real ac
 ### UI-MOBILE-003: Touch canvas controls
 
 At the mobile breakpoint, the primary tool dock contains four real tools, supports horizontal keyboard navigation, and stays above the device safe area. Resize hit targets meet touch use without changing authored node geometry. Visible selection outlines and corner handles are more prominent on mobile while desktop HUD measurements remain unchanged.
+
+### UI-MOBILE-004: Quick-action drag fade
+
+The selected-node toolbar fades out with the theme's small motion at gesture start, becomes inert while moving or resizing, performs no per-sample toolbar render while the phase is unchanged, and restores at the committed selection position. The mobile header contains no experiment control or gesture status. Desktop does not subscribe its shell to this mobile gesture state. Reduced motion removes the fade transition without changing visibility states.
 
 ## Auth and authorization
 
@@ -548,6 +554,30 @@ Open Share and verify it changes no permissions. Copy a link and verify it chang
 Force an unexpected API failure and verify the server logs the original error with a request ID while the response exposes only the safe message and that same ID. Verify browser and desktop command failures preserve the ID through their client boundary and render it in the owning recovery state. Run `pnpm lint:contracts` and verify the AST check rejects empty catch clauses and promise rejection handlers that discard the error.
 
 Force a document command failure and verify it appears in the global toast viewport with a specific title and actionable description. The picker accepts image inputs up to 25 MB so supported static inputs can be normalized before attachment. A supported image at the canonical 1,500,003-byte embedded preview limit keeps its bytes; a browser-decodable static input above that limit becomes bounded WebP. An animated GIF or WebP above that limit must be rejected before decode with the exact visible message `This animated image exceeds the 1,500,003-byte embedded preview limit. Choose an AVIF, PNG, JPEG, GIF, or WebP image within that limit.`, never the internal `Invalid image data` validator message. Persistence failures also retain the inline Retry control.
+
+## Application updates
+
+### DESKTOP-UPDATE-001: Recoverable updater state
+
+Run the desktop updater against the mock feed. Verify checking, available, downloading, ready, up-to-date, disabled, and error are distinct cached states observed through narrow IPC. A failed check never reports up to date. A failed download returns to the available state, and a later check failure never discards an already downloaded installer. Concurrent checks, downloads, and installs coalesce into one action. Download progress publishes at most once per five-point bucket and always publishes completion.
+
+Negative controls: return the same boolean for no update and failure and verify the state test fails. Clear a ready installer after a network failure and verify recovery fails.
+
+### DESKTOP-UPDATE-002: Safe install and channel isolation
+
+Verify nightly and stable use different feed manifests and installed application identities. Preview and pull-request artifacts contain no update feed metadata. Nightly versions increase with the workflow run. Before restart, wait until the editor has no active gesture and its document queue is saved; a save failure or ten-second timeout leaves the downloaded installer ready and shows a recoverable error. The main process disposes owned services before calling the installer, while ordinary quits still use the normal disposal path.
+
+Negative controls: remove the save guard and verify a dirty-document fixture blocks the gate. Add update metadata to a preview artifact and verify the release-policy test fails.
+
+### UPDATE-FEED-001: Signed immutable release feed
+
+Build a signed installer from the exact authorized merged commit. Stable and nightly publication must fail closed without the protected Windows signing identity, Cloudflare update bucket, or channel-scoped credentials. Publish the GitHub release first, upload versioned installer and blockmap objects second, and replace the small channel manifest last. The public update Worker is read-only, sends mutable manifests with `no-store`, immutable artifacts with a one-year cache policy, and supports correct single byte ranges for differential downloads. The updater must enforce manifest SHA-512 plus the configured Authenticode publisher.
+
+Negative controls: attempt an update-feed write, path traversal, arbitrary object read, invalid byte range, unsigned release, and direct branch push. Every case must fail without advancing the channel manifest.
+
+### WEB-UPDATE-001: Browser deployment refresh
+
+Every web build emits a no-store `version.json` with a unique build id. Check after startup, every fifteen minutes, on focus after five minutes, and after a stale dynamic-import failure. A different build id shows one compact refresh notice; the same id stays quiet; a failed request remains an explicit retryable error and is never presented as current.
 
 ## Performance
 

@@ -225,6 +225,7 @@ describe("private coordinator and real DO boundary", () => {
     expect(config.routes).toBeUndefined()
     expect(config.main).toBe("src/worker.ts")
     expect(config.containers).toEqual([expect.objectContaining({ name: "comp-canvas-sync-room-coordinator-preview", class_name: "FileSyncRoom", image: "../sync-room-core/Dockerfile", max_instances: 10 })])
+    expect(config.durable_objects.bindings).toEqual([{ name: "SYNC_ROOMS", class_name: "LocalFileSyncRoom" }])
     expect(config.env.preview.name).toBe("comp-canvas-sync-coordinator-preview")
     expect(config.env.preview.containers).toEqual(config.containers)
     expect(config.env.preview.services).toBeUndefined()
@@ -243,5 +244,25 @@ describe("private coordinator and real DO boundary", () => {
       runtimeFetch: async request => { runtime.push(request); return { status: 101 } as Response },
     })).status).toBe(101)
     expect(runtime).toHaveLength(1)
+  })
+
+  it("CLOUD-SYNC-CONTAINER-002 reports runtime outages separately from room capacity", async () => {
+    const unavailable = await proxyRoomUpgrade({
+      request: await handshake(),
+      env: environment([]),
+      storage: new FakeStorage(),
+      runtimeFetch: async () => new Response("offline", { status: 503 }),
+    })
+    expect(unavailable.status).toBe(503)
+    expect(await unavailable.json()).toEqual({ error: { code: "room_unavailable", message: "Collaboration service is unavailable." } })
+
+    const capacity = await proxyRoomUpgrade({
+      request: await handshake(),
+      env: environment([]),
+      storage: new FakeStorage(),
+      runtimeFetch: async () => new Response("full", { status: 429 }),
+    })
+    expect(capacity.status).toBe(429)
+    expect(await capacity.json()).toEqual({ error: { code: "capacity_refused", message: "Room capacity is unavailable." } })
   })
 })

@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "comp-canvas-updates",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "dev": { "port": 4323 },
+  "r2_buckets": [{ "binding": "UPDATES", "bucket_name": "comp-canvas-updates-dev", "preview_bucket_name": "comp-canvas-updates-dev" }],
+  "env": {
+    "preview": {
+      "name": "comp-canvas-updates-staging",
+      "routes": [{ "pattern": "updates-staging.canvas.ripgrim.com", "custom_domain": true }],
+      "r2_buckets": [{ "binding": "UPDATES", "bucket_name": "comp-canvas-updates-staging", "remote": true }]
+    },
+    "production": {
+      "name": "comp-canvas-updates-production",
+      "routes": [{ "pattern": "updates.canvas.ripgrim.com", "custom_domain": true }],
+      "r2_buckets": [{ "binding": "UPDATES", "bucket_name": "comp-canvas-updates-production", "remote": true }]
+    }
+  }
+}

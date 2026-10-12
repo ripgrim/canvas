@@ -165,7 +165,7 @@ describe('UI-COLLAB-FOLLOW-001 following presentation', () => {
 })
 
 describe('UI-COLLAB-PRESENCE-001 collaboration shell status', () => {
-  const shell = (status: 'unavailable' | 'connecting' | 'live' | 'read-only' | 'reconnecting' | 'error', shellState?: 'opening' | 'connecting' | 'reconnecting' | 'access-removed' | 'update-required' | 'file-busy', canRetry = false, canLeave = false) => collaborationShellPresentation({ status, ...(shellState ? { shellState } : {}), canRetry, canLeave })
+  const shell = (status: 'unavailable' | 'connecting' | 'live' | 'read-only' | 'reconnecting' | 'error', shellState?: 'opening' | 'connecting' | 'reconnecting' | 'access-removed' | 'update-required' | 'file-busy' | 'connection-failed', canRetry = false, canLeave = false) => collaborationShellPresentation({ status, ...(shellState ? { shellState } : {}), canRetry, canLeave })
 
   it('uses the documented short copy for progress and terminal states', () => {
     expect(shell('connecting', 'opening')?.label).toBe('Opening file…')
@@ -178,6 +178,7 @@ describe('UI-COLLAB-PRESENCE-001 collaboration shell status', () => {
 
   it('does not render a no-op recovery action and keeps live states quiet', () => {
     expect(shell('error', 'file-busy')).toEqual({ label: 'File is busy', tone: 'danger', action: null })
+    expect(shell('error', undefined, true)).toEqual({ label: 'Connection failed', tone: 'danger', action: 'retry' })
     expect(shell('live')).toBeNull()
     expect(shell('read-only')).toBeNull()
     expect(shell('unavailable')).toBeNull()

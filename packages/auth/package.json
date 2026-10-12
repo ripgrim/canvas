@@ -34,10 +34,12 @@
     "@better-auth/electron": "1.7.7",
     "better-auth": "1.7.7",
     "conf": "15.1.0",
-    "pg": "8.23.1"
+    "pg": "8.23.1",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",
+    "@types/ws": "^8.18.1",
     "electron": "^40.0.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

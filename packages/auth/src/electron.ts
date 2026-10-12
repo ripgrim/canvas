@@ -3,6 +3,7 @@ import { createAuthClient } from 'better-auth/client'
 import type { BetterAuthClientPlugin } from 'better-auth/client'
 import Conf from 'conf'
 import electron from 'electron'
+import WebSocket from 'ws'
 import { createHash, randomBytes } from 'node:crypto'
 import { authUserView } from './index.js'
 import type { AuthSessionView } from './index.js'
@@ -32,6 +33,7 @@ export type ElectronAuthClient = Readonly<{
   getUser(): Promise<AuthSessionView['user']>
   signOut(): Promise<void>
   request(path: string, init?: RequestInit): Promise<Response>
+  createWebSocket(url: string, protocol: string, origin: string): WebSocket
 }>
 
 type PendingAuthorization = Readonly<{ state: string; codeVerifier: string }>
@@ -149,6 +151,21 @@ export function createElectronAuthClient(options: ElectronAuthClientOptions): El
       } as never)
       if (!response) throw new Error('Authenticated API returned no response.')
       return response
+    },
+    createWebSocket: (url: string, protocol: string, origin: string) => {
+      const target = new URL(url)
+      const source = new URL(origin)
+      const targetLocal = target.protocol === 'ws:' && ['127.0.0.1', 'localhost', '[::1]'].includes(target.hostname)
+      if ((target.protocol !== 'wss:' && !targetLocal) || target.username || target.password || target.hash) throw new Error('Invalid collaboration WebSocket URL.')
+      if (!['http:', 'https:'].includes(source.protocol) || source.origin !== origin || source.username || source.password) throw new Error('Invalid collaboration request origin.')
+      if (!/^[A-Za-z0-9._-]{1,128}$/.test(protocol)) throw new Error('Invalid collaboration WebSocket protocol.')
+      return new WebSocket(target, protocol, {
+        headers: {
+          Cookie: client.getCookie(),
+          Origin: source.origin,
+          'User-Agent': app.userAgentFallback,
+        },
+      })
     },
   })
 }

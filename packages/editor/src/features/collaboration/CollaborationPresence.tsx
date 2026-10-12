@@ -93,13 +93,14 @@ export function collaborationSelectionRect(sceneRect: Rect | undefined, localTra
 export type CollaborationShellPresentation = Readonly<{ label: string; tone: 'progress' | 'danger'; action: 'retry' | 'leave' | null }>
 
 export function collaborationShellPresentation(snapshot: Pick<CollaborationViewSnapshot, 'status' | 'shellState' | 'canRetry' | 'canLeave'>): CollaborationShellPresentation | null {
-  const state = snapshot.shellState ?? (snapshot.status === 'connecting' ? 'connecting' : snapshot.status === 'reconnecting' ? 'reconnecting' : snapshot.status === 'error' ? 'file-busy' : null)
+  const state = snapshot.shellState ?? (snapshot.status === 'connecting' ? 'connecting' : snapshot.status === 'reconnecting' ? 'reconnecting' : snapshot.status === 'error' ? 'connection-failed' : null)
   if (!state) return null
   if (state === 'opening') return { label: copy.opening, tone: 'progress', action: null }
   if (state === 'connecting') return { label: copy.connecting, tone: 'progress', action: null }
   if (state === 'reconnecting') return { label: copy.reconnecting, tone: 'progress', action: null }
   if (state === 'access-removed') return { label: copy.accessRemoved, tone: 'danger', action: snapshot.canLeave ? 'leave' : null }
   if (state === 'update-required') return { label: copy.updateRequired, tone: 'danger', action: snapshot.canLeave ? 'leave' : null }
+  if (state === 'connection-failed') return { label: copy.connectionFailed, tone: 'danger', action: snapshot.canRetry ? 'retry' : snapshot.canLeave ? 'leave' : null }
   return { label: copy.fileBusy, tone: 'danger', action: snapshot.canRetry ? 'retry' : snapshot.canLeave ? 'leave' : null }
 }
 

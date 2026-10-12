@@ -141,6 +141,9 @@ describe("configuration", () => {
     const config = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"))
     expect(config.workers_dev).toBe(false)
     expect(config.routes).toBeUndefined()
+    expect(config.durable_objects.bindings).toEqual([
+      { name: "SYNC_ROOMS", class_name: "LocalFileSyncRoom", script_name: "comp-canvas-sync-coordinator" },
+    ])
     expect(config.env.preview.name).toBe("comp-canvas-sync-preview")
     expect(config.env.preview.routes).toEqual([{ pattern: "sync-staging.canvas.ripgrim.com", custom_domain: true }])
     expect(config.env.preview.services).toBeUndefined()
