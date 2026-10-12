@@ -1,0 +1,35 @@
+scripts/release-workflows.test.mjs
+  s_012c57818fbf95::t_3eba4351d72230 20,74
+apps/desktop/src/main/index.ts
+  s_012c57818fbf95::t_3eba4351d72230 2,28-29,48,452
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_3eba4351d72230 570-571
+apps/desktop/tests/packaged-launch-smoke.mjs
+  s_012c57818fbf95::t_3eba4351d72230 1-37
+apps/desktop/package.json
+  s_012c57818fbf95::t_3eba4351d72230 3,16-17
+.github/workflows/release.yml
+  s_012c57818fbf95::t_3eba4351d72230 109-111
+package.json
+  s_012c57818fbf95::t_3eba4351d72230 3
+.github/workflows/desktop-build.yml
+  s_012c57818fbf95::t_3eba4351d72230 60-62
+packages/tracking/src/version.generated.ts
+  s_012c57818fbf95::t_34b77b55cec9a5 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c864c29462af23641ee3e10928429d91ce14dca7",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
