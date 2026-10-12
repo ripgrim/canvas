@@ -17,6 +17,7 @@ test('RELEASE-SECURITY-001 keeps secrets and migrations out of pull request buil
   assert.match(pullRequestWorkflow, /pull_request:[\s\S]*- staging[\s\S]*- main/)
   assert.match(pullRequestWorkflow, /Validate database migrations/)
   assert.match(pullRequestWorkflow, /Build unsigned desktop installer/)
+  assert.match(pullRequestWorkflow, /Smoke packaged main process[\s\S]*test:packaged-launch-smoke/)
   assert.doesNotMatch(pullRequestWorkflow, /secrets\.|DATABASE_URL|\bmigrate\b/)
 })
 
@@ -70,6 +71,7 @@ test('RELEASE-PIPELINE-001 gates publication on channel migration and the merged
   assert.match(releaseWorkflow, /WINDOWS_CERTIFICATE/)
   assert.match(releaseWorkflow, /Windows signing is partially configured/)
   assert.match(releaseWorkflow, /DESIGN_EDITOR_UPDATABLE=\$enabled/)
+  assert.match(releaseWorkflow, /Smoke packaged main process[\s\S]*test:packaged-launch-smoke/)
   assert.match(releaseWorkflow, /Unsigned manual-download build\. Automatic updates are intentionally disabled/)
   assert.match(releaseWorkflow, /Require update publishing credentials/)
   assert.match(releaseWorkflow, /if: needs\.build\.outputs\.updatable == 'true'/)

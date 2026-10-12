@@ -567,6 +567,8 @@ Negative controls: return the same boolean for no update and failure and verify 
 
 Verify nightly and stable use different feed manifests and installed application identities. Preview and pull-request artifacts contain no update feed metadata. Nightly versions increase with the workflow run. Before restart, wait until the editor has no active gesture and its document queue is saved; a save failure or ten-second timeout leaves the downloaded installer ready and shows a recoverable error. The main process disposes owned services before calling the installer, while ordinary quits still use the normal disposal path.
 
+Launch the packaged Windows executable after every PR and release build. The Electron main process must import its CommonJS updater dependency, reach `app.whenReady()`, and exit the startup smoke path without a JavaScript error dialog or uncaught exception.
+
 Negative controls: remove the save guard and verify a dirty-document fixture blocks the gate. Add update metadata to a preview artifact and verify the release-policy test fails.
 
 ### UPDATE-FEED-001: Signed immutable release feed
