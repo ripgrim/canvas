@@ -31,12 +31,14 @@ const releaseInput = {
 }
 
 test('RELEASE-SECURITY-002 accepts only an owner-triggered merged pull request', () => {
-  assert.match(releaseWorkflow, /push:[\s\S]*- staging[\s\S]*- main/)
+  assert.match(releaseWorkflow, /pull_request:[\s\S]*- staging[\s\S]*- main[\s\S]*- closed/)
+  assert.match(releaseWorkflow, /github\.event\.pull_request\.merged == true/)
   assert.match(releaseWorkflow, /node scripts\/release-policy\.mjs/)
 
   assert.deepEqual(evaluateReleasePolicy(releaseInput), {
     channel: 'staging',
     environment: 'staging',
+    sha: 'a'.repeat(40),
     tag: 'v0.1.0-nightly.41',
     version: '0.1.0-nightly.41',
     title: `Comp Canvas Nightly 0.1.0 (${'a'.repeat(7)})`,

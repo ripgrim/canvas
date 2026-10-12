@@ -36,6 +36,7 @@ export function evaluateReleasePolicy(input) {
   return {
     channel: staging ? 'staging' : 'production',
     environment: staging ? 'staging' : 'production',
+    sha: input.sha,
     tag: `v${version}`,
     version,
     title: staging ? `Comp Canvas Nightly ${input.rootVersion} (${shortSha})` : `Comp Canvas ${input.rootVersion}`,
@@ -57,7 +58,7 @@ function main() {
     runNumber: process.env.GITHUB_RUN_NUMBER ?? '',
     rootVersion: readPackageVersion(resolve(root, 'package.json')),
     desktopVersion: readPackageVersion(resolve(root, 'apps/desktop/package.json')),
-    pulls: JSON.parse(process.env.ASSOCIATED_PULLS_JSON ?? '[]'),
+    pulls: process.env.PULL_REQUEST_JSON ? [JSON.parse(process.env.PULL_REQUEST_JSON)] : JSON.parse(process.env.ASSOCIATED_PULLS_JSON ?? '[]'),
   })
 
   for (const [name, value] of Object.entries(release)) process.stdout.write(`${name}=${value}\n`)

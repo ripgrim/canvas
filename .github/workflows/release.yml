@@ -1,10 +1,12 @@
 name: Migrate and release
 
 on:
-  push:
+  pull_request:
     branches:
       - staging
       - main
+    types:
+      - closed
 
 permissions:
   contents: read
@@ -17,10 +19,12 @@ concurrency:
 jobs:
   authorize:
     name: Authorize merged release
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     outputs:
       channel: ${{ steps.release.outputs.channel }}
       environment: ${{ steps.release.outputs.environment }}
+      sha: ${{ steps.release.outputs.sha }}
       tag: ${{ steps.release.outputs.tag }}
       title: ${{ steps.release.outputs.title }}
       pull_request: ${{ steps.release.outputs.pull_request }}
@@ -28,12 +32,17 @@ jobs:
     steps:
       - name: Check out merged revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
 
       - name: Require owner-triggered merged pull request
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          GITHUB_REF_NAME: ${{ github.event.pull_request.base.ref }}
+          GITHUB_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PULL_REQUEST_JSON: ${{ toJson(github.event.pull_request) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -55,6 +64,8 @@ jobs:
     steps:
       - name: Check out merged revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -88,7 +99,7 @@ jobs:
       - name: Upload release payload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: comp-canvas-${{ needs.authorize.outputs.channel }}-${{ github.sha }}
+          name: comp-canvas-${{ needs.authorize.outputs.channel }}-${{ needs.authorize.outputs.sha }}
           path: |
             apps/desktop/release/${{ needs.authorize.outputs.channel }}/*.exe
             apps/desktop/release/${{ needs.authorize.outputs.channel }}/*.blockmap
@@ -110,6 +121,8 @@ jobs:
     steps:
       - name: Check out merged revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -151,11 +164,13 @@ jobs:
     steps:
       - name: Check out merged revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
 
       - name: Download exact merged build
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: comp-canvas-${{ needs.authorize.outputs.channel }}-${{ github.sha }}
+          name: comp-canvas-${{ needs.authorize.outputs.channel }}-${{ needs.authorize.outputs.sha }}
           path: release
 
       - name: Install pnpm
@@ -219,7 +234,7 @@ jobs:
             exit 1
           fi
 
-          arguments=("$RELEASE_TAG" release/* --target "$GITHUB_SHA" --title "$RELEASE_TITLE" --notes "Built from $GITHUB_SHA after pull request #$RELEASE_PULL_REQUEST merged into $GITHUB_REF_NAME. Database migrations completed before publication.")
+          arguments=("$RELEASE_TAG" release/* --target "${{ needs.authorize.outputs.sha }}" --title "$RELEASE_TITLE" --notes "Built from ${{ needs.authorize.outputs.sha }} after pull request #$RELEASE_PULL_REQUEST merged into $GITHUB_REF_NAME. Database migrations completed before publication.")
           if [[ "$RELEASE_CHANNEL" == "staging" ]]; then arguments+=(--prerelease); fi
           gh release create "${arguments[@]}"
 
