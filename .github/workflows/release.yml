@@ -55,12 +55,13 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     environment: ${{ needs.authorize.outputs.environment }}
+    outputs:
+      updatable: ${{ steps.signing.outputs.updatable }}
     env:
       CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
       CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
       DESIGN_EDITOR_WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
       DESIGN_EDITOR_RELEASE_VERSION: ${{ needs.authorize.outputs.version }}
-      DESIGN_EDITOR_UPDATABLE: 1
     steps:
       - name: Check out merged revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -85,12 +86,21 @@ jobs:
         shell: pwsh
         run: Copy-Item ".env.${{ needs.authorize.outputs.channel }}.example" ".env.${{ needs.authorize.outputs.channel }}"
 
-      - name: Require production signing identity
+      - name: Select signing mode
+        id: signing
         shell: pwsh
         run: |
-          if (-not $env:CSC_LINK) { throw 'The WINDOWS_CERTIFICATE secret is missing.' }
-          if (-not $env:CSC_KEY_PASSWORD) { throw 'The WINDOWS_CERTIFICATE_PASSWORD secret is missing.' }
-          if (-not $env:DESIGN_EDITOR_WINDOWS_PUBLISHER) { throw 'The WINDOWS_PUBLISHER environment variable is missing.' }
+          $configured = @(
+            -not [string]::IsNullOrWhiteSpace($env:CSC_LINK),
+            -not [string]::IsNullOrWhiteSpace($env:CSC_KEY_PASSWORD),
+            -not [string]::IsNullOrWhiteSpace($env:DESIGN_EDITOR_WINDOWS_PUBLISHER)
+          )
+          $count = @($configured | Where-Object { $_ }).Count
+          if ($count -ne 0 -and $count -ne 3) { throw 'Windows signing is partially configured. Set the certificate, password, and publisher together.' }
+          $updatable = if ($count -eq 3) { 'true' } else { 'false' }
+          $enabled = if ($count -eq 3) { '1' } else { '0' }
+          "updatable=$updatable" >> $env:GITHUB_OUTPUT
+          "DESIGN_EDITOR_UPDATABLE=$enabled" >> $env:GITHUB_ENV
 
       - name: Build signed desktop installer
         shell: pwsh
@@ -188,6 +198,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Require update publishing credentials
+        if: needs.build.outputs.updatable == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -200,6 +211,7 @@ jobs:
           fi
 
       - name: Verify installer and prepare staged rollout
+        if: needs.build.outputs.updatable == 'true'
         env:
           RELEASE_VERSION: ${{ needs.authorize.outputs.version }}
           UPDATE_ROLLOUT_PERCENTAGE: ${{ vars.UPDATE_ROLLOUT_PERCENTAGE || '100' }}
@@ -222,6 +234,7 @@ jobs:
           RELEASE_TITLE: ${{ needs.authorize.outputs.title }}
           RELEASE_CHANNEL: ${{ needs.authorize.outputs.channel }}
           RELEASE_PULL_REQUEST: ${{ needs.authorize.outputs.pull_request }}
+          UPDATABLE_RELEASE: ${{ needs.build.outputs.updatable }}
         shell: bash
         run: |
           set -euo pipefail
@@ -234,11 +247,14 @@ jobs:
             exit 1
           fi
 
-          arguments=("$RELEASE_TAG" release/* --target "${{ needs.authorize.outputs.sha }}" --title "$RELEASE_TITLE" --notes "Built from ${{ needs.authorize.outputs.sha }} after pull request #$RELEASE_PULL_REQUEST merged into $GITHUB_REF_NAME. Database migrations completed before publication.")
+          signing_note="Signed automatic update release."
+          if [[ "$UPDATABLE_RELEASE" != "true" ]]; then signing_note="Unsigned manual-download build. Automatic updates are intentionally disabled for this release."; fi
+          arguments=("$RELEASE_TAG" release/* --target "${{ needs.authorize.outputs.sha }}" --title "$RELEASE_TITLE" --notes "Built from ${{ needs.authorize.outputs.sha }} after pull request #$RELEASE_PULL_REQUEST merged into $GITHUB_REF_NAME. Database migrations completed before publication. $signing_note")
           if [[ "$RELEASE_CHANNEL" == "staging" ]]; then arguments+=(--prerelease); fi
           gh release create "${arguments[@]}"
 
       - name: Advance update channel
+        if: needs.build.outputs.updatable == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

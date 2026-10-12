@@ -65,10 +65,13 @@ test('RELEASE-PIPELINE-001 gates publication on channel migration and the merged
   assert.match(releaseWorkflow, /name: Apply database migrations[\s\S]*pnpm --filter @canvas\/database migrate/)
   assert.match(releaseWorkflow, /name: Publish[\s\S]*needs:[\s\S]*- build[\s\S]*- migrate/)
   assert.match(releaseWorkflow, /--prerelease/)
-  assert.match(releaseWorkflow, /Require production signing identity/)
+  assert.match(releaseWorkflow, /Select signing mode/)
   assert.match(releaseWorkflow, /WINDOWS_CERTIFICATE/)
-  assert.match(releaseWorkflow, /DESIGN_EDITOR_UPDATABLE: 1/)
+  assert.match(releaseWorkflow, /Windows signing is partially configured/)
+  assert.match(releaseWorkflow, /DESIGN_EDITOR_UPDATABLE=\$enabled/)
+  assert.match(releaseWorkflow, /Unsigned manual-download build\. Automatic updates are intentionally disabled/)
   assert.match(releaseWorkflow, /Require update publishing credentials/)
+  assert.match(releaseWorkflow, /if: needs\.build\.outputs\.updatable == 'true'/)
   assert.ok(releaseWorkflow.indexOf('Publish GitHub release') < releaseWorkflow.indexOf('Advance update channel'))
 
   const production = evaluateReleasePolicy({
@@ -103,6 +106,11 @@ test('RELEASE-DESKTOP-002 keeps previews out of update feeds and isolates nightl
   const preview = createBuilderArguments('staging', { DESIGN_EDITOR_UPDATE_URL: 'https://updates.test' })
   assert.equal(preview.some(value => value.includes('publish.provider')), false)
   assert.equal(preview.some(value => value.includes('extraMetadata.version')), false)
+
+  const unsignedNightly = createBuilderArguments('staging', { DESIGN_EDITOR_RELEASE_VERSION: '0.1.0-nightly.41', DESIGN_EDITOR_UPDATE_URL: 'https://updates.test' })
+  assert.ok(unsignedNightly.includes('--config.extraMetadata.version=0.1.0-nightly.41'))
+  assert.ok(unsignedNightly.includes('--config.appId=com.comp-canvas.desktop.nightly'))
+  assert.equal(unsignedNightly.some(value => value.includes('publish.provider')), false)
 
   const nightly = createBuilderArguments('staging', { DESIGN_EDITOR_UPDATABLE: '1', DESIGN_EDITOR_RELEASE_VERSION: '0.1.0-nightly.41', DESIGN_EDITOR_UPDATE_URL: 'https://updates.test', DESIGN_EDITOR_WINDOWS_PUBLISHER: 'Comp Canvas, LLC' })
   assert.ok(nightly.includes('--config.extraMetadata.version=0.1.0-nightly.41'))

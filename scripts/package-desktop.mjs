@@ -83,11 +83,14 @@ export function createPackageEnvironment(baseEnvironment, configured, requestedM
 
 export function createBuilderArguments(requestedMode, environment) {
   const builder = ['--filter', '@canvas/desktop', 'exec', 'electron-builder', '--win', 'nsis', '--publish', 'never', `--config.directories.output=release/${requestedMode}`]
-  if (requestedMode !== 'local' && environment.DESIGN_EDITOR_UPDATABLE === '1') {
-    const releaseVersion = environment.DESIGN_EDITOR_RELEASE_VERSION
-    if (!releaseVersion) throw new Error(`Missing ${requestedMode} release version.`)
-    builder.push(`--config.extraMetadata.version=${releaseVersion}`, '--config.publish.provider=generic', `--config.publish.url=${environment.DESIGN_EDITOR_UPDATE_URL}`, `--config.publish.channel=${requestedMode === 'staging' ? 'nightly' : 'latest'}`)
+  const releaseVersion = environment.DESIGN_EDITOR_RELEASE_VERSION
+  if (requestedMode !== 'local' && releaseVersion) {
+    builder.push(`--config.extraMetadata.version=${releaseVersion}`)
     if (requestedMode === 'staging') builder.push('--config.appId=com.comp-canvas.desktop.nightly', '--config.productName=Comp Canvas Nightly')
+  }
+  if (requestedMode !== 'local' && environment.DESIGN_EDITOR_UPDATABLE === '1') {
+    if (!releaseVersion) throw new Error(`Missing ${requestedMode} release version.`)
+    builder.push('--config.publish.provider=generic', `--config.publish.url=${environment.DESIGN_EDITOR_UPDATE_URL}`, `--config.publish.channel=${requestedMode === 'staging' ? 'nightly' : 'latest'}`)
     if (environment.DESIGN_EDITOR_WINDOWS_PUBLISHER) builder.push(`--config.win.publisherName=${environment.DESIGN_EDITOR_WINDOWS_PUBLISHER}`)
   }
   return builder
