@@ -1,0 +1,25 @@
+packages/editor/src/features/editor/canvas-hud-projection-service.test.ts
+  s_012c57818fbf95::t_95cc4ab3042fcb 170-176,197-229,237-239
+  s_012c57818fbf95::t_3e63af20395635 240-293
+  s_012c57818fbf95::t_e0c450a6b008ea 230-236
+  s_012c57818fbf95::t_c87ce8b13b508f 177-196
+packages/editor/src/features/editor/canvas-hud-projection.ts
+  s_012c57818fbf95::t_95cc4ab3042fcb 239-242,244-250,252,254-258,267-268
+  s_012c57818fbf95::t_3e63af20395635 243,251,253,259-266,299,310
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4e67f3a425593c48817ca08bc446c921dcd8ee86",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
