@@ -50,6 +50,7 @@ export function createDesktopAdapter(bridge: DesktopBridge): EditorProjectApi {
   const collaboration = {
     getSnapshot: () => collaborationSnapshot,
     subscribe: (listener: () => void) => { collaborationListeners.add(listener); return () => collaborationListeners.delete(listener) },
+    interactionAwareness: false,
     updateAwareness: (patch: Parameters<NonNullable<EditorProjectApi['collaboration']>['updateAwareness']>[0], options?: Parameters<NonNullable<EditorProjectApi['collaboration']>['updateAwareness']>[1]) => { void bridge.updateCollaborationAwareness(patch, options) },
     retry: () => { void bridge.retryCollaboration() },
     leave: () => { void bridge.leaveCollaboration() },

@@ -313,6 +313,7 @@ export function createCollaborationService(
   }
   const publishInteraction = (interaction: EditorCollaborationInteraction | null) => {
     if (!api || snapshot.status !== 'live' || !snapshot.canMutate) return false
+    if (api.interactionAwareness === false) return true
     const pageId = interaction?.pageId ?? documents.getSnapshot().pageId
     if (!pageId) return false
     try { api.updateAwareness({ pageId, interaction }, { immediate: true }); return true }
@@ -538,7 +539,7 @@ export function createCollaborationService(
       const pageId = documents.getSnapshot().pageId
       const uniqueNodeIds = Object.freeze([...new Set(nodeIds)])
       if (!pageId || !uniqueNodeIds.length) return null
-      const localOnly = !api
+      const localOnly = !api || api.interactionAwareness === false
       if (localInteraction) {
         const sameNodes = localInteraction.nodeIds.length === uniqueNodeIds.length && uniqueNodeIds.every(nodeId => localInteraction?.nodeIds.includes(nodeId))
         if (!localInteractionConfirmed || localInteraction.pageId !== pageId || localInteraction.kind !== kind || !sameNodes || remoteInteractions(uniqueNodeIds).length) return null
@@ -563,7 +564,7 @@ export function createCollaborationService(
       if (!localInteraction || localInteraction.interactionId !== interactionId) return false
       if (remoteInteractions(localInteraction.nodeIds).length > 0) { clearInteraction(); return false }
       localInteraction = Object.freeze({ ...localInteraction, transforms: Object.freeze(transforms.map(transform => Object.freeze({ ...transform }))) })
-      if (!api) return true
+      if (!api || api.interactionAwareness === false) return true
       if (publishInteraction(localInteraction)) return true
       clearInteraction()
       return false

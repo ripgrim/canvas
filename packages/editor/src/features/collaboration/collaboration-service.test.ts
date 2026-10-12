@@ -165,6 +165,28 @@ describe('CLOUD-SYNC-GESTURE-001 collaboration gesture ownership', () => {
     service.stop()
   })
 
+  it('keeps local canvas gestures editable when the transport uses a separate interaction protocol', async () => {
+    const docs = documents()
+    const local = participant('local', 'tab-local')
+    const transport = collaboration(snapshot('live', 'tab-local', [local]))
+    const updateAwareness = vi.fn(transport.api.updateAwareness)
+    const service = createCollaborationService(docs.api, fakeWindow, animationClock().clock)
+    service.configure({ ...transport.api, interactionAwareness: false, updateAwareness })
+    service.start()
+    updateAwareness.mockClear()
+
+    const interactionId = service.beginInteraction('move', ['node-1'])
+
+    expect(interactionId).toBeTypeOf('string')
+    expect(service.canCommitInteraction(interactionId!)).toBe(true)
+    await expect(service.waitForCommitInteraction(interactionId!)).resolves.toBe(true)
+    expect(service.updateInteraction(interactionId!, [{ nodeId: 'node-1', dx: 12, dy: 8 }])).toBe(true)
+    expect(updateAwareness).not.toHaveBeenCalled()
+    service.endInteraction(interactionId!)
+    expect(service.hasInteraction(interactionId!)).toBe(false)
+    service.stop()
+  })
+
   it('cancels ownership when a transform sample cannot be published', () => {
     const docs = documents()
     const local = participant('local', 'tab-local')

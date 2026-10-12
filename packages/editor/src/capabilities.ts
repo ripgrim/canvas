@@ -114,6 +114,8 @@ export type EditorCollaborationFlowOutcome = EditorCollaborationFlowGrant | Edit
 export type EditorCollaborationApi = Readonly<{
   subscribe(listener: () => void): () => void
   getSnapshot(): EditorCollaborationSnapshot
+  /** False when gesture ownership uses a separate protocol and must not be sent through awareness. */
+  interactionAwareness?: boolean
   updateAwareness(patch: EditorCollaborationPatch, options?: Readonly<{ immediate?: boolean }>): void
   updateFlowAuthority?(authority: EditorCollaborationFlowAuthority | null): void
   getFlowClaims?(): readonly EditorCollaborationFlowClaimSnapshot[]

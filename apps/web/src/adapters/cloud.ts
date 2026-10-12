@@ -567,6 +567,7 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
     ...(syncClient ? { collaboration: {
       subscribe: (listener: () => void) => { collaborationListeners.add(listener); return () => collaborationListeners.delete(listener) },
       getSnapshot: () => collaborationSnapshot,
+      interactionAwareness: false,
       updateAwareness: (patch, presenceOptions) => syncClient.updatePresence({
         ...(patch.pageId === undefined ? {} : { pageId: patch.pageId }),
         ...(patch.focused === undefined ? {} : { focused: patch.focused }),
