@@ -573,6 +573,8 @@ Negative controls: remove the save guard and verify a dirty-document fixture blo
 
 Build a release from the exact authorized merged commit. A complete signing identity produces an automatic update release and must fail closed without its Cloudflare update bucket or channel-scoped credentials. With no signing values configured, publish an unsigned manual-download installer with no updater metadata and do not touch R2; a partial signing identity must fail. For signed updates, publish the GitHub release first, upload versioned installer and blockmap objects second, and replace the small channel manifest last. The public update Worker is read-only, sends mutable manifests with `no-store`, immutable artifacts with a one-year cache policy, and supports correct single byte ranges for differential downloads. The updater must enforce manifest SHA-512 plus the configured Authenticode publisher.
 
+Run the database migration command from a clean checkout with generated package output absent. It must build `@canvas/database` and its workspace dependencies before executing the migration entry point.
+
 Negative controls: attempt an update-feed write, path traversal, arbitrary object read, invalid byte range, unsigned release, and direct branch push. Every case must fail without advancing the channel manifest.
 
 ### WEB-UPDATE-001: Browser deployment refresh
