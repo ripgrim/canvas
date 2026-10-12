@@ -9,6 +9,7 @@ import { evaluateReleasePolicy } from './release-policy.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const pullRequestWorkflow = await readFile(resolve(root, '.github/workflows/desktop-build.yml'), 'utf8')
 const releaseWorkflow = await readFile(resolve(root, '.github/workflows/release.yml'), 'utf8')
+const databasePackage = JSON.parse(await readFile(resolve(root, 'packages/database/package.json'), 'utf8'))
 const stagingTemplate = await readFile(resolve(root, '.env.staging.example'), 'utf8')
 const productionTemplate = await readFile(resolve(root, '.env.production.example'), 'utf8')
 
@@ -82,6 +83,13 @@ test('RELEASE-PIPELINE-001 gates publication on channel migration and the merged
   assert.equal(production.channel, 'production')
   assert.equal(production.tag, 'v0.1.0')
   assert.equal(production.version, '0.1.0')
+})
+
+test('RELEASE-PIPELINE-002 builds migration workspace dependencies on a clean runner', () => {
+  assert.equal(
+    databasePackage.scripts.migrate,
+    'pnpm --filter @canvas/database... build && node dist/migrate.js',
+  )
 })
 
 test('RELEASE-DESKTOP-001 packages staging and production with isolated public origins', () => {
