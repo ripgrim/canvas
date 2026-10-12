@@ -167,6 +167,130 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
     store.dispose()
   })
 
+  it('keeps axis-aligned overlays when an unrelated nested node has no offset-parent matrix chain', () => {
+    const store = createDocumentStore(() => 'id')
+    const source: FileDocument = {
+      schemaVersion: 9, fileId: 'partial-topology-file', revision,
+      pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      nodes: {
+        root: { id: 'root', type: 'root' },
+        parent: {
+          id: 'parent', type: 'frame', name: 'Parent',
+          styles: { left: -160, top: -210, width: 212, height: 311 },
+          layout: {
+            item: { position: { mode: 'freeform' } },
+            container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'center', align: 'center' } },
+          },
+        },
+        copy: {
+          id: 'copy', type: 'text', name: 'Copy', text: 'Copy',
+          textStyle: { fontFamily: 'Inter', fontWeight: 400, fontStyle: 'normal', fontSize: 16, lineHeight: { kind: 'unitless', value: 1 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', wrap: 'normal', case: 'none', keepWords: false },
+          textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+          styles: { left: 80, top: 140, width: 52, height: 31 },
+          layout: { item: { position: { mode: 'flow' } } },
+        },
+        selected: {
+          id: 'selected', type: 'frame', name: 'Selected',
+          styles: { left: 190, top: 26, width: 266, height: 217 },
+          layout: { item: { position: { mode: 'freeform' } } },
+        },
+      },
+      relationships: { parent: { parentId: 'root', orderKey: 'A' }, copy: { parentId: 'parent', orderKey: 'A' }, selected: { parentId: 'root', orderKey: 'B' } }, theme: { tokens: {} },
+    }
+    const node = (canvasKind: 'frame' | 'text', rect: { x: number; y: number; width: number; height: number }, offsetParentNodeId?: string | null): SceneGeometry['nodes'][string] => ({
+      canvasKind, documentRevision: revision, layoutGeneration, rect, worldAabb: rect,
+      offset: { ...rect, origin: { x: rect.width / 2, y: rect.height / 2 } },
+      ...(offsetParentNodeId !== undefined ? { offsetParentNodeId } : {}), directChild: true,
+      box: { border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { top: 0, right: 0, bottom: 0, left: 0 } },
+    })
+    const measuredGeometry: SceneGeometry = {
+      revision: measurementRevision, documentRevision: revision, layoutGeneration,
+      nodes: {
+        parent: node('frame', { x: -160, y: -210, width: 212, height: 311 }),
+        copy: node('text', { x: -80, y: -70, width: 52, height: 31 }),
+        selected: node('frame', { x: 190, y: 26, width: 266, height: 217 }),
+      },
+      unsupported: {}, themeUnsupported: {}, unownedPortals: 0,
+    }
+    const measured = { getSnapshot: () => measuredGeometry, subscribe: () => () => undefined }
+    const viewport = { getSnapshot: () => false, subscribe: () => () => undefined }
+    store.load(source, [], { replace: true, pageId: 'page' })
+    store.setViewport({ x: 0, y: 0, zoom: 1 })
+    store.setViewportSize({ width: 800, height: 600 })
+    store.select('selected')
+    const service = createCanvasHudProjectionService(store, measured, viewport)
+    service.start()
+
+    expect(service.getSnapshot().frame?.byNodeId.selected).toMatchObject({
+      worldAabb: { x: 190, y: 26, width: 266, height: 217 },
+      policy: { selected: true, showOutline: true, showHandles: true },
+    })
+
+    service.dispose()
+    const transformedGeometry = structuredClone(measuredGeometry)
+    transformedGeometry.nodes.selected!.transform = [0, 1, -1, 0, 0, 0]
+    const transformedSource = { getSnapshot: () => transformedGeometry, subscribe: () => () => undefined }
+    const transformedService = createCanvasHudProjectionService(store, transformedSource, viewport)
+    transformedService.start()
+    expect(transformedService.getSnapshot().frame).toBeNull()
+    transformedService.dispose()
+    store.dispose()
+  })
+
+  it('reconstructs a rotated selected quad from exact measured rectangles when the root matrix chain is unavailable', () => {
+    const store = createDocumentStore(() => 'id')
+    const source: FileDocument = {
+      schemaVersion: 9, fileId: 'rotated-measured-file', revision,
+      pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      nodes: {
+        root: { id: 'root', type: 'root' },
+        selected: {
+          id: 'selected', type: 'frame', name: 'Selected',
+          styles: { left: 190, top: 26, width: 266, height: 217, rotation: 90 },
+          layout: { item: { position: { mode: 'freeform' } } },
+        },
+      },
+      relationships: { selected: { parentId: 'root', orderKey: 'A' } }, theme: { tokens: {} },
+    }
+    const measuredGeometry: SceneGeometry = {
+      revision: measurementRevision, documentRevision: revision, layoutGeneration,
+      nodes: {
+        selected: {
+          canvasKind: 'frame', documentRevision: revision, layoutGeneration,
+          rect: { x: 190, y: 26, width: 266, height: 217 },
+          worldAabb: { x: 214.5, y: 1.5, width: 217, height: 266 },
+          offset: { x: 190, y: 26, width: 266, height: 217, origin: { x: 133, y: 108.5 } },
+          directChild: true, transform: [0, 1, -1, 0, 0, 0],
+          box: { border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { top: 0, right: 0, bottom: 0, left: 0 } },
+        },
+      },
+      unsupported: {}, themeUnsupported: {}, unownedPortals: 0,
+    }
+    store.load(source, [], { replace: true, pageId: 'page' })
+    store.setViewport({ x: 0, y: 0, zoom: 1 })
+    store.setViewportSize({ width: 800, height: 600 })
+    store.select('selected')
+    const measured = { getSnapshot: () => measuredGeometry, subscribe: () => () => undefined }
+    const viewport = { getSnapshot: () => false, subscribe: () => () => undefined }
+    const service = createCanvasHudProjectionService(store, measured, viewport)
+    service.start()
+
+    expect(service.getSnapshot().frame?.byNodeId.selected).toMatchObject({
+      worldQuad: [{ x: 431.5, y: 1.5 }, { x: 431.5, y: 267.5 }, { x: 214.5, y: 267.5 }, { x: 214.5, y: 1.5 }],
+      worldAabb: { x: 214.5, y: 1.5, width: 217, height: 266 },
+      dimensions: { width: 266, height: 217 },
+      policy: { selected: true, showOutline: true, showHandles: true },
+    })
+
+    measuredGeometry.nodes.selected!.worldAabb = { x: 190, y: 26, width: 266, height: 217 }
+    const rejected = createCanvasHudProjectionService(store, measured, viewport)
+    rejected.start()
+    expect(rejected.getSnapshot().frame).toBeNull()
+    rejected.dispose()
+    service.dispose()
+    store.dispose()
+  })
+
   it('publishes ordered flow-drag samples from one captured authority and rejects stale generation data', () => {
     const { store, service } = setup(true)
     const first = flowDrag('active', 7)

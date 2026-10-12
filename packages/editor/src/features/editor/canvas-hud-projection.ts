@@ -236,6 +236,36 @@ function measurementMatchesNode(snapshot: GestureAuthoritySnapshot, nodeId: stri
     && sceneNode.rect.height === measurement.rect.height
 }
 
+function identityTransform(matrix: Matrix | undefined): boolean {
+  return matrix === undefined || matrix[0] === 1 && matrix[1] === 0 && matrix[2] === 0 && matrix[3] === 1 && matrix[4] === 0 && matrix[5] === 0
+}
+
+function measuredRectProjection(snapshot: GestureAuthoritySnapshot, nodeId: string): { quad: HudQuad; aabb: Rect; dimensions: Size } | null {
+  const sceneNode = snapshot.scene.byId.get(nodeId)
+  const measurement = snapshot.geometry.nodes[nodeId]
+  const documentNode = snapshot.file.nodes[nodeId]
+  if (!sceneNode || !measurement || !documentNode || documentNode.type === 'root' || !measurement.offset || !measurement.worldAabb) return null
+  if (measurement.documentRevision !== snapshot.start.documentRevision || measurement.layoutGeneration !== snapshot.start.layoutGeneration || measurement.directChild !== true) return null
+  if (documentNode.type === 'component' ? measurement.componentId !== documentNode.componentId : measurement.canvasKind !== documentNode.type) return null
+  if (!finiteRect(sceneNode.rect) || !finiteRect(measurement.rect) || !finiteRect(measurement.worldAabb) || !finiteSize(measurement.offset)) return null
+  if (!sameAabb(sceneNode.rect, measurement.rect)) return null
+  if (!close(sceneNode.rect.width, measurement.offset.width) || !close(sceneNode.rect.height, measurement.offset.height)) return null
+  let current = sceneNode.parentId ? snapshot.scene.byId.get(sceneNode.parentId) : undefined
+  while (current) {
+    if (current.rotation !== 0 || !identityTransform(snapshot.geometry.nodes[current.id]?.transform)) return null
+    current = current.parentId ? snapshot.scene.byId.get(current.parentId) : undefined
+  }
+  const { x, y, width, height } = sceneNode.rect
+  const transform = measurement.transform ?? [1, 0, 0, 1, 0, 0]
+  if (!usableMatrix(transform) || !finitePoint(measurement.offset.origin)) return null
+  const { origin } = measurement.offset
+  const matrix = multiply(translation(x, y), multiply(translation(origin.x, origin.y), multiply(transform, translation(-origin.x, -origin.y))))
+  const quad = [apply(matrix, { x: 0, y: 0 }), apply(matrix, { x: width, y: 0 }), apply(matrix, { x: width, y: height }), apply(matrix, { x: 0, y: height })] as HudQuad
+  const aabb = quadAabb(quad)
+  if (!aabb || !sameAabb(aabb, measurement.worldAabb)) return null
+  return { quad, aabb, dimensions: { width, height } }
+}
+
 /** Exact measured border-box matrix. Every modeled ancestor and runtime topology edge must prove the same fence. */
 function measuredBorderToWorld(snapshot: GestureAuthoritySnapshot, nodeId: string, visiting = new Set<string>()): Matrix | null {
   if (visiting.has(nodeId)) return null
@@ -266,7 +296,7 @@ function measuredBorderToWorld(snapshot: GestureAuthoritySnapshot, nodeId: strin
 function measuredProjection(snapshot: GestureAuthoritySnapshot, nodeId: string): { quad: HudQuad; aabb: Rect; dimensions: Size } | null {
   const measurement = snapshot.geometry.nodes[nodeId]
   const matrix = measuredBorderToWorld(snapshot, nodeId)
-  if (!measurement?.offset || !measurement.worldAabb || !matrix || !finiteRect(measurement.worldAabb)) return null
+  if (!measurement?.offset || !measurement.worldAabb || !matrix || !finiteRect(measurement.worldAabb)) return measuredRectProjection(snapshot, nodeId)
   const { width, height } = measurement.offset
   const points = [
     apply(matrix, { x: 0, y: 0 }),
@@ -277,7 +307,7 @@ function measuredProjection(snapshot: GestureAuthoritySnapshot, nodeId: string):
   if (!points.every(finitePoint)) return null
   const quad = points as HudQuad
   const aabb = quadAabb(quad)
-  if (!aabb || !sameAabb(aabb, measurement.worldAabb)) return null
+  if (!aabb || !sameAabb(aabb, measurement.worldAabb)) return measuredRectProjection(snapshot, nodeId)
   return { quad, aabb, dimensions: { width, height } }
 }
 
