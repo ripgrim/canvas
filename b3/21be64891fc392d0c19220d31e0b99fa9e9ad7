@@ -1,0 +1,27 @@
+apps/web/src/adapters/desktop.ts
+  s_012c57818fbf95::t_dd831dc10f4852 53
+packages/editor/src/features/collaboration/collaboration-service.ts
+  s_012c57818fbf95::t_dd831dc10f4852 316,542,567
+packages/editor/src/capabilities.ts
+  s_012c57818fbf95::t_dd831dc10f4852 117-118
+packages/editor/src/features/collaboration/collaboration-service.test.ts
+  s_012c57818fbf95::t_dc2ad451d9d921 168-189
+apps/web/src/adapters/cloud.ts
+  s_012c57818fbf95::t_dd831dc10f4852 570
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b321be64891fc392d0c19220d31e0b99fa9e9ad7",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
