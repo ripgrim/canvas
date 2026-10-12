@@ -1,0 +1,24 @@
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_e6e9f7d65ef2eb 576-577
+scripts/release-workflows.test.mjs
+  s_012c57818fbf95::t_e6e9f7d65ef2eb 12,88-92
+  s_012c57818fbf95::t_2a89eda6faf480 93-94
+packages/database/package.json
+  s_012c57818fbf95::t_e6e9f7d65ef2eb 39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e5883922051679b73d5b450aff3b751c70f06565",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
