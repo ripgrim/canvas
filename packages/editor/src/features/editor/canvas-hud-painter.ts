@@ -28,6 +28,8 @@ export const canvasHudChrome = {
   badgeRadius: 3,
 } as const
 
+export const canvasHudChromeForViewport = (width: number) => width <= 760 ? { ...canvasHudChrome, outlineWidth: 2, handleSize: 12 } : canvasHudChrome
+
 const roundHudDimension = (value: number) => String(Math.round(value * 100) / 100)
 export const formatHudDimensions = (width: number, height: number) => `${roundHudDimension(width)}\u2004\u00d7\u2004${roundHudDimension(height)}`
 export const selectionBadgeRect = (selection: Rect, textWidth: number): Rect => {
@@ -147,6 +149,7 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
     const dpr = Math.max(1, window.devicePixelRatio || 1)
     const width = canvas.clientWidth
     const height = canvas.clientHeight
+    const chrome = canvasHudChromeForViewport(window.innerWidth)
     if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) { canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr) }
     const context = canvas.getContext('2d')
     if (!context) return
@@ -160,7 +163,6 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
     const toScreen = (rect: Rect) => worldRectToScreen(rect, state.viewport, state.viewportSize)
     const oriented = (node: SceneNode, rect: Rect) => nodeHudGeometry(node, rect, measured[node.id], state.viewport, state.viewportSize)
     const transient = state.transient
-    const moving = transient?.kind === 'move'
     const liveRect = (id: string): Rect | null => (transient?.kind === 'move' || transient?.kind === 'resize' ? transient.rects[id] : undefined) ?? scene.byId.get(id)?.rect ?? null
     const selected = state.selection.filter(id => scene.byId.has(id))
     const selectedIds = new Set(selected)
@@ -168,7 +170,6 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
     context.textBaseline = 'bottom'
     for (const node of scene.nodes.filter(candidate => candidate.parentId === null && (candidate.kind === 'frame' || candidate.kind === 'component'))) {
       if (state.renaming === node.id) continue
-      if (moving && selectedIds.has(node.id)) continue
       const rect = liveRect(node.id) ?? node.rect
       const screen = oriented(node, rect)
       const isSelected = selectedIds.has(node.id)
@@ -177,7 +178,7 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
       const face = topHudFace(screen.quad)
       const label = fitText(context, node.name, Math.max(48, face.length))
       context.save()
-      context.translate(face.start.x + face.normal.x * canvasHudChrome.labelGap, face.start.y + face.normal.y * canvasHudChrome.labelGap)
+      context.translate(face.start.x + face.normal.x * chrome.labelGap, face.start.y + face.normal.y * chrome.labelGap)
       context.rotate(face.angle)
       context.fillText(label, 0, 0, Math.max(48, face.length))
       context.restore()
@@ -188,21 +189,19 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
       const node = scene.byId.get(state.hover)!
       strokeQuad(context, oriented(node, node.rect).quad, `color-mix(in srgb, ${palette.selection} 60%, transparent)`)
     }
-    if (transient?.kind === 'move' && transient.targetFrameId && scene.byId.get(transient.targetFrameId)) { const node = scene.byId.get(transient.targetFrameId)!; strokeQuad(context, oriented(node, node.rect).quad, palette.selection, canvasHudChrome.outlineWidth, [4, 3]) }
+    if (transient?.kind === 'move' && transient.targetFrameId && scene.byId.get(transient.targetFrameId)) { const node = scene.byId.get(transient.targetFrameId)!; strokeQuad(context, oriented(node, node.rect).quad, palette.selection, chrome.outlineWidth, [4, 3]) }
     const selectedRects: Rect[] = []
     const selectedGeometry: HudOrientedRect[] = []
-    if (!moving) {
-      for (const id of selected) {
-        const rect = liveRect(id)
-        if (!rect) continue
-        const node = scene.byId.get(id)!
-        const screen = oriented(node, rect)
-        painted.selected[id] = screen.bounds
-        painted.quads[id] = screen.quad
-        selectedRects.push(rect)
-        selectedGeometry.push(screen)
-        strokeQuad(context, screen.quad, palette.selection, canvasHudChrome.outlineWidth)
-      }
+    for (const id of selected) {
+      const rect = liveRect(id)
+      if (!rect) continue
+      const node = scene.byId.get(id)!
+      const screen = oriented(node, rect)
+      painted.selected[id] = screen.bounds
+      painted.quads[id] = screen.quad
+      selectedRects.push(rect)
+      selectedGeometry.push(screen)
+      strokeQuad(context, screen.quad, palette.selection, chrome.outlineWidth)
     }
     if (selected.length > 1) { const union = unionRects(selectedRects); if (union) strokeRect(context, toScreen(union), `color-mix(in srgb, ${palette.selection} 45%, transparent)`) }
     if (transient?.kind === 'marquee') {
@@ -211,7 +210,7 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
       context.fillStyle = `color-mix(in srgb, ${palette.selection} 10%, transparent)`
       context.fillRect(Math.round(screen.x), Math.round(screen.y), Math.round(screen.width), Math.round(screen.height))
       context.restore()
-      strokeRect(context, screen, palette.selection, canvasHudChrome.outlineWidth)
+      strokeRect(context, screen, palette.selection, chrome.outlineWidth)
     }
     if (transient?.kind === 'move') {
       context.save()
@@ -238,23 +237,23 @@ export function createCanvasHudPainter(store = documentStore, geometry = sceneGe
       const screen = toScreen(transient.rect)
       context.save()
       context.fillStyle = `color-mix(in srgb, ${palette.surface} 60%, transparent)`
-      if (transient.elementKind === 'shape') { context.beginPath(); context.ellipse(screen.x + screen.width / 2, screen.y + screen.height / 2, Math.max(0, screen.width / 2), Math.max(0, screen.height / 2), 0, 0, Math.PI * 2); context.fill(); context.strokeStyle = palette.selection; context.lineWidth = canvasHudChrome.outlineWidth; context.stroke() }
-      else { context.fillRect(Math.round(screen.x), Math.round(screen.y), Math.round(screen.width), Math.round(screen.height)); context.restore(); strokeRect(context, screen, palette.selection, canvasHudChrome.outlineWidth); context.save() }
+      if (transient.elementKind === 'shape') { context.beginPath(); context.ellipse(screen.x + screen.width / 2, screen.y + screen.height / 2, Math.max(0, screen.width / 2), Math.max(0, screen.height / 2), 0, 0, Math.PI * 2); context.fill(); context.strokeStyle = palette.selection; context.lineWidth = chrome.outlineWidth; context.stroke() }
+      else { context.fillRect(Math.round(screen.x), Math.round(screen.y), Math.round(screen.width), Math.round(screen.height)); context.restore(); strokeRect(context, screen, palette.selection, chrome.outlineWidth); context.save() }
       context.restore()
     }
-    const showHandles = selected.length === 1 && (state.tool === 'move' || state.tool === 'scale') && (!transient || transient.kind === 'resize') && state.renaming === null
+    const showHandles = selected.length === 1 && !scene.byId.get(selected[0]!)?.locked && (state.tool === 'move' || state.tool === 'scale') && (!transient || transient.kind === 'resize') && state.renaming === null
     if (showHandles && selectedGeometry[0]) {
       painted.handles = selected[0]!
-      const half = canvasHudChrome.handleSize / 2
+      const half = chrome.handleSize / 2
       context.save()
       context.fillStyle = palette.contrast
       context.strokeStyle = palette.selection
-      context.lineWidth = canvasHudChrome.outlineWidth
+      context.lineWidth = chrome.outlineWidth
       for (const point of selectedGeometry[0].quad) {
         const left = Math.round(point.x) - half
         const top = Math.round(point.y) - half
-        context.fillRect(left, top, canvasHudChrome.handleSize, canvasHudChrome.handleSize)
-        context.strokeRect(left, top, canvasHudChrome.handleSize, canvasHudChrome.handleSize)
+        context.fillRect(left, top, chrome.handleSize, chrome.handleSize)
+        context.strokeRect(left, top, chrome.handleSize, chrome.handleSize)
       }
       context.restore()
     }

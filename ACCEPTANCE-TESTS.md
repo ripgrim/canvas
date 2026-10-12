@@ -164,6 +164,8 @@ Apply one compatible edit and one incompatible tree edit. Verify compatible stat
 
 Verify shallow select, deep select, parent and child traversal, multiselect, lock, hide, duplicate, reorder, frame selection, ungroup, and exact layer-tree targeting using mouse and keyboard.
 
+Layer visibility and lock actions appear on row hover or their own keyboard focus. A hidden node remains identified by reduced name and type-icon opacity. A direct lock also locks descendants, removes canvas hit targets and resize controls, and prevents layer drag reorder for that node. The locked node remains selectable from Layers and its inspector properties remain editable.
+
 ### AT-CAN-002: Layout and snap
 
 Verify fixed, fit, fill, padding, gap, direction, alignment, wrap, absolute position, clipping, snap guides, align, distribute, nudge, large nudge, and frame resize.
@@ -184,9 +186,25 @@ Verify mouse, touchpad, pointer capture, and keyboard-only manipulation. Draggin
 
 ### AT-CAN-006: Live resize modifiers
 
-The rendered node, not only its outline, follows every resize pointer frame. Shift preserves the starting aspect ratio for corner and side handles. Alt resizes around the center. Ctrl on Windows and Command on macOS changes the bounds while keeping image pixels and direct freeform children fixed in world space. Modifier combinations compose, pointer cancel restores the pointer-down state, and pointer-up creates one undo entry.
+The rendered node, not only its outline, follows every resize pointer frame. Shift preserves the starting aspect ratio for corner and side handles. Alt resizes around the center. Ctrl on Windows and Command on macOS changes the bounds while keeping image pixels and direct freeform children fixed in world space. A rotated node resizes in its local axes while the opposite visible handle remains fixed, so 90- and 180-degree rotation never inverts the side under the pointer. Modifier combinations compose, pointer cancel restores the pointer-down state, and pointer-up creates one undo entry.
 
 Negative control: a test that advances only HUD geometry while rendered bounds remain unchanged must fail.
+
+### UI-MOBILE-001: Mobile editor sheets
+
+At 390 by 844, the canvas remains the primary surface. Layers and Properties open as mutually exclusive shadcn Base UI bottom sheets, stop at a useful partial height, preserve their real tree and inspector controls, trap focus, lock background scroll, and close by their close control, Escape, or an outside press. Read-only viewers can open Layers but cannot open Properties. Desktop rails and resize handles remain unchanged above the mobile breakpoint.
+
+### UI-MOBILE-002: Selected-node quick actions
+
+Select a node near every viewport edge. A toolbar with no more than four real actions stays attached to the selection, remains inside the viewport, never covers the dimension badge, and exposes Move, Scale, Rotate, and Delete using the editor's existing icons. Each action changes the same production state as its desktop counterpart. No unavailable action is presented as working.
+
+### UI-MOBILE-003: Touch canvas controls
+
+At the mobile breakpoint, the primary tool dock contains four real tools, supports horizontal keyboard navigation, and stays above the device safe area. Resize hit targets meet touch use without changing authored node geometry. Visible selection outlines and corner handles are more prominent on mobile while desktop HUD measurements remain unchanged.
+
+### UI-MOBILE-004: Quick-action drag fade
+
+The selected-node toolbar fades out with the theme's small motion at gesture start, becomes inert while moving or resizing, performs no per-sample toolbar render while the phase is unchanged, and restores at the committed selection position. The mobile header contains no experiment control or gesture status. Desktop does not subscribe its shell to this mobile gesture state. Reduced motion removes the fade transition without changing visibility states.
 
 ## Auth and authorization
 
@@ -218,6 +236,8 @@ Negative control: bypass the UI guard and call the API. Unauthorized access must
 ### AT-AUTH-003: Revocation
 
 Revoke a member and a share link. Verify later HTTP requests and active subscriptions lose access. Confirm revoked state is shown without leaking project content.
+
+Expire a collaboration transport ticket without changing database authorization. Verify an active owner re-admits automatically, keeps the visible document, and never enters the access-removed state. Preserve the owner's pending semantic operation across re-admission. As a negative control, change the database access epoch or remove access and verify the same room still terminates the subscription as revoked.
 
 ### AT-GHAPP-001: GitHub App installation grants
 
@@ -301,11 +321,17 @@ Run `pnpm verify:local` for the release-oriented local gate. It must include the
 
 ### DEPLOY-VERCEL-001: One Vercel project per hosted HTTP surface
 
-Run `pnpm test:vercel-config`, `pnpm test:vercel-builds`, then `pnpm vercel:check`. Verify the editor, login, API, and thumbnail renderer each have one unique project, root directory, build command, output or function contract, environment-name allowlist, and checked-in `vercel.json`. Derive the API's directly required environment names from its TypeScript runtime and fail if the deployment contract omits one. Execute every declared build from its configured project root, require the thumbnail renderer to generate and verify its registry before Vite starts, and require the API contract to carry the matching registry fingerprint. Exercise the API rewrite adapter with body and query preservation. Confirm setup creates and Git-links projects without deploying, and disables Git-triggered deployments so a later repository push cannot publish them before release approval. Keep R2 and revision sync on Cloudflare, and keep browser capture private until its stateful contract has a verified platform adapter.
+Run `pnpm test:vercel-config`, `pnpm test:vercel-builds`, then `pnpm vercel:check`. Verify the editor, login, API, and thumbnail renderer each have one unique project, root directory, build command, output or function contract, environment-name allowlist, and checked-in `vercel.json`. Derive the API's directly required environment names from its TypeScript runtime and fail if the deployment contract omits one. Execute every declared build from its configured project root, require the thumbnail renderer to generate and verify its registry before Vite starts, and require the API contract to carry the matching registry fingerprint. Exercise the API rewrite adapter with body and query preservation. Confirm setup creates and Git-links projects without deploying, keeps `main` as the production branch, enables Git deployments only after explicit setup approval, and assigns each stable staging domain to the persistent `staging` branch. Keep R2 and revision sync on Cloudflare, and keep browser capture private until its stateful contract has a verified platform adapter.
+
+### DEPLOY-STAGING-001: Persistent staging promotion
+
+Run `pnpm test:deployment-config` and `pnpm test:vercel-env`. Verify production and staging have disjoint origins for editor, login, API, preview, thumbnail rendering, assets, and sync. The preview iframe must remain cross-origin. Validate `.env.staging` without printing its values, then upload each Vercel variable only to the Preview environment scoped to the `staging` branch. Push a test commit to `staging`; confirm its staging surfaces update and exactly one open pull request targets `main`. Push another test commit and confirm the existing pull request updates instead of creating a duplicate. Merge that pull request and confirm only the `main` revision reaches production.
+
+Negative controls: point any staging service at its production origin, reuse the production auth cookie prefix, scope the staging cookie so it cannot reach the sync host, omit a required staging secret, add a direct workflow push to `main`, or remove the existing-pull-request check. Each mutation must fail its staging configuration test.
 
 ### CLOUDFLARE-R2-001: Private environment-isolated object storage
 
-Run `pnpm test:cloudflare-config`, then `pnpm cloudflare:check`. Verify Wrangler is authenticated to the manifest account, local development uses simulated R2, preview points only to the private development bucket, and production names a distinct future bucket. The remote bucket must have `r2.dev` disabled, no custom domains, the exact managed marker lifecycle rules, no objects after infrastructure setup, and no deployed Worker. Setup may create or reconcile the selected bucket and lifecycle configuration, but it must not upload an object or deploy code. Authentication failures, an unexpected account, ambiguous inspection errors, public access, attached custom domains, remote local bindings, or preview and production bucket collisions fail closed.
+Run `pnpm test:cloudflare-config`, then `pnpm cloudflare:check`. Verify Wrangler is authenticated to the manifest account, local development uses simulated R2, preview points only to the private development bucket, and production names a distinct bucket. The remote bucket must have `r2.dev` disabled, no bucket-level custom domains, the exact managed marker lifecycle rules, and the environment's declared Worker deployment state. Setup may create or reconcile the selected bucket and lifecycle configuration, but it must not upload an object. Once the Worker is deployed, the check permits stored objects because they are staging user data. Authentication failures, an unexpected account, ambiguous inspection errors, public access, missing deployed Workers, remote local bindings, or preview and production bucket collisions fail closed.
 
 ### CLOUD-FILES-001: Canonical hosted file persistence
 
@@ -393,6 +419,8 @@ Negative control: delete a queued operation before its acknowledgement and termi
 
 Run the approved Cloudflare platform fixture. Verify the first opener of a cold file creates one generation and starts one Container, concurrent openers converge on that generation, all live document and presence traffic uses that Container, and the room stays pinned while active. After drain and lease release, open from the relocation fixture and verify a new generation can be created through that request path. Record observed DO region, Container region, startup time, and socket latency without claiming colocation.
 
+Staging deployment evidence must also show that the runtime Worker has no public route, each file generation resolves to a stable Container object name, the admission Worker exposes only `sync-staging.canvas.ripgrim.com`, and the public, coordinator, and runtime secrets remain split across their owning services.
+
 Negative controls: start two authoritative Containers for the same fence and verify one loses acquisition. Reuse the prior generation after release and verify it cannot acknowledge an operation.
 
 ### CLOUD-SYNC-LEASE-001: Generation lease and stale-owner fencing
@@ -445,9 +473,9 @@ Negative controls: send a stale sequence, cross-file update, cross-generation up
 
 ### CLOUD-SYNC-GESTURE-001: Authoritative interaction ownership
 
-Start overlapping gestures from two authenticated editors. The room grants the first accepted interaction ownership of its page and node ids, echoes the acquisition and release to the sender, broadcasts every accepted transform sample to collaborators, and does not echo steady transform samples back to the owner. It discards a competing acquisition and refuses a losing semantic command that touches the locked node, an ancestor of it, its containing structural parent, or its page before persistence. A client may preview optimistically, but cannot create the semantic commit until the room echo confirms ownership. Keep the exact interaction lease until that gesture's semantic save is acknowledged or fails; an older queued save settling first must not release it, and a delayed completion must never release a newer room's interaction. A mutation waiting to commit reserves its affected scope so a later gesture cannot lock the same node underneath it. The owner cannot change its interaction id, kind, page, or node set until it releases the interaction. Disjoint nodes remain independently editable. Pointer cancel, failed publication, failed persistence, disconnect, room switch, and disposal release ownership. A failed release frame uses a browser-valid application close code and tears down the transport so disconnect clears authoritative room ownership; reconnect full-state publication cannot replay the stale interaction. After an acknowledged pointer-up save releases the lease, another editor can acquire the same node. The client yields to any overlapping remote interaction reported by the authoritative roster; participant-id ordering never decides ownership.
+Start overlapping gestures from two authenticated editors. The room grants the first accepted interaction ownership of its page and node ids, echoes the acquisition and release to the sender, broadcasts every accepted transform sample to collaborators, and does not echo steady transform samples back to the owner. Every immediate interaction frame includes its page id, including single-player rooms where routine awareness is intentionally suppressed. It discards a competing acquisition and refuses a losing semantic command that touches the locked node, an ancestor of it, its containing structural parent, or its page before persistence. A client may preview optimistically, but cannot create the semantic commit until the room echo confirms ownership. If pointer-up precedes that echo, retain the exact rendered preview until ownership resolves, then commit that same geometry or discard it on denial. Keep the exact interaction lease until that gesture's semantic save is acknowledged or fails; an immediate compatible gesture from the same client reuses that confirmed lease so it can begin without waiting for the prior save, while the lease remains held until every local claim settles. An older queued save settling first must not release it, and a delayed completion must never release a newer room's interaction. A mutation waiting to commit reserves its affected scope so another client or an incompatible local gesture cannot lock the same node underneath it. The owner cannot change its interaction id, kind, page, or node set until it releases the interaction. Disjoint nodes remain independently editable. Pointer cancel, failed publication, failed persistence, disconnect, room switch, and disposal release ownership. A failed release frame uses a browser-valid application close code and tears down the transport so disconnect clears authoritative room ownership; reconnect full-state publication cannot replay the stale interaction. After all acknowledged pointer-up saves release the lease, another editor can acquire the same node. The client yields to any overlapping remote interaction reported by the authoritative roster; participant-id ordering never decides ownership.
 
-Negative controls: race two acquisitions for the same node, mutate the winning lock's node set, claim a missing or cross-page node, submit a nested batch that changes a locked descendant through its ancestor, insert or reparent into its locked container, delete its page, attempt acquisition while an overlapping append is blocked, fail immediate acquisition publication, fail a release frame after acquisition, fail an older queued save before the gesture's own save, fail semantic persistence, deny ownership before pointer up, settle an old room's save after a new room acquires a lease, attempt a second local gesture before the first lease releases, disconnect the winner, and edit a disjoint node. Assert exactly one room-confirmed owner, no phantom republished lock, no losing append or local semantic commit, release on failure or disconnect, and no false conflict for the disjoint edit.
+Negative controls: race two acquisitions for the same node, mutate the winning lock's node set, claim a missing or cross-page node, submit a nested batch that changes a locked descendant through its ancestor, insert or reparent into its locked container, delete its page, attempt acquisition while an overlapping append is blocked, fail immediate acquisition publication, fail a release frame after acquisition, fail an older queued save before the gesture's own save, fail semantic persistence, deny ownership before pointer up, settle an old room's save after a new room acquires a lease, attempt an incompatible local gesture before the first lease releases, release one of two compatible local claims, disconnect the winner, and edit a disjoint node. Assert exactly one room-confirmed owner, no phantom republished lock, no losing append or local semantic commit, no early release while a local claim remains, release on failure or disconnect, and no false conflict for the disjoint edit.
 
 ### UI-COLLAB-PRESENCE-001: Collaboration identities and cursors
 
@@ -463,7 +491,7 @@ Negative controls: retain the followed participant across generation replacement
 
 ### UI-COLLAB-READONLY-001: Viewer editor shell
 
-Open a shared file as a signed-in viewer. Render the regular editor shell while hiding the right inspector, repository, source, share, and mutation controls. Assert that the editor layout reserves no right-inspector column. Keep viewer authority stable while the room connects, reconnects, or reports a transient error. Show a fixed bottom-centered dismissible notice 24 px from the viewport edge with the existing 18 px eye icon, close icon, and exact copy `You can only view this file` and `To edit, ask the owner to add you as an editor`. Navigation and explicitly approved view interactions remain available. Direct mutation attempts still fail at the store and server boundaries.
+Open a shared file as a signed-in viewer. Render the regular editor shell while hiding the right inspector, repository, source, share, and mutation controls. Assert that the editor layout reserves no right-inspector column. Keep viewer authority stable while the room connects, reconnects, or reports a transient error. Show one compact bottom-centered dismissible notice with the existing 18 px eye icon, close icon, and exact copy `You can only view this file` and `To edit, ask the owner to add you as an editor`. At narrow widths the notice clears the floating mobile toolbar and reserves enough canvas space that neither control covers the other. Navigation and explicitly approved view interactions remain available. Direct mutation attempts still fail at the store and server boundaries.
 
 Negative control: expose one source or document mutation command in the viewer capability fixture and verify the test fails even if the visible control is hidden.
 
@@ -526,6 +554,30 @@ Open Share and verify it changes no permissions. Copy a link and verify it chang
 Force an unexpected API failure and verify the server logs the original error with a request ID while the response exposes only the safe message and that same ID. Verify browser and desktop command failures preserve the ID through their client boundary and render it in the owning recovery state. Run `pnpm lint:contracts` and verify the AST check rejects empty catch clauses and promise rejection handlers that discard the error.
 
 Force a document command failure and verify it appears in the global toast viewport with a specific title and actionable description. The picker accepts image inputs up to 25 MB so supported static inputs can be normalized before attachment. A supported image at the canonical 1,500,003-byte embedded preview limit keeps its bytes; a browser-decodable static input above that limit becomes bounded WebP. An animated GIF or WebP above that limit must be rejected before decode with the exact visible message `This animated image exceeds the 1,500,003-byte embedded preview limit. Choose an AVIF, PNG, JPEG, GIF, or WebP image within that limit.`, never the internal `Invalid image data` validator message. Persistence failures also retain the inline Retry control.
+
+## Application updates
+
+### DESKTOP-UPDATE-001: Recoverable updater state
+
+Run the desktop updater against the mock feed. Verify checking, available, downloading, ready, up-to-date, disabled, and error are distinct cached states observed through narrow IPC. A failed check never reports up to date. A failed download returns to the available state, and a later check failure never discards an already downloaded installer. Concurrent checks, downloads, and installs coalesce into one action. Download progress publishes at most once per five-point bucket and always publishes completion.
+
+Negative controls: return the same boolean for no update and failure and verify the state test fails. Clear a ready installer after a network failure and verify recovery fails.
+
+### DESKTOP-UPDATE-002: Safe install and channel isolation
+
+Verify nightly and stable use different feed manifests and installed application identities. Preview and pull-request artifacts contain no update feed metadata. Nightly versions increase with the workflow run. Before restart, wait until the editor has no active gesture and its document queue is saved; a save failure or ten-second timeout leaves the downloaded installer ready and shows a recoverable error. The main process disposes owned services before calling the installer, while ordinary quits still use the normal disposal path.
+
+Negative controls: remove the save guard and verify a dirty-document fixture blocks the gate. Add update metadata to a preview artifact and verify the release-policy test fails.
+
+### UPDATE-FEED-001: Signed immutable release feed
+
+Build a signed installer from the exact authorized merged commit. Stable and nightly publication must fail closed without the protected Windows signing identity, Cloudflare update bucket, or channel-scoped credentials. Publish the GitHub release first, upload versioned installer and blockmap objects second, and replace the small channel manifest last. The public update Worker is read-only, sends mutable manifests with `no-store`, immutable artifacts with a one-year cache policy, and supports correct single byte ranges for differential downloads. The updater must enforce manifest SHA-512 plus the configured Authenticode publisher.
+
+Negative controls: attempt an update-feed write, path traversal, arbitrary object read, invalid byte range, unsigned release, and direct branch push. Every case must fail without advancing the channel manifest.
+
+### WEB-UPDATE-001: Browser deployment refresh
+
+Every web build emits a no-store `version.json` with a unique build id. Check after startup, every fifteen minutes, on focus after five minutes, and after a stale dynamic-import failure. A different build id shows one compact refresh notice; the same id stays quiet; a failed request remains an explicit retryable error and is never presented as current.
 
 ## Performance
 
@@ -607,4 +659,4 @@ The picker accepts image inputs up to 25 MB. AVIF, PNG, JPEG, GIF, and WebP at o
 
 ### AT-APP-005: Component preservation and editor chrome
 
-Imported components stay real React components with working props, slots, and Interact mode; appearance overrides apply to the existing root without wrappers and component-owned inline styles are restored when an override is removed; Canvas2D selection chrome stays visible with a document outline and the preview keeps `renderChrome: false`. Evidence: `packages/preview-runtime/tests/selection-electron.mjs`, `apps/web/tests/appearance.mjs`.
+Imported components stay real React components with working props, slots, and Interact mode; appearance overrides apply to the existing root without wrappers and component-owned inline styles are restored when an override is removed; Canvas2D selection chrome stays visible with a document outline, follows transient move and resize geometry while the pointer remains held, and the preview keeps `renderChrome: false`. A collaborator selection on the same locally manipulated node uses that live geometry instead of leaving a stale outline at the saved position. Evidence: `packages/preview-runtime/tests/selection-electron.mjs`, `apps/web/tests/appearance.mjs`, `apps/web/tests/transient-move.mjs`, `packages/editor/src/features/collaboration/CollaborationPresence.test.ts`.

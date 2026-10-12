@@ -48,7 +48,7 @@ let page: Page
 let frame: Frame
 let dispose: (() => Promise<void>) | undefined
 let send: (payload: Record<string, unknown>) => Promise<void>
-const observations: { baseline?: Observation; applied?: Observation; transient?: Observation; transientRestored?: Observation; restored?: Observation } = {}
+const observations: { baseline?: Observation; applied?: Observation; transient?: Observation; transientRestored?: Observation; restored?: Observation; committedCanvasSize?: { inline: string; computed: string } } = {}
 let sessionMessages: string[] = []
 
 const observe = (): Promise<Observation> => frame.evaluate(() => {
@@ -144,6 +144,20 @@ beforeAll(async () => {
   await send({ type: 'set-document', document: previewDocument(3) })
   await send({ type: 'set-layout', items: [], layoutGeneration: 0 })
   observations.restored = await waitFor(observe, value => byId(value)['button-1']?.computed.width === '150px' && byId(value)['button-1']?.computed.opacity === '0.9' && byId(value)['input-1']?.computed.position === 'static')
+
+  const canvasDocument = (revision: number, width: number) => ({
+    ...previewDocument(revision),
+    canvas: { elements: [{ id: 'canvas-frame', kind: 'frame', name: 'Frame', x: 0, y: 0, width, height: 80, rotation: 0, appearance: { fills: [{ type: 'solid', color: '#ff0000' }] }, parentId: null }] },
+  })
+  await send({ type: 'set-document', document: canvasDocument(4, 100) })
+  await frame.waitForSelector('[data-preview-canvas="canvas-frame"]')
+  await send({ type: 'set-transient-move', items: [{ nodeId: 'canvas-frame', dx: 0, dy: 0, width: 140, height: 120 }] })
+  await waitFor(() => frame.locator('[data-preview-canvas="canvas-frame"]').evaluate(element => getComputedStyle(element).width), width => width === '140px')
+  await send({ type: 'set-document', document: canvasDocument(5, 180) })
+  observations.committedCanvasSize = await waitFor(
+    () => frame.locator('[data-preview-canvas="canvas-frame"]').evaluate(element => ({ inline: (element as HTMLElement).style.width, computed: getComputedStyle(element).width })),
+    size => size.computed === '180px',
+  )
   // A ping is answered with ready only while the preview has not failed, so it also proves no uncaught render error.
   await send({ type: 'ping' })
   sessionMessages = await waitFor(received, messages => messages.includes('ready'))
@@ -217,6 +231,10 @@ describe('LAY-ROOT-001 layout and appearance apply to the bound component roots'
     expect(after.computed.translate).toBe(before.computed.translate)
     expect(after.computed.left).toBe(before.computed.left)
     expect(after.computed.top).toBe(before.computed.top)
+  })
+
+  it('AT-CAN-006 keeps the committed primitive size after retiring its resize transient', () => {
+    expect(observations.committedCanvasSize).toEqual({ inline: '180px', computed: '180px' })
   })
 
   it('accepted every command without a diagnostic or a render failure', () => {

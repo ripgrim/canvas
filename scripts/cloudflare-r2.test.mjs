@@ -4,7 +4,7 @@ import test from "node:test"
 import {
   assertEmptyBucket,
   assertExactLifecycleRules,
-  assertNoDeployedWorker,
+  assertWorkerDeployment,
   lifecycleRuleMatches,
   isMissingBucket,
   isMissingWorker,
@@ -21,21 +21,24 @@ const manifest = {
   environments: {
     local: {
       mode: "simulation",
+      workerState: "disabled",
       bucketName: "comp-canvas-file-assets-dev",
       apiOrigin: "http://127.0.0.1:4320",
       allowedOrigins: ["http://127.0.0.1:4317"],
     },
     preview: {
       mode: "remote",
+      workerState: "deployed",
       bucketName: "comp-canvas-file-assets-dev",
-      apiOrigin: "https://api.canvas.ripgrim.com",
-      allowedOrigins: ["https://canvas.ripgrim.com"],
+      apiOrigin: "https://api-staging.canvas.ripgrim.com",
+      allowedOrigins: ["https://staging.canvas.ripgrim.com", "https://login-staging.canvas.ripgrim.com"],
     },
     production: {
       mode: "remote",
+      workerState: "deployed",
       bucketName: "comp-canvas-file-assets-production",
       apiOrigin: "https://api.canvas.ripgrim.com",
-      allowedOrigins: ["https://canvas.ripgrim.com"],
+      allowedOrigins: ["https://canvas.ripgrim.com", "https://login.canvas.ripgrim.com"],
     },
   },
   privacy: { r2DevUrl: false, customDomains: [] },
@@ -90,11 +93,11 @@ test("rejects a Wrangler binding that can write the remote bucket in local mode"
     env: {
       preview: {
         r2_buckets: [{ binding: "FILE_ASSETS", bucket_name: "comp-canvas-file-assets-dev", remote: true }],
-        vars: { API_ORIGIN: "https://api.canvas.ripgrim.com", ALLOWED_ORIGINS: "https://canvas.ripgrim.com" },
+        vars: { API_ORIGIN: "https://api-staging.canvas.ripgrim.com", ALLOWED_ORIGINS: "https://staging.canvas.ripgrim.com,https://login-staging.canvas.ripgrim.com" },
       },
       production: {
         r2_buckets: [{ binding: "FILE_ASSETS", bucket_name: "comp-canvas-file-assets-production" }],
-        vars: { API_ORIGIN: "https://api.canvas.ripgrim.com", ALLOWED_ORIGINS: "https://canvas.ripgrim.com" },
+        vars: { API_ORIGIN: "https://api.canvas.ripgrim.com", ALLOWED_ORIGINS: "https://canvas.ripgrim.com,https://login.canvas.ripgrim.com" },
       },
     },
   }
@@ -108,11 +111,11 @@ test("accepts isolated local, preview, and production bindings", () => {
     env: {
       preview: {
         r2_buckets: [{ binding: "FILE_ASSETS", bucket_name: "comp-canvas-file-assets-dev", remote: true }],
-        vars: { API_ORIGIN: "https://api.canvas.ripgrim.com", ALLOWED_ORIGINS: "https://canvas.ripgrim.com" },
+        vars: { API_ORIGIN: "https://api-staging.canvas.ripgrim.com", ALLOWED_ORIGINS: "https://staging.canvas.ripgrim.com,https://login-staging.canvas.ripgrim.com" },
       },
       production: {
         r2_buckets: [{ binding: "FILE_ASSETS", bucket_name: "comp-canvas-file-assets-production" }],
-        vars: { API_ORIGIN: "https://api.canvas.ripgrim.com", ALLOWED_ORIGINS: "https://canvas.ripgrim.com" },
+        vars: { API_ORIGIN: "https://api.canvas.ripgrim.com", ALLOWED_ORIGINS: "https://canvas.ripgrim.com,https://login.canvas.ripgrim.com" },
       },
     },
   }
@@ -154,15 +157,17 @@ action:   Expire objects after 8 days`
   assert.equal(lifecycleRuleMatches(parseLifecycleRules(output)[0], manifest.lifecycleRules[0]), false)
 })
 
-test("parses Worker deployment evidence and only accepts exact not-found failures", () => {
+test("parses Worker deployment evidence and enforces the declared state", () => {
   assert.equal(parseDeploymentCount("[]"), 0)
   assert.equal(parseDeploymentCount(JSON.stringify({ deployments: [{ id: "one" }] })), 1)
   assert.throws(() => parseDeploymentCount("{}"), /invalid/)
   assert.equal(isMissingWorker("Worker does not exist [code: 10007]"), true)
   assert.equal(isMissingWorker("Authentication error [code: 10000]"), false)
-  assert.equal(assertNoDeployedWorker({ status: 1, output: "Worker does not exist [code: 10007]" }), false)
-  assert.throws(() => assertNoDeployedWorker({ status: 0, output: JSON.stringify([{ id: "deployed" }]) }), /already deployed/)
-  assert.throws(() => assertNoDeployedWorker({ status: 1, output: "Authentication error [code: 10000]" }), /confirmed not-found/)
+  assert.equal(assertWorkerDeployment({ status: 1, output: "Worker does not exist [code: 10007]" }, "disabled"), false)
+  assert.equal(assertWorkerDeployment({ status: 0, output: JSON.stringify([{ id: "deployed" }]) }, "deployed"), true)
+  assert.throws(() => assertWorkerDeployment({ status: 0, output: "[]" }, "deployed"), /not deployed/)
+  assert.throws(() => assertWorkerDeployment({ status: 0, output: JSON.stringify([{ id: "deployed" }]) }, "disabled"), /must not be deployed/)
+  assert.throws(() => assertWorkerDeployment({ status: 1, output: "Authentication error [code: 10000]" }, "deployed"), /confirmed not-found/)
 })
 
 test("rejects non-empty buckets and lifecycle drift", () => {

@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
+  "git": { "deploymentEnabled": { "*": false, "main": true, "staging": true } },
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @canvas/api... build",
   "outputDirectory": "public",

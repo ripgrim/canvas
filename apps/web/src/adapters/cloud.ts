@@ -113,7 +113,7 @@ export function collaborationShellState(lifecycle: ClientLifecycleState): Exclud
   if (['offline-clean', 'offline-dirty', 'reconnecting', 'replaying', 'draining', 'parked', 'closing'].includes(lifecycle)) return 'reconnecting'
   if (lifecycle === 'access-revoked') return 'access-removed'
   if (lifecycle === 'incompatible-build') return 'update-required'
-  if (lifecycle === 'capacity-refused' || lifecycle === 'closed') return 'file-busy'
+  if (lifecycle === 'capacity-refused') return 'file-busy'
   return null
 }
 
@@ -175,7 +175,8 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
     if (current.lifecycle === 'live') return 'live'
     if (current.lifecycle === 'read-only') return 'read-only'
     if (['offline-clean', 'offline-dirty', 'reconnecting', 'replaying', 'draining', 'parked'].includes(current.lifecycle)) return 'reconnecting'
-    if (['access-revoked', 'incompatible-build', 'capacity-refused', 'closed'].includes(current.lifecycle) && current.error) return 'error'
+    if (['access-revoked', 'incompatible-build', 'capacity-refused'].includes(current.lifecycle) && current.error) return 'error'
+    if (current.lifecycle === 'closed') return 'unavailable'
     return 'connecting'
   }
   const readCollaborationSnapshot = (): EditorCollaborationSnapshot => {

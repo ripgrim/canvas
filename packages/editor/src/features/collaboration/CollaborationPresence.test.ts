@@ -8,7 +8,7 @@ import { CollaborationAgentAvatar, CollaborationAvatar, CollaborationCursor, Col
 import { FileScreen } from '../application/FileScreen'
 import { documentStore } from '../editor/document-store'
 import { collaborationCopy as copy } from './copy'
-import { collaborationRoster, collaborationShellPresentation, remotePeopleOnPage, visiblePeople } from './CollaborationPresence'
+import { collaborationRoster, collaborationSelectionRect, collaborationShellPresentation, remotePeopleOnPage, visiblePeople } from './CollaborationPresence'
 
 const participant = (id: string, clientId = id, pageId: string | null = 'page-1', focused = true, isHeadless = false): EditorCollaborationParticipant => ({
   presenceId: id,
@@ -75,6 +75,14 @@ describe('UI-COLLAB-PRESENCE-001 presence presentation', () => {
   it('filters cursors and selections to remote people on the active page', () => {
     const people = remotePeopleOnPage([participant('local', 'tab-local'), participant('same'), participant('other', 'other', 'page-2')], 'tab-local', 'page-1')
     expect(people.map(person => person.presenceId)).toEqual(['same'])
+  })
+
+  it('CLOUD-SYNC-GESTURE-001 keeps a remote selection attached to a locally dragged node', () => {
+    const saved = { x: 20, y: 30, width: 120, height: 80 }
+    const live = { x: 84, y: -12, width: 120, height: 80 }
+    expect(collaborationSelectionRect(saved, live, undefined)).toEqual(live)
+    expect(collaborationSelectionRect(saved, undefined, { nodeId: 'node-1', dx: 9, dy: 7 })).toEqual({ x: 29, y: 37, width: 120, height: 80 })
+    expect(collaborationSelectionRect(saved, live, { nodeId: 'node-1', dx: -500, dy: -500 })).toEqual(live)
   })
 
   it('uses the same human avatar for viewers without a viewer badge or join toast', () => {
@@ -157,7 +165,7 @@ describe('UI-COLLAB-FOLLOW-001 following presentation', () => {
 })
 
 describe('UI-COLLAB-PRESENCE-001 collaboration shell status', () => {
-  const shell = (status: 'unavailable' | 'connecting' | 'live' | 'read-only' | 'reconnecting' | 'error', shellState?: 'opening' | 'connecting' | 'reconnecting' | 'access-removed' | 'update-required' | 'file-busy', canRetry = false, canLeave = false) => collaborationShellPresentation({ status, ...(shellState ? { shellState } : {}), canRetry, canLeave })
+  const shell = (status: 'unavailable' | 'connecting' | 'live' | 'read-only' | 'reconnecting' | 'error', shellState?: 'opening' | 'connecting' | 'reconnecting' | 'access-removed' | 'update-required' | 'file-busy' | 'connection-failed', canRetry = false, canLeave = false) => collaborationShellPresentation({ status, ...(shellState ? { shellState } : {}), canRetry, canLeave })
 
   it('uses the documented short copy for progress and terminal states', () => {
     expect(shell('connecting', 'opening')?.label).toBe('Opening file…')
@@ -170,6 +178,7 @@ describe('UI-COLLAB-PRESENCE-001 collaboration shell status', () => {
 
   it('does not render a no-op recovery action and keeps live states quiet', () => {
     expect(shell('error', 'file-busy')).toEqual({ label: 'File is busy', tone: 'danger', action: null })
+    expect(shell('error', undefined, true)).toEqual({ label: 'Connection failed', tone: 'danger', action: 'retry' })
     expect(shell('live')).toBeNull()
     expect(shell('read-only')).toBeNull()
     expect(shell('unavailable')).toBeNull()
@@ -195,9 +204,10 @@ describe('UI-COLLAB-READONLY-001 read-only presentation', () => {
     expect(html.match(/<svg/g)).toHaveLength(2)
   })
 
-  it('anchors the only read-only notice at the bottom of the editor', () => {
+  it('anchors the only read-only notice above the mobile controls', () => {
     const css = readFileSync(new URL('../../design-system/collaboration.css', import.meta.url), 'utf8')
-    expect(css).toMatch(/\.collaboration-read-only \{[^}]*position: fixed;[^}]*bottom: 24px;/)
+    expect(css).toMatch(/\.collaboration-read-only \{[^}]*position: fixed;[^}]*bottom: var\(--space-l\);/)
+    expect(css).toContain('.collaboration-read-only { bottom: calc(48px + 2 * var(--space-m));')
     const packageManifest = readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')
     expect(packageManifest).not.toContain('"./shared-file"')
     expect(existsSync(new URL('../sharing/SharedFileViewer.tsx', import.meta.url))).toBe(false)

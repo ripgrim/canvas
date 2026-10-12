@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore } from 'react'
 import { getNodeSlots } from '@canvas/repo-engine/document'
-import { childrenOf, pageRoot } from '@canvas/repo-engine/file-document'
+import { childrenOf, nodeIsLocked, pageRoot } from '@canvas/repo-engine/file-document'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { Button, Layout, Text } from '../../design-system/atoms'
 import type { IconName } from '../../design-system/atoms'
@@ -39,7 +39,11 @@ export function DocumentLayers({ readOnly = false }: { readOnly?: boolean }) {
     if (!node || node.type === 'root') return null
     const name = displayName(file, id)
     const expanded = !collapsed.includes(id)
-    const common = { id, name, toggleLabel: expanded ? copy.collapse(name) : copy.expand(name), depth, selected: state.selection.includes(id), expanded, renaming: !readOnly && renamingLayer === id, renameLabel: copy.renameLabel(name), onSelect: (modifiers: { additive: boolean; range: boolean }) => store.select(id, modifiers), onToggle: () => toggle(id), ...(!readOnly ? { onRename: () => beginRename(id), onRenameCommit: (value: string) => { store.commands.rename(id, value); setRenamingLayer(null) }, onRenameCancel: () => setRenamingLayer(null), onDrop: (dragged: string) => dropBefore(file, dragged, id), onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); if (!state.selection.includes(id)) store.select(id); setRenamingLayer(null); setContextMenu({ x: event.clientX, y: event.clientY }) } } : {}) }
+    const visible = node.appearance?.visible !== false
+    const directlyLocked = node.isLocked === true
+    const locked = nodeIsLocked(file, id)
+    const inheritedLock = locked && !directlyLocked
+    const common = { id, name, toggleLabel: expanded ? copy.collapse(name) : copy.expand(name), depth, selected: state.selection.includes(id), expanded, visible, locked, directlyLocked, showLabel: copy.showLayer(name), hideLabel: copy.hideLayer(name), lockLabel: inheritedLock ? copy.lockedByParent(name) : directlyLocked ? copy.unlockLayer(name) : copy.lockLayer(name), lockDisabled: readOnly || inheritedLock, visibilityDisabled: readOnly, onVisibilityChange: (next: boolean) => { if (!readOnly) store.commands.appearance.setBlending([id], { visible: next }) }, onLockChange: (next: boolean) => { if (!readOnly && !inheritedLock) store.commands.setLocked(id, next) }, renaming: !readOnly && renamingLayer === id, renameLabel: copy.renameLabel(name), onSelect: (modifiers: { additive: boolean; range: boolean }) => store.select(id, modifiers), onToggle: () => toggle(id), ...(!readOnly ? { onRename: () => beginRename(id), onRenameCommit: (value: string) => { store.commands.rename(id, value); setRenamingLayer(null) }, onRenameCancel: () => setRenamingLayer(null), onDrop: (dragged: string) => dropBefore(file, dragged, id), onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); if (!state.selection.includes(id)) store.select(id); setRenamingLayer(null); setContextMenu({ x: event.clientX, y: event.clientY }) } } : {}) }
     if (node.type === 'component') {
       const atom = state.atoms.find(item => item.componentId === node.componentId)
       const slots = atom ? getNodeSlots(atom) : []

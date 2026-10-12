@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { maxCollaborationAvatarUrlBytes, maxRoomTicketLength } from "@canvas/sync-protocol"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { FileSyncRoom, handleCoordinatorRequest } from "../src/index.js"
+import { handleCoordinatorRequest, proxyRoomUpgrade } from "../src/index.js"
 import { consumeAdmission } from "../src/admission-replay.js"
 import { validateCoordinatorEnv } from "../src/config.js"
 import type { SyncCoordinatorEnv } from "../src/config.js"
@@ -63,8 +63,10 @@ function environment(runtimeRequests: Request[], storage = new FakeStorage()) {
     SYNC_ROOM_TICKET_SECRET: Buffer.from(Uint8Array.from({ length: 32 }, (_, index) => 255 - index)).toString("base64url"),
     SYNC_ROOM_RUNTIME_ORIGIN: "http://127.0.0.1:4325",
     SYNC_ROOM_TICKET_TTL_MS: "300000",
+    SYNC_CONTAINER_INACTIVITY_MS: "600000",
+    DATABASE_URL: "postgresql://user:password@database.example:6432/canvas?sslmode=verify-full",
     ALLOWED_ORIGINS: origin,
-    SYNC_ROOMS: { idFromName: name => name, get: () => ({ fetch: request => new FileSyncRoom({ storage }, env).fetch(request) }) },
+    SYNC_ROOMS: { idFromName: name => name, get: () => ({ fetch: request => proxyRoomUpgrade({ request, env, storage }) }) },
   }
   vi.stubGlobal("fetch", vi.fn(async (request: Request) => { runtimeRequests.push(request); return { status: 101 } as Response }))
   return env
@@ -78,7 +80,7 @@ describe("private coordinator and real DO boundary", () => {
     const response = await handleCoordinatorRequest(await handshake(), env)
     expect(response.status).toBe(101)
     expect(runtime).toHaveLength(1)
-    expect(Object.keys(env).sort()).toEqual(["ALLOWED_ORIGINS", "SYNC_COORDINATOR_INTERNAL_SECRET", "SYNC_ROOMS", "SYNC_ROOM_RUNTIME_ORIGIN", "SYNC_ROOM_TICKET_SECRET", "SYNC_ROOM_TICKET_TTL_MS"].sort())
+    expect(Object.keys(env).sort()).toEqual(["ALLOWED_ORIGINS", "DATABASE_URL", "SYNC_CONTAINER_INACTIVITY_MS", "SYNC_COORDINATOR_INTERNAL_SECRET", "SYNC_ROOMS", "SYNC_ROOM_RUNTIME_ORIGIN", "SYNC_ROOM_TICKET_SECRET", "SYNC_ROOM_TICKET_TTL_MS"].sort())
     const proxied = runtime[0]!
     expect(proxied.headers.get("Authorization")).toMatch(/^Bearer [A-Za-z0-9_-]+$/)
     expect(proxied.headers.get("Cookie")).toBeNull()
@@ -94,7 +96,7 @@ describe("private coordinator and real DO boundary", () => {
     const ticketClaims = JSON.parse(ticketBytes.subarray(0, -32).toString("utf8"))
     expect(ticketClaims).toMatchObject({ subjectId: "user:1", displayName: "Alpha", avatarUrl: "https://images.example/alpha.png" })
     expect(ticketClaims).not.toHaveProperty("email")
-    expect(JSON.stringify(Object.keys(env))).not.toMatch(/API_SERVICE|DATABASE|REPOSITORY|SOURCE/)
+    expect(JSON.stringify(ticketClaims)).not.toMatch(/API_SERVICE|DATABASE|REPOSITORY|SOURCE/)
   })
 
   it("CLOUD-SYNC-AUTH-001 consumes an admission once across disconnect and DO object restart", async () => {
@@ -217,10 +219,50 @@ describe("private coordinator and real DO boundary", () => {
       .toThrow("Sync service credentials must be independent")
   })
 
-  it("keeps hosted deployment intentionally unavailable until the Container manager exists", () => {
+  it("CLOUD-SYNC-CONTAINER-001 binds staging only to the private room runtime", () => {
     const config = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"))
     expect(config.workers_dev).toBe(false)
     expect(config.routes).toBeUndefined()
-    expect(config.env).toBeUndefined()
+    expect(config.main).toBe("src/worker.ts")
+    expect(config.containers).toEqual([expect.objectContaining({ name: "comp-canvas-sync-room-coordinator-preview", class_name: "FileSyncRoom", image: "../sync-room-core/Dockerfile", max_instances: 10 })])
+    expect(config.durable_objects.bindings).toEqual([{ name: "SYNC_ROOMS", class_name: "LocalFileSyncRoom" }])
+    expect(config.env.preview.name).toBe("comp-canvas-sync-coordinator-preview")
+    expect(config.env.preview.containers).toEqual(config.containers)
+    expect(config.env.preview.services).toBeUndefined()
+    expect(config.env.preview.durable_objects.bindings).toEqual([{ name: "SYNC_ROOMS", class_name: "FileSyncRoom" }])
+    expect(config.env.production).toBeUndefined()
+  })
+
+  it("CLOUD-SYNC-CONTAINER-001 sends an admitted upgrade through the local container proxy", async () => {
+    const runtime: Request[] = []
+    const directEnv = environment([])
+
+    expect((await proxyRoomUpgrade({
+      request: await handshake(),
+      env: directEnv,
+      storage: new FakeStorage(),
+      runtimeFetch: async request => { runtime.push(request); return { status: 101 } as Response },
+    })).status).toBe(101)
+    expect(runtime).toHaveLength(1)
+  })
+
+  it("CLOUD-SYNC-CONTAINER-002 reports runtime outages separately from room capacity", async () => {
+    const unavailable = await proxyRoomUpgrade({
+      request: await handshake(),
+      env: environment([]),
+      storage: new FakeStorage(),
+      runtimeFetch: async () => new Response("offline", { status: 503 }),
+    })
+    expect(unavailable.status).toBe(503)
+    expect(await unavailable.json()).toEqual({ error: { code: "room_unavailable", message: "Collaboration service is unavailable." } })
+
+    const capacity = await proxyRoomUpgrade({
+      request: await handshake(),
+      env: environment([]),
+      storage: new FakeStorage(),
+      runtimeFetch: async () => new Response("full", { status: 429 }),
+    })
+    expect(capacity.status).toBe(429)
+    expect(await capacity.json()).toEqual({ error: { code: "capacity_refused", message: "Room capacity is unavailable." } })
   })
 })

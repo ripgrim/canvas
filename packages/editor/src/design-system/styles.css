@@ -105,4 +105,8 @@ html, body, #root { margin: 0; width: 100%; height: 100%; }
 .color-swatch { display: inline-block; width: 16px; height: 16px; border-radius: var(--radius-xs); box-shadow: var(--border-shadow-s); }
 @media (max-width: 1200px) { .work-area { grid-template-columns: 240px minmax(0, 1fr) 260px; } }
 @media (max-width: 1000px) { .work-area { grid-template-columns: 206px minmax(0, 1fr) 252px; } .file-bar { gap: var(--space-xxs); } .file-actions { gap: var(--space-xxs); } }
-@media (max-width: 760px) { .work-area { grid-template-columns: 172px minmax(240px, 1fr) 252px; overflow-x: auto; } .review-content { grid-template-columns: 1fr; } }
+@media (max-width: 760px) {
+  .work-area { grid-template-columns: minmax(0, 1fr); overflow: hidden; }
+  .canvas-floating-actions { top: calc(44px + var(--space-s)); }
+  .review-content { grid-template-columns: 1fr; }
+}

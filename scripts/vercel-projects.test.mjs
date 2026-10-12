@@ -20,11 +20,25 @@ const expected = [
 test('pins one isolated Vercel project per hosted HTTP surface', () => {
   assert.equal(manifest.scope, 'grims-projects-c1f684ea')
   assert.equal(manifest.repository, 'https://github.com/ripgrim/comp-canvas.git')
-  assert.equal(manifest.gitDeployments, 'disabled')
+  assert.equal(manifest.gitDeployments, 'enabled')
+  assert.equal(manifest.deploymentProtection, 'disabled')
+  assert.equal(manifest.productionBranch, 'main')
+  assert.equal(manifest.stagingBranch, 'staging')
   assert.deepEqual(
     manifest.projects.map(project => [project.service, project.name, project.rootDirectory, project.buildCommand, project.outputDirectory]),
     expected,
   )
+})
+
+test('assigns one stable staging branch domain to every Vercel surface', () => {
+  assert.deepEqual(manifest.projects.map(project => project.stagingDomain), [
+    'staging.canvas.ripgrim.com',
+    'login-staging.canvas.ripgrim.com',
+    'api-staging.canvas.ripgrim.com',
+    'preview-staging.canvas.ripgrim.com',
+    'thumbnails-staging.canvas.ripgrim.com',
+  ])
+  assert.equal(new Set(manifest.projects.flatMap(project => [project.productionDomain, project.stagingDomain])).size, manifest.projects.length * 2)
 })
 
 test('keeps every checked-in Vercel build contract aligned with the manifest', async () => {
@@ -33,6 +47,7 @@ test('keeps every checked-in Vercel build contract aligned with the manifest', a
     const ignore = await readFile(resolve(root, project.rootDirectory, '.gitignore'), 'utf8')
     assert.equal(config.buildCommand, project.buildCommand, `${project.service} build command`)
     assert.equal(config.outputDirectory, project.outputDirectory, `${project.service} output directory`)
+    assert.deepEqual(config.git?.deploymentEnabled, { '*': false, main: true, staging: true }, `${project.service} branch deployment filter`)
     assert.equal(ignore.includes('.env*'), false, `${project.service} must not hide checked-in environment templates`)
     assert.equal(ignore.includes('.env.local'), true, `${project.service} must ignore downloaded local credentials`)
   }
@@ -43,7 +58,7 @@ test('keeps stateful and privileged services off the static Vercel plan', () => 
     manifest.externalServices.map(service => [service.service, service.platform]),
     [
       ['assets', 'cloudflare-workers'],
-      ['sync', 'long-lived-node'],
+      ['sync', 'cloudflare-containers'],
       ['thumbnail-jobs', 'private-container'],
       ['desktop', 'desktop-release'],
     ],

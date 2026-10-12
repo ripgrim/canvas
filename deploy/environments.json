@@ -1,0 +1,27 @@
+{
+  "$schema": "./environments.schema.json",
+  "production": {
+    "branch": "main",
+    "origins": {
+      "web": "https://canvas.ripgrim.com",
+      "login": "https://login.canvas.ripgrim.com",
+      "api": "https://api.canvas.ripgrim.com",
+      "preview": "https://preview.canvas.ripgrim.com",
+      "thumbnailRenderer": "https://thumbnails.canvas.ripgrim.com",
+      "assets": "https://assets.canvas.ripgrim.com",
+      "sync": "wss://sync.canvas.ripgrim.com"
+    }
+  },
+  "staging": {
+    "branch": "staging",
+    "origins": {
+      "web": "https://staging.canvas.ripgrim.com",
+      "login": "https://login-staging.canvas.ripgrim.com",
+      "api": "https://api-staging.canvas.ripgrim.com",
+      "preview": "https://preview-staging.canvas.ripgrim.com",
+      "thumbnailRenderer": "https://thumbnails-staging.canvas.ripgrim.com",
+      "assets": "https://assets-staging.canvas.ripgrim.com",
+      "sync": "wss://sync-staging.canvas.ripgrim.com"
+    }
+  }
+}

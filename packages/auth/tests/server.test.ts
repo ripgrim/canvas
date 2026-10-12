@@ -58,6 +58,27 @@ describe('hosted auth environment', () => {
     expect(options.trustedOrigins).toEqual(['http://localhost:4319', 'http://[::1]:4317'])
   })
 
+  it('shares uniquely prefixed staging cookies with sibling services without colliding with production', () => {
+    const options = hostedAuthOptionsFromEnvironment({
+      BETTER_AUTH_URL: 'https://staging.canvas.test',
+      BETTER_AUTH_SECRET: '01234567890123456789012345678901',
+      GITHUB_CLIENT_ID: 'github-client',
+      GITHUB_CLIENT_SECRET: 'github-secret',
+      AUTH_COOKIE_DOMAIN: 'canvas.test',
+      AUTH_COOKIE_PREFIX: 'comp-canvas-staging',
+    }, database)
+    expect(options.cookieDomain).toBe('.canvas.test')
+    expect(options.cookiePrefix).toBe('comp-canvas-staging')
+
+    createHostedAuth(options)
+    expect(authMocks.betterAuth).toHaveBeenCalledWith(expect.objectContaining({
+      advanced: expect.objectContaining({
+        cookiePrefix: 'comp-canvas-staging',
+        crossSubDomainCookies: { enabled: true, domain: '.canvas.test' },
+      }),
+    }))
+  })
+
   it('configures explicit secure same-site cookies for production API and WSS sessions', () => {
     createHostedAuth({
       database,
@@ -132,6 +153,16 @@ describe('hosted auth environment', () => {
       GITHUB_CLIENT_SECRET: 'github-secret',
       [name]: value,
     }, database)).toThrow(/origin|HTTPS|AUTH_COOKIE_DOMAIN/)
+  })
+
+  it('rejects an invalid cookie prefix', () => {
+    expect(() => hostedAuthOptionsFromEnvironment({
+      BETTER_AUTH_URL: 'https://staging.canvas.test',
+      BETTER_AUTH_SECRET: '01234567890123456789012345678901',
+      GITHUB_CLIENT_ID: 'github-client',
+      GITHUB_CLIENT_SECRET: 'github-secret',
+      AUTH_COOKIE_PREFIX: 'better auth',
+    }, database)).toThrow('AUTH_COOKIE_PREFIX')
   })
 
   it.each([

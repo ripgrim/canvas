@@ -177,10 +177,11 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     }
     else if (command.type === 'set-selection') { selectedNodeIds = [...command.nodeIds]; renderChrome = command.renderChrome !== false; selectionColor = command.color; selectionDecorations.update(editorDocument, renderChrome ? selectedNodeIds : [], selectionColor); geometry.update(editorDocument, null, componentId) }
     else if (command.type === 'set-document') {
-      // The incoming document is the authoritative pointer-up result. Drop the visual offset before rendering it so
-      // the committed geometry is never translated twice while the editor's clear message follows.
+      // The incoming document is the authoritative pointer-up result. Restore the old declarations before React
+      // writes the committed ones, otherwise retiring the transient after render can put the old size back.
       transientMoves = []
       layoutLayer.setTransientBounds([])
+      transientMoveLayer.clear()
       if (sourceDocument) {
         try { flushSync(() => applySourceDocument(command.document)) }
         catch (error) { send('diagnostic', { message: String(error.message).slice(0, 4000) }); return }

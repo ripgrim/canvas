@@ -7,6 +7,7 @@
     "dev": "vite --host 127.0.0.1 --port 4317 --strictPort",
     "build": "vite build && node ../../scripts/sanitize-start-shell.mjs",
     "typecheck": "tsc --noEmit",
+    "test:update-visual": "node tests/application-update-visual.mjs",
     "dev:preview": "vite --config vite.preview.config.ts --host 127.0.0.1 --port 4318 --strictPort"
   },
   "dependencies": {

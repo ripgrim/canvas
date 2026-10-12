@@ -6,10 +6,22 @@ export type SyncCoordinatorEnv = Readonly<{
   SYNC_ROOM_TICKET_SECRET: string
   SYNC_ROOM_RUNTIME_ORIGIN: string
   SYNC_ROOM_TICKET_TTL_MS?: string
+  SYNC_CONTAINER_INACTIVITY_MS?: string
+  DATABASE_URL: string
   ALLOWED_ORIGINS: string
 }>
 
-export type CoordinatorConfiguration = Readonly<{ coordinatorSecret: Uint8Array; ticketSecret: Uint8Array; runtimeOrigin: string; ticketTtlMs: number; allowedOrigins: ReadonlySet<string> }>
+export type CoordinatorConfiguration = Readonly<{
+  coordinatorSecret: Uint8Array
+  ticketSecret: Uint8Array
+  ticketSecretText: string
+  databaseUrl: string
+  runtimeOrigin: string
+  ticketTtlMs: number
+  inactivityMs: number
+  allowedOrigins: ReadonlySet<string>
+  allowedOriginsText: string
+}>
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"])
 
 function secret(value: string, name: string): Uint8Array {
@@ -39,10 +51,25 @@ export function validateCoordinatorEnv(env: SyncCoordinatorEnv): CoordinatorConf
   if (!env.SYNC_ROOMS || typeof env.SYNC_ROOMS.idFromName !== "function" || typeof env.SYNC_ROOMS.get !== "function") throw new Error("SYNC_ROOMS is required.")
   const ticketTtlMs = Number(env.SYNC_ROOM_TICKET_TTL_MS ?? 300_000)
   if (!Number.isSafeInteger(ticketTtlMs) || ticketTtlMs < 10_000 || ticketTtlMs > 900_000) throw new Error("SYNC_ROOM_TICKET_TTL_MS is invalid.")
+  const inactivityMs = Number(env.SYNC_CONTAINER_INACTIVITY_MS ?? 600_000)
+  if (!Number.isSafeInteger(inactivityMs) || inactivityMs < 60_000 || inactivityMs > 21_600_000) throw new Error("SYNC_CONTAINER_INACTIVITY_MS is invalid.")
   const origins = env.ALLOWED_ORIGINS.split(",").map((value, index) => origin(value.trim(), `ALLOWED_ORIGINS entry ${index + 1}`)).filter(Boolean)
   if (!origins.length || new Set(origins).size !== origins.length) throw new Error("ALLOWED_ORIGINS is invalid.")
+  let database: URL
+  try { database = new URL(env.DATABASE_URL) } catch { throw new Error("DATABASE_URL must be a PostgreSQL URL.") }
+  if (!new Set(["postgres:", "postgresql:"]).has(database.protocol) || !database.hostname || !database.pathname.slice(1)) throw new Error("DATABASE_URL must be a PostgreSQL URL.")
   const coordinatorSecret = secret(env.SYNC_COORDINATOR_INTERNAL_SECRET, "SYNC_COORDINATOR_INTERNAL_SECRET")
   const ticketSecret = secret(env.SYNC_ROOM_TICKET_SECRET, "SYNC_ROOM_TICKET_SECRET")
   if (equal(coordinatorSecret, ticketSecret)) throw new Error("Sync service credentials must be independent.")
-  return Object.freeze({ coordinatorSecret, ticketSecret, runtimeOrigin: origin(env.SYNC_ROOM_RUNTIME_ORIGIN, "SYNC_ROOM_RUNTIME_ORIGIN", true), ticketTtlMs, allowedOrigins: new Set(origins) })
+  return Object.freeze({
+    coordinatorSecret,
+    ticketSecret,
+    ticketSecretText: env.SYNC_ROOM_TICKET_SECRET,
+    databaseUrl: database.toString(),
+    runtimeOrigin: origin(env.SYNC_ROOM_RUNTIME_ORIGIN, "SYNC_ROOM_RUNTIME_ORIGIN", true),
+    ticketTtlMs,
+    inactivityMs,
+    allowedOrigins: new Set(origins),
+    allowedOriginsText: origins.join(","),
+  })
 }

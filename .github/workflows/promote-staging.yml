@@ -1,0 +1,45 @@
+name: Promote staging
+
+on:
+  push:
+    branches:
+      - staging
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: promote-staging-to-main
+  cancel-in-progress: false
+
+jobs:
+  open-release-pull-request:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Open release pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing="$(gh pr list --base main --head staging --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "Release pull request #$existing already tracks staging."
+            exit 0
+          fi
+
+          ahead="$(git rev-list --count origin/main..origin/staging)"
+          if [ "$ahead" = "0" ]; then
+            echo "Staging has no commits to promote."
+            exit 0
+          fi
+
+          gh pr create \
+            --base main \
+            --head staging \
+            --title "Release staging to main" \
+            --body "Promotes the currently deployed staging revision to production."

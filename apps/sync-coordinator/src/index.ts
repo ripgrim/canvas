@@ -1,6 +1,5 @@
 import { validateCoordinatorEnv } from "./config.js"
 import type { SyncCoordinatorEnv } from "./config.js"
-import type { DurableObjectContext } from "./platform.js"
 import type { DurableObjectStorage } from "./platform.js"
 import { consumeAdmission } from "./admission-replay.js"
 import { parseSyncRoute, scopedRoomName } from "./route.js"
@@ -11,6 +10,11 @@ const admissionHeader = "X-Canvas-Sync-Admission"
 const roomHeader = "X-Canvas-Sync-Room"
 const requestIdHeader = "X-Canvas-Request-Id"
 const json = (code: string, message: string, status: number): Response => new Response(JSON.stringify({ error: { code, message } }), { status, headers: { "Cache-Control": "no-store", "Content-Type": "application/json; charset=utf-8", "X-Content-Type-Options": "nosniff" } })
+const runtimeRejection = (status: number): Response => {
+  if (status === 401 || status === 403) return json("forbidden", "Room runtime rejected the request.", 403)
+  if (status === 429) return json("capacity_refused", "Room capacity is unavailable.", 429)
+  return json("room_unavailable", "Collaboration service is unavailable.", 503)
+}
 
 async function verifiedAdmission(request: Request, env: SyncCoordinatorEnv, nowUnixMs: number) {
   const configuration = validateCoordinatorEnv(env)
@@ -25,7 +29,6 @@ async function verifiedAdmission(request: Request, env: SyncCoordinatorEnv, nowU
     || scopedRoomName(route.fileId, admission.claims.generationId) !== expectedRoom) return null
   return { configuration, route, handshake, admission, expectedRoom, token }
 }
-
 export async function handleCoordinatorRequest(request: Request, env: SyncCoordinatorEnv, nowUnixMs = Date.now()): Promise<Response> {
   const verified = await verifiedAdmission(request, env, nowUnixMs)
   if (!verified) return json("forbidden", "WebSocket upgrade rejected.", 403)
@@ -50,15 +53,8 @@ export async function proxyRoomUpgrade(input: Readonly<{ request: Request; env: 
   runtimeUrl.searchParams.set("clientId", verified.route.clientId); runtimeUrl.searchParams.set("connectionNonce", connectionNonce)
   const headers = new Headers({ "Authorization": `Bearer ${roomTicket}`, "Connection": "Upgrade", "Origin": verified.admission.origin, "Upgrade": "websocket", "Sec-WebSocket-Key": input.request.headers.get("Sec-WebSocket-Key")!, "Sec-WebSocket-Version": "13", [requestIdHeader]: verified.admission.requestId })
   if (verified.handshake.protocol) headers.set("Sec-WebSocket-Protocol", verified.handshake.protocol)
-  const response = await (input.runtimeFetch ?? (request => fetch(request)))(new Request(runtimeUrl, { method: "GET", headers }))
-  return response.status === 101 ? response : json("room_unavailable", "File is busy.", 503)
+  const runtimeFetch = input.runtimeFetch ?? (request => fetch(request))
+  const response = await runtimeFetch(new Request(runtimeUrl, { method: "GET", headers }))
+  if (response.status !== 101) console.warn(JSON.stringify({ event: "room_runtime_rejected", status: response.status, requestId: verified.admission.requestId }))
+  return response.status === 101 ? response : runtimeRejection(response.status)
 }
-
-export class FileSyncRoom {
-  readonly #env: SyncCoordinatorEnv
-  readonly #storage: DurableObjectStorage
-  constructor(context: DurableObjectContext, env: SyncCoordinatorEnv) { validateCoordinatorEnv(env); this.#env = env; this.#storage = context.storage }
-  fetch(request: Request): Promise<Response> { return proxyRoomUpgrade({ request, env: this.#env, storage: this.#storage }) }
-}
-
-export default { async fetch(request: Request, env: SyncCoordinatorEnv): Promise<Response> { try { return await handleCoordinatorRequest(request, env) } catch { return json("service_unavailable", "Sync is unavailable.", 503) } } }

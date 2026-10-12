@@ -1,18 +1,59 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "comp-canvas-sync-coordinator",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-10-01",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-11",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
+  "observability": { "enabled": true },
   "dev": { "port": 4326 },
+  "containers": [
+    {
+      "name": "comp-canvas-sync-room-coordinator-preview",
+      "class_name": "FileSyncRoom",
+      "image": "../sync-room-core/Dockerfile",
+      "image_build_context": "../..",
+      "instance_type": "lite",
+      "max_instances": 10,
+      "rollout_step_percentage": 100,
+      "observability": { "logs": { "enabled": true } }
+    }
+  ],
   "durable_objects": {
-    "bindings": [{ "name": "SYNC_ROOMS", "class_name": "FileSyncRoom" }]
+    "bindings": [{ "name": "SYNC_ROOMS", "class_name": "LocalFileSyncRoom" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FileSyncRoom"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["FileSyncRoom"] },
+    { "tag": "v2", "new_sqlite_classes": ["LocalFileSyncRoom"] }
+  ],
   "vars": {
     "SYNC_ROOM_RUNTIME_ORIGIN": "http://127.0.0.1:4325",
     "SYNC_ROOM_TICKET_TTL_MS": "300000",
+    "SYNC_CONTAINER_INACTIVITY_MS": "600000",
     "ALLOWED_ORIGINS": "http://127.0.0.1:4317,http://localhost:4317,http://127.0.0.1:4319,http://localhost:4319"
+  },
+  "env": {
+    "preview": {
+      "name": "comp-canvas-sync-coordinator-preview",
+      "containers": [
+        {
+          "name": "comp-canvas-sync-room-coordinator-preview",
+          "class_name": "FileSyncRoom",
+          "image": "../sync-room-core/Dockerfile",
+          "image_build_context": "../..",
+          "instance_type": "lite",
+          "max_instances": 10,
+          "rollout_step_percentage": 100,
+          "observability": { "logs": { "enabled": true } }
+        }
+      ],
+      "durable_objects": { "bindings": [{ "name": "SYNC_ROOMS", "class_name": "FileSyncRoom" }] },
+      "vars": {
+        "SYNC_ROOM_RUNTIME_ORIGIN": "http://127.0.0.1:4325",
+        "SYNC_ROOM_TICKET_TTL_MS": "300000",
+        "SYNC_CONTAINER_INACTIVITY_MS": "600000",
+        "ALLOWED_ORIGINS": "https://staging.canvas.ripgrim.com,https://login-staging.canvas.ripgrim.com"
+      }
+    }
   }
 }

@@ -750,6 +750,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       /** Sets the five-field placement; container, spacing and other v4 fields on the node survive untouched. */
       setLayout: (nodeId: string, layout: DocumentNodeLayout) => { const node = backing.getState().file?.nodes[nodeId]; return node ? execute(placementCommand(node, layout)) : false },
       rename: (nodeId: string, name: string) => { const next = name.trim(); return next ? execute({ type: 'node.rename', nodeId, name: next }) : false },
+      setLocked: (nodeId: string, isLocked: boolean) => execute({ type: 'node.setLocked', nodeId, isLocked }),
       setText: (nodeId: string, text: string) => execute({ type: 'node.setText', nodeId, text }),
       setStyles: (nodeId: string, styles: PrimitiveStylePatch) => execute({ type: 'node.setStyles', nodeId, styles }),
       /** One primitive geometry/transform edit across a selection is one revision and one undo step. */

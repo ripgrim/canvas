@@ -863,6 +863,39 @@ describe('protocol epoch 2 collaboration client transport', () => {
     void local.catch(() => undefined)
   })
 
+  it('AT-AUTH-003 keeps an authorized owner recoverable while refreshing an expired transport ticket', async () => {
+    const memory = createMemoryDurableStore()
+    const harness = createHarness({ durableStore: memory.store, cache: { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion } })
+    await harness.started
+    const { socket, requestId } = harness.openAssigned()
+    harness.streamDocument(socket, requestId, { title: 'Before refresh' })
+    await vi.waitFor(() => expect(harness.client.getSnapshot().lifecycle).toBe('live'))
+    const local = harness.client.submit({
+      mutationId: 'ticket-refresh-mutation',
+      command: { type: 'node.rename', nodeId: 'node-1', name: 'After refresh' },
+    })
+    await vi.waitFor(() => expect(harness.client.getSnapshot().pendingMutationIds).toEqual(['ticket-refresh-mutation']))
+
+    socket.server({ type: 'room.error', envelope: envelope(), code: 'draining', message: 'Session refresh required.', retry: 'reconnect', retryAfterMs: 250 })
+
+    await vi.waitFor(() => expect(harness.client.getSnapshot().lifecycle).toBe('reconnecting'))
+    expect(harness.client.getSnapshot()).toMatchObject({
+      lifecycle: 'reconnecting',
+      document: { title: 'Before refresh' },
+      pendingMutationIds: ['ticket-refresh-mutation'],
+    })
+    expect(harness.client.getSnapshot().lifecycle).not.toBe('access-revoked')
+
+    harness.timers.at(-1)!.callback()
+    const next = harness.openAssigned(1)
+    harness.streamDocument(next.socket, next.requestId, { title: 'Before refresh' })
+    await vi.waitFor(() => expect(next.socket.sent.map(value => JSON.parse(value) as CollaborationClientMessage).some(message => message.type === 'operation.submit' && message.operation.mutationId === 'ticket-refresh-mutation')).toBe(true))
+    next.socket.server({ type: 'operation.ack', envelope: envelope(), mutationId: 'ticket-refresh-mutation', sequence: '1', status: 'applied' })
+
+    await expect(local).resolves.toMatchObject({ mutationId: 'ticket-refresh-mutation', sequence: '1', status: 'applied' })
+    expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'live', document: { title: 'After refresh' }, pendingMutationIds: [] })
+  })
+
   it('rejects mutation submission locally when the assigned role is read only', async () => {
     const harness = createHarness({ role: 'viewer' })
     const { socket, requestId } = harness.openAssigned()

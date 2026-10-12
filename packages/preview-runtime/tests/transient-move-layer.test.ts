@@ -52,6 +52,31 @@ describe('AT-CAN-006 transient move presentation', () => {
     expect(element.style.getPropertyValue('translate')).toBe('')
   })
 
+  it('does not restore a stale size after the authoritative render replaces it', () => {
+    const element = new FakeElement()
+    element.style.setProperty('width', '100px')
+    element.style.setProperty('height', '80px')
+    const ownerDocument = { defaultView: { HTMLElement: FakeElement, getComputedStyle: () => ({ translate: 'none' }) } }
+    const layer = createTransientMoveLayer(ownerDocument, { querySelector: () => element })
+    layer.setDocument({ assets: {}, canvas: { elements: [{ id: 'node-1', kind: 'frame' }] } })
+
+    layer.update([{ nodeId: 'node-1', dx: 0, dy: 0, width: 140, height: 120 }])
+    element.style.setProperty('width', '180px')
+    element.style.setProperty('height', '160px')
+    layer.update([])
+    expect(element.style.getPropertyValue('width')).toBe('100px')
+    expect(element.style.getPropertyValue('height')).toBe('80px')
+
+    layer.update([{ nodeId: 'node-1', dx: 0, dy: 0, width: 140, height: 120 }])
+    layer.clear()
+    element.style.setProperty('width', '180px')
+    element.style.setProperty('height', '160px')
+    layer.update([])
+
+    expect(element.style.getPropertyValue('width')).toBe('180px')
+    expect(element.style.getPropertyValue('height')).toBe('160px')
+  })
+
   it('restores a node immediately when it leaves the active transient set', () => {
     const first = new FakeElement()
     const second = new FakeElement()

@@ -1,0 +1,67 @@
+name: Desktop build
+
+on:
+  pull_request:
+    branches:
+      - staging
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  desktop-build:
+    name: Desktop build
+    if: github.event.pull_request.draft == false
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.6.2
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate database migrations
+        run: pnpm --filter @canvas/database test
+
+      - name: Select desktop channel
+        id: channel
+        shell: pwsh
+        run: |
+          $channel = if ('${{ github.base_ref }}' -eq 'main') { 'production' } else { 'staging' }
+          Copy-Item ".env.$channel.example" ".env.$channel"
+          "value=$channel" >> $env:GITHUB_OUTPUT
+
+      - name: Build unsigned desktop installer
+        shell: pwsh
+        run: pnpm "build:package:${{ steps.channel.outputs.value }}"
+
+      - name: Retain installer for review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: comp-canvas-${{ steps.channel.outputs.value }}-pr-${{ github.event.pull_request.number }}
+          path: |
+            apps/desktop/release/${{ steps.channel.outputs.value }}/*.exe
+          if-no-files-found: error
+          retention-days: 14

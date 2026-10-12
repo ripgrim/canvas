@@ -15,7 +15,17 @@ function handshake(overrides: Record<string, string> = {}, path = `/sync/${fileI
 
 function environment() {
   const requests: Request[] = []
-  const env: SyncWorkerEnv = { API_ORIGIN: "https://api.example", COLLABORATION_ADMISSION_SERVICE_TOKEN: "a".repeat(32), COLLABORATION_BUILD_ID: "0.1.0", SYNC_COORDINATOR_INTERNAL_SECRET: secret, ALLOWED_ORIGINS: origin, SYNC_COORDINATOR: { async fetch(request) { requests.push(request); return new Response("coordinator", { status: 200 }) } } }
+  const env: SyncWorkerEnv = {
+    API_ORIGIN: "https://api.example",
+    COLLABORATION_ADMISSION_SERVICE_TOKEN: "a".repeat(32),
+    COLLABORATION_BUILD_ID: "0.1.0",
+    SYNC_COORDINATOR_INTERNAL_SECRET: secret,
+    ALLOWED_ORIGINS: origin,
+    SYNC_ROOMS: {
+      idFromName: name => name,
+      get: id => ({ async fetch(request) { expect(id).toBe(`sync:2:${fileId}:${generationId}`); requests.push(request); return new Response("coordinator", { status: 200 }) } }),
+    },
+  }
   return { env, requests }
 }
 
@@ -127,10 +137,19 @@ describe("configuration", () => {
       .toThrow("Sync service credentials must be independent")
   })
 
-  it("keeps hosted deployment unavailable until the coordinator has a Container manager", () => {
+  it("CLOUD-SYNC-CONTAINER-001 exposes staging only after the private Container path exists", () => {
     const config = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"))
     expect(config.workers_dev).toBe(false)
     expect(config.routes).toBeUndefined()
-    expect(config.env).toBeUndefined()
+    expect(config.durable_objects.bindings).toEqual([
+      { name: "SYNC_ROOMS", class_name: "LocalFileSyncRoom", script_name: "comp-canvas-sync-coordinator" },
+    ])
+    expect(config.env.preview.name).toBe("comp-canvas-sync-preview")
+    expect(config.env.preview.routes).toEqual([{ pattern: "sync-staging.canvas.ripgrim.com", custom_domain: true }])
+    expect(config.env.preview.services).toBeUndefined()
+    expect(config.env.preview.durable_objects.bindings).toEqual([
+      { name: "SYNC_ROOMS", class_name: "FileSyncRoom", script_name: "comp-canvas-sync-coordinator-preview" },
+    ])
+    expect(config.env.production).toBeUndefined()
   })
 })

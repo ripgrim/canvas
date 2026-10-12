@@ -28,6 +28,7 @@ export const localEnvironment = Object.freeze({
   VITE_ASSETS_ORIGIN: localOrigins.assets,
   THUMBNAIL_RENDERER_ORIGIN: localOrigins.thumbnailRenderer,
   VITE_SYNC_ORIGIN: 'ws://127.0.0.1:4321',
+  VITE_COLLABORATION_BUILD_ID: workspaceVersion,
   SYNC_ROOM_RUNTIME_ORIGIN: localOrigins.syncRoom,
   COLLABORATION_BUILD_ID: workspaceVersion,
   DESIGN_EDITOR_AUTH_URL: localOrigins.api,

@@ -1,6 +1,6 @@
 import { encodeCollaborationMessage, parseCollaborationClientMessage, parseCollaborationServerMessage } from '@canvas/sync-protocol'
 import type { VerifiedRoomTicketClaims } from '@canvas/sync-protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { RoomTicketContext, RoomTicketVerifier } from '../src/contracts.js'
 import { CollaborationRoomCore, RoomNotAcceptingError } from '../src/room-core.js'
 import { checkpoints, clientId, connectionNonce, deferred, document, FakePeer, FakePersistence, fileId, generationId, lease, projection, projector, subjectId, ticket, tickets } from './support.js'
@@ -123,6 +123,26 @@ describe('collaboration room authority', () => {
     await expect(room.admitAuthorized(new FakePeer('reused'), authorization!, request.open)).resolves.toBe(false)
     expect(verificationCount).toBe(1)
     expect(room.activeConnections).toBe(1)
+    await room.drain()
+  })
+
+  it('CLOUD-SYNC-AUTH-001 records a safe reason when capability consumption rejects admission', async () => {
+    const events: Readonly<Record<string, string | number | boolean | null>>[] = []
+    const verifier = customTickets(
+      async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 2, expiresAtUnixMs: Date.now() + 60_000, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
+      async () => false,
+    )
+    const room = new CollaborationRoomCore({
+      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+    }, { persistence: new FakePersistence(), tickets: verifier, projector, checkpoints, logger: { event(value) { events.push(value) } } })
+    await room.start()
+    const request = admission(new FakePeer('rejected'))
+    const authorization = await room.authorize(request.ticketContext)
+    expect(authorization).not.toBeNull()
+
+    await expect(room.admitAuthorized(request.peer, authorization!, request.open)).resolves.toBe(false)
+    expect(events).toContainEqual(expect.objectContaining({ event: 'room_admission_rejected', reason: 'capability', fileId, generationId }))
+    expect(JSON.stringify(events)).not.toContain(ticket)
     await room.drain()
   })
 
@@ -921,6 +941,40 @@ describe('collaboration room authority', () => {
     expect(peer.closes).toContainEqual({ code: 4403, reason: 'File access changed' })
     expect(persistence.calls.some(call => call.startsWith('append:'))).toBe(false)
     await room.drain()
+  })
+
+  it('AT-AUTH-003 reconnects an authorized owner when the transport ticket expires', async () => {
+    let now = 1_000
+    const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const persistence = new FakePersistence()
+    const room = new CollaborationRoomCore({
+      identity: { fileId, generationId, protocolEpoch: 2 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+    }, {
+      persistence,
+      tickets: customTickets(
+        async context => ({ subjectId, displayName: 'Alpha', avatarUrl: null, fileId, role: 'owner', generationId, protocolEpoch: 2, expiresAtUnixMs: 1_100, accessEpoch: '1', clientId: context.clientId, connectionNonce: context.connectionNonce }),
+        async () => true,
+      ),
+      projector,
+      checkpoints,
+    })
+    try {
+      await room.start()
+      const peer = new FakePeer('expiring-owner')
+      await room.admit(admission(peer))
+      peer.messages.length = 0
+      now = 1_100
+
+      await room.receive(peer.connectionId, submit())
+
+      expect(parseCollaborationServerMessage(peer.messages[0]!)).toMatchObject({ type: 'room.error', code: 'draining', retry: 'reconnect', message: 'Session refresh required.' })
+      expect(peer.closes).toContainEqual({ code: 1012, reason: 'Session refresh required' })
+      expect(persistence.calls.some(call => call.startsWith('append:'))).toBe(false)
+      expect(room.activeConnections).toBe(0)
+      await room.drain()
+    } finally {
+      dateNow.mockRestore()
+    }
   })
 
   it('AT-AUTH-003 closes an idle revoked viewer during lease renewal', async () => {

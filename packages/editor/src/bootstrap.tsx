@@ -19,6 +19,30 @@ import { canvasCopy } from './features/editor/canvas-copy'
 import './design-system/theme.css'
 import './design-system/styles.css'
 
+export function prepareEditorUpdateRestart(timeoutMs = 10_000): Promise<void> {
+  const ready = () => {
+    const state = documentStore.getSnapshot()
+    if (state.error || state.blocked) throw new Error('Resolve the document save error before restarting.')
+    return !state.dirty && !state.saving && state.transient === null
+  }
+  try { if (ready()) return Promise.resolve() } catch (error) { return Promise.reject(error) }
+  return new Promise((resolve, reject) => {
+    let finished = false
+    const finish = (error?: unknown) => {
+      if (finished) return
+      finished = true
+      clearTimeout(timeout)
+      unsubscribe()
+      if (error) reject(error)
+      else resolve()
+    }
+    const unsubscribe = documentStore.subscribe(() => {
+      try { if (ready()) finish() } catch (error) { finish(error) }
+    })
+    const timeout = setTimeout(() => finish(new Error('The document is still saving. Wait for it to finish, then restart.')), timeoutMs)
+  })
+}
+
 export function bindShareAuthority(api: Pick<EditorProjectApi, 'collaboration'>, target: Pick<typeof editorStore, 'setShareAuthority'> = editorStore): () => void {
   const collaboration = api.collaboration
   const publish = () => target.setShareAuthority(collaboration?.getSnapshot().canManageShare ?? true)

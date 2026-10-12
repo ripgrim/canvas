@@ -10,6 +10,7 @@
     "./file-route": "./src/features/application/file-route.ts",
     "./bootstrap": "./src/bootstrap.tsx",
     "./auth": "./src/auth.ts",
+    "./updates": "./src/updates.ts",
     "./capabilities": "./src/capabilities.ts",
     "./theme.css": "./src/design-system/theme.css",
     "./styles.css": "./src/design-system/styles.css"

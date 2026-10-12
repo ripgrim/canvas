@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Atom } from './types'
 import type { Appearance, FileDocument, Paint, Stroke } from '@canvas/repo-engine/file-document'
 import type { ImageAssetReference } from '@canvas/repo-engine/appearance'
-import { childrenOf, nodeAppearance, worldPosition } from '@canvas/repo-engine/file-document'
+import { childrenOf, nodeAppearance, nodeIsLocked, worldPosition } from '@canvas/repo-engine/file-document'
 import { componentDefaultProps, componentInsertionPoint, createDocumentStore } from './document-store'
 import type { Scene } from './canvas-scene'
 import type { EditorPersistenceIntent } from '../../capabilities'
@@ -115,6 +115,17 @@ describe('AT-CAN file loading and pages', () => {
     expect(store.getSnapshot()).toMatchObject({ pageId: 'page-2', viewport: { x: 30, y: 40, zoom: 1.5 }, dirty: false })
     store.setReadOnly(false)
     expect(store.commands.rename('other', 'Changed')).toBe(true)
+  })
+
+  it('AT-CAN-001 locks pointer manipulation without blocking inspector commands', () => {
+    const store = loaded()
+    expect(store.commands.setLocked('outer', true)).toBe(true)
+    expect(nodeIsLocked(file(store), 'outer')).toBe(true)
+    expect(nodeIsLocked(file(store), 'inner')).toBe(true)
+    expect(store.commands.setStyles('outer', { left: 125, width: 420 })).toBe(true)
+    expect(styles(store, 'outer')).toMatchObject({ left: 125, width: 420 })
+    expect(store.commands.rename('outer', 'Locked frame')).toBe(true)
+    expect(file(store).nodes.outer).toMatchObject({ name: 'Locked frame', isLocked: true })
   })
 
   it('creates, renames, duplicates, reorders, and deletes pages with page-scoped undo', () => {
@@ -341,7 +352,7 @@ describe('AT-CAN primitive canvas commands', () => {
 
     store.select('card')
     expect(store.commands.nudge(4, 6)).toBe(false)
-    const scene: Scene = { nodes: [], byId: new Map([['card', { id: 'card', kind: 'component', name: 'Card', parentId: null, rect: { x: 10.2, y: 20.7, width: 300.4, height: 200 }, rotation: 0, clip: false, depth: 0, order: 0, flow: false }]]) }
+    const scene: Scene = { nodes: [], byId: new Map([['card', { id: 'card', kind: 'component', name: 'Card', parentId: null, rect: { x: 10.2, y: 20.7, width: 300.4, height: 200 }, rotation: 0, clip: false, depth: 0, order: 0, flow: false, locked: false }]]) }
     expect(store.commands.nudge(4, 6, scene)).toBe(true)
     expect((file(store).nodes.card as { layout?: unknown }).layout).toEqual({
       item: { position: { mode: 'absolute', left: { kind: 'px', value: 14 }, top: { kind: 'px', value: 27 } }, width: { value: { kind: 'px', value: 300 } } },

@@ -3,10 +3,14 @@ import { describe, expect, it } from 'vitest'
 import { createPackageEnvironment } from '../scripts/package-desktop.mjs'
 
 const publicProductionConfiguration = {
+  VITE_APP_URL: 'https://canvas.example.test',
+  VITE_SYNC_ORIGIN: 'wss://sync.example.test',
+  VITE_COLLABORATION_BUILD_ID: 'release-test-build',
   DESIGN_EDITOR_AUTH_URL: 'https://api.example.test',
   DESIGN_EDITOR_LOGIN_URL: 'https://login.example.test',
   DESIGN_EDITOR_PREVIEW_URL: 'https://preview.example.test',
   DESIGN_EDITOR_ASSETS_URL: 'https://assets.example.test',
+  DESIGN_EDITOR_UPDATE_URL: 'https://updates.example.test/windows/x64',
 }
 
 describe('AT-PACKAGE-ENV-001 desktop packaging environment', () => {

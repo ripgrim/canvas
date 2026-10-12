@@ -177,4 +177,21 @@ export function resizeRect(start: Rect, handle: string, delta: Point, options: {
   return { x, y, width, height }
 }
 
+/** Resize in local axes, then reposition the bounds so the opposite rotated handle remains fixed on screen. */
+export function resizeRotatedRect(start: Rect, handle: string, delta: Point, rotationDegrees: number, options: { symmetric: boolean; proportional: boolean; minimum?: number }): Rect {
+  const radians = rotationDegrees * Math.PI / 180
+  const cosine = Math.cos(radians)
+  const sine = Math.sin(radians)
+  const localDelta = { x: delta.x * cosine + delta.y * sine, y: -delta.x * sine + delta.y * cosine }
+  const localStart = { x: -start.width / 2, y: -start.height / 2, width: start.width, height: start.height }
+  const localNext = resizeRect(localStart, handle, localDelta, options)
+  const localCenterShift = { x: localNext.x + localNext.width / 2, y: localNext.y + localNext.height / 2 }
+  const worldCenterShift = {
+    x: localCenterShift.x * cosine - localCenterShift.y * sine,
+    y: localCenterShift.x * sine + localCenterShift.y * cosine,
+  }
+  const center = { x: start.x + start.width / 2 + worldCenterShift.x, y: start.y + start.height / 2 + worldCenterShift.y }
+  return { x: center.x - localNext.width / 2, y: center.y - localNext.height / 2, width: localNext.width, height: localNext.height }
+}
+
 export const roundRect = (rect: Rect): Rect => ({ x: Math.round(rect.x), y: Math.round(rect.y), width: Math.max(1, Math.round(rect.width)), height: Math.max(1, Math.round(rect.height)) })

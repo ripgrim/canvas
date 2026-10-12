@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyFileCommand, applyFileCommandWithHistory, applyHostedFileCommand, createBlankFile, validateFileCommand } from '../src/file-document.js'
+import { applyFileCommand, applyFileCommandWithHistory, applyHostedFileCommand, createBlankFile, nodeIsLocked, validateFileCommand } from '../src/file-document.js'
 import type { FileCommand, FileDocument } from '../src/file-document.js'
 import { hostedComponentCatalog } from '../src/hosted-catalog.js'
 import type { Atom } from '../src/types.js'
@@ -21,6 +21,7 @@ const commands = [
   { type: 'page.duplicate', pageId: 'page-1', page, ids: {} },
   { type: 'node.insert', node, placement: { parentId: 'root-1', index: 0 } },
   { type: 'node.rename', nodeId: 'node-1', name: 'Card' },
+  { type: 'node.setLocked', nodeId: 'node-1', isLocked: true },
   { type: 'node.setStyles', nodeId: 'node-1', styles: { width: 20, rotation: null, flipX: true } },
   { type: 'node.setText', nodeId: 'node-1', text: 'Hello' },
   { type: 'node.setAppearance', nodeId: 'node-1', appearance: { fills: [solid] } },
@@ -186,6 +187,7 @@ const withoutRevision = (file: FileDocument) => ({ ...file, revision: 0 })
 describe('semantic command history', () => {
   it.each([
     ['batch', { type: 'batch', commands: [{ type: 'node.setStyles', nodeId: 'child', styles: { left: 15, rotation: 45 } }, { type: 'node.rename', nodeId: 'parent', name: 'Renamed' }] }],
+    ['node lock', { type: 'node.setLocked', nodeId: 'parent', isLocked: true }],
     ['generated fill identity', { type: 'node.fill.add', nodeId: 'child' }],
     ['deleted subtree', { type: 'node.delete', nodeIds: ['parent'] }],
     ['deleted page', { type: 'page.delete', pageId: 'page-2' }],
@@ -212,5 +214,16 @@ describe('semantic command history', () => {
     const source = historyFile()
     const projected = applyFileCommandWithHistory(source, { type: 'node.fill.add', nodeId: 'child' }, [historyAtom])
     expect(projected.redo).toMatchObject({ type: 'node.fill.add', nodeId: 'child', paint: { id: 'fill:1:2' } })
+  })
+
+  it('a direct lock also locks descendants and unlocking restores canvas eligibility', () => {
+    const source = historyFile()
+    const locked = applyFileCommand(source, { type: 'node.setLocked', nodeId: 'parent', isLocked: true }, [historyAtom])
+    expect(nodeIsLocked(locked, 'parent')).toBe(true)
+    expect(nodeIsLocked(locked, 'child')).toBe(true)
+    expect(nodeIsLocked(locked, 'card')).toBe(false)
+    const unlocked = applyFileCommand(locked, { type: 'node.setLocked', nodeId: 'parent', isLocked: false }, [historyAtom])
+    expect(unlocked.nodes.parent).not.toHaveProperty('isLocked')
+    expect(nodeIsLocked(unlocked, 'child')).toBe(false)
   })
 })

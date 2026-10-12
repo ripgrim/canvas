@@ -17,7 +17,7 @@ describe('UI-COLLAB-PRESENCE-001 collaboration CSS', () => {
     expect(css).toContain('max-width: 100px; overflow: hidden; text-overflow: ellipsis;')
     expect(css).not.toContain('translateY(-1px)')
     expect(css).toContain('.collaboration-roster-item .collaboration-avatar { margin-left: 0; flex-shrink: 0; box-shadow: none; }')
-    expect(css).toContain('bottom: 24px;')
+    expect(css).toContain('bottom: var(--space-l);')
     expect(css).toContain('width: 18px; height: 18px;')
     expect(css).toContain('backdrop-filter: blur(12px)')
     expect(css).toContain('.collaboration-tooltip')
@@ -40,12 +40,12 @@ describe('UI-COLLAB-PRESENCE-001 collaboration CSS', () => {
     expect(css).toContain('.collaboration-status[data-tone="danger"] { color: var(--error); }')
   })
 
-  it('preserves the bottom-24 notice while clearing the narrow footer', () => {
+  it('keeps the compact read-only notice clear of the narrow mobile toolbar', () => {
     const css = readFileSync(new URL('./collaboration.css', import.meta.url), 'utf8')
-    expect(css).toContain('.canvas-area:has(> .collaboration-read-only) { padding-bottom: 72px; }')
-    expect(css).toContain('max-width: calc(100% - 48px);')
+    expect(css).toContain('.canvas-area:has(> .collaboration-read-only) { padding-bottom: calc(48px + 4 * var(--space-m)); }')
+    expect(css).toContain('max-width: min(420px, calc(100% - 2 * var(--space-l)));')
     expect(css).toContain('-webkit-backdrop-filter: blur(12px);')
-    expect(css).not.toContain('.collaboration-read-only { bottom: 68px;')
+    expect(css).toContain('bottom: calc(48px + 2 * var(--space-m));')
   })
 
 })

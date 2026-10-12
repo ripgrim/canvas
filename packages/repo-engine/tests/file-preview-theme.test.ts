@@ -72,6 +72,18 @@ describe('CC-TB-003 and CC-NT-003: one source token, two effective themes', () =
     expect(fillColor(projection, 'inner')).toBe('#ffffff')
     expect(projection.document.nodes.card!.theme).toEqual({ mode: 'dark', designThemeId: 'default', attribute: null, colorScheme: 'dark', explicit: true })
   })
+  it('an empty theme context uses the default theme for the page palette', () => {
+    const themed = file()
+    themed.pages[0]!.background = { kind: 'token', tokenId: 'surface' }
+    const requestedThemes: string[] = []
+    const projection = projectPreviewPage(themed, 'page-1', {
+      themes: [],
+      previewThemeId: null,
+      palette: theme => { requestedThemes.push(theme.id); return palettes.default! },
+    })!
+    expect(projection.document.background).toBe('#ffffff')
+    expect(requestedThemes).toEqual(['default', 'default', 'default', 'default', 'default'])
+  })
 })
 
 describe('CC-NT-009: unresolvable schemes render with the fallback and a diagnostic', () => {

@@ -1,7 +1,9 @@
 import { useRef } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import { Dialog } from '@base-ui/react/dialog'
 import { Icon } from './atoms'
 import type { IconName } from './atoms'
+import { CompLogo } from './brand'
 import './shell.css'
 
 export function PanelHeaderBar({ children }: { children: ReactNode }) { return <div className="panel-header-bar">{children}</div> }
@@ -17,8 +19,23 @@ export function PanelToolbar({ label, children }: { label: string; children: Rea
 
 export function PanelToolbarActions({ children }: { children: ReactNode }) { return <div className="panel-toolbar-actions">{children}</div> }
 
+/** Mobile bottom sheet using the same Base UI Dialog primitive as the shadcn Base Sheet. */
+export function MobileSheet({ open, mode, title, closeLabel, onOpenChange, children }: { open: boolean; mode: string; title: string; closeLabel: string; onOpenChange: (open: boolean) => void; children: ReactNode }) {
+  return <Dialog.Root open={open} onOpenChange={onOpenChange}><Dialog.Portal>
+    <Dialog.Backdrop className={`theme-${mode} mobile-sheet-backdrop`} />
+    <Dialog.Popup className={`theme-${mode} mobile-sheet-popup`}>
+      <div className="mobile-sheet-header"><span className="mobile-sheet-handle" aria-hidden="true" /><Dialog.Title className="mobile-sheet-title">{title}</Dialog.Title><Dialog.Close className="mobile-sheet-close" aria-label={closeLabel} title={closeLabel}><Icon name="close" /></Dialog.Close></div>
+      <div className="mobile-sheet-content">{children}</div>
+    </Dialog.Popup>
+  </Dialog.Portal></Dialog.Root>
+}
+
 export function HeaderIconButton({ label, icon, glyph, disabled, pressed, compact = false, onClick }: { label: string; icon?: IconName; glyph?: ReactNode; disabled?: boolean; pressed?: boolean; compact?: boolean; onClick: () => void }) {
   return <button type="button" className="header-icon-button" data-compact={compact || undefined} aria-label={label} title={label} disabled={disabled} aria-pressed={pressed} onClick={onClick}>{glyph ?? (icon ? <Icon name={icon} /> : null)}</button>
+}
+
+export function FileHomeButton({ label, disabled, onClick }: { label: string; disabled?: boolean; onClick: () => void }) {
+  return <HeaderIconButton label={label} glyph={<CompLogo height={16} />} {...(disabled === undefined ? {} : { disabled })} onClick={onClick} />
 }
 
 export function PanelResizer({ label, edge, offset, value, min, max, onChange }: { label: string; edge: 'left' | 'right'; offset: number; value: number; min: number; max: number; onChange: (value: number) => void }) {

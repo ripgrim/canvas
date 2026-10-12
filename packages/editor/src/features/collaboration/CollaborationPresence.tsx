@@ -1,5 +1,5 @@
 import { Fragment, useState, useSyncExternalStore } from 'react'
-import type { EditorCollaborationAgent, EditorCollaborationLocalProfile, EditorCollaborationParticipant, EditorCollaborationSnapshot } from '../../capabilities'
+import type { EditorCollaborationAgent, EditorCollaborationLocalProfile, EditorCollaborationParticipant, EditorCollaborationSnapshot, EditorCollaborationTransform } from '../../capabilities'
 import { CollaborationAgentAvatar, CollaborationAgentRosterItem, CollaborationAvatar, CollaborationCursor, CollaborationFollowFrame, CollaborationOverflow, CollaborationReadOnlyBanner, CollaborationRosterItem, CollaborationSelection, CollaborationStatusSurface, CollaborationStrip } from '../../design-system/collaboration-atoms'
 import { collaborationService } from './collaboration-service'
 import type { CollaborationViewSnapshot } from './collaboration-service'
@@ -8,6 +8,7 @@ import { documentStore } from '../editor/document-store'
 import { sceneGeometry } from '../editor/scene-geometry'
 import { buildScene } from '../editor/canvas-scene'
 import { unionRects, worldRectToScreen, worldToScreen } from '../editor/canvas-math'
+import type { Rect } from '../editor/canvas-math'
 
 const colors = [
   { background: 'var(--color-4)', foreground: 'var(--collaborator-color-4-foreground)' },
@@ -78,16 +79,28 @@ export function visiblePeople(participants: readonly EditorCollaborationParticip
 
 export const remotePeopleOnPage = (participants: readonly EditorCollaborationParticipant[], localClientId: string | null, pageId: string) => participants.filter(participant => !participant.isHeadless && participant.clientId !== localClientId && participant.awareness.pageId === pageId)
 
+export function collaborationSelectionRect(sceneRect: Rect | undefined, localTransientRect: Rect | undefined, remoteTransform: EditorCollaborationTransform | undefined): Rect | undefined {
+  if (localTransientRect) return localTransientRect
+  if (!sceneRect || !remoteTransform) return sceneRect
+  return {
+    x: sceneRect.x + remoteTransform.dx,
+    y: sceneRect.y + remoteTransform.dy,
+    width: remoteTransform.width ?? sceneRect.width,
+    height: remoteTransform.height ?? sceneRect.height,
+  }
+}
+
 export type CollaborationShellPresentation = Readonly<{ label: string; tone: 'progress' | 'danger'; action: 'retry' | 'leave' | null }>
 
 export function collaborationShellPresentation(snapshot: Pick<CollaborationViewSnapshot, 'status' | 'shellState' | 'canRetry' | 'canLeave'>): CollaborationShellPresentation | null {
-  const state = snapshot.shellState ?? (snapshot.status === 'connecting' ? 'connecting' : snapshot.status === 'reconnecting' ? 'reconnecting' : snapshot.status === 'error' ? 'file-busy' : null)
+  const state = snapshot.shellState ?? (snapshot.status === 'connecting' ? 'connecting' : snapshot.status === 'reconnecting' ? 'reconnecting' : snapshot.status === 'error' ? 'connection-failed' : null)
   if (!state) return null
   if (state === 'opening') return { label: copy.opening, tone: 'progress', action: null }
   if (state === 'connecting') return { label: copy.connecting, tone: 'progress', action: null }
   if (state === 'reconnecting') return { label: copy.reconnecting, tone: 'progress', action: null }
   if (state === 'access-removed') return { label: copy.accessRemoved, tone: 'danger', action: snapshot.canLeave ? 'leave' : null }
   if (state === 'update-required') return { label: copy.updateRequired, tone: 'danger', action: snapshot.canLeave ? 'leave' : null }
+  if (state === 'connection-failed') return { label: copy.connectionFailed, tone: 'danger', action: snapshot.canRetry ? 'retry' : snapshot.canLeave ? 'leave' : null }
   return { label: copy.fileBusy, tone: 'danger', action: snapshot.canRetry ? 'retry' : snapshot.canLeave ? 'leave' : null }
 }
 
@@ -126,14 +139,13 @@ export function CollaborationCanvasPresence() {
   const geometry = useSyncExternalStore(sceneGeometry.subscribe, sceneGeometry.getSnapshot, sceneGeometry.getSnapshot)
   if (!document.file || !document.pageId) return null
   const scene = buildScene(document.file, document.pageId, geometry.nodes)
+  const localTransientRects: Record<string, Rect> = document.transient?.kind === 'move' || document.transient?.kind === 'resize' ? document.transient.rects : {}
   return <>{remotePeopleOnPage(collaboration.participants, collaboration.localClientId, document.pageId).map(participant => {
     const awareness = participant.awareness
     const color = participantColor(participant)
     const transforms = new Map(awareness.interaction?.transforms.map(transform => [transform.nodeId, transform]) ?? [])
     const selection = awareness.selection?.pageId === document.pageId ? unionRects(awareness.selection.nodeIds.map(id => {
-      const rect = scene.byId.get(id)?.rect
-      const transform = transforms.get(id)
-      return rect && transform ? { x: rect.x + transform.dx, y: rect.y + transform.dy, width: transform.width ?? rect.width, height: transform.height ?? rect.height } : rect
+      return collaborationSelectionRect(scene.byId.get(id)?.rect, localTransientRects[id], transforms.get(id))
     }).filter(rect => rect !== undefined)) : null
     const selectionScreen = selection ? worldRectToScreen(selection, document.viewport, document.viewportSize) : null
     const smoothed = collaboration.cursorPositions[participant.presenceId]

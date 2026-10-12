@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "comp-canvas-sync-runtime-preview",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "containers": [
+    {
+      "name": "comp-canvas-sync-room-preview",
+      "class_name": "RoomContainer",
+      "image": "../sync-room-core/Dockerfile",
+      "image_build_context": "../..",
+      "instance_type": "lite",
+      "max_instances": 10,
+      "rollout_step_percentage": 100,
+      "observability": { "logs": { "enabled": true } }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM_CONTAINERS", "class_name": "RoomContainer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomContainer"] }],
+  "vars": {
+    "ALLOWED_ORIGINS": "https://staging.canvas.ripgrim.com,https://login-staging.canvas.ripgrim.com",
+    "SYNC_CONTAINER_INACTIVITY_MS": "600000"
+  }
+}

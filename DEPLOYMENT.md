@@ -1,6 +1,20 @@
 # Deployment
 
-Each independently deployed HTTP surface has its own Vercel project. Run `pnpm vercel:check` to validate the manifest and live project settings. Run `pnpm vercel:setup` to create and link the projects without deploying them. Git-triggered deployments remain disabled until release approval, so a repository push cannot publish these projects early.
+## Release branches
+
+`staging` is the persistent pre-production branch and `main` is the production branch. A push to `staging` updates staging. The `Promote staging` GitHub workflow creates one pull request from `staging` into `main`, or leaves the existing release pull request in place when one is already open. Nothing in the workflow pushes to `main` directly.
+
+The public staging entry point is `staging.canvas.ripgrim.com`. Supporting services use flat internal names such as `api-staging.canvas.ripgrim.com`; users do not need to navigate to them. The preview runtime remains on a separate origin because it is an iframe security boundary. `deploy/environments.json` is the non-secret source of truth for both origin sets.
+
+Staging must use its own database credentials, Better Auth secret, R2 bucket, collaboration secrets, and service tokens. Never populate a staging deployment with production database or storage credentials. Main remains the only production deployment branch.
+
+Copy `.env.staging.example` to the ignored `.env.staging` file and fill the empty credentials before configuring the remote environment. Set `AUTH_COOKIE_DOMAIN=canvas.ripgrim.com` and `AUTH_COOKIE_PREFIX=comp-canvas-staging`. The parent domain lets the browser send the staging session to the sibling sync host, while the distinct prefix prevents collisions with production cookies. The editor origin owns browser auth and proxies `/api/*` to the API project. Register `https://staging.canvas.ripgrim.com/api/auth/callback/github` as the staging social-login OAuth callback. Use a separate staging GitHub App for repository installations because a GitHub App has one webhook URL and staging must not send repository events through production.
+
+Each independently deployed HTTP surface has its own Vercel project. Run `pnpm vercel:check` to validate the manifest and live project settings. Run `pnpm vercel:setup` to connect each staging branch domain, disable Vercel Authentication so phone and external-device testing reaches the product login, and enable Git deployments without creating a deployment itself. Vercel treats `main` as production and `staging` as a persistent preview branch. Pushing either branch publishes its corresponding environment after the remote setup has been explicitly approved and applied.
+
+Run `pnpm vercel:env:staging:check` to validate `.env.staging` without printing values or changing Vercel. After approval, `pnpm vercel:env:staging:apply` uploads only the variables declared for each project as Preview variables scoped to the `staging` branch. It sends values over standard input so secrets are not placed in command arguments.
+
+Every Vercel surface rejects automatic deployments from branches other than `main` and `staging`. Ordinary feature branches are validated locally and through GitHub checks without creating five unrelated preview deployments.
 
 | Service | Project | Host | Runtime |
 | --- | --- | --- | --- |
@@ -29,15 +43,17 @@ The thumbnail renderer Vercel build generates and verifies its component registr
 ## Cloudflare assets
 
 `deploy/cloudflare-r2.json` is the source of truth for the private R2 buckets,
-binding, placement, storage class, and lifecycle rules. `pnpm cloudflare:check`
-verifies the remote preview resource without changing it. The check rejects a
-non-empty setup bucket, any deployed Worker environment, disabled or unexpected
-expiration rules, public access, custom domains, and preview or production
-bucket collisions. `pnpm
-cloudflare:setup` creates or reconciles that resource without deploying the
-Worker or uploading an object. Local development remains on Wrangler's R2
-simulation. Remote preview uses `comp-canvas-file-assets-dev`; production uses
-the separate `comp-canvas-file-assets-production` bucket.
+binding, placement, storage class, lifecycle rules, and expected Worker state.
+`pnpm cloudflare:check` verifies the remote preview resource without changing
+it. The check rejects a missing preview Worker, disabled or unexpected
+expiration rules, public bucket access, bucket-level custom domains, and
+preview or production bucket collisions. It allows objects after deployment
+because staging uploads are real user data. `pnpm cloudflare:setup` creates or
+reconciles the bucket without uploading an object. Deploy the staging Worker
+after its secrets exist with `pnpm cloudflare:deploy:staging`. Local development
+remains on Wrangler's R2 simulation. Remote preview uses
+`comp-canvas-file-assets-dev`; production uses the separate
+`comp-canvas-file-assets-production` bucket.
 
 The bucket has no public `r2.dev` URL and no direct custom domain. Browser
 traffic must pass through the Worker authorization boundary. The managed
@@ -52,10 +68,11 @@ Deploy it only with explicit release approval using
 
 ## Cloudflare sync
 
-Revision sync is being cut over to a public admission Worker, a private
-generation coordinator, and an authoritative room runtime. PostgreSQL remains
-the durable document and operation-log authority. Hosted sync remains disabled
-until the Container manager and placement gate are complete.
+Revision sync uses a public admission Worker, a private generation coordinator,
+and a private Cloudflare room Container. PostgreSQL remains the durable document
+and operation-log authority. Staging uses the `lite` Container class, one stable
+Container object per file generation, a ten-minute inactivity timeout, and no
+public runtime route. Production sync remains undeployed.
 
 Local development exposes the public Worker at `ws://127.0.0.1:4321`, the room
 runtime at `http://127.0.0.1:4325`, and the private coordinator at
@@ -64,7 +81,13 @@ files so the API admission token never reaches the coordinator and the room
 ticket secret never reaches the public Worker. Do not put either value in a
 `VITE_` variable or a WebSocket URL.
 
-The checked-in Wrangler configurations and dry-run builds do not create a
-Container manager, attach the custom domain, upload secrets, run migrations, or
-deploy code. Those release operations require explicit approval.
+Before the first staging deployment, upload `DATABASE_URL` and
+`SYNC_ROOM_TICKET_SECRET` to `comp-canvas-sync-runtime-preview`, upload the same
+ticket secret plus `SYNC_COORDINATOR_INTERNAL_SECRET` to the preview coordinator,
+and upload the same coordinator secret plus
+`COLLABORATION_ADMISSION_SERVICE_TOKEN` to the preview admission Worker. Keep
+the three trust boundaries separate. Then run `pnpm sync:deploy:staging`; it
+deploys the private runtime first, the coordinator second, and the public Worker
+last. The public route is `sync-staging.canvas.ripgrim.com`. No production sync
+configuration is declared.
 

@@ -167,6 +167,7 @@ await writeFile(syncWorkerVars, [
   '',
 ].join('\n'), { encoding: 'utf8', mode: 0o600 })
 await writeFile(syncCoordinatorVars, [
+  `DATABASE_URL=${required('DATABASE_URL')}`,
   `SYNC_COORDINATOR_INTERNAL_SECRET=${syncCoordinatorInternalSecret}`,
   `SYNC_ROOM_TICKET_SECRET=${syncRoomTicketSecret}`,
   `SYNC_ROOM_RUNTIME_ORIGIN=${localEnvironment.SYNC_ROOM_RUNTIME_ORIGIN}`,
@@ -176,7 +177,9 @@ await writeFile(syncCoordinatorVars, [
 
 for (const service of localServices) {
   const args = ['--filter', service.packageName, service.script]
-  if (service.trailingArgs.length) args.push('--', ...service.trailingArgs)
+  const trailingArgs = [...service.trailingArgs]
+  if (process.platform === 'win32' && service.id === 'sync-coordinator') trailingArgs.push('--enable-containers=false')
+  if (trailingArgs.length) args.push(...trailingArgs)
   launch(service.label, args, { ...environmentFor(...service.environment), ...service.fixedEnvironment, PORT: String(service.port) })
 }
 

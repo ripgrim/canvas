@@ -50,7 +50,7 @@ export type EditorCollaborationAgent = Readonly<{
 export type EditorCollaborationSnapshot = Readonly<{
   status: 'unavailable' | 'connecting' | 'live' | 'read-only' | 'reconnecting' | 'error'
   /** Stable product state for the collaboration shell. Transport-specific phases stay behind the adapter. */
-  shellState?: 'opening' | 'connecting' | 'reconnecting' | 'access-removed' | 'update-required' | 'file-busy' | null
+  shellState?: 'opening' | 'connecting' | 'reconnecting' | 'access-removed' | 'update-required' | 'file-busy' | 'connection-failed' | null
   localClientId: string | null
   localProfile: EditorCollaborationLocalProfile | null
   canMutate: boolean

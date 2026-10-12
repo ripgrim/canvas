@@ -5,6 +5,7 @@
   "environments": {
     "local": {
       "mode": "simulation",
+      "workerState": "disabled",
       "bucketName": "comp-canvas-file-assets-dev",
       "apiOrigin": "http://127.0.0.1:4320",
       "allowedOrigins": [
@@ -16,17 +17,19 @@
     },
     "preview": {
       "mode": "remote",
+      "workerState": "deployed",
       "bucketName": "comp-canvas-file-assets-dev",
       "location": "wnam",
       "storageClass": "Standard",
-      "apiOrigin": "https://api.canvas.ripgrim.com",
+      "apiOrigin": "https://api-staging.canvas.ripgrim.com",
       "allowedOrigins": [
-        "https://canvas.ripgrim.com",
-        "https://login.canvas.ripgrim.com"
+        "https://staging.canvas.ripgrim.com",
+        "https://login-staging.canvas.ripgrim.com"
       ]
     },
     "production": {
       "mode": "remote",
+      "workerState": "deployed",
       "bucketName": "comp-canvas-file-assets-production",
       "location": "wnam",
       "storageClass": "Standard",

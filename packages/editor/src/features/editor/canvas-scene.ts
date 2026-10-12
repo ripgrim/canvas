@@ -1,4 +1,4 @@
-import { childrenOf, pageRoot, worldRect } from '@canvas/repo-engine/file-document'
+import { childrenOf, nodeIsLocked, pageRoot, worldRect } from '@canvas/repo-engine/file-document'
 import type { FileDocument, PrimitiveKind } from '@canvas/repo-engine/file-document'
 import { legacyLayout } from '@canvas/repo-engine/layout'
 import { pointInRect, rectsIntersect } from './canvas-math'
@@ -23,6 +23,8 @@ export type SceneNode = {
   order: number
   /** Positioned by the parent layout rather than by x/y. */
   flow: boolean
+  /** Directly locked or inherited from a locked ancestor. */
+  locked: boolean
 }
 export type Scene = { nodes: SceneNode[]; byId: Map<string, SceneNode> }
 const emptyScene: Scene = { nodes: [], byId: new Map() }
@@ -46,9 +48,9 @@ export function buildScene(file: FileDocument | null, pageId: string | null, mea
     if (!node || node.type === 'root') return
     if (node.type === 'component') {
       const rect = measured[id]?.componentId === node.componentId ? measured[id]!.rect : null
-      if (rect) nodes.push({ id, kind: 'component', name: displayName(file, id), parentId, rect, rotation: node.layout?.item.transform?.rotate ?? 0, clip: false, depth, order: order++, flow: parentId !== null && legacyLayout(node.layout).mode !== 'absolute' })
+      if (rect) nodes.push({ id, kind: 'component', name: displayName(file, id), parentId, rect, rotation: node.layout?.item.transform?.rotate ?? 0, clip: false, depth, order: order++, flow: parentId !== null && legacyLayout(node.layout).mode !== 'absolute', locked: nodeIsLocked(file, id) })
     } else {
-      nodes.push({ id, kind: node.type, name: displayName(file, id), parentId, rect: worldRect(file, id)!, rotation: node.styles.rotation ?? 0, clip: node.type === 'frame' && node.styles.overflow !== 'visible', depth, order: order++, flow: false })
+      nodes.push({ id, kind: node.type, name: displayName(file, id), parentId, rect: worldRect(file, id)!, rotation: node.styles.rotation ?? 0, clip: node.type === 'frame' && node.styles.overflow !== 'visible', depth, order: order++, flow: false, locked: nodeIsLocked(file, id) })
     }
     for (const child of childrenOf(file, id)) visit(child, id, depth + 1)
   }
@@ -75,7 +77,7 @@ function visibleAt(scene: Scene, node: SceneNode, point: Point): boolean {
 
 /** Nodes under a world point, top-most first. Children paint above parents and later siblings above earlier ones. */
 export function hitTest(scene: Scene, point: Point): SceneNode[] {
-  return scene.nodes.filter(node => visibleAt(scene, node, point)).sort((left, right) => right.order - left.order)
+  return scene.nodes.filter(node => !node.locked && visibleAt(scene, node, point)).sort((left, right) => right.order - left.order)
 }
 
 /**
@@ -104,7 +106,7 @@ export function drillTarget(scene: Scene, point: Point, selection: readonly stri
 
 /** Marquee: roots that intersect the brush; deep mode considers every node. */
 export function marqueeTargets(scene: Scene, brush: Rect, deep: boolean): string[] {
-  return scene.nodes.filter(node => (deep || node.parentId === null) && rectsIntersect(node.rect, brush)).map(node => node.id)
+  return scene.nodes.filter(node => !node.locked && (deep || node.parentId === null) && rectsIntersect(node.rect, brush)).map(node => node.id)
 }
 
 export function symmetricDifference(base: readonly string[], toggled: readonly string[]): string[] {

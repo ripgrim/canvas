@@ -1,10 +1,21 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
+  "git": { "deploymentEnabled": { "*": false, "main": true, "staging": true } },
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @canvas/web... build",
   "outputDirectory": "dist/client",
   "rewrites": [
+    {
+      "source": "/api/:path*",
+      "has": [{ "type": "host", "value": "staging.canvas.ripgrim.com" }],
+      "destination": "https://api-staging.canvas.ripgrim.com/api/:path*"
+    },
+    {
+      "source": "/api/:path*",
+      "has": [{ "type": "host", "value": "canvas.ripgrim.com" }],
+      "destination": "https://api.canvas.ripgrim.com/api/:path*"
+    },
     { "source": "/(.*)", "destination": "/_shell.html" }
   ]
 }

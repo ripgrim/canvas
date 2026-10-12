@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canvasHudChrome, formatHudDimensions, quadBounds, rotatedRectQuad, selectionBadgeRect, topHudFace } from './canvas-hud-painter'
+import { canvasHudChrome, canvasHudChromeForViewport, formatHudDimensions, quadBounds, rotatedRectQuad, selectionBadgeRect, topHudFace } from './canvas-hud-painter'
 
 describe('AT-APP-005 canvas selection chrome', () => {
   it('keeps Paper-measured outline, handle, and badge geometry in screen pixels', () => {
@@ -18,6 +18,11 @@ describe('AT-APP-005 canvas selection chrome', () => {
       width: 58,
       height: 20,
     })
+  })
+
+  it('UI-MOBILE-003 emphasizes visible selection chrome without changing desktop geometry', () => {
+    expect(canvasHudChromeForViewport(390)).toMatchObject({ outlineWidth: 2, handleSize: 12 })
+    expect(canvasHudChromeForViewport(1440)).toBe(canvasHudChrome)
   })
 
   it('uses Paper-style multiplication typography and preserves useful precision', () => {

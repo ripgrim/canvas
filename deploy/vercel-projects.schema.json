@@ -2,19 +2,22 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["scope", "repository", "gitDeployments", "projects", "externalServices"],
+  "required": ["scope", "repository", "gitDeployments", "deploymentProtection", "productionBranch", "stagingBranch", "projects", "externalServices"],
   "properties": {
     "$schema": { "type": "string" },
     "scope": { "type": "string", "minLength": 1 },
     "repository": { "type": "string", "pattern": "^https://github\\.com/" },
-    "gitDeployments": { "const": "disabled" },
+    "gitDeployments": { "const": "enabled" },
+    "deploymentProtection": { "const": "disabled" },
+    "productionBranch": { "const": "main" },
+    "stagingBranch": { "const": "staging" },
     "projects": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["service", "name", "rootDirectory", "framework", "buildCommand", "environment"],
+        "required": ["service", "name", "rootDirectory", "framework", "buildCommand", "productionDomain", "stagingDomain", "environment"],
         "properties": {
           "service": { "type": "string", "minLength": 1 },
           "name": { "type": "string", "pattern": "^[a-z0-9-]+$" },
@@ -22,6 +25,8 @@
           "framework": { "enum": ["vite", "other"] },
           "buildCommand": { "type": "string", "minLength": 1 },
           "outputDirectory": { "type": "string", "minLength": 1 },
+          "productionDomain": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+          "stagingDomain": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
           "environment": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" } }
         }
       }

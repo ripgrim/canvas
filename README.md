@@ -1,5 +1,7 @@
 # Design editor
 
+Desktop and browser release behavior is documented in [Application updates](docs/application-updates.md).
+
 Design editor is an Electron desktop editor that connects a real React repository to a React and DOM design canvas. The first vertical slice discovers design-system atoms, composes a login screen, prepares scoped minimal source patches, detects external changes, and promotes the composition into a real TSX component.
 
 Read `START-HERE.md`, `AGENTS.md`, and `PRODUCT-SPEC.md` before contributing. For UI work, read `GUI.md` and use the installed Graphical skills.
@@ -46,7 +48,23 @@ Build the production installer after copying `.env.production.example` to `.env.
 pnpm build:package:prod
 ```
 
-Local and production artifacts are written to `apps/desktop/release/local` and `apps/desktop/release/production`. Packaging builds its child-process environment from a fixed Windows OS and toolchain allowlist, then adds only the public desktop and `VITE_` origins from the selected environment file. Ambient credentials and unrelated shell variables are not inherited.
+Build the staging installer after copying `.env.staging.example` to `.env.staging`:
+
+```sh
+pnpm build:package:staging
+```
+
+Local, staging, and production artifacts are written to matching directories under `apps/desktop/release`. Packaging builds its child-process environment from a fixed Windows OS and toolchain allowlist, then adds only the public desktop and `VITE_` origins from the selected environment file. Ambient credentials and unrelated shell variables are not inherited.
+
+### Database and desktop releases
+
+Pull requests into `staging` build an unsigned staging installer. Pull requests into `main` build an unsigned production installer. These pull-request jobs validate the migration suite but never receive a database credential and never apply a migration.
+
+After an owner-triggered pull request merges, the release workflow checks out the exact merged commit, rebuilds its installer, migrates the matching database, and publishes only after both jobs pass. Merges into `staging` publish a prerelease tagged `nightly-v<version>-<run>-<commit>`. A merge from `staging` into `main` publishes the production `v<version>` release. Direct pushes, non-owner runs, non-staging production sources, mismatched package versions, failed builds, and failed migrations stop publication.
+
+Create `staging` and `production` GitHub environments and add a `DATABASE_URL` secret to each environment. Restrict each environment to its matching protected branch. Protect both branches, disallow direct pushes, require owner review, and require the `Desktop build` check before merging. Database credentials must not be stored as repository-level secrets because a same-repository workflow can request those without the environment boundary.
+
+The current private repository plan does not expose branch protection or private-repository environment secrets. Until the account is upgraded to GitHub Pro or the repository becomes public, this release workflow intentionally fails closed at the missing environment secret. The owner check still rejects accidental direct pushes and non-owner runs, but code cannot defend a workflow from a collaborator who is also allowed to rewrite that workflow on an unprotected branch.
 
 Local origins mirror the hosted service boundaries:
 

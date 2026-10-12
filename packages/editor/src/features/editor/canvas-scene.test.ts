@@ -108,6 +108,19 @@ describe('AT-CAN hit testing and selection policy', () => {
     expect(marqueeTargets(scene, { x: -700, y: -700, width: 50, height: 50 }, false)).toEqual([])
   })
 
+  it('excludes directly and ancestrally locked nodes from canvas hit testing and marquee selection', () => {
+    const locked = file()
+    const frame = locked.nodes.frame
+    if (!frame || frame.type === 'root') throw new Error('Frame fixture is missing')
+    frame.isLocked = true
+    const lockedScene = buildScene(locked, 'page-1', measured)
+    expect(lockedScene.byId.get('frame')?.locked).toBe(true)
+    expect(lockedScene.byId.get('inner')?.locked).toBe(true)
+    expect(hitTest(lockedScene, { x: 340, y: 40 })).toEqual([])
+    expect(marqueeTargets(lockedScene, { x: 310, y: 10, width: 20, height: 20 }, true)).toEqual([])
+    expect(clickTarget(lockedScene, { x: 340, y: 40 }, [], true)).toBeNull()
+  })
+
   it('finds the deepest containing frame, skipping an excluded subtree', () => {
     expect(containingFrameAt(scene, { x: 340, y: 40 })!.id).toBe('inner')
     expect(containingFrameAt(scene, { x: 340, y: 40 }, 'inner')!.id).toBe('frame')

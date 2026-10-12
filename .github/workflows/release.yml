@@ -1,0 +1,266 @@
+name: Migrate and release
+
+on:
+  pull_request:
+    branches:
+      - staging
+      - main
+    types:
+      - closed
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize merged release
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.release.outputs.channel }}
+      environment: ${{ steps.release.outputs.environment }}
+      sha: ${{ steps.release.outputs.sha }}
+      tag: ${{ steps.release.outputs.tag }}
+      title: ${{ steps.release.outputs.title }}
+      pull_request: ${{ steps.release.outputs.pull_request }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out merged revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Require owner-triggered merged pull request
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          GITHUB_REF_NAME: ${{ github.event.pull_request.base.ref }}
+          GITHUB_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PULL_REQUEST_JSON: ${{ toJson(github.event.pull_request) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pulls="$(gh api -H 'Accept: application/vnd.github+json' "/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls")"
+          ASSOCIATED_PULLS_JSON="$pulls" node scripts/release-policy.mjs >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ needs.authorize.outputs.channel }} desktop release
+    needs: authorize
+    runs-on: windows-latest
+    timeout-minutes: 45
+    environment: ${{ needs.authorize.outputs.environment }}
+    env:
+      CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
+      CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      DESIGN_EDITOR_WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
+      DESIGN_EDITOR_RELEASE_VERSION: ${{ needs.authorize.outputs.version }}
+      DESIGN_EDITOR_UPDATABLE: 1
+    steps:
+      - name: Check out merged revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.6.2
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure public desktop origins
+        shell: pwsh
+        run: Copy-Item ".env.${{ needs.authorize.outputs.channel }}.example" ".env.${{ needs.authorize.outputs.channel }}"
+
+      - name: Require production signing identity
+        shell: pwsh
+        run: |
+          if (-not $env:CSC_LINK) { throw 'The WINDOWS_CERTIFICATE secret is missing.' }
+          if (-not $env:CSC_KEY_PASSWORD) { throw 'The WINDOWS_CERTIFICATE_PASSWORD secret is missing.' }
+          if (-not $env:DESIGN_EDITOR_WINDOWS_PUBLISHER) { throw 'The WINDOWS_PUBLISHER environment variable is missing.' }
+
+      - name: Build signed desktop installer
+        shell: pwsh
+        run: pnpm "build:package:${{ needs.authorize.outputs.channel }}"
+
+      - name: Upload release payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: comp-canvas-${{ needs.authorize.outputs.channel }}-${{ needs.authorize.outputs.sha }}
+          path: |
+            apps/desktop/release/${{ needs.authorize.outputs.channel }}/*.exe
+            apps/desktop/release/${{ needs.authorize.outputs.channel }}/*.blockmap
+            apps/desktop/release/${{ needs.authorize.outputs.channel }}/*.yml
+          if-no-files-found: error
+          retention-days: 30
+
+  migrate:
+    name: Migrate ${{ needs.authorize.outputs.environment }} database
+    needs: authorize
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ needs.authorize.outputs.environment }}
+    concurrency:
+      group: database-${{ needs.authorize.outputs.environment }}
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out merged revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.6.2
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Require channel database secret
+        shell: bash
+        run: |
+          if [[ -z "$DATABASE_URL" ]]; then
+            echo "The DATABASE_URL secret is missing from the ${CHANNEL} environment." >&2
+            exit 1
+          fi
+        env:
+          CHANNEL: ${{ needs.authorize.outputs.environment }}
+
+      - name: Apply database migrations
+        run: pnpm --filter @canvas/database migrate
+
+  publish:
+    name: Publish ${{ needs.authorize.outputs.channel }} GitHub release
+    needs:
+      - authorize
+      - build
+      - migrate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment: ${{ needs.authorize.outputs.environment }}
+    steps:
+      - name: Check out merged revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
+
+      - name: Download exact merged build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: comp-canvas-${{ needs.authorize.outputs.channel }}-${{ needs.authorize.outputs.sha }}
+          path: release
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.6.2
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install release tools
+        run: pnpm install --frozen-lockfile
+
+      - name: Require update publishing credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          UPDATE_BUCKET: ${{ vars.UPDATE_BUCKET }}
+        shell: bash
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" || -z "$UPDATE_BUCKET" ]]; then
+            echo "Cloudflare update-feed credentials are incomplete." >&2
+            exit 1
+          fi
+
+      - name: Verify installer and prepare staged rollout
+        env:
+          RELEASE_VERSION: ${{ needs.authorize.outputs.version }}
+          UPDATE_ROLLOUT_PERCENTAGE: ${{ vars.UPDATE_ROLLOUT_PERCENTAGE || '100' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          installers=(release/*.exe)
+          manifests=(release/*.yml)
+          if (( ${#installers[@]} != 1 || ${#manifests[@]} != 1 )); then
+            echo "Expected exactly one installer and one update manifest." >&2
+            exit 1
+          fi
+          node scripts/update-manifest.mjs prepare "${manifests[0]}" "$RELEASE_VERSION" "${installers[0]}"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.authorize.outputs.tag }}
+          RELEASE_TITLE: ${{ needs.authorize.outputs.title }}
+          RELEASE_CHANNEL: ${{ needs.authorize.outputs.channel }}
+          RELEASE_PULL_REQUEST: ${{ needs.authorize.outputs.pull_request }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh api "/repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release tag $RELEASE_TAG already exists. Bump the application version before the next production release." >&2
+            exit 1
+          fi
+          if ! compgen -G 'release/*' >/dev/null; then
+            echo "The desktop release payload is empty." >&2
+            exit 1
+          fi
+
+          arguments=("$RELEASE_TAG" release/* --target "${{ needs.authorize.outputs.sha }}" --title "$RELEASE_TITLE" --notes "Built from ${{ needs.authorize.outputs.sha }} after pull request #$RELEASE_PULL_REQUEST merged into $GITHUB_REF_NAME. Database migrations completed before publication.")
+          if [[ "$RELEASE_CHANNEL" == "staging" ]]; then arguments+=(--prerelease); fi
+          gh release create "${arguments[@]}"
+
+      - name: Advance update channel
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          UPDATE_BUCKET: ${{ vars.UPDATE_BUCKET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" || -z "$UPDATE_BUCKET" ]]; then
+            echo "Cloudflare update-feed credentials are incomplete." >&2
+            exit 1
+          fi
+          shopt -s nullglob
+          payloads=(release/*.exe release/*.blockmap)
+          manifests=(release/*.yml)
+          if (( ${#payloads[@]} == 0 || ${#manifests[@]} != 1 )); then
+            echo "The updater payload must contain installers, blockmaps, and exactly one channel manifest." >&2
+            exit 1
+          fi
+          for file in "${payloads[@]}"; do
+            name="$(basename "$file")"
+            pnpm --filter @canvas/update-service exec wrangler r2 object put "$UPDATE_BUCKET/windows/x64/$name" --file "$file" --remote
+          done
+          manifest="${manifests[0]}"
+          name="$(basename "$manifest")"
+          pnpm --filter @canvas/update-service exec wrangler r2 object put "$UPDATE_BUCKET/windows/x64/$name" --file "$manifest" --content-type "text/yaml; charset=utf-8" --remote

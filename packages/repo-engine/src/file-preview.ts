@@ -89,7 +89,9 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
   const elements: PreviewPageElement[] = []
   const layout: PreviewLayoutEntry[] = []
   const assets: Record<string, PreviewPageAsset> = {}
-  const pagePalette = isThemeContext(context) ? context.palette(resolveDesignTheme(context.themes, context.previewThemeId)) : context
+  const pagePalette = isThemeContext(context)
+    ? context.palette(context.themes.length ? resolveDesignTheme(context.themes, context.previewThemeId) : baseTheme)
+    : context
   const resolvedBackground = page.background ? resolveColorValue(file.theme, page.background, pagePalette) : null
   const hasAsset = (assetId: string) => Boolean(file.assets?.[assetId])
   const appearanceOf = (id: string, sources: SourcePalette): { appearance: PreviewAppearance } | Record<string, never> => {

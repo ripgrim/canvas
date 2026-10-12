@@ -44,6 +44,7 @@ describe('UI-COLLAB-STATE-001 collaboration shell state', () => {
     expect(collaborationShellState('access-revoked')).toBe('access-removed')
     expect(collaborationShellState('incompatible-build')).toBe('update-required')
     expect(collaborationShellState('capacity-refused')).toBe('file-busy')
+    expect(collaborationShellState('closed')).toBeNull()
     expect(collaborationShellState('live')).toBeNull()
     expect(collaborationShellState('read-only')).toBeNull()
   })
@@ -326,6 +327,7 @@ describe('cloud adapter', () => {
       loginOrigin: 'https://login.canvas.test',
       syncOrigin: 'wss://sync.canvas.test',
       syncClientId: 'tab-1',
+      syncBuildId: '0.1.0-staging',
       syncDurableStore: { ...memoryOnlyDurableStore, load: loadDurableScope },
       createWebSocket: (url, protocol) => {
         expect(url).toBe(`wss://sync.canvas.test/sync/${metadata.id}?tabId=tab-1`)
@@ -344,6 +346,7 @@ describe('cloud adapter', () => {
     adapter.subscribeFile?.(snapshot => remoteSnapshots.push(snapshot.file.revision))
     await adapter.auth?.getSession()
     await adapter.openFile?.(metadata.id)
+    expect(sockets[0]!.sent.find(message => message.type === 'room.open')).toMatchObject({ buildId: '0.1.0-staging' })
     expect(loadDurableScope).toHaveBeenCalledWith({
       accountId: 'user-local',
       clientId: 'tab-1',

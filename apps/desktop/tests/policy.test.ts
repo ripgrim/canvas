@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { contentSecurityPolicy, hostedContentSecurityPolicy, isTrustedSender, parseAuthRequest, parseRepositoryConnectionRequest, parseRepositoryRequest, secureWebPreferences } from '../src/main/policy'
+import { contentSecurityPolicy, hostedContentSecurityPolicy, isTrustedSender, parseAuthRequest, parseCollaborationRequest, parseRepositoryConnectionRequest, parseRepositoryRequest, parseUpdateRequest, secureWebPreferences } from '../src/main/policy'
 
 describe('Electron policy', () => {
   it('requires the expected main frame, the editor origin (any route path), and the owning window', () => {
@@ -76,6 +76,15 @@ describe('Electron policy', () => {
     ]) expect(() => parseAuthRequest(input)).toThrow('Invalid auth command.')
   })
 
+  it('permits only narrow update commands without payloads', () => {
+    for (const method of ['getSnapshot', 'check', 'download', 'install'] as const) expect(parseUpdateRequest({ method, args: [] })).toEqual({ method, args: [] })
+    for (const input of [
+      { method: 'install', args: ['force'] },
+      { method: 'setFeedURL', args: ['https://attacker.test'] },
+      { method: 'download', args: [], token: 'secret' },
+    ]) expect(() => parseUpdateRequest(input)).toThrow('Invalid update command.')
+  })
+
   it('allows only canonical SHA-256 script hashes in the production policy', () => {
     const emptyScriptHash = '47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='
     const policy = contentSecurityPolicy(false, null, [emptyScriptHash])
@@ -107,6 +116,8 @@ describe('Electron policy', () => {
       theme: { tokens: {} },
     }
     expect(parseRepositoryRequest({ method: 'saveFile', args: [file, 3] })).toEqual({ method: 'saveFile', args: [file, 3] })
+    const intent = { kind: 'commands', commands: [{ type: 'page.rename', pageId: 'page-1', name: 'Renamed' }] }
+    expect(parseRepositoryRequest({ method: 'saveFile', args: [file, 3, intent] })).toEqual({ method: 'saveFile', args: [file, 3, intent] })
     const { theme: _theme, ...withoutTheme } = file
     const legacyDocument = { version: 1, revision: 0, nodes: {}, rootIds: [], frame: { width: 400, height: 500, direction: 'column', gap: 16, padding: 24, clip: false } }
     let deep: Record<string, unknown> = {}
@@ -126,6 +137,22 @@ describe('Electron policy', () => {
     const cyclic = { ...file, nodes: {} as Record<string, unknown> }
     cyclic.nodes.self = cyclic
     expect(() => parseRepositoryRequest({ method: 'saveFile', args: [cyclic, 3] })).toThrow('Invalid command.')
+  })
+
+  it('permits only bounded collaboration awareness over the narrow IPC contract', () => {
+    expect(parseCollaborationRequest({ method: 'getSnapshot', args: [] })).toEqual({ method: 'getSnapshot', args: [] })
+    expect(parseCollaborationRequest({ method: 'retry', args: [] })).toEqual({ method: 'retry', args: [] })
+    expect(parseCollaborationRequest({ method: 'leave', args: [] })).toEqual({ method: 'leave', args: [] })
+    const patch = { pageId: 'page-1', focused: true, selection: { pageId: 'page-1', nodeIds: ['frame'] }, cursor: { pageId: 'page-1', x: 10, y: 20 } }
+    expect(parseCollaborationRequest({ method: 'updateAwareness', args: [patch, { immediate: true }] })).toEqual({ method: 'updateAwareness', args: [patch, { immediate: true }] })
+    for (const input of [
+      { method: 'updateAwareness', args: [{ cursor: { pageId: 'page-1', x: Number.NaN, y: 20 } }, undefined] },
+      { method: 'updateAwareness', args: [{ selection: { pageId: 'page-1', nodeIds: Array(513).fill('frame') } }, undefined] },
+      { method: 'updateAwareness', args: [{ interaction: { interactionId: 'drag', pageId: 'page-1', kind: 'move', nodeIds: ['frame'], transforms: [{ nodeId: 'frame', dx: 0, dy: 0, shell: true }] } }, undefined] },
+      { method: 'updateAwareness', args: [{ focused: true }, { immediate: true, token: 'secret' }] },
+      { method: 'getSnapshot', args: ['secret'] },
+      { method: 'openSocket', args: ['wss://attacker.test'] },
+    ]) expect(() => parseCollaborationRequest(input)).toThrow('Invalid collaboration command.')
   })
 
   it('no longer accepts the retired document and preview theme commands', () => {

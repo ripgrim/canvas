@@ -19,3 +19,11 @@
 .tool-rail-tip-note { font-family: var(--font-ui); font-weight: var(--weight-ui-regular); white-space: normal; }
 .canvas-area > .tool-rail { position: absolute; top: var(--space-s); left: var(--space-s); z-index: 210; }
 @media (prefers-reduced-motion: reduce) { .tool-rail-button, .tool-rail-tip { transition: none; } }
+
+@media (max-width: 760px) {
+  .mobile-canvas-toolbar > .tool-rail { position: static; flex-direction: row; width: auto; transform: none; box-shadow: var(--border-shadow-m), var(--shadow-m); }
+  .tool-rail[data-orientation="horizontal"] .tool-rail-group { flex-direction: row; }
+  .tool-rail[data-orientation="horizontal"] .tool-rail-separator { width: var(--border-s); height: 80%; margin: auto var(--space-xxs); }
+  .tool-rail[data-orientation="horizontal"] .tool-rail-button { width: 40px; height: 40px; }
+  .tool-rail[data-orientation="horizontal"] .tool-rail-tip { display: none; }
+}
