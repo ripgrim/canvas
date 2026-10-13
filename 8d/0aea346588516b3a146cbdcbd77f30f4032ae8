@@ -1,0 +1,37 @@
+packages/pr-evidence/tests/registry.test.ts
+  s_012c57818fbf95::t_d5dc345813c680 21-24,36-37
+  s_012c57818fbf95::t_509d18234d4d0e 2,25-35
+packages/pr-evidence/src/registry.ts
+  s_012c57818fbf95::t_509d18234d4d0e 167-179,273
+  s_012c57818fbf95::t_631e1953f6f652 28-34,70-72,100,128,163,268-272
+scripts/pr-evidence-publish.mjs
+  s_012c57818fbf95::t_631e1953f6f652 44
+scripts/pr-evidence.mjs
+  s_012c57818fbf95::t_631e1953f6f652 1,33,35,40,44-48
+  s_012c57818fbf95::t_509d18234d4d0e 13,29
+  s_012c57818fbf95::t_50c2e8b416d87f 49-50
+packages/pr-evidence/src/publisher.ts
+  s_012c57818fbf95::t_631e1953f6f652 55,70
+tests/pr-evidence/registry.json
+  s_012c57818fbf95::t_631e1953f6f652 2
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_c0dc30746dc3ae 63-66
+packages/pr-evidence/tests/manifest.test.ts
+  s_012c57818fbf95::t_d5dc345813c680 50,52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8d0aea346588516b3a146cbdcbd77f30f4032ae8",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
