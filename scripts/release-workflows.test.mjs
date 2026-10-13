@@ -95,6 +95,8 @@ test('RELEASE-PIPELINE-001 gates publication on channel migration and the merged
   assert.match(releaseWorkflow, /Unsigned manual-download build\. Automatic updates are intentionally disabled/)
   assert.match(releaseWorkflow, /Require update publishing credentials/)
   assert.match(releaseWorkflow, /Deploy staging update service[\s\S]*pnpm updates:deploy:staging/)
+  assert.match(releaseWorkflow, /--file "\$GITHUB_WORKSPACE\/\$file" --remote/)
+  assert.match(releaseWorkflow, /--file "\$GITHUB_WORKSPACE\/\$manifest" --content-type/)
   assert.match(releaseWorkflow, /if: needs\.build\.outputs\.updatable == 'true'/)
   assert.ok(releaseWorkflow.indexOf('Publish GitHub release') < releaseWorkflow.indexOf('Advance update channel'))
 

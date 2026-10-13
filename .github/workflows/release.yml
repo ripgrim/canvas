@@ -305,8 +305,8 @@ jobs:
           fi
           for file in "${payloads[@]}"; do
             name="$(basename "$file")"
-            pnpm --filter @canvas/update-service exec wrangler r2 object put "$UPDATE_BUCKET/windows/x64/$name" --file "$file" --remote
+            pnpm --filter @canvas/update-service exec wrangler r2 object put "$UPDATE_BUCKET/windows/x64/$name" --file "$GITHUB_WORKSPACE/$file" --remote
           done
           manifest="${manifests[0]}"
           name="$(basename "$manifest")"
-          pnpm --filter @canvas/update-service exec wrangler r2 object put "$UPDATE_BUCKET/windows/x64/$name" --file "$manifest" --content-type "text/yaml; charset=utf-8" --remote
+          pnpm --filter @canvas/update-service exec wrangler r2 object put "$UPDATE_BUCKET/windows/x64/$name" --file "$GITHUB_WORKSPACE/$manifest" --content-type "text/yaml; charset=utf-8" --remote
