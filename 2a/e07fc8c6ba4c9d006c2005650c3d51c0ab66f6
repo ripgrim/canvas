@@ -1,0 +1,21 @@
+scripts/update-manifest.test.mjs
+  s_012c57818fbf95::t_4bcc365e8b7162 8,11,20-21
+scripts/update-manifest.mjs
+  s_012c57818fbf95::t_4bcc365e8b7162 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2ae07fc8c6ba4c9d006c2005650c3d51c0ab66f6",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
