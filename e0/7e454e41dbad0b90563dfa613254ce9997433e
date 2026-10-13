@@ -1,0 +1,154 @@
+deploy/vercel-projects.json
+  s_012c57818fbf95::t_4533e446be6dd7 76
+packages/preview-runtime/tests/text-browser-runtime.test.ts
+  s_012c57818fbf95::t_741672de72c0f1 72,187-202
+packages/editor/src/features/editor/gesture-resize-command-planner.test.ts
+  s_012c57818fbf95::t_46dce1bb5a0e98 213,217-219,222-226,230-273
+packages/editor/src/features/editor/SelectionHud.tsx
+  s_012c57818fbf95::t_0ccea73c513f09 167,171
+  s_012c57818fbf95::t_547e5e72f42837 198-200,225
+  s_012c57818fbf95::t_f871243232bc34 117
+  s_012c57818fbf95::t_32543f9b3261c1 3-4,6,19,208-217,221
+  s_012c57818fbf95::t_9cc5e448c2f058 59-70,196-197,201
+packages/editor/src/features/editor/document-store.test.ts
+  s_012c57818fbf95::t_64206bfdf20586 222
+  s_012c57818fbf95::t_94b7a4edf27ec7 220-221,223-225
+  s_012c57818fbf95::t_ef56e60a87adc5 219,226-240
+packages/editor/src/features/editor/canvas-gestures.ts
+  s_012c57818fbf95::t_c0f91bbe4305ae 950-971
+  s_012c57818fbf95::t_673f3e09f34e7a 1083-1088,1191-1196
+  s_012c57818fbf95::t_ad628063f58430 2-4,42-43,110-119,130,1197-1198
+  s_012c57818fbf95::t_fcfdde5a0704b6 217-237
+  s_012c57818fbf95::t_cf6e70c37805c2 867-870
+package.json
+  s_012c57818fbf95::t_4533e446be6dd7 42-43
+scripts/probe-staging-sync.mjs
+  s_012c57818fbf95::t_95483c05960e8f 45
+  s_012c57818fbf95::t_4533e446be6dd7 1-44,46
+apps/api/tests/app.test.ts
+  s_012c57818fbf95::t_e95822aeaa8abf 86-94
+apps/thumbnail-jobs/src/platform.ts
+  s_012c57818fbf95::t_a4e54fdb081d50 1-28
+packages/editor/src/features/editor/InspectorPanels.tsx
+  s_012c57818fbf95::t_74440fcb5faf9a 92-95
+packages/editor/src/features/editor/canvas-gestures.test.ts
+  s_012c57818fbf95::t_f3fd101c040a51 2-3,13,103-114,116-117,119-139
+  s_012c57818fbf95::t_7ef7791f42c126 115,118
+  s_012c57818fbf95::t_5da1bfb4a33725 140
+apps/thumbnail-jobs/src/serve.ts
+  s_012c57818fbf95::t_a4e54fdb081d50 24-25,42-43
+  s_012c57818fbf95::t_15d6d344bfb6af 59
+packages/preview-runtime/src/browser-runtime.mjs
+  s_012c57818fbf95::t_741672de72c0f1 62
+packages/editor/src/features/editor/document-store.ts
+  s_012c57818fbf95::t_ef56e60a87adc5 1283,1286-1288,1296,1299,1318,1320
+  s_012c57818fbf95::t_547e5e72f42837 1284-1285,1297-1298
+apps/thumbnail-jobs/Dockerfile
+  s_012c57818fbf95::t_a4e54fdb081d50 1-5,7-17
+  s_012c57818fbf95::t_9fc723614c4ece 6
+scripts/release-policy.mjs
+  s_012c57818fbf95::t_df66ef1d00204d 45-48,74-76,79,81-82,103
+  s_012c57818fbf95::t_2367001a0bf96f 86
+apps/thumbnail-jobs/wrangler.jsonc
+  s_012c57818fbf95::t_a4e54fdb081d50 1-31
+packages/editor/src/features/editor/SelectionHud.client.test.ts
+  s_012c57818fbf95::t_0ccea73c513f09 227-240
+  s_012c57818fbf95::t_f4572520cf062d 159-222,225-226,241-242
+  s_012c57818fbf95::t_6ad3ce288193e0 224
+  s_012c57818fbf95::t_d92667df38d979 223
+packages/editor/src/features/editor/canvas-copy.ts
+  s_012c57818fbf95::t_49330a80be7bce 18
+.github/workflows/promote-staging.yml
+  s_012c57818fbf95::t_15d6d344bfb6af 17-75,77
+packages/editor/src/features/editor/SelectionHud.test.ts
+  s_012c57818fbf95::t_b4fd4c784659fa 86
+  s_012c57818fbf95::t_3fbf40903a250f 36-37,40,44,46,78-85
+  s_012c57818fbf95::t_f871243232bc34 64
+  s_012c57818fbf95::t_07dc5d875a699a 87-88
+scripts/release-workflows.test.mjs
+  s_012c57818fbf95::t_db001bdfb12a19 60
+  s_012c57818fbf95::t_2367001a0bf96f 52,110
+  s_012c57818fbf95::t_0715e7a88038a3 30,45,47-48,50-51,77-78,95-97,108-109
+scripts/vercel-projects.test.mjs
+  s_012c57818fbf95::t_15d6d344bfb6af 62
+apps/thumbnail-jobs/tests/worker.test.ts
+  s_012c57818fbf95::t_f87fadd717fa91 8,21
+  s_012c57818fbf95::t_3c9b97e0532147 1-7,9-20,22-74
+packages/editor/src/design-system/canvas.css
+  s_012c57818fbf95::t_9912a0f45715f3 30-33
+  s_012c57818fbf95::t_0c4f1cea5fa563 28-29
+  s_012c57818fbf95::t_f871243232bc34 25-27
+packages/editor/src/features/editor/flow-drag-authority.test.ts
+  s_012c57818fbf95::t_48b9d76800cff3 615
+  s_012c57818fbf95::t_cbb3ee532b5ea9 244
+  s_012c57818fbf95::t_a650cb596b20db 65-66,242-243,245-265,446
+packages/editor/src/features/editor/corner-radius-handles.ts
+  s_012c57818fbf95::t_c80d59db4e6c39 1-52,60-61,64-65,70-90
+  s_012c57818fbf95::t_b9e7dba357011b 53-55
+  s_012c57818fbf95::t_917ab987b6a459 56-59,62-63,66-69
+.github/workflows/release.yml
+  s_012c57818fbf95::t_38340038aa2bab 26,28-29,48,173,243-245,262-263
+packages/editor/src/features/editor/layout-panels-flex.test.ts
+  s_012c57818fbf95::t_74440fcb5faf9a 151-164
+packages/editor/src/features/editor/canvas-hud-projection-service.ts
+  s_012c57818fbf95::t_0ccea73c513f09 222-239
+packages/editor/src/features/editor/gesture-command-planner.ts
+  s_012c57818fbf95::t_46dce1bb5a0e98 343-356,392-393
+packages/editor/src/features/editor/LayoutPanels.tsx
+  s_012c57818fbf95::t_74440fcb5faf9a 186-187,199
+apps/thumbnail-jobs/package.json
+  s_012c57818fbf95::t_a4e54fdb081d50 25-26
+apps/thumbnail-renderer/.vite-thumbnail-renderer/deps/_metadata.json
+  s_012c57818fbf95::t_0d45f2c0acf6e4 2-3,5,10,16,22,28,34
+  s_012c57818fbf95::t_8f6581b1561359 4
+packages/editor/src/features/editor/flow-drag-authority.ts
+  s_012c57818fbf95::t_cbb3ee532b5ea9 217-218
+  s_012c57818fbf95::t_a650cb596b20db 80-81,198-216,219-223,225,354,382,435,497
+packages/editor/src/features/editor/text-editing-ui.test.ts
+  s_012c57818fbf95::t_f871243232bc34 38-39
+  s_012c57818fbf95::t_9cc5e448c2f058 7-8,26,30-34,36-37,40-42
+  s_012c57818fbf95::t_547e5e72f42837 35
+packages/editor/src/design-system/canvas-atoms.tsx
+  s_012c57818fbf95::t_096c5ece0a9765 3,59,74-80
+packages/editor/src/features/editor/resize-projection.test.ts
+  s_012c57818fbf95::t_014117b37c8669 86
+  s_012c57818fbf95::t_90b4f34c6b1a70 72-80,82-85,87-89
+  s_012c57818fbf95::t_06c323e2a69063 81
+apps/api/src/app.ts
+  s_012c57818fbf95::t_4533e446be6dd7 29,104-105
+packages/editor/src/features/editor/mobile-editor.test.ts
+  s_012c57818fbf95::t_20b256c2f327ad 138-139
+  s_012c57818fbf95::t_f871243232bc34 134-137
+apps/api/src/runtime.ts
+  s_012c57818fbf95::t_13f7ba328a7648 23,38
+  s_012c57818fbf95::t_4533e446be6dd7 46-48
+  s_012c57818fbf95::t_b3da53c613a3ec 49-50
+scripts/deployment-environments.test.mjs
+  s_012c57818fbf95::t_15d6d344bfb6af 38-50
+apps/thumbnail-jobs/src/worker.ts
+  s_012c57818fbf95::t_a4e54fdb081d50 1-124
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_8019657c096351 344,372
+packages/editor/src/features/editor/corner-radius-handles.test.ts
+  s_012c57818fbf95::t_dfaaaf23f429a6 1-53
+pnpm-lock.yaml
+  s_012c57818fbf95::t_84acb22e2336af 336-338
+apps/web/preview/preview/.vite-preview/deps/_metadata.json
+  s_012c57818fbf95::t_161a7bb37ead9a 2,4-5,10,16,22,28,34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e07e454e41dbad0b90563dfa613254ce9997433e",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
