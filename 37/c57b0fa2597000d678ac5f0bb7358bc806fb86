@@ -1,0 +1,26 @@
+scripts/deployment-environments.test.mjs
+  s_012c57818fbf95::t_ae6d9ae0291ea6 12,51-54
+  s_012c57818fbf95::t_0655ba9a8c7bbf 41
+apps/api/vercel.json
+  s_012c57818fbf95::t_ae6d9ae0291ea6 16
+.github/workflows/promote-staging.yml
+  s_012c57818fbf95::t_2f30df170cca98 19
+apps/api/tests/vercel-handler.test.ts
+  s_012c57818fbf95::t_ae6d9ae0291ea6 22-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "37c57b0fa2597000d678ac5f0bb7358bc806fb86",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
