@@ -25,6 +25,13 @@ export type ChangedPath = Readonly<{
   previousPath?: string
 }>
 
+export type EvidenceRegistry = Readonly<{
+  adoptionSha: string
+  capabilities: readonly CapabilityDefinition[]
+  scenarios: readonly EvidenceScenarioDefinition[]
+  titles: Readonly<Record<string, string>>
+}>
+
 export type EvidencePlan = Readonly<{
   files: readonly Readonly<{
     path: string
@@ -60,12 +67,9 @@ export function parseGitNameStatus(value: string): readonly ChangedPath[] {
 
 const ID = /^[a-z0-9][a-z0-9.-]{0,127}$/u
 
-export function parseEvidenceRegistry(value: unknown): Readonly<{
-  capabilities: readonly CapabilityDefinition[]
-  scenarios: readonly EvidenceScenarioDefinition[]
-  titles: Readonly<Record<string, string>>
-}> {
-  const root = exactObject(value, ["capabilities", "scenarios"], "registry")
+export function parseEvidenceRegistry(value: unknown): EvidenceRegistry {
+  const root = exactObject(value, ["adoptionSha", "capabilities", "scenarios"], "registry")
+  const adoptionSha = gitSha(root.adoptionSha, "adoption SHA")
   const capabilities = unknownArray(root.capabilities, "capabilities").map((value, index) => {
     const item = exactObject(value, ["id", "paths", "evidence", "reason"], `capability ${index}`, ["reason"])
     if (item.evidence !== "visual" && item.evidence !== "nonvisual") throw new Error("Invalid capability evidence kind.")
@@ -93,7 +97,7 @@ export function parseEvidenceRegistry(value: unknown): Readonly<{
   })
   validateCapabilities(capabilities)
   validateScenarios(scenarios, capabilities)
-  return Object.freeze({ capabilities: Object.freeze(capabilities), scenarios: Object.freeze(scenarios), titles: Object.freeze(Object.fromEntries(scenarios.map(scenario => [scenario.id, scenario.title]))) })
+  return Object.freeze({ adoptionSha, capabilities: Object.freeze(capabilities), scenarios: Object.freeze(scenarios), titles: Object.freeze(Object.fromEntries(scenarios.map(scenario => [scenario.id, scenario.title]))) })
 }
 
 export function defineCapability(input: CapabilityDefinition): CapabilityDefinition {
@@ -121,6 +125,7 @@ export function planEvidence(input: Readonly<{
   changed: readonly ChangedPath[]
   capabilities: readonly CapabilityDefinition[]
   scenarios: readonly EvidenceScenarioDefinition[]
+  adoptionSha?: string
 }>): EvidencePlan {
   const capabilities = validateCapabilities(input.capabilities)
   const scenarios = validateScenarios(input.scenarios, capabilities)
@@ -155,8 +160,21 @@ export function planEvidence(input: Readonly<{
     if (!selected.some(scenario => scenario.capabilities.includes(capability))) throw new Error(`Visual capability has no scenario: ${capability}`)
   }
   const adapters = sortedUnique(selected.flatMap(scenario => scenario.adapters))
-  const registryDigest = digest({ capabilities, scenarios })
+  const registryDigest = digest({ adoptionSha: input.adoptionSha ? gitSha(input.adoptionSha, "adoption SHA") : null, capabilities, scenarios })
   return Object.freeze({ files: Object.freeze(plannedFiles), scenarios: Object.freeze(selected), adapters: Object.freeze(adapters), registryDigest })
+}
+
+export function selectEvidenceBase(input: Readonly<{
+  base: string
+  head: string
+  adoptionSha: string
+  isAncestor(ancestor: string, descendant: string): boolean
+}>): string {
+  const base = gitSha(input.base, "base SHA")
+  const head = gitSha(input.head, "head SHA")
+  const adoptionSha = gitSha(input.adoptionSha, "adoption SHA")
+  if (!input.isAncestor(adoptionSha, head)) throw new Error("Evidence adoption commit is not in the pull request head.")
+  return input.isAncestor(adoptionSha, base) ? base : adoptionSha
 }
 
 export function canonicalJson(value: unknown): string {
@@ -246,4 +264,10 @@ function stringArray(value: unknown, label: string): string[] {
 function text(value: unknown, label: string): string {
   if (typeof value !== "string") throw new Error(`Invalid ${label}.`)
   return value
+}
+
+function gitSha(value: unknown, label: string): string {
+  const result = text(value, label)
+  if (!/^[a-f0-9]{40}$/u.test(result)) throw new Error(`Invalid ${label}.`)
+  return result
 }

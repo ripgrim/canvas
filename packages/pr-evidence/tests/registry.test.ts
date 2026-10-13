@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { canonicalJson, defineCapability, defineEvidenceScenario, parseGitNameStatus, planEvidence } from "../src/registry.js"
+import { canonicalJson, defineCapability, defineEvidenceScenario, parseGitNameStatus, planEvidence, selectEvidenceBase } from "../src/registry.js"
 
 const capabilities = [
   defineCapability({ id: "editor.canvas.move", paths: ["packages/editor/src/features/editor/canvas-*.ts"], evidence: "visual" }),
@@ -16,6 +16,23 @@ describe("evidence planning", () => {
     const right = planEvidence({ changed: [{ path: "packages/editor/src/features/editor/canvas-gestures.ts" }, { path: "docs/research/a.md" }], capabilities: [...capabilities].reverse(), scenarios })
     expect(canonicalJson(left)).toBe(canonicalJson(right))
     expect(left.scenarios.map(value => value.id)).toEqual(["editor.transient-move"])
+  })
+
+  it("binds the plan to its adoption boundary", () => {
+    const left = planEvidence({ changed: [], adoptionSha: "a".repeat(40), capabilities, scenarios })
+    const right = planEvidence({ changed: [], adoptionSha: "b".repeat(40), capabilities, scenarios })
+    expect(left.registryDigest).not.toBe(right.registryDigest)
+  })
+
+  it("PR-EVIDENCE-009 isolates changes after adoption", () => {
+    const base = "a".repeat(40)
+    const adoptionSha = "b".repeat(40)
+    const head = "c".repeat(40)
+    const ancestry = new Set([`${adoptionSha}:${head}`])
+    expect(selectEvidenceBase({ base, head, adoptionSha, isAncestor: (left, right) => ancestry.has(`${left}:${right}`) })).toBe(adoptionSha)
+    ancestry.add(`${adoptionSha}:${base}`)
+    expect(selectEvidenceBase({ base, head, adoptionSha, isAncestor: (left, right) => ancestry.has(`${left}:${right}`) })).toBe(base)
+    expect(() => selectEvidenceBase({ base, head, adoptionSha, isAncestor: () => false })).toThrow("not in")
   })
 
   it("plans nonvisual changes without scenarios", () => {

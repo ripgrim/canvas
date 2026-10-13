@@ -41,6 +41,7 @@ validateTrustedManifest({
   headSha: current.head.sha,
   runId,
   runAttempt,
+  adoptionSha: registry.adoptionSha,
   capabilities: registry.capabilities,
   scenarios: registry.scenarios,
 })

@@ -47,9 +47,9 @@ describe("evidence manifests", () => {
   it("PR-EVIDENCE-007 accepts only the trusted plan and run identity", () => {
     const capabilities = [defineCapability({ id: "editor.canvas.move", paths: ["packages/editor/src/a.ts"], evidence: "visual" })]
     const scenarios = [defineEvidenceScenario({ id: "editor.transient-move", title: "Transient move", capabilities: ["editor.canvas.move"], adapters: ["browser"], assertions: ["hud.follows"], screenshots: ["held"], video: false })]
-    const plan = planEvidence({ changed: [{ path: "packages/editor/src/a.ts" }], capabilities, scenarios })
+    const plan = planEvidence({ changed: [{ path: "packages/editor/src/a.ts" }], adoptionSha: gitSha, capabilities, scenarios })
     const trusted = parseEvidenceManifest({ ...manifest, registryDigest: plan.registryDigest })
-    const input = { manifest: trusted, repositoryId: 1, repository: "ripgrim/comp-canvas", pullRequest: 12, baseSha: gitSha, headSha: gitSha, runId: 2, runAttempt: 1, capabilities, scenarios }
+    const input = { manifest: trusted, repositoryId: 1, repository: "ripgrim/comp-canvas", pullRequest: 12, baseSha: gitSha, headSha: gitSha, runId: 2, runAttempt: 1, adoptionSha: gitSha, capabilities, scenarios }
     expect(() => validateTrustedManifest(input)).not.toThrow()
     expect(() => validateTrustedManifest({ ...input, headSha: "c".repeat(40) })).toThrow("identity")
   })

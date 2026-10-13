@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import {
@@ -10,6 +10,7 @@ import {
   parseGitNameStatus,
   parseToolchainManifest,
   planEvidence,
+  selectEvidenceBase,
 } from "../packages/pr-evidence/dist/index.js"
 
 const root = resolve(import.meta.dirname, "..")
@@ -25,17 +26,26 @@ async function plan() {
   const registry = await readRegistry()
   const base = required(options, "base")
   const head = required(options, "head")
+  const diffBase = selectEvidenceBase({ base, head, adoptionSha: registry.adoptionSha, isAncestor: ancestor })
   const output = resolve(root, options.output ?? "outputs/pr-evidence/plan.json")
   const changed = options["changed-json"]
     ? JSON.parse(options["changed-json"])
-    : parseGitNameStatus(execFileSync("git", ["diff", "--name-status", "-z", "--find-renames", `${base}...${head}`], { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }))
+    : parseGitNameStatus(execFileSync("git", ["diff", "--name-status", "-z", "--find-renames", `${diffBase}...${head}`], { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }))
   if (!Array.isArray(changed)) throw new Error("Invalid changed path input.")
-  const result = planEvidence({ changed, capabilities: registry.capabilities, scenarios: registry.scenarios })
+  const result = planEvidence({ changed, adoptionSha: registry.adoptionSha, capabilities: registry.capabilities, scenarios: registry.scenarios })
   await mkdir(dirname(output), { recursive: true })
   await writeFile(output, canonicalJson(result))
   await githubOutput("visual", String(result.scenarios.length > 0))
   await githubOutput("scenarios", JSON.stringify(result.scenarios.map(scenario => scenario.id)))
+  await githubOutput("diff-base", diffBase)
   process.stdout.write(canonicalJson(result))
+}
+
+function ancestor(ancestorSha, descendantSha) {
+  const result = spawnSync("git", ["merge-base", "--is-ancestor", ancestorSha, descendantSha], { cwd: root, encoding: "utf8", shell: false, windowsHide: true })
+  if (result.error) throw result.error
+  if (result.status !== 0 && result.status !== 1) throw new Error("Git ancestry check failed.")
+  return result.status === 0
 }
 
 async function toolchain() {

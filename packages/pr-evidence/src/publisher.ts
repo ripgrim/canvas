@@ -52,6 +52,7 @@ export function validateTrustedManifest(input: Readonly<{
   headSha: string
   runId: number
   runAttempt: number
+  adoptionSha: string
   capabilities: readonly CapabilityDefinition[]
   scenarios: readonly EvidenceScenarioDefinition[]
 }>): void {
@@ -66,7 +67,7 @@ export function validateTrustedManifest(input: Readonly<{
     manifest.run.attempt === input.runAttempt,
   ]
   if (identity.includes(false)) throw new Error("Evidence identity does not match the trusted run.")
-  const plan = planEvidence({ changed: manifest.files.map(file => ({ path: file.path })), capabilities: input.capabilities, scenarios: input.scenarios })
+  const plan = planEvidence({ changed: manifest.files.map(file => ({ path: file.path })), adoptionSha: input.adoptionSha, capabilities: input.capabilities, scenarios: input.scenarios })
   if (plan.registryDigest !== manifest.registryDigest) throw new Error("Evidence registry digest does not match trusted code.")
   if (canonicalJson(plan.files) !== canonicalJson(manifest.files)) throw new Error("Evidence file plan does not match trusted code.")
   const expected = new Map(plan.scenarios.flatMap(scenario => scenario.adapters.map(adapter => [`${scenario.id}:${adapter}`, scenario] as const)))

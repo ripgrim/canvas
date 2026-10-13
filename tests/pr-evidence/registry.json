@@ -1,4 +1,5 @@
 {
+  "adoptionSha": "81a71dad990c86eebeec2b1afce59b947f93628e",
   "capabilities": [
     {
       "id": "editor.canvas.transient-move",

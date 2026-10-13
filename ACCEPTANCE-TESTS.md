@@ -60,6 +60,10 @@ Replace only the managed PR evidence block. Preserve unrelated PR prose. Repeati
 
 Publish content-addressed media through the read-only evidence service. Re-read the PR and verify its raw body, rendered HTML, managed key, and every media URL.
 
+### PR-EVIDENCE-009: Adoption boundary
+
+When the evidence system is introduced on an existing pull request, diff from the trusted adoption commit until the target branch contains it. Reject a head that does not contain that commit. Once adopted, use the pull request base normally.
+
 ### PR-EVIDENCE-SEC-001: Untrusted capture boundary
 
 The pull-request workflow has read-only contents, no secrets, no environment, no persisted credentials, and no write permission.
