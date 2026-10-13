@@ -277,7 +277,13 @@ function worldToParentPadding(file: FileDocument, geometry: LayoutGeometry, pare
 
 const finitePoint = (point: Readonly<Point>): boolean => finite(point.x) && finite(point.y)
 const finiteRect = (rect: Readonly<Rect>): boolean => finite(rect.x) && finite(rect.y) && positive(rect.width) && positive(rect.height)
-const sameRect = (left: Readonly<Rect>, right: Readonly<Rect>): boolean => left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height
+const sceneRectTolerance = resizeGeometryAabbTolerance
+const sameRect = (left: Readonly<Rect>, right: Readonly<Rect>): boolean => (
+  close(left.x, right.x, sceneRectTolerance)
+  && close(left.y, right.y, sceneRectTolerance)
+  && close(left.width, right.width, sceneRectTolerance)
+  && close(left.height, right.height, sceneRectTolerance)
+)
 
 function exactSceneMeasurement(file: FileDocument, scene: Scene, geometry: SceneGeometry, nodeId: string): boolean {
   const node = file.nodes[nodeId]
@@ -511,8 +517,8 @@ function deriveResizeGeometryAuthority(snapshot: GestureAuthoritySnapshot, nodeI
   if (
     origin.x <= 0
     || origin.y <= 0
-    || !close(origin.x, measurement.offset.width / 2)
-    || !close(origin.y, measurement.offset.height / 2)
+    || !close(origin.x, measurement.offset.width / 2, sceneRectTolerance)
+    || !close(origin.y, measurement.offset.height / 2, sceneRectTolerance)
   ) return null
   const rotationDegrees = unitRotation(file, nodeId, measurement)
   if (rotationDegrees === null) return null

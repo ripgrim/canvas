@@ -84,6 +84,7 @@ type PendingResize = {
   atoms: DocumentState['atoms']
   pageId: string
   layoutGeneration: number
+  released: boolean
 }
 type RotationBase = Base & {
   kind: 'rotation'
@@ -468,14 +469,15 @@ export function createCanvasGestures(
     gesture = current
     if (Math.hypot(pending.latest.clientX - pending.start.clientX, pending.latest.clientY - pending.start.clientY) < handleDragThresholdCss) return
     current.moved = true
-    if (!publishResizeSample(current, pending.latest)) cancel()
+    if (!publishResizeSample(current, pending.latest)) { cancel(); return }
+    if (pending.released) finishTerminalResize(current)
   }
   const beginPendingResize = (id: string, handle: ResizeHandle, event: PointerLike, claimId: string, lockedIds: readonly string[], state: DocumentState) => {
     if (!state.file || !state.pageId) return false
     const copy = { ...event }
     const pending: PendingResize = {
       kind: 'pending-resize', id, handle, pointerId: event.pointerId, start: copy, latest: copy, claimId, lockedIds,
-      file: state.file, fileSignature: JSON.stringify(state.file), atoms: state.atoms, pageId: state.pageId, layoutGeneration: state.layoutGeneration,
+      file: state.file, fileSignature: JSON.stringify(state.file), atoms: state.atoms, pageId: state.pageId, layoutGeneration: state.layoutGeneration, released: false,
     }
     gesture = pending
     stopPendingGeometry?.()
@@ -883,6 +885,14 @@ export function createCanvasGestures(
     if (!receipt) resizePreview.clearResizePresentation()
     releaseClaimAfterCommit(current.claimId, commit)
   }
+  const finishTerminalResize = (current: ResizeBase) => {
+    gesture = null
+    stopResizeObservers()
+    const commitAction = () => commitTerminalResize(current)
+    if (interactions.canCommitInteraction(current.claimId)) commitAction()
+    else if (interactions.waitForCommitInteraction) void interactions.waitForCommitInteraction(current.claimId).then(allowed => allowed ? commitAction() : discardTerminalResize(current))
+    else discardTerminalResize(current)
+  }
   const commitTerminalRotation = (current: RotationBase) => {
     if (!frozenRotationStartMatches(current)) { clearRotationPresentation(current); interactions.endInteraction(current.claimId); return }
     const state = store.getSnapshot()
@@ -896,7 +906,7 @@ export function createCanvasGestures(
   }
   return {
     attach: (next: HTMLElement | null) => { element = next },
-    get active() { return gesture !== null },
+    get active() { return gesture !== null && !(gesture.kind === 'pending-resize' && gesture.released) },
     cancel,
     /** Pointer down on the empty stage or over scene nodes. */
     stagePointerDown: (event: PointerLike): boolean => {
@@ -1103,7 +1113,13 @@ export function createCanvasGestures(
     pointerUp: (event: PointerLike) => {
       const current = gesture
       if (!current || current.pointerId !== event.pointerId) return
-      if (current.kind === 'pending-resize') { cancel(); return }
+      if (current.kind === 'pending-resize') {
+        current.latest = { ...event }
+        if (Math.hypot(current.latest.clientX - current.start.clientX, current.latest.clientY - current.start.clientY) < handleDragThresholdCss) { cancel(); return }
+        current.released = true
+        resolvePendingResize()
+        return
+      }
       if (current.kind === 'resize' && !current.moved && distance(current, event) >= handleDragThresholdCss) current.moved = true
       if (current.kind === 'resize' && current.moved) {
         if (!publishResizeSample(current, event)) { cancel(); return }
@@ -1134,10 +1150,7 @@ export function createCanvasGestures(
             : { ...bounds, ...local, ...(parent ? { parentId: parent.id } : {}) })
         } else if (store.commands.insertCanvas(current.elementKind, { ...bounds, ...local, ...(parent ? { parentId: parent.id } : {}) })) store.setTool('move')
       } else if (current.kind === 'resize' && current.moved) {
-        const commitAction = () => commitTerminalResize(current)
-        if (interactions.canCommitInteraction(current.claimId)) commitAction()
-        else if (interactions.waitForCommitInteraction) void interactions.waitForCommitInteraction(current.claimId).then(allowed => allowed ? commitAction() : discardTerminalResize(current))
-        else discardTerminalResize(current)
+        finishTerminalResize(current)
         return
       } else if (current.kind === 'rotation' && current.moved) {
         commitTerminalRotation(current)

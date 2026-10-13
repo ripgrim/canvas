@@ -271,6 +271,28 @@ describe('immutable resize geometry authority', () => {
     }
   })
 
+  it('accepts browser subpixel quantization for fixed freeform primitives and rejects larger scene drift', () => {
+    const source = file()
+    const node = source.nodes.child
+    if (!node || node.type === 'root' || node.type === 'component') throw new Error('Expected primitive fixture.')
+    node.layout = { item: { position: { mode: 'freeform' } } }
+
+    const quantized = geometry()
+    quantized.nodes.child = {
+      canvasKind: 'rectangle', documentRevision: revision, layoutGeneration,
+      rect: { x: 0.01, y: -0.01, width: 99.99, height: 49.99 },
+      worldAabb: { x: 0, y: 0, width: 99.99, height: 49.99 },
+      offset: { x: 0, y: 0, width: 99.99, height: 49.99, origin: { x: 49.995, y: 24.995 } },
+      offsetParentNodeId: null, offsetParentToRoot: [1, 0, 0, 1, 0, 0], directChild: true,
+      transform: [1, 0, 0, 1, 0, 0],
+    }
+    expect(resizeGeometryAuthority(snapshot(source, quantized), 'child')).not.toBeNull()
+
+    const drifted = structuredClone(quantized)
+    drifted.nodes.child!.rect.width = 99.49
+    expect(resizeGeometryAuthority(snapshot(source, drifted), 'child')).toBeNull()
+  })
+
   it('rejects semantic locks, selected scale, reflections, page mismatch, and cyclic or incomplete parent chains', () => {
     const locked = file()
     const lockedNode = locked.nodes.child

@@ -377,6 +377,41 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
     expect(interactions.endInteraction).toHaveBeenCalledTimes(2)
   })
 
+  it('AT-CAN-006 commits a released second resize after fresh renderer geometry arrives', () => {
+    let publishGeometry: (() => void) | undefined
+    let refreshGeometry: (() => void) | undefined
+    const { store, gestures, preview } = setup(undefined, { left: 0, top: 0 }, currentStore => {
+      let current = measuredGeometry(currentStore)
+      const listeners = new Set<() => void>()
+      publishGeometry = () => { for (const listener of listeners) listener() }
+      refreshGeometry = () => { current = measuredGeometry(currentStore) }
+      return {
+        getSnapshot: () => current,
+        subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) },
+        update: () => undefined,
+        clear: () => undefined,
+      } as typeof sceneGeometry
+    })
+
+    expect(gestures.handlePointerDown(pointer(740, 490), 'frame', 'right')).toBe(true)
+    gestures.pointerMove(pointer(760, 490))
+    gestures.pointerUp(pointer(760, 490))
+    expect(primitiveRect(store, 'frame').width).toBe(260)
+
+    expect(gestures.handlePointerDown(pointer(760, 490), 'frame', 'right')).toBe(true)
+    gestures.pointerMove(pointer(780, 490))
+    gestures.pointerUp(pointer(780, 490))
+    expect(primitiveRect(store, 'frame').width).toBe(260)
+    expect(gestures.active).toBe(false)
+
+    refreshGeometry!()
+    publishGeometry!()
+
+    expect(preview.publishResizePresentation.mock.calls.at(-1)?.[0].presentation.byNodeId.frame?.rect.width).toBe(280)
+    expect(primitiveRect(store, 'frame').width).toBe(280)
+    expect(gestures.active).toBe(false)
+  })
+
   it('AT-CAN-005 cancels a moved pending resize when a remote lock arrives before fresh geometry', () => {
     let locked = false
     const listeners = new Set<() => void>()
@@ -408,7 +443,7 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
     expect(store.getHistory().past).toHaveLength(historyBefore)
   })
 
-  it('AT-CAN-005 cancels pending resize on pointer-up and later geometry cannot resurrect it', () => {
+  it('AT-CAN-006 holds a released pending resize until fresh geometry can commit its terminal sample', async () => {
     const interactions: CanvasInteractionController = {
       beginInteraction: vi.fn(() => 'pending-up-claim'),
       updateInteraction: vi.fn(() => true),
@@ -431,7 +466,7 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
     })
     expect(store.commands.setStyles('frame', { width: 260 })).toBe(true)
     const historyBefore = store.getHistory().past.length
-    const persist = vi.fn()
+    const persist = vi.fn(async (next: FileDocument) => ({ ...next, revision: next.revision + 1 }))
     store.configure({ persist })
     const commitGesture = vi.spyOn(store.commands, 'commitGesture')
 
@@ -442,16 +477,23 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
 
     expect(gestures.active).toBe(false)
     expect(store.getSnapshot().transient).toBeNull()
-    expect(preview.clearResizePresentation).toHaveBeenCalledOnce()
-    expect(interactions.endInteraction).toHaveBeenCalledWith('pending-up-claim')
+    expect(preview.clearResizePresentation).not.toHaveBeenCalled()
+    expect(interactions.endInteraction).not.toHaveBeenCalled()
     expect(commitGesture).not.toHaveBeenCalled()
     expect(store.getHistory().past).toHaveLength(historyBefore)
     expect(persist).not.toHaveBeenCalled()
 
     refreshGeometry!()
     publishGeometry!()
-    expect(preview.publishResizePresentation).not.toHaveBeenCalled()
-    expect(commitGesture).not.toHaveBeenCalled()
+    expect(preview.publishResizePresentation.mock.calls.at(-1)?.[0].presentation.byNodeId.frame?.rect.width).toBe(280)
+    expect(commitGesture).toHaveBeenCalledOnce()
+    expect(primitiveRect(store, 'frame').width).toBe(280)
+    await store.waitForPersistence()
+    await Promise.resolve()
+    expect(interactions.endInteraction).toHaveBeenCalledWith('pending-up-claim')
+    expect(store.getHistory().past).toHaveLength(historyBefore + 1)
+    expect(persist).toHaveBeenCalled()
+    expect((persist.mock.calls.at(-1)?.[0] as FileDocument).nodes.frame).toMatchObject({ styles: { width: 280 } })
   })
 
   it('AT-CAN-005 cancels active and pending resize synchronously when the local claim disappears', () => {
