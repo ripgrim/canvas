@@ -3,7 +3,7 @@ import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const versionPattern = /^\d+\.\d+\.\d+(?:-nightly\.\d+)?$/
+const versionPattern = /^\d+\.\d+\.\d+(?:-nightly\.\d{8}\.\d+)?$/
 
 function field(source, name) {
   const match = new RegExp(`^${name}:\\s*(.+)$`, 'm').exec(source)
