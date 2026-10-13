@@ -17,6 +17,10 @@ describe('UPDATE-FEED-001 public read-only update feed', () => {
     expect(manifest.status).toBe(200)
     expect(manifest.headers.get('cache-control')).toBe('no-store')
 
+    expect(updateObjectKey('/windows/x64/nightly.yml')).toBe('windows/x64/nightly.yml')
+    expect(updateObjectKey('/windows/x64/Comp%20Canvas%20Nightly%20Setup%200.1.2-nightly.20261013.41.exe')).toBe('windows/x64/Comp Canvas Nightly Setup 0.1.2-nightly.20261013.41.exe')
+    expect(updateObjectKey('/windows/x64/Comp%20Canvas%20Nightly%20Setup%200.1.2-nightly.20261013.41.exe.blockmap')).toBe('windows/x64/Comp Canvas Nightly Setup 0.1.2-nightly.20261013.41.exe.blockmap')
+
     const artifact = await handler(new Request('https://updates.test/windows/x64/Comp%20Canvas%20Setup%201.0.0.exe', { headers: { Range: 'bytes=2-5' } }))
     expect(artifact.status).toBe(206)
     expect(artifact.headers.get('content-range')).toBe('bytes 2-5/10')
@@ -28,6 +32,7 @@ describe('UPDATE-FEED-001 public read-only update feed', () => {
     const handler = createUpdateHandler(bucket())
     expect(updateObjectKey('/windows/x64/../secret')).toBeNull()
     expect(updateObjectKey('/windows/x64/debug.yml')).toBeNull()
+    expect(updateObjectKey('/windows/x64/Comp%20Canvas%20Nightly%20Setup%200.1.2-nightly.bad.exe')).toBeNull()
     expect((await handler(new Request('https://updates.test/windows/x64/latest.yml', { method: 'PUT', body: 'bad' }))).status).toBe(405)
     expect((await handler(new Request('https://updates.test/windows/x64/Comp%20Canvas%20Setup%201.0.0.exe', { headers: { Range: 'bytes=99-100' } }))).status).toBe(416)
   })

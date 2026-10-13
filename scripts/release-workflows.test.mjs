@@ -85,10 +85,13 @@ test('RELEASE-PIPELINE-001 gates publication on channel migration and the merged
   assert.match(releaseWorkflow, /Select signing mode/)
   assert.match(releaseWorkflow, /WINDOWS_CERTIFICATE/)
   assert.match(releaseWorkflow, /Windows signing is partially configured/)
+  assert.match(releaseWorkflow, /RELEASE_CHANNEL -eq 'staging'/)
   assert.match(releaseWorkflow, /DESIGN_EDITOR_UPDATABLE=\$enabled/)
   assert.match(releaseWorkflow, /Smoke packaged main process[\s\S]*test:packaged-launch-smoke/)
+  assert.match(releaseWorkflow, /Unsigned Nightly automatic update release/)
   assert.match(releaseWorkflow, /Unsigned manual-download build\. Automatic updates are intentionally disabled/)
   assert.match(releaseWorkflow, /Require update publishing credentials/)
+  assert.match(releaseWorkflow, /Deploy staging update service[\s\S]*pnpm updates:deploy:staging/)
   assert.match(releaseWorkflow, /if: needs\.build\.outputs\.updatable == 'true'/)
   assert.ok(releaseWorkflow.indexOf('Publish GitHub release') < releaseWorkflow.indexOf('Advance update channel'))
 
@@ -164,10 +167,32 @@ test('RELEASE-DESKTOP-002 keeps previews out of update feeds and isolates nightl
   assert.ok(unsignedNightly.includes('--config.appId=com.comp-canvas.desktop.nightly'))
   assert.equal(unsignedNightly.some(value => value.includes('publish.provider')), false)
 
-  const nightly = createBuilderArguments('staging', { DESIGN_EDITOR_UPDATABLE: '1', DESIGN_EDITOR_RELEASE_VERSION: '0.1.0-nightly.41', DESIGN_EDITOR_UPDATE_URL: 'https://updates.test', DESIGN_EDITOR_WINDOWS_PUBLISHER: 'Comp Canvas, LLC' })
+  const nightly = createBuilderArguments('staging', { DESIGN_EDITOR_UPDATABLE: '1', DESIGN_EDITOR_RELEASE_VERSION: '0.1.0-nightly.41', DESIGN_EDITOR_UPDATE_URL: 'https://updates.test' })
   assert.ok(nightly.includes('--config.extraMetadata.version=0.1.0-nightly.41'))
   assert.ok(nightly.includes('--config.publish.channel=nightly'))
   assert.ok(nightly.includes('--config.appId=com.comp-canvas.desktop.nightly'))
-  assert.ok(nightly.includes('--config.win.publisherName=Comp Canvas, LLC'))
+  assert.ok(nightly.includes('--config.win.verifyUpdateCodeSignature=false'))
+
+  const signedNightly = createBuilderArguments('staging', {
+    CSC_LINK: 'certificate',
+    CSC_KEY_PASSWORD: 'password',
+    DESIGN_EDITOR_UPDATABLE: '1',
+    DESIGN_EDITOR_RELEASE_VERSION: '0.1.0-nightly.41',
+    DESIGN_EDITOR_UPDATE_URL: 'https://updates.test',
+    DESIGN_EDITOR_WINDOWS_PUBLISHER: 'Comp Canvas, LLC',
+  })
+  assert.ok(signedNightly.includes('--config.win.publisherName=Comp Canvas, LLC'))
+  assert.equal(signedNightly.includes('--config.win.verifyUpdateCodeSignature=false'), false)
+  assert.throws(() => createBuilderArguments('production', {
+    DESIGN_EDITOR_UPDATABLE: '1',
+    DESIGN_EDITOR_RELEASE_VERSION: '0.1.0',
+    DESIGN_EDITOR_UPDATE_URL: 'https://updates.test',
+  }), /Production automatic updates require Windows signing/)
+  assert.throws(() => createBuilderArguments('staging', {
+    CSC_LINK: 'certificate',
+    DESIGN_EDITOR_UPDATABLE: '1',
+    DESIGN_EDITOR_RELEASE_VERSION: '0.1.0-nightly.41',
+    DESIGN_EDITOR_UPDATE_URL: 'https://updates.test',
+  }), /Windows signing is partially configured/)
   assert.match(packagedLaunchSmoke, /mode === 'staging' \? 'Comp Canvas Nightly\.exe' : 'Comp Canvas\.exe'/)
 })

@@ -64,6 +64,7 @@ jobs:
     environment: ${{ needs.authorize.outputs.environment }}
     outputs:
       updatable: ${{ steps.signing.outputs.updatable }}
+      signed: ${{ steps.signing.outputs.signed }}
     env:
       CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
       CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
@@ -95,6 +96,8 @@ jobs:
 
       - name: Select signing mode
         id: signing
+        env:
+          RELEASE_CHANNEL: ${{ needs.authorize.outputs.channel }}
         shell: pwsh
         run: |
           $configured = @(
@@ -104,12 +107,14 @@ jobs:
           )
           $count = @($configured | Where-Object { $_ }).Count
           if ($count -ne 0 -and $count -ne 3) { throw 'Windows signing is partially configured. Set the certificate, password, and publisher together.' }
-          $updatable = if ($count -eq 3) { 'true' } else { 'false' }
-          $enabled = if ($count -eq 3) { '1' } else { '0' }
+          $signed = if ($count -eq 3) { 'true' } else { 'false' }
+          $updatable = if ($count -eq 3 -or $env:RELEASE_CHANNEL -eq 'staging') { 'true' } else { 'false' }
+          $enabled = if ($updatable -eq 'true') { '1' } else { '0' }
+          "signed=$signed" >> $env:GITHUB_OUTPUT
           "updatable=$updatable" >> $env:GITHUB_OUTPUT
           "DESIGN_EDITOR_UPDATABLE=$enabled" >> $env:GITHUB_ENV
 
-      - name: Build signed desktop installer
+      - name: Build desktop installer
         shell: pwsh
         run: pnpm "build:package:${{ needs.authorize.outputs.channel }}"
 
@@ -220,6 +225,13 @@ jobs:
             exit 1
           fi
 
+      - name: Deploy staging update service
+        if: needs.authorize.outputs.channel == 'staging' && needs.build.outputs.updatable == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm updates:deploy:staging
+
       - name: Verify installer and prepare staged rollout
         if: needs.build.outputs.updatable == 'true'
         env:
@@ -247,6 +259,7 @@ jobs:
           RELEASE_MAKE_LATEST: ${{ needs.authorize.outputs.make_latest }}
           RELEASE_SOURCE: ${{ needs.authorize.outputs.source }}
           UPDATABLE_RELEASE: ${{ needs.build.outputs.updatable }}
+          SIGNED_RELEASE: ${{ needs.build.outputs.signed }}
         shell: bash
         run: |
           set -euo pipefail
@@ -260,6 +273,7 @@ jobs:
           fi
 
           signing_note="Signed automatic update release."
+          if [[ "$SIGNED_RELEASE" != "true" && "$UPDATABLE_RELEASE" == "true" ]]; then signing_note="Unsigned Nightly automatic update release. Windows publisher verification is disabled for the staging channel."; fi
           if [[ "$UPDATABLE_RELEASE" != "true" ]]; then signing_note="Unsigned manual-download build. Automatic updates are intentionally disabled for this release."; fi
           arguments=("$RELEASE_TAG" release/* --target "${{ needs.authorize.outputs.sha }}" --title "$RELEASE_TITLE" --latest="$RELEASE_MAKE_LATEST" --notes "Built from ${{ needs.authorize.outputs.sha }} after $RELEASE_SOURCE reached $GITHUB_REF_NAME as a $RELEASE_CHANNEL release. Database migrations completed before publication. $signing_note")
           if [[ "$RELEASE_PRERELEASE" == "true" ]]; then arguments+=(--prerelease); fi

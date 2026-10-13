@@ -84,14 +84,22 @@ export function createPackageEnvironment(baseEnvironment, configured, requestedM
 export function createBuilderArguments(requestedMode, environment) {
   const builder = ['--filter', '@canvas/desktop', 'exec', 'electron-builder', '--win', 'nsis', '--publish', 'never', `--config.directories.output=release/${requestedMode}`]
   const releaseVersion = environment.DESIGN_EDITOR_RELEASE_VERSION
+  const signingValues = [environment.CSC_LINK, environment.CSC_KEY_PASSWORD, environment.DESIGN_EDITOR_WINDOWS_PUBLISHER]
+  const configuredSigningValues = signingValues.filter(value => value?.trim()).length
+  if (configuredSigningValues !== 0 && configuredSigningValues !== signingValues.length) {
+    throw new Error('Windows signing is partially configured. Set the certificate, password, and publisher together.')
+  }
+  const signed = configuredSigningValues === signingValues.length
   if (requestedMode !== 'local' && releaseVersion) {
     builder.push(`--config.extraMetadata.version=${releaseVersion}`)
     if (requestedMode === 'staging') builder.push('--config.appId=com.comp-canvas.desktop.nightly', '--config.productName=Comp Canvas Nightly')
   }
   if (requestedMode !== 'local' && environment.DESIGN_EDITOR_UPDATABLE === '1') {
     if (!releaseVersion) throw new Error(`Missing ${requestedMode} release version.`)
+    if (requestedMode === 'production' && !signed) throw new Error('Production automatic updates require Windows signing.')
     builder.push('--config.publish.provider=generic', `--config.publish.url=${environment.DESIGN_EDITOR_UPDATE_URL}`, `--config.publish.channel=${requestedMode === 'staging' ? 'nightly' : 'latest'}`)
-    if (environment.DESIGN_EDITOR_WINDOWS_PUBLISHER) builder.push(`--config.win.publisherName=${environment.DESIGN_EDITOR_WINDOWS_PUBLISHER}`)
+    if (signed) builder.push(`--config.win.publisherName=${environment.DESIGN_EDITOR_WINDOWS_PUBLISHER}`)
+    else builder.push('--config.win.verifyUpdateCodeSignature=false')
   }
   return builder
 }
