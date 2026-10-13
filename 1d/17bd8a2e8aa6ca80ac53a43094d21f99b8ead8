@@ -1,0 +1,25 @@
+scripts/release-workflows.test.mjs
+  s_012c57818fbf95::t_e8f53b6a4e39c1 7,32,40,93-111
+  s_012c57818fbf95::t_9bfe4d8443fd0e 92
+  s_012c57818fbf95::t_609e3b2f2e3621 112-113
+scripts/release-policy.mjs
+  s_012c57818fbf95::t_e8f53b6a4e39c1 7,14-57,65,80-81,88,107
+.github/workflows/release.yml
+  s_012c57818fbf95::t_e8f53b6a4e39c1 16,50-51,246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1d17bd8a2e8aa6ca80ac53a43094d21f99b8ead8",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
