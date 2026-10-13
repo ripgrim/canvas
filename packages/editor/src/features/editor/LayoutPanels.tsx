@@ -5,7 +5,7 @@ import { itemAlignments, maxGridTracks, sizingModes, spacingSides } from '@canva
 import type { CrossAlignment, DisplayMode, FlexContainer, GridContainer, GridItem, InsetLength, ItemAlignment, LayoutContainer, LayoutGap, LayoutLength, MainDistribution, MarginSide, NodeLayout, NodeSpacing, SizingMode, SpacingSides } from '@canvas/repo-engine/layout'
 import { parseGridTemplate, tracksToCss } from '@canvas/repo-engine/grid-tracks'
 import type { GridTrack } from '@canvas/repo-engine/grid-tracks'
-import { InspectorAlert, InspectorAnchorGrid, InspectorCheck, InspectorFixedSlot, InspectorFlexDirection, InspectorFlexEntryAction, InspectorFlexOverflow, InspectorFlexPaddingToggle, InspectorFlexPanel, InspectorFlexWrap, InspectorGroup, InspectorIconButton, InspectorNote, InspectorRadioGroup, InspectorRow, InspectorRowSpacer, InspectorScrubField, InspectorSection, InspectorSpacingHeading, InspectorSpacingMode, InspectorTextButton, InspectorTextField, InspectorTrackRow, InspectorTransformActions } from '../../design-system/inspector-atoms'
+import { InspectorAlert, InspectorAnchorGrid, InspectorCheck, InspectorFixedSlot, InspectorFlexBlock, InspectorFlexDirection, InspectorFlexEntryAction, InspectorFlexGlyph, InspectorFlexOverflow, InspectorFlexPaddingToggle, InspectorFlexPanel, InspectorFlexRemoveButton, InspectorFlexWrap, InspectorGroup, InspectorIconButton, InspectorNote, InspectorRadioGroup, InspectorRow, InspectorRowSpacer, InspectorScrubField, InspectorSection, InspectorSpacingHeading, InspectorSpacingMode, InspectorTextButton, InspectorTextField, InspectorTrackRow, InspectorTransformActions } from '../../design-system/inspector-atoms'
 import type { InspectorFlexMatrixMode, InspectorFlexOverflowAction } from '../../design-system/inspector-atoms'
 import type { InspectorAnchorCell, InspectorNumericToken, InspectorScrubSession } from '../../design-system/inspector-atoms'
 import { AppearanceSelect } from '../../design-system/appearance-atoms'
@@ -124,7 +124,7 @@ export function LayoutSections({ nodes, file, disabled }: { nodes: readonly Comp
   const flex = nodes.every(node => node.layout?.container?.display === 'flex')
   return <>
     <ComponentLayoutSection context={context} />
-    <ContainerSection context={context} />
+    <ContainerSection context={context} mode="supplemental" />
     <ItemSection context={context} />
     {!flex && <SpacingSection context={context} />}
   </>
@@ -136,7 +136,7 @@ export function FrameContainerSections({ nodes, file, disabled }: { nodes: reado
   const sourceTokens = useSyncExternalStore(editorStore.subscribe, () => editorStore.getSnapshot().snapshot?.tokens ?? noSourceTokens, () => editorStore.getSnapshot().snapshot?.tokens ?? noSourceTokens)
   if (!nodes.length) return null
   const context: FrameContext = { kind: 'frame', file, nodes, ids: nodes.map(node => node.id), geometry, disabled, numericTokens: numericLayoutTokens(sourceTokens, -limit) }
-  return <ContainerSection context={context} />
+  return <ContainerSection context={context} mode="embedded" />
 }
 
 // Position ------------------------------------------------------------------------------------------------------------
@@ -218,6 +218,7 @@ function ComponentLayoutSection({ context }: { context: ComponentContext }) {
       <InspectorRowSpacer />
     </InspectorRow>}
     {locked && <InspectorNote icon="lock">{copy.lockedToLayout}</InspectorNote>}
+    <ContainerSection context={context} mode="embedded" />
   </InspectorSection>
 }
 const withScrub = (start: (() => InspectorScrubSession) | undefined) => start ? { onScrubStart: start } : {}
@@ -263,7 +264,7 @@ export function setSelectedContainerDisplay(next: DisplayMode): SelectedDisplayR
   }
 }
 
-function ContainerSection({ context }: { context: ContainerContext }) {
+function ContainerSection({ context, mode }: { context: ContainerContext; mode: 'embedded' | 'supplemental' }) {
   const { file, nodes, ids, geometry, disabled } = context
   const containers = nodes.map(node => node.layout?.container)
   const display = agree(containers.map(container => container?.display ?? (context.kind === 'frame' ? 'freeform' : null)))
@@ -280,20 +281,20 @@ function ContainerSection({ context }: { context: ContainerContext }) {
   const flexNodes = nodes.filter(node => node.layout?.container?.display === 'flex' && node.layout.container.flex)
   const flexContext = { ...context, nodes: flexNodes, ids: flexNodes.map(node => node.id) }
   if (!flexNodes.length) {
-    if (current === 'grid' && context.kind === 'component') return <>{entryControl}<InspectorSection id="container" title={copy.displays.grid}>
+    if (mode === 'embedded') return entryControl
+    if (current === 'grid' && context.kind === 'component') return <InspectorSection id="container" title={copy.displays.grid}>
       <GridControls context={context} grids={authored.map(container => container.grid!)} />
       <GapControls context={context} />
       {authored.length === nodes.length && <OverflowControl context={context} containers={authored} />}
-    </InspectorSection></>
-    return entryControl
+    </InspectorSection>
+    return null
   }
-  return <>{entryControl}<InspectorSection id="container" title={copy.flex} actions={remove ? <InspectorIconButton label="Remove flex" title="Remove flex · Shift+Alt+A" icon="trash" disabled={disabled} onClick={() => runInspectorFlexAction('remove-flex')} /> : null}>
-    <FlexControls context={flexContext} />
-    {statuses.map(status => <InspectorNote key={status} icon="alert">{copy.layoutStatuses[status]}</InspectorNote>)}
-    {conflicts.length > 0 && <InspectorNote icon="alert">{copy.layoutConflicts(conflicts.join(', '))}</InspectorNote>}
-  </InspectorSection>
-  {context.kind === 'component' && authored.length === nodes.length && <InspectorSection id="container-overflow-section" title={copy.overflow}><OverflowControl context={context} containers={authored} /></InspectorSection>}
-  </>
+  if (mode === 'embedded') return <>{entryControl}<InspectorFlexBlock title={copy.flex} action={remove ? <InspectorFlexRemoveButton label="Remove flex" title="Remove flex · Shift+Alt+A" disabled={disabled} onClick={() => runInspectorFlexAction('remove-flex')} /> : undefined}>
+      <FlexControls context={flexContext} />
+      {statuses.map(status => <InspectorNote key={status} icon="alert">{copy.layoutStatuses[status]}</InspectorNote>)}
+      {conflicts.length > 0 && <InspectorNote icon="alert">{copy.layoutConflicts(conflicts.join(', '))}</InspectorNote>}
+    </InspectorFlexBlock></>
+  return context.kind === 'component' && authored.length === nodes.length ? <InspectorSection id="container-overflow-section" title={copy.overflow}><OverflowControl context={context} containers={authored} /></InspectorSection> : null
 }
 
 const anchorNames = ['start', 'center', 'end'] as const
@@ -395,8 +396,8 @@ function FlexControls({ context }: { context: FlexContext }) {
   const matrix = <InspectorAnchorGrid label={copy.alignment} cells={cells} mode={mode} direction={axis ?? 'row'} disabled={disabled || axis === null || wrap.mixed} onSelect={choose} onSpaceBetween={setMainSpace} />
   const directionControl = <InspectorFlexDirection label={copy.direction} rowLabel={copy.directions.row} columnLabel={copy.directions.column} axis={axis} disabled={disabled || direction.mixed} onAxis={changeDirection} />
   const wrapControl = <InspectorFlexWrap label={copy.wrap} wrapped={wrapping} disabled={disabled || wrap.mixed} onChange={next => { layout().setWrap(next ? 'wrap' : 'nowrap', ids) }} />
-  const mainGapControl = <InspectorScrubField id="container-gap-main" label={axis === 'row' ? 'Horizontal gap' : axis === 'column' ? 'Vertical gap' : copy.gap} prefix={<Icon name="flex-row" />} value={shown(mainGap)} placeholder={mixedPlaceholder(mainGap)} min={0} max={limit} tokens={gapTokens} tokenLabel={copy.numericToken(copy.gap)} disabled={disabled} onCommit={value => setAxisGap('main', value)} />
-  const crossGapControl = wrapping ? <InspectorScrubField id="container-gap-cross" label={axis === 'row' ? 'Vertical gap' : axis === 'column' ? 'Horizontal gap' : copy.gap} prefix={<Icon name="flex-row" />} value={shown(crossGap)} placeholder={mixedPlaceholder(crossGap)} min={0} max={limit} tokens={gapTokens} tokenLabel={copy.numericToken(copy.gap)} disabled={disabled} onCommit={value => setAxisGap('cross', value)} /> : undefined
+  const mainGapControl = <InspectorScrubField id="container-gap-main" label={axis === 'row' ? 'Horizontal gap' : axis === 'column' ? 'Vertical gap' : copy.gap} prefix={<InspectorFlexGlyph kind="gap" column={axis === 'column'} />} value={shown(mainGap)} placeholder={mixedPlaceholder(mainGap)} min={0} max={limit} tokens={gapTokens} tokenLabel={copy.numericToken(copy.gap)} disabled={disabled} onCommit={value => setAxisGap('main', value)} />
+  const crossGapControl = wrapping ? <InspectorScrubField id="container-gap-cross" label={axis === 'row' ? 'Vertical gap' : axis === 'column' ? 'Horizontal gap' : copy.gap} prefix={<InspectorFlexGlyph kind="gap" column={axis !== 'column'} />} value={shown(crossGap)} placeholder={mixedPlaceholder(crossGap)} min={0} max={limit} tokens={gapTokens} tokenLabel={copy.numericToken(copy.gap)} disabled={disabled} onCommit={value => setAxisGap('cross', value)} /> : undefined
   const overflowControl = <InspectorFlexOverflow label="More flex alignment options" mainLabel={overflowLabels.main} crossLabel={overflowLabels.cross} showCross={wrapping} mainChecked={!justify.mixed && justify.value === 'space-between'} crossChecked={wrapping && !alignContent.mixed && alignContent.value === 'space-between'} firstBaselineChecked={baselineValue === 'baseline'} lastBaselineChecked={baselineValue === 'last baseline'} disabled={disabled} onAction={overflow} />
   return <InspectorFlexPanel alignment={matrix} direction={directionControl} wrap={wrapControl} gap={mainGapControl} overflow={overflowControl} crossGap={crossGapControl} padding={<PaperFlexPadding context={context} />} />
 }
@@ -419,7 +420,7 @@ function PaperFlexPadding({ context }: { context: FlexContext }) {
   const field = (part: 'x' | 'y' | 'left' | 'top' | 'right' | 'bottom') => {
     const value = agree(nodes.map(node => { const value = sides(node); return part === 'x' || part === 'left' ? value.left : part === 'y' || part === 'top' ? value.top : value[part] }))
     const label = part === 'x' ? 'Horizontal padding' : part === 'y' ? 'Vertical padding' : `${part[0]!.toUpperCase()}${part.slice(1)} padding`
-    const prefix = part === 'x' ? 'X' : part === 'y' ? 'Y' : part[0]!.toUpperCase()
+    const prefix = part === 'x' ? <InspectorFlexGlyph kind="padding-horizontal" /> : part === 'y' ? <InspectorFlexGlyph kind="padding-vertical" /> : part[0]!.toUpperCase()
     return <InspectorScrubField key={part} id={`flex-padding-${part}`} label={label} prefix={prefix} value={shown(value)} placeholder={mixedPlaceholder(value)} min={0} max={limit} tokens={context.numericTokens.filter(token => token.value >= 0)} tokenLabel={copy.numericToken(label)} disabled={disabled} onCommit={next => write(node => { const current = sides(node); if (part === 'x') return { x: next, y: current.top }; if (part === 'y') return { x: current.left, y: next }; return { ...current, [part]: next } })} />
   }
   const toggle = <InspectorFlexPaddingToggle label="Individual padding" individual={individual} disabled={disabled} onChange={changeMode} />

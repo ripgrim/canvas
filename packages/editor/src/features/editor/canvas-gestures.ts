@@ -512,10 +512,12 @@ export function createCanvasGestures(
       && measured.layoutGeneration === start.layoutGeneration
   }
   const flowTarget = (authority: GestureAuthoritySnapshot, state: PaperFlowDragState) => {
-    const hovered = containingFrameAt(authority.scene, state.currentWorld, state.nodeId)?.id ?? state.sourceRelationship.parentId
+    const hovered = containingFrameAt(authority.scene, state.currentWorld, state.nodeId)?.id ?? pageRoot(authority.file, authority.pageId) ?? state.sourceRelationship.parentId
     return resolveFlowDragTarget({ authority, state, hoveredNodeId: hovered })
   }
   const flowSample = (current: PaperFlowGesture, event: PointerLike) => {
+    const world = worldAt(current, event)
+    const detachedToCanvas = containingFrameAt(current.authority.scene, world, current.state.nodeId) === null
     const entryGeometry = current.state.primaryActive && event.altKey && !current.state.altActive
       ? paperFlowAbsoluteDropGeometry({
         file: current.authority.file,
@@ -525,14 +527,14 @@ export function createCanvasGestures(
         childId: current.state.nodeId,
         parentId: current.state.sourceRelationship.parentId,
         pointerDownWorld: current.state.pointerDownWorld,
-        terminalWorld: worldAt(current, event),
+        terminalWorld: world,
       })
       : undefined
     return samplePaperFlowDrag(current.state, {
-      world: worldAt(current, event),
+      world,
       viewport: viewportPoint(event),
       timestamp: Math.max(eventTime(event), current.state.currentTime),
-      modifiers: { altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altGraph: event.getModifierState?.('AltGraph') ?? false },
+      modifiers: { altKey: event.altKey, ctrlKey: event.ctrlKey || flowPlatform() === 'windows' && detachedToCanvas, metaKey: event.metaKey || flowPlatform() === 'macos' && detachedToCanvas, altGraph: event.getModifierState?.('AltGraph') ?? false },
       platform: flowPlatform(),
       authority: { ...current.state.fence, gestureGeneration: current.state.gestureGeneration, owned: true },
       ...(entryGeometry ? { entryGeometry } : {}),
@@ -767,7 +769,8 @@ export function createCanvasGestures(
       const parentId = transient.targetFrameId !== null && transient.targetFrameId !== id ? transient.targetFrameId : current.ids.includes(node.parentId ?? '') ? node.parentId ?? null : transient.targetFrameId
       return [{ id, x: rect.x, y: rect.y, parentId: parentId ?? null }]
     })
-    return store.commands.commitMove(moves)
+    const duplicate = event.altKey && event.getModifierState?.('AltGraph') !== true
+    return store.commands.commitMove(moves, { duplicate })
   }
   const commitPaperFlow = async (current: PaperFlowGesture, terminal: FlowDragPresentation) => {
     if (current.claim) {

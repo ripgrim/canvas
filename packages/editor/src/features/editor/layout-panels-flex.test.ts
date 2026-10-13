@@ -90,7 +90,7 @@ describe('PAPER-FLEX-001 inspector entry and active block', () => {
 
     const mixed = renderSelection('flex', 'free2')
     expect(mixed.indexOf('>Wrap in flex<')).toBeGreaterThan(-1)
-    expect(mixed.indexOf('>Wrap in flex<')).toBeLessThan(mixed.indexOf('data-section="container"'))
+    expect(mixed.indexOf('>Wrap in flex<')).toBeLessThan(mixed.indexOf('class="inspector-flex-block"'))
     expect(mixed).toContain('aria-label="Remove flex"')
   })
 
@@ -108,10 +108,10 @@ describe('PAPER-FLEX-001 inspector entry and active block', () => {
     expect(wrap).toBeLessThan(gap)
     expect(gap).toBeLessThan(overflow)
     expect(overflow).toBeLessThan(padding)
-    const flexEnd = html.indexOf('</section>', padding)
+    const layoutEnd = html.indexOf('</section>', padding)
     const clip = html.indexOf('id="layout-clip"')
-    expect(flexEnd).toBeGreaterThan(padding)
-    expect(clip).toBeGreaterThan(flexEnd)
+    expect(clip).toBeGreaterThan(padding)
+    expect(layoutEnd).toBeGreaterThan(clip)
     expect(html.indexOf('aria-label="Column"')).toBeLessThan(html.indexOf('aria-label="Row"'))
     expect(html).toContain('aria-label="Remove flex"')
     expect(html).not.toContain('Reverse direction')
@@ -128,19 +128,41 @@ describe('PAPER-FLEX-001 inspector entry and active block', () => {
     expect(matrixHtml).not.toContain('tabindex=')
   })
 
-  it('places Clip content immediately after the Flex block and never inside Layout', () => {
+  it('places Add/Flex and Clip content inside Layout in Paper order', () => {
     const html = renderSelection('flex')
     const layoutStart = html.indexOf('data-section="layout"')
     const layoutEnd = html.indexOf('</section>', layoutStart)
-    const flexStart = html.indexOf('data-section="container"')
-    const flexEnd = html.indexOf('</section>', flexStart)
+    const flexStart = html.indexOf('class="inspector-flex-block"')
     const clip = html.indexOf('id="layout-clip"')
 
     expect(layoutStart).toBeGreaterThan(-1)
-    expect(layoutEnd).toBeLessThan(flexStart)
-    expect(flexEnd).toBeLessThan(clip)
-    expect(html.slice(layoutStart, layoutEnd)).not.toContain('id="layout-clip"')
-    expect(html.slice(flexEnd, clip)).not.toContain('data-section=')
+    expect(flexStart).toBeGreaterThan(layoutStart)
+    expect(clip).toBeGreaterThan(flexStart)
+    expect(layoutEnd).toBeGreaterThan(clip)
+
+    const free = renderSelection('free')
+    const freeLayoutStart = free.indexOf('data-section="layout"')
+    const add = free.indexOf('>Add flex<')
+    const freeLayoutEnd = free.indexOf('</section>', freeLayoutStart)
+    expect(add).toBeGreaterThan(freeLayoutStart)
+    expect(freeLayoutEnd).toBeGreaterThan(add)
+  })
+
+  it('uses Paper flex glyph geometry instead of generic editor icons', () => {
+    const html = renderSelection('flex')
+    expect(html).toContain('class="inspector-flex-glyph" width="10" height="2" viewBox="0 0 10 2"')
+    expect(html).toContain('class="inspector-flex-glyph" data-column="true" width="9" height="9" viewBox="0 0 9 9"')
+    expect(html).toContain('class="inspector-flex-glyph" width="13" height="11" viewBox="0 0 13 11"')
+    expect(html).toContain('class="inspector-flex-glyph" width="13" height="12" viewBox="0 0 13 12"')
+    expect(html).toContain('class="inspector-flex-glyph" width="12" height="12" viewBox="0 0 12 12" fill="currentColor"')
+    expect(html).toContain('aria-label="Individual padding"')
+    expect(html).not.toContain('data-icon="trash"')
+    expect(html).not.toContain('data-icon="list"')
+  })
+
+  it('keeps every individual padding field the same width', () => {
+    const css = readFileSync(new URL('../../design-system/inspector.css', import.meta.url), 'utf8')
+    expect(css).toMatch(/\.inspector-flex-padding \.inspector-row > \.inspector-row-spacer\s*\{[^}]*flex:\s*0 0 16px;/)
   })
 
   it('shows cross gap only while wrapping and switches between axis and individual padding', () => {

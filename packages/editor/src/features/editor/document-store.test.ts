@@ -283,6 +283,18 @@ describe('AT-CAN primitive canvas commands', () => {
     expect(childrenOf(file(store), 'root-1')).toEqual(['outer', 'box', 'new-1', 'card'])
   })
 
+  it('duplicates at the source while Alt-drag moves the selected original in one history step', () => {
+    const store = loaded()
+    store.select('box')
+    expect(store.commands.commitMove([{ id: 'box', x: 720, y: 460, parentId: null }], { duplicate: true }).committed).toBe(true)
+    expect(store.getSnapshot().selection).toEqual(['box'])
+    expect(styles(store, 'box')).toMatchObject({ left: 720, top: 460 })
+    expect(file(store).nodes['new-1']).toMatchObject({ id: 'new-1', type: 'rectangle', styles: { left: 600, top: 400, width: 50, height: 40 } })
+    store.undo()
+    expect(file(store).nodes['new-1']).toBeUndefined()
+    expect(styles(store, 'box')).toMatchObject({ left: 600, top: 400 })
+  })
+
   it('duplicates a frame subtree once even when a descendant is also selected', () => {
     const store = loaded()
     store.select('outer')

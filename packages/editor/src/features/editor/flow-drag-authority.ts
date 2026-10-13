@@ -347,12 +347,16 @@ export function captureFlowDragAuthorityMeasurement(snapshot: GestureAuthoritySn
   } : null
   let targetProof: FlowDragAuthorityMeasurementProof['target'] = null
   if (state.target) {
-    const targetMeasurement = snapshot.geometry.nodes[state.target.parentId]
-    const targetScene = snapshot.scene.byId.get(state.target.parentId)
-    if (!targetMeasurement || !targetScene || !validMeasuredTopology(snapshot, state.target.parentId, targetMeasurement, targetScene, rootId)) return null
-    const target = measuredGeometry(targetMeasurement)
-    if (!target) return null
-    targetProof = { parentId: state.target.parentId, outline: target.geometry, insertionGuide: state.target.guideWorld ? { ...state.target.guideWorld } : null }
+    if (state.target.parentId === rootId) {
+      targetProof = { parentId: rootId, outline: null, insertionGuide: null }
+    } else {
+      const targetMeasurement = snapshot.geometry.nodes[state.target.parentId]
+      const targetScene = snapshot.scene.byId.get(state.target.parentId)
+      if (!targetMeasurement || !targetScene || !validMeasuredTopology(snapshot, state.target.parentId, targetMeasurement, targetScene, rootId)) return null
+      const target = measuredGeometry(targetMeasurement)
+      if (!target) return null
+      targetProof = { parentId: state.target.parentId, outline: target.geometry, insertionGuide: state.target.guideWorld ? { ...state.target.guideWorld } : null }
+    }
   }
   return freeze({
     fence: { ...state.fence, pageId: snapshot.pageId, pageRootId: rootId },

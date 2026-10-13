@@ -116,9 +116,9 @@ function PrimitiveInspector({ nodes, file, overrides, mode, disabled }: Appearan
         {sizingField('height')}
         <InspectorTransformActions actionsLabel={copy.transformActions} rotateLabel={copy.rotate90} flipXLabel={copy.flipHorizontal} flipYLabel={copy.flipVertical} flipXPressed={flipX} flipYPressed={flipY} disabled={disabled} onRotate={() => transform(rotated)} onFlipX={() => transform(node => ({ flipX: node.styles.flipX ? null : true }))} onFlipY={() => transform(node => ({ flipY: node.styles.flipY ? null : true }))} />
       </InspectorRow>
+      {frames.length === nodes.length && <FrameContainerSections nodes={frames} file={file} disabled={disabled} />}
+      {clipControl}
     </InspectorSection>
-    {frames.length === nodes.length && <FrameContainerSections nodes={frames} file={file} disabled={disabled} />}
-    {clipControl}
     <RadiusSection nodes={nodes} overrides={overrides} disabled={disabled} />
     <NodeThemeSection nodes={nodes} disabled={disabled} />
     <AppearanceSections file={file} nodes={nodes} overrides={overrides} mode={mode} disabled={disabled} afterFill={textNodes.length ? <TextInspector file={file} nodes={textNodes} disabled={disabled} /> : null} />

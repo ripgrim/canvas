@@ -59,6 +59,9 @@ describe('PAPER-FLEX-006-C3B canonical editor topology authority', () => {
     expect(authority.acceptsTarget(target({ pageRootId: 'wrong-root' }))).toBe(false)
     expect(authority.acceptsTarget(target({ targetLane: { parentId: 'source', slot: absent } }))).toBe(false)
     expect(authority.acceptsTarget(target({ rawIndex: 2, semanticIndex: 2 }))).toBe(false)
+    expect(authority.acceptsTarget(target({ targetLane: { parentId: 'root-1', slot: absent }, rawIndex: 2, semanticIndex: 2 }))).toBe(true)
+    expect(authority.acceptsTarget(target({ targetLane: { parentId: 'root-1', slot: { presence: 'present', value: 'children' } }, rawIndex: 2, semanticIndex: 2 }))).toBe(false)
+    expect(authority.acceptsTarget(target({ targetLane: { parentId: 'root-1', slot: absent }, rawIndex: 3, semanticIndex: 3 }))).toBe(false)
     expect(createEditorFlowTopologyAuthority(file(), [], 'missing-page')).toBeNull()
   })
 

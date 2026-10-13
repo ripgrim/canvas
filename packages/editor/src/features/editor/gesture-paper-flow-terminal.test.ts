@@ -128,6 +128,25 @@ describe('Paper flow terminal semantics', () => {
     ] })
   })
 
+  it('commits a flow child dragged onto the page root as an absolute node', () => {
+    const authority = fixture()
+    const started = begin(authority)
+    const state = samplePaperFlowDrag(started, {
+      world: { x: 600, y: 200 }, viewport: { x: 600, y: 200 }, timestamp: 100,
+      modifiers: { altKey: false, ctrlKey: true, metaKey: false }, platform: 'windows',
+      authority: { ...authority.start, gestureGeneration: 4, owned: true },
+      resolveTarget: edge => resolveFlowDragTarget({ authority, state: edge, hoveredNodeId: 'root' }),
+    })!
+    expect(state.target).toMatchObject({ parentId: 'root', rawIndex: 2, semanticIndex: 2, guideWorld: null })
+    const intent = derivePaperFlowTerminalIntent({ authority, state })!
+    expect(intent).not.toBeNull()
+    const plan = planGestureCommand(authority, [intent], vi.fn())!
+    expect(plan).not.toBeNull()
+    const applied = applyFileCommand(authority.file, plan.command, [])
+    expect(applied.relationships.a!.parentId).toBe('root')
+    expect(applied.nodes.a).toMatchObject({ layout: { item: { position: { mode: 'freeform' } } }, styles: { left: 590, top: 190, width: 60, height: 20 } })
+  })
+
   it('allocates an Alt support clone only after preflight and keeps the original selected', () => {
     const authority = fixture()
     const state = sample(authority, begin(authority), { x: 420, y: 20 }, true, false)

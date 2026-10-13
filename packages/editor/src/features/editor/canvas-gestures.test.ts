@@ -807,9 +807,9 @@ describe('PAPER-FLEX-006 production flow drag controller', () => {
     store.select('child')
 
     expect(gestures.stagePointerDown({ ...pointer(550, 450), timeStamp: 1_000 })).toBe(true)
-    gestures.pointerMove({ ...pointer(550, 580), timeStamp: 1_100 })
+    gestures.pointerMove({ ...pointer(550, 570), timeStamp: 1_100 })
     expect(gestures.active).toBe(true)
-    gestures.pointerUp({ ...pointer(550, 590), timeStamp: 1_120 })
+    gestures.pointerUp({ ...pointer(550, 575), timeStamp: 1_120 })
 
     await vi.waitFor(() => expect(fileChildren(store.getSnapshot().file!, 'frame')).toEqual(['nested-text', 'child']))
     expect(store.getSnapshot().selection).toEqual(['child'])
@@ -821,13 +821,29 @@ describe('PAPER-FLEX-006 production flow drag controller', () => {
     store.select('child')
 
     expect(gestures.stagePointerDown({ ...pointer(550, 450), timeStamp: 2_000 })).toBe(true)
-    gestures.pointerMove({ ...pointer(550, 580), altKey: true, timeStamp: 2_100 })
+    gestures.pointerMove({ ...pointer(550, 570), altKey: true, timeStamp: 2_100 })
     expect(gestures.active).toBe(true)
-    gestures.pointerUp({ ...pointer(550, 590), altKey: true, timeStamp: 2_120 })
+    gestures.pointerUp({ ...pointer(550, 575), altKey: true, timeStamp: 2_120 })
 
     await vi.waitFor(() => expect(fileChildren(store.getSnapshot().file!, 'frame')).toHaveLength(3))
     expect(store.getSnapshot().selection).toEqual(['child'])
     expect(store.getSnapshot().file!.nodes.unused).toBeDefined()
+  })
+
+  it('drags a flow child out of its parent onto the page as an absolute node', async () => {
+    const { store, gestures } = setup(undefined, { left: 0, top: 0 }, undefined, flowFixture())
+    store.select('child')
+
+    expect(gestures.stagePointerDown({ ...pointer(550, 450), timeStamp: 2_500 })).toBe(true)
+    gestures.pointerMove({ ...pointer(800, 700), timeStamp: 2_600 })
+    gestures.pointerUp({ ...pointer(800, 700), timeStamp: 2_620 })
+
+    await vi.waitFor(() => expect(store.getSnapshot().file!.relationships.child!.parentId).toBe('root-1'))
+    expect(store.getSnapshot().file!.nodes.child).toMatchObject({
+      layout: { item: { position: { mode: 'freeform' } } },
+      styles: { left: 270, top: 270, width: 160, height: 100 },
+    })
+    expect(store.getSnapshot().selection).toEqual(['child'])
   })
 
   it('Escape after threshold commits the last accepted Paper sample', async () => {
@@ -835,7 +851,7 @@ describe('PAPER-FLEX-006 production flow drag controller', () => {
     store.select('child')
 
     gestures.stagePointerDown({ ...pointer(550, 450), timeStamp: 3_000 })
-    gestures.pointerMove({ ...pointer(550, 590), timeStamp: 3_100 })
+    gestures.pointerMove({ ...pointer(550, 575), timeStamp: 3_100 })
     gestures.cancel()
 
     await vi.waitFor(() => expect(fileChildren(store.getSnapshot().file!, 'frame')).toEqual(['nested-text', 'child']))
@@ -974,6 +990,21 @@ describe('AT-CAN-005 selected container pointer precedence', () => {
     gestures.pointerUp(pointer(562, 450))
     expect(primitivePosition(store, 'frame')).toEqual({ left: 0, top: 0 })
     expect(primitivePosition(store, 'child')).toEqual({ left: 32, top: 20 })
+  })
+
+  it('Alt-drags a freeform node while leaving one duplicate at its source', () => {
+    const { store, gestures } = setup()
+    store.select('child')
+    const start = { ...pointer(550, 450), altKey: true }
+
+    gestures.stagePointerDown(start)
+    gestures.pointerMove({ ...pointer(560, 450), altKey: true })
+    gestures.pointerMove({ ...pointer(562, 450), altKey: true })
+    gestures.pointerUp({ ...pointer(562, 450), altKey: true })
+
+    expect(primitivePosition(store, 'child')).toEqual({ left: 32, top: 20 })
+    expect(store.getSnapshot().file!.nodes.unused).toMatchObject({ id: 'unused', type: 'rectangle', styles: { left: 20, top: 20, width: 160, height: 100 } })
+    expect(store.getSnapshot().selection).toEqual(['child'])
   })
 
   it('lets the deep-selection modifier bypass selected-container drag precedence', () => {

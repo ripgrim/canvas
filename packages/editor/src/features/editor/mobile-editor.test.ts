@@ -130,6 +130,9 @@ describe('UI-MOBILE-004-FLOW quick-action drag fade', () => {
 
   it('keeps touch targets screen-sized and removes percent-position edge reconstruction', () => {
     const css = readFileSync(new URL('../../design-system/canvas.css', import.meta.url), 'utf8')
+    expect(css).toMatch(/\.resize-handles \{ inset: 0; z-index: 1; pointer-events: none; \}/)
+    expect(css).toMatch(/\.resize-handle \{[^}]*width: 16px; height: 16px;/)
+    expect(css).toMatch(/\.resize-handle\[data-edge\] \{ width: 16px; height: 12px;/)
     expect(css).toContain('.resize-handle { width: 28px; height: 28px; }')
     expect(css).toContain('.resize-handle[data-edge] { width: 24px; height: 24px; }')
     expect(css).not.toContain('width: calc(100% - 28px)')

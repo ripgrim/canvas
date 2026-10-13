@@ -6,6 +6,7 @@
 import { acceptsChild, applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, nodeChildDisplay, nodeIsLocked, nodePositionMode, pageOfNode, validateFileDocument } from '@canvas/repo-engine/file-document'
 import type { FileCommand, FileDocument, FileNode, NodeResizePresentationEntry, NodeResizeState } from '@canvas/repo-engine/file-document'
 import type { LayoutItem, NodeLayout } from '@canvas/repo-engine/layout'
+import { applyDefiniteMainAxis } from '@canvas/repo-engine/layout'
 import type { Atom } from './types'
 import type { Rect } from './canvas-math'
 import type { Scene, SceneNode } from './canvas-scene'
@@ -90,6 +91,7 @@ type PaperFlowPreflight = Readonly<{
   target: NonNullable<PaperFlowDragState['target']>
   mode: 'flow' | 'absolute'
   rect: ParentLocalRect | null
+  sourceRect: ParentLocalRect | null
   clone: Readonly<{ generation: number; mode: 'flow' | 'absolute'; rect: ParentLocalRect | null }> | null
 }>
 type Preflight = ResizePreflight | CloneMovePreflight | AbsolutePreflight | ReorderPreflight | PaperFlowPreflight
@@ -209,6 +211,16 @@ function cleanAbsoluteLayout(node: Exclude<FileNode, { type: 'root' }>, rect: Pa
   return { item, ...(source?.container ? { container: structuredClone(source.container) } : {}), ...(source?.spacing?.padding !== undefined ? { spacing: { padding: structuredClone(source.spacing.padding) } } : {}) }
 }
 
+function cleanRootFreeformLayout(node: Exclude<FileNode, { type: 'root' | 'component' }>): NodeLayout {
+  const source = node.layout
+  const item: LayoutItem = { ...(source?.item ?? { position: { mode: 'flow' as const } }), position: { mode: 'freeform' } }
+  delete item.flex
+  delete item.grid
+  delete item.width
+  delete item.height
+  return { item, ...(source?.container ? { container: structuredClone(source.container) } : {}), ...(source?.spacing?.padding !== undefined ? { spacing: { padding: structuredClone(source.spacing.padding) } } : {}) }
+}
+
 function appendAbsoluteCommands(commands: FileCommand[], nodeId: string, node: Exclude<FileNode, { type: 'root' }>, rect: ParentLocalRect) {
   commands.push({ type: 'node.setLayout', nodeId, layout: cleanAbsoluteLayout(node, rect) })
   if (node.type === 'component') return
@@ -235,13 +247,16 @@ function absolutePresentationEntry(file: FileDocument, nodeId: string, rect: Par
   const node = file.nodes[nodeId]
   const relationship = file.relationships[nodeId]
   if (!node || node.type === 'root' || !relationship || !exactRect(rect)) return null
+  const parent = file.nodes[relationship.parentId]
+  if (!parent) return null
+  const rootPrimitive = parent.type === 'root' && node.type !== 'component'
   const expected: NodeResizeState = { nodeId, relationship: structuredClone(relationship) }
   const source: NodeResizeState = { nodeId, relationship: structuredClone(relationship) }
   expected.layout = node.layout === undefined ? null : structuredClone(node.layout)
-  source.layout = cleanAbsoluteLayout(node, rect)
+  source.layout = rootPrimitive ? cleanRootFreeformLayout(node) : cleanAbsoluteLayout(node, rect)
   if (node.type !== 'component') {
     expected.primitiveGeometry = { left: node.styles.left, top: node.styles.top, width: node.styles.width, height: node.styles.height }
-    source.primitiveGeometry = { left: node.styles.left, top: node.styles.top, width: rect.width, height: rect.height }
+    source.primitiveGeometry = { left: rootPrimitive ? rect.x : node.styles.left, top: rootPrimitive ? rect.y : node.styles.top, width: rect.width, height: rect.height }
     if (node.type === 'text') {
       if (!node.textStyle || !node.textSizing) return null
       const textStyle = structuredClone(node.textStyle)
@@ -298,6 +313,33 @@ function resizeAbsoluteLayout(node: Exclude<FileNode, { type: 'root' }>, item: R
   }
 }
 
+function resizeFlowLayout(snapshot: GestureCommandSnapshot, node: Exclude<FileNode, { type: 'root' }>, parentId: string, item: ResizePresentationItem, widthChanged: boolean, heightChanged: boolean): NodeLayout | null {
+  const source = node.layout
+  if (nodePositionMode(node) !== 'flow' || source?.item.position.mode === 'absolute') return null
+  let nextItem: LayoutItem = structuredClone(source?.item ?? { position: { mode: 'flow' as const } })
+  const parent = snapshot.file.nodes[parentId]
+  const flex = parent && parent.type !== 'root' && parent.layout?.container?.display === 'flex' ? parent.layout.container.flex : undefined
+  const direction = flex?.direction
+  const setAxis = (axis: 'width' | 'height', changed: boolean, value: number) => {
+    if (!changed) return
+    if (node.type === 'component') nextItem[axis] = { ...(nextItem[axis] ?? {}), value: px(value) }
+    else delete nextItem[axis]
+    if (direction && (direction.startsWith('row') ? axis === 'width' : axis === 'height')) {
+      const definite = node.type === 'component' ? nextItem : { ...nextItem, [axis]: { value: px(value) } }
+      nextItem = applyDefiniteMainAxis(definite, direction)
+      if (node.type !== 'component') delete nextItem[axis]
+    }
+  }
+  setAxis('width', widthChanged, item.rect.width)
+  setAxis('height', heightChanged, item.rect.height)
+  const next: NodeLayout = {
+    item: nextItem,
+    ...(source?.container !== undefined ? { container: structuredClone(source.container) } : {}),
+    ...(source?.spacing !== undefined ? { spacing: structuredClone(source.spacing) } : {}),
+  }
+  return next
+}
+
 function resizeEntry(snapshot: GestureCommandSnapshot, presentation: ResizePresentation, item: ResizePresentationItem): NodeResizePresentationEntry | 'unchanged' | null {
   const node = snapshot.file.nodes[item.nodeId]
   const relationship = snapshot.file.relationships[item.nodeId]
@@ -309,17 +351,30 @@ function resizeEntry(snapshot: GestureCommandSnapshot, presentation: ResizePrese
   const source: NodeResizeState = { nodeId: node.id, relationship: structuredClone(relationship) }
   const mode = nodePositionMode(node)
   if (node.type === 'component') {
-    if (mode !== 'absolute') return null
-    const layout = resizeAbsoluteLayout(node, item, widthChanged, heightChanged)
+    const layout = mode === 'flow'
+      ? resizeFlowLayout(snapshot, node, relationship.parentId, item, widthChanged, heightChanged)
+      : mode === 'absolute'
+        ? resizeAbsoluteLayout(node, item, widthChanged, heightChanged)
+        : null
     if (!layout || !node.layout) return null
     expected.layout = structuredClone(node.layout)
     source.layout = layout
   } else {
-    if (mode !== 'freeform' && mode !== 'absolute') return null
+    if (mode !== 'flow' && mode !== 'freeform' && mode !== 'absolute') return null
     if (mode === 'freeform' && (node.layout?.item.width !== undefined || node.layout?.item.height !== undefined || node.layout?.item.aspectRatio !== undefined || node.layout?.item.flex !== undefined || node.layout?.item.grid !== undefined)) return null
     expected.primitiveGeometry = { left: node.styles.left, top: node.styles.top, width: node.styles.width, height: node.styles.height }
-    source.primitiveGeometry = { left: item.rect.x, top: item.rect.y, width: item.rect.width, height: item.rect.height }
-    if (mode === 'freeform') {
+    source.primitiveGeometry = {
+      left: mode === 'flow' ? node.styles.left : item.rect.x,
+      top: mode === 'flow' ? node.styles.top : item.rect.y,
+      width: item.rect.width,
+      height: item.rect.height,
+    }
+    if (mode === 'flow') {
+      const layout = resizeFlowLayout(snapshot, node, relationship.parentId, item, widthChanged, heightChanged)
+      if (!layout) return null
+      expected.layout = node.layout === undefined ? null : structuredClone(node.layout)
+      source.layout = layout
+    } else if (mode === 'freeform') {
       expected.layout = node.layout === undefined ? null : structuredClone(node.layout)
       source.layout = node.layout === undefined ? null : structuredClone(node.layout)
     } else {
@@ -444,8 +499,13 @@ function preflight(snapshot: GestureCommandSnapshot, intents: readonly GestureFi
       const sourceIds = [intent.nodeId, ...descendantsOf(snapshot.file, intent.nodeId)]
       if (sourceIds.some(id => id !== intent.nodeId && snapshot.file.nodes[id]?.type !== 'root' && snapshot.file.nodes[id]?.isLocked === true)) return null
       if (intent.clone && !duplicateFeasible(snapshot.file, intent.nodeId, sourceIds, snapshot.atoms)) return null
+      const sourceRect = intent.mode === 'absolute' && snapshot.file.nodes[intent.target.parentId]?.type === 'root'
+        ? paperFlowAbsoluteDropGeometry({ file: snapshot.file, scene: snapshot.scene, geometry: snapshot.geometry, fence: snapshot.start,
+          childId: intent.nodeId, parentId: relationship.parentId, pointerDownWorld: state.pointerDownWorld, terminalWorld: state.currentWorld })
+        : null
+      if (intent.mode === 'absolute' && snapshot.file.nodes[intent.target.parentId]?.type === 'root' && !sourceRect) return null
       result.push({ kind: intent.kind, nodeId: intent.nodeId, sourceIds, sourceRelationship, sourceIndex: intent.sourceIndex,
-        target: intent.target, mode: intent.mode, rect: intent.rect, clone: intent.clone })
+        target: intent.target, mode: intent.mode, rect: intent.rect, sourceRect, clone: intent.clone })
       continue
     }
     const relationship = snapshot.file.relationships[intent.nodeId]
@@ -577,16 +637,33 @@ export function planGestureCommand(snapshot: GestureCommandSnapshot, intents: re
       && paper.target.slotPresence === paper.sourceRelationship.slot.presence
       && (paper.target.slotPresence === 'absent' || paper.sourceRelationship.slot.presence === 'present' && paper.target.slotValue === paper.sourceRelationship.slot.value)
     if (paper.clone && sameSourceTarget && targetIndex === paper.sourceIndex) targetIndex += 1
-    const originalRelationship = checkedRelationshipProjection(working, paper.nodeId, { parentId: paper.target.parentId, ...targetSlot, index: targetIndex }, snapshot.atoms)
-    if (!originalRelationship) return null
-    working = originalRelationship.file
-    if (!sameValue(originalRelationship.command.expected, originalRelationship.command.source)) commands.push(originalRelationship.command)
-    if (paper.mode === 'absolute') {
-      if (!paper.rect) return null
-      const absoluteOriginal = applyAbsoluteProjection(working, paper.nodeId, paper.rect, snapshot.atoms)
-      if (!absoluteOriginal) return null
-      working = absoluteOriginal.file
-      commands.push(absoluteOriginal.command)
+    if (snapshot.file.nodes[paper.target.parentId]?.type === 'root') {
+      if (paper.mode !== 'absolute' || !paper.rect) return null
+      if (!paper.sourceRect) return null
+      const sourceAbsolute = applyAbsoluteProjection(working, paper.nodeId, paper.sourceRect, snapshot.atoms)
+      if (!sourceAbsolute) return null
+      working = sourceAbsolute.file
+      commands.push(sourceAbsolute.command)
+      const rootRelationship = checkedRelationshipProjection(working, paper.nodeId, { parentId: paper.target.parentId, index: targetIndex }, snapshot.atoms)
+      if (!rootRelationship) return null
+      working = rootRelationship.file
+      commands.push(rootRelationship.command)
+      const rootProjection = applyAbsoluteProjection(working, paper.nodeId, paper.rect, snapshot.atoms)
+      if (!rootProjection) return null
+      working = rootProjection.file
+      commands.push(rootProjection.command)
+    } else {
+      const originalRelationship = checkedRelationshipProjection(working, paper.nodeId, { parentId: paper.target.parentId, ...targetSlot, index: targetIndex }, snapshot.atoms)
+      if (!originalRelationship) return null
+      working = originalRelationship.file
+      if (!sameValue(originalRelationship.command.expected, originalRelationship.command.source)) commands.push(originalRelationship.command)
+      if (paper.mode === 'absolute') {
+        if (!paper.rect) return null
+        const absoluteOriginal = applyAbsoluteProjection(working, paper.nodeId, paper.rect, snapshot.atoms)
+        if (!absoluteOriginal) return null
+        working = absoluteOriginal.file
+        commands.push(absoluteOriginal.command)
+      }
     }
     if (!commands.length) return null
     const command: FileCommand = commands.length === 1 ? commands[0]! : { type: 'batch', commands }

@@ -20,10 +20,10 @@
 .canvas-floating-actions .button .icon { width: 16px; height: 16px; }
 .canvas-floating-actions .button:disabled { color: var(--neutral-5); }
 .canvas-hud > * { position: absolute; }
-.resize-handles { inset: 0; pointer-events: none; }
-/* Handle visuals are painted on the HUD canvas; these are transparent hit targets of the same size. */
-.resize-handle { position: absolute; width: 7px; height: 7px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; pointer-events: auto; touch-action: none; }
-.resize-handle[data-edge] { width: 6px; height: 6px; border: 0; background: transparent; }
+.resize-handles { inset: 0; z-index: 1; pointer-events: none; }
+/* Handle visuals are painted on the HUD canvas; these transparent targets provide a larger desktop hit area. */
+.resize-handle { position: absolute; width: 16px; height: 16px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; pointer-events: auto; touch-action: none; }
+.resize-handle[data-edge] { width: 16px; height: 12px; border: 0; background: transparent; }
 .rotation-handles { inset: 0; pointer-events: none; }
 .rotation-handle { position: absolute; width: 20px; height: 20px; margin: 0; padding: 0; border: 0; background: transparent; transform: translate(-50%, -50%); cursor: grab; pointer-events: auto; touch-action: none; }
 .rotation-handle:active { cursor: grabbing; }

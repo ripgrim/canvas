@@ -1,4 +1,4 @@
-import { applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, legacyTextProperties, pageRoot, resolveToken, validateFileCommand, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
+import { ancestorsOf, applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, legacyTextProperties, pageRoot, resolveToken, validateFileCommand, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
 import type { ColorToken, FileCommand, FileDocument, FileNode, NodePlacement, Paint, PrimitiveKind, PrimitiveStylePatch, PrimitiveStyles, SourcePalette, TextSizing, TextStyle, TokenValue } from '@canvas/repo-engine/file-document'
 import { appearanceLimits, defaultFillColor, imageMimes, nextBorders, validateImageAssetReference } from '@canvas/repo-engine/appearance'
 import { nodeAppearance } from '@canvas/repo-engine/file-document'
@@ -1344,10 +1344,19 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         return executeWithPersistence(plannedCommand, [...plan.selection], undefined, true, plannedCommand, strict ? () => gestureCommitAllowed(snapshot, true) : undefined, persistenceIntent)
       },
       /** Commits freeform moves in world coordinates as one history step. Primitives may change parent; component roots leave the host flow. */
-      commitMove: (moves: MoveCommit[]): PersistenceCommit => {
+      commitMove: (moves: MoveCommit[], settings: { duplicate?: boolean } = {}): PersistenceCommit => {
         const state = backing.getState()
         if (!state.file) return noPersistenceCommit
         const commands: FileCommand[] = []
+        if (settings.duplicate) {
+          const moving = new Set(moves.map(move => move.id))
+          for (const move of moves) {
+            if (!state.file.nodes[move.id] || ancestorsOf(state.file, move.id).some(id => moving.has(id))) continue
+            const subtree = [move.id, ...descendantsOf(state.file, move.id)]
+            const ids = Object.fromEntries(subtree.map(id => [id, makeId()]))
+            commands.push({ type: 'node.duplicate', nodeId: move.id, ids })
+          }
+        }
         for (const move of moves) {
           const item = state.file.nodes[move.id]
           if (!item) continue
@@ -1363,7 +1372,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           const baked = placement.mode === 'absolute' || placement.width !== undefined || move.width === undefined ? {} : { width: Math.max(1, Math.round(move.width)) }
           commands.push(placementCommand(item, { ...placement, ...baked, mode: 'absolute', x: Math.round(move.x), y: Math.round(move.y) }))
         }
-        return executeBatchWithPersistence(commands)
+        return executeBatchWithPersistence(commands, moves.map(move => move.id))
       },
       // Pages ------------------------------------------------------------------------------------------------------
       /** Creates a page. With `activate: false` the open page stays put so a router can push the new page as its own history entry. */
