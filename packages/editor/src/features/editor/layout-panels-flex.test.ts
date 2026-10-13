@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { FlexContainer } from '@canvas/repo-engine/layout'
-import { InspectorAnchorGrid, InspectorFlexDirection, InspectorFlexWrap, InspectorScrubField, InspectorSpacingMode, InspectorTransformActions, inspectorFlexOverflowItems, moveFlexMatrixCell } from '../../design-system/inspector-atoms'
+import { InspectorAnchorGrid, InspectorFlexDirection, InspectorFlexWrap, InspectorScrubField, InspectorSpacingMode, InspectorTransformActions, inspectorFlexOverflowItems, moveFlexMatrixCell, nextInspectorInputIndex } from '../../design-system/inspector-atoms'
 import type { InspectorAnchorCell } from '../../design-system/inspector-atoms'
 import { numericLayoutTokens, paperFlexBaseline, paperFlexDirection, paperFlexMainSpaceBetween, paperFlexOverflowLabels, runInspectorFlexAction } from './LayoutPanels'
 import { SelectionInspector } from './InspectorPanels'
@@ -71,6 +71,13 @@ afterEach(() => {
 })
 
 describe('PAPER-FLEX-001 inspector entry and active block', () => {
+  it('FLEX-TAB-001 advances directly between inspector inputs', () => {
+    expect(nextInspectorInputIndex(1, 4, false)).toBe(2)
+    expect(nextInspectorInputIndex(2, 4, true)).toBe(1)
+    expect(nextInspectorInputIndex(3, 4, false)).toBeNull()
+    expect(nextInspectorInputIndex(0, 4, true)).toBeNull()
+  })
+
   it('renders nothing for an empty selection and only Add flex for an eligible singleton', () => {
     documentStore.load(fixture(), [], { replace: true })
     expect(renderToStaticMarkup(h(SelectionInspector))).toBe('')
@@ -160,6 +167,14 @@ describe('PAPER-FLEX-001 inspector entry and active block', () => {
     const width = /<input id="layout-width"[^>]*>/.exec(html)?.[0]
     expect(width).toContain('placeholder="Fit"')
     expect(width).not.toContain('disabled')
+  })
+
+  it('FLEX-FILL-001 exposes Fill for a nested freeform primitive without inventing Fit', () => {
+    const html = renderSelection('child')
+    expect(html).toContain('aria-label="Width sizing: Fixed"')
+    expect(html).toContain('aria-label="Height sizing: Fixed"')
+    expect(html).toContain('>Fill<')
+    expect(html).not.toContain('>Fit<')
   })
 
   it('uses Paper flex glyph geometry instead of generic editor icons', () => {

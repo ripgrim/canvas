@@ -155,7 +155,7 @@ describe('PAPER-FLEX-001/002 direct Add', () => {
     expect(directAdd).not.toBeNull()
     expect(store.commands.layout.setDisplay('flex', ['frame'], { frame: { boxes: null, directAdd } })).toBe(true)
     expect(revision(store)).toBe(1)
-    expect(layoutOf(store, 'frame')).toEqual({ item: { position: { mode: 'freeform' }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } }, container: { display: 'flex', gap: 16, flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } }, spacing: { padding: { x: 16, y: 16 } } })
+    expect(layoutOf(store, 'frame')).toEqual({ item: { position: { mode: 'freeform' }, width: { value: { kind: 'intrinsic', value: 'fit-content' }, min: px(100) }, height: { value: { kind: 'intrinsic', value: 'fit-content' }, min: px(100) } }, container: { display: 'flex', gap: 16, flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } }, spacing: { padding: { x: 16, y: 16 } } })
     store.undo()
     expect(revision(store)).toBe(2)
     expect(layoutOf(store, 'frame')).toBeUndefined()

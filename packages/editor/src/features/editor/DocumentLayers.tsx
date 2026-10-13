@@ -86,6 +86,7 @@ export function DocumentLayers({ readOnly = false }: { readOnly?: boolean }) {
   }
   const pointerDown = (id: string) => (event: React.PointerEvent<HTMLDivElement>) => {
     if (readOnly || event.button !== 0 || renamingLayer) return
+    event.preventDefault()
     const additive = event.ctrlKey || event.metaKey
     const range = event.shiftKey
     const wasSelected = state.selection.includes(id)

@@ -103,13 +103,13 @@ describe('LAY-SIZE-003: sizing targets for a selection', () => {
   it('gives every component its own measurement and parent direction, skipping non-components', () => {
     const file = fixture()
     expect(sizingTargets(file, geometry, ['a', 'b', 'card', 'root-1'], 'width')).toEqual([
-      { id: 'a', layout: { item: { position: { mode: 'flow' }, width: { value: px(120) } } }, measurement: { measuredPx: 120, parentPx: 294 }, parentDirection: 'row' },
-      { id: 'b', layout: { item: { position: { mode: 'absolute', left: px(10), top: px(12) } } }, measurement: { measuredPx: 60, parentPx: 350 }, parentDirection: 'row' },
-      { id: 'card', layout: file.nodes.card!.type === 'component' ? (file.nodes.card as ComponentNode).layout : undefined, measurement: { measuredPx: 352, parentPx: 352 }, parentDirection: null },
+      { id: 'a', layout: { item: { position: { mode: 'flow' }, width: { value: px(120) } } }, measurement: { measuredPx: 120, parentPx: 294 }, parentDirection: 'row', parentDisplay: 'flex', local: { x: 28, y: 28 } },
+      { id: 'b', layout: { item: { position: { mode: 'absolute', left: px(10), top: px(12) } } }, measurement: { measuredPx: 60, parentPx: 350 }, parentDirection: 'row', parentDisplay: 'flex', local: { x: 10, y: 12 } },
+      { id: 'card', layout: file.nodes.card!.type === 'component' ? (file.nodes.card as ComponentNode).layout : undefined, measurement: { measuredPx: 352, parentPx: 352 }, parentDirection: null, parentDisplay: null, local: { x: -176, y: -236 } },
     ])
   })
   it('a node with no measurement and an unmeasured parent carries an empty measurement', () => {
-    expect(sizingTargets(fixture(), geometry, ['inner'], 'height')).toEqual([{ id: 'inner', layout: undefined, measurement: {}, parentDirection: null }])
+    expect(sizingTargets(fixture(), geometry, ['inner'], 'height')).toEqual([{ id: 'inner', layout: undefined, measurement: {}, parentDirection: null, parentDisplay: 'freeform' }])
   })
   it('parent direction only exists under a Flex parent', () => {
     const file = fixture()

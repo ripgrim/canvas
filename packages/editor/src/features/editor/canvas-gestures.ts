@@ -20,7 +20,7 @@ import { collaborationTransforms, previewTransientMoves } from './preview-transi
 import type { EditorCollaborationTransform } from '../../capabilities'
 import { captureGestureAuthority } from './gesture-authority'
 import type { GestureAuthoritySnapshot, ResizeGeometryAuthority } from './gesture-authority'
-import { resizeGeometryAuthority } from './layout-measure'
+import { localPoint, parentContentPx, resizeGeometryAuthority } from './layout-measure'
 import { projectResizeRectToWorld } from './layout-measure'
 import { beginLiveResizeInteraction, sampleLiveResizeInteraction } from './live-resize-interaction'
 import type { LiveResizeInteraction, LiveResizeSample } from './live-resize-interaction'
@@ -1063,7 +1063,17 @@ export function createCanvasGestures(
         const rootId = state.pageId ? pageRoot(state.file, state.pageId) : null
         if (!parentId || parentId === rootId) return false
       }
-      return store.commands.text.setSizingMode(id, resizeHandleAxes(handle), fill ? 'fill' : 'fit')
+      const measured = geometry.getSnapshot()
+      const width = measured.nodes[id]?.rect.width
+      const height = measured.nodes[id]?.rect.height
+      const parentWidth = parentContentPx(state.file, measured, id, 'width')
+      const parentHeight = parentContentPx(state.file, measured, id, 'height')
+      const local = localPoint(state.file, measured, id)
+      return store.commands.text.setSizingMode(id, resizeHandleAxes(handle), fill ? 'fill' : 'fit', {
+        measured: { ...(width === undefined ? {} : { width }), ...(height === undefined ? {} : { height }) },
+        parent: { ...(parentWidth === undefined ? {} : { width: parentWidth }), ...(parentHeight === undefined ? {} : { height: parentHeight }) },
+        ...(local ? { local } : {}),
+      })
     },
     pointerMove: (event: PointerLike) => {
       const current = gesture

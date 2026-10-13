@@ -2,6 +2,7 @@ import type { EditorAuthApi, EditorCapabilities, EditorCollaborationPatch, Edito
 import type { ApplicationUpdateBridge } from '@canvas/editor/updates'
 
 export type DesktopBridge = Omit<EditorProjectApi, 'openProject' | 'capabilities' | 'auth' | 'listFiles' | 'createFile' | 'openFile'> & ApplicationUpdateBridge & {
+  allowUnauthenticatedWorkspace: boolean
   listFiles: NonNullable<EditorProjectApi['listFiles']>
   createFile: NonNullable<EditorProjectApi['createFile']>
   openFile: NonNullable<EditorProjectApi['openFile']>
@@ -37,6 +38,7 @@ export const desktopCapabilities: EditorCapabilities = {
 }
 export function createDesktopAdapter(bridge: DesktopBridge): EditorProjectApi {
   const auth = typeof bridge.getAuthSession === 'function' && typeof bridge.signInWithGitHub === 'function' && typeof bridge.signOut === 'function' && typeof bridge.onAuthSessionChanged === 'function' ? {
+    allowUnauthenticatedWorkspace: bridge.allowUnauthenticatedWorkspace,
     getSession: () => bridge.getAuthSession(),
     signInWithGitHub: () => bridge.signInWithGitHub(),
     signOut: () => bridge.signOut(),

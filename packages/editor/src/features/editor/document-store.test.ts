@@ -281,6 +281,45 @@ describe('AT-CAN primitive canvas commands', () => {
     })
   })
 
+  it('PAPER-FILL-004: text Fill writes freeform constraints and Fixed removes the trailing constraint atomically', () => {
+    const store = loaded()
+    expect(store.commands.insertCanvasText('point', { x: 30, y: 40, parentId: 'outer' })).toBe(true)
+    expect(store.commands.text.update(store.getSnapshot().textEditing!.sessionId, 'Text')).toBe(true)
+    expect(store.commands.text.commit(store.getSnapshot().textEditing!.sessionId)).toBe(true)
+    const filled = store.commands.text.setSizingModes([{ nodeId: 'new-1', axes: ['x'], mode: 'fill', measured: { width: 72 }, parent: { width: 400 }, local: { x: 30, y: 40 } }])
+    expect(filled).toBe(true)
+    expect(file(store).nodes['new-1']).toMatchObject({
+      textSizing: { width: { mode: 'fill' } },
+      layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 0 }, top: { kind: 'px', value: 40 }, right: { kind: 'px', value: 0 } } } },
+    })
+
+    expect(store.commands.text.setSizingModes([{ nodeId: 'new-1', axes: ['x'], mode: 'fixed', measured: { width: 318 }, parent: { width: 400 }, local: { x: 0, y: 40 } }])).toBe(true)
+    expect(file(store).nodes['new-1']).toMatchObject({
+      styles: { width: 318 },
+      textSizing: { width: { mode: 'fixed' } },
+      layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 0 }, top: { kind: 'px', value: 40 } } } },
+    })
+    expect((file(store).nodes['new-1'] as Exclude<FileDocument['nodes'][string], { type: 'root' }>).layout?.item.position).not.toHaveProperty('right')
+  })
+
+  it('PAPER-FILL-005: text Fill on the Flex main axis stores growth instead of relying on 100 percent width', () => {
+    const source = fixture()
+    source.nodes.outer = { ...source.nodes.outer!, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } } as FileDocument['nodes'][string]
+    source.nodes.inner = { ...source.nodes.inner!, layout: { item: { position: { mode: 'flow' } } } } as FileDocument['nodes'][string]
+    let id = 0
+    const store = createDocumentStore(() => `new-${++id}`)
+    store.load(source, atoms)
+    expect(store.commands.insertCanvasText('point', { x: 30, y: 40, parentId: 'outer' })).toBe(true)
+    expect(store.commands.text.update(store.getSnapshot().textEditing!.sessionId, 'Text')).toBe(true)
+    expect(store.commands.text.commit(store.getSnapshot().textEditing!.sessionId)).toBe(true)
+    const filled = store.commands.text.setSizingModes([{ nodeId: 'new-1', axes: ['x'], mode: 'fill', measured: { width: 72 }, parent: { width: 400 } }])
+    expect(filled).toBe(true)
+    expect(file(store).nodes['new-1']).toMatchObject({
+      textSizing: { width: { mode: 'fill' } },
+      layout: { item: { position: { mode: 'flow' }, flex: { grow: 1, shrink: 1, basis: { kind: 'px', value: 0 } } } },
+    })
+  })
+
   it('seeds a click-created rectangle at 500 x 500 white while a frame keeps 320 x 240', () => {
     const store = loaded()
     expect(store.commands.insertCanvas('rectangle', { x: 40, y: 60 })).toBe(true)
@@ -314,6 +353,41 @@ describe('AT-CAN primitive canvas commands', () => {
     store.undo()
     expect(file(store).relationships.box!.parentId).toBe('inner')
     expect(styles(store, 'box')).toMatchObject({ left: 30, top: 30 })
+  })
+
+  it('FLEX-REPARENT-001 adopts a freeform primitive into Flex flow and restores freeform when dragged back out', () => {
+    const source = fixture()
+    const inner = source.nodes.inner
+    if (!inner || inner.type !== 'frame') throw new Error('Expected frame fixture')
+    inner.layout = { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'center', align: 'center' } } }
+    let id = 0
+    const store = createDocumentStore(() => `flex-reparent-${++id}`)
+    store.load(source, atoms)
+
+    expect(store.commands.commitMove([{ id: 'box', x: 150, y: 110, parentId: 'inner' }]).committed).toBe(true)
+    const adopted = file(store).nodes.box
+    expect(adopted?.type === 'rectangle' ? adopted.layout?.item.position : null).toEqual({ mode: 'flow' })
+    expect(file(store).relationships.box!.parentId).toBe('inner')
+
+    expect(store.commands.layout.primitiveSizing('width', 'fill', [{ id: 'box', measuredPx: 50 }])).toBe(true)
+    const filled = file(store).nodes.box
+    expect(filled?.type === 'rectangle' ? filled.layout?.item : null).toMatchObject({
+      width: { value: { kind: 'percent', value: 100 } },
+      flex: { grow: 1, shrink: 1, basis: { kind: 'px', value: 0 } },
+    })
+    expect(store.commands.layout.primitiveSizing('height', 'fill', [{ id: 'box', measuredPx: 40 }])).toBe(true)
+    const crossFit = file(store).nodes.box
+    expect(crossFit?.type === 'rectangle' ? crossFit.layout?.item : null).toMatchObject({
+      height: { value: { kind: 'percent', value: 100 } },
+      flex: { grow: 1, shrink: 1, basis: { kind: 'px', value: 0 } },
+    })
+    expect(store.getSnapshot()).toMatchObject({ selection: ['box'], transient: null, error: null })
+    expect(store.commands.rename('box', 'Button row')).toBe(true)
+
+    expect(store.commands.commitMove([{ id: 'box', x: 700, y: 20, parentId: null }]).committed).toBe(true)
+    const detached = file(store).nodes.box
+    expect(detached?.type === 'rectangle' ? detached.layout?.item.position : null).toEqual({ mode: 'freeform' })
+    expect(styles(store, 'box')).toMatchObject({ left: 700, top: 20 })
   })
 
   it('refuses to move a primitive into a component instance', () => {

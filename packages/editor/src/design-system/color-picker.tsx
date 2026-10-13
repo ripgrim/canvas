@@ -12,6 +12,11 @@ import './color-picker.css'
 export type ColorPickerProps = {
   label: string
   value: string
+  /** A transient drag sample. Callers may project it without adding history. */
+  onPreview?: ((value: string) => void) | undefined
+  /** Restores the value from before the current transient drag. */
+  onCancel?: (() => void) | undefined
+  /** The terminal value. Callers should create one history edit here. */
   onChange: (value: string) => void
   disabled?: boolean
   mode?: 'light' | 'dark'
@@ -39,6 +44,7 @@ type Fields = {
 
 type Draft = { base: string; color: Color | null; hsv: Hsv | null; fields: Fields; error: string | null }
 type Emission = { base: string; value: string }
+type Interaction = { base: string; preview: string }
 type EyeDropperConstructor = new () => { open: () => Promise<{ sRGBHex: string }> }
 
 const fixed = (value: number, precision = 1) => Number(value.toFixed(precision)).toString()
@@ -142,27 +148,35 @@ function ColorRail({ label, value, maximum, background, direction, disabled, onP
   </div>
 }
 
-function ColorDraft({ label, value, onChange, allowAlpha, close }: { label: string; value: string; onChange: (value: string) => void; allowAlpha: boolean; close: ReactNode }) {
+export function ColorDraft({ label, value, onPreview, onCancel, onChange, allowAlpha, close }: { label: string; value: string; onPreview?: ((value: string) => void) | undefined; onCancel?: (() => void) | undefined; onChange: (value: string) => void; allowAlpha: boolean; close: ReactNode }) {
   const errorId = useId()
   const [stored, setStored] = useState(() => makeDraft(value))
   const [copied, setCopied] = useState<string | null>(null)
   const emitted = useRef<Emission | null>(null)
   const pending = useRef<Color | null>(null)
+  const interaction = useRef<Interaction | null>(null)
   const pointerCancelled = useRef(false)
   const expectedEmission = emitted.current
   const followsValue = stored.base === value || Boolean(expectedEmission && expectedEmission.base === value && expectedEmission.value === stored.base)
   const draft = followsValue ? stored : makeDraft(value)
   const { color, hsv, fields, error } = draft
 
-  const preview = (candidate: Color) => {
+  const preview = (candidate: Color, coordinates = rgbToHsv(candidate)) => {
     const next = { ...candidate, a: allowAlpha ? candidate.a : 1 }
+    const nextValue = formatHex(next, allowAlpha && next.a < 1)
+    const active = interaction.current ?? { base: value, preview: value }
+    interaction.current = { ...active, preview: nextValue }
     pending.current = next
-    setStored({ base: value, color: next, hsv: rgbToHsv(next), fields: fieldsFromColor(next), error: null })
+    setStored({ base: value, color: next, hsv: { ...coordinates, a: next.a }, fields: fieldsFromColor(next), error: null })
+    if (nextValue !== active.preview) onPreview?.(nextValue)
   }
   const cancel = () => {
+    const active = interaction.current
     pending.current = null
+    interaction.current = null
     emitted.current = null
     setStored(makeDraft(value))
+    if (active) onCancel?.()
   }
   const commit = (candidate: Color | null) => {
     pending.current = null
@@ -175,10 +189,12 @@ function ColorDraft({ label, value, onChange, allowAlpha, close }: { label: stri
       return
     }
     const next = formatHex(candidate, allowAlpha && candidate.a < 1)
-    const actual = parseColor(value)
-    const normalized = actual ? formatHex(actual, allowAlpha && actual.a < 1) : value
+    const base = interaction.current?.base ?? value
+    const actual = parseColor(base)
+    const normalized = actual ? formatHex(actual, allowAlpha && actual.a < 1) : base
     const previous = emitted.current
-    const last = previous && (previous.base === value || previous.value === value) ? previous.value : normalized
+    const last = previous && (previous.base === base || previous.value === base) ? previous.value : normalized
+    interaction.current = null
     emitted.current = { base: value, value: next }
     setStored({ base: next, color: candidate, hsv: rgbToHsv(candidate), fields: fieldsFromColor(candidate), error: null })
     if (next !== last) onChange(next)
@@ -186,14 +202,16 @@ function ColorDraft({ label, value, onChange, allowAlpha, close }: { label: stri
   const commitPending = () => { if (pending.current) commit(pending.current) }
   const updateHsv = (part: keyof Hsv, next: number) => {
     if (!hsv) return
-    preview(hsvToRgb({ ...hsv, [part]: part === 'a' ? next / 100 : next }))
+    const coordinates = { ...hsv, [part]: part === 'a' ? next / 100 : next }
+    preview(hsvToRgb(coordinates), coordinates)
   }
   const updatePlane = (event: PointerEvent<HTMLDivElement>) => {
     if (!hsv) return
     const bounds = event.currentTarget.getBoundingClientRect()
     const saturation = Math.max(0, Math.min(100, (event.clientX - bounds.left) / bounds.width * 100))
     const brightness = Math.max(0, Math.min(100, 100 - (event.clientY - bounds.top) / bounds.height * 100))
-    preview(hsvToRgb({ ...hsv, s: saturation, v: brightness }))
+    const coordinates = { ...hsv, s: saturation, v: brightness }
+    preview(hsvToRgb(coordinates), coordinates)
   }
   const onPlaneKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!hsv) return
@@ -203,7 +221,7 @@ function ColorDraft({ label, value, onChange, allowAlpha, close }: { label: stri
     if (!change) return
     event.preventDefault()
     const candidate = hsvToRgb({ ...hsv, s: Math.max(0, Math.min(100, hsv.s + change[0])), v: Math.max(0, Math.min(100, hsv.v + change[1])) })
-    preview(candidate)
+    preview(candidate, { ...rgbToHsv(candidate), h: hsv.h })
     commit(candidate)
   }
   const updateField = (key: keyof Fields, next: string) => setStored({ ...draft, base: value, fields: { ...fields, [key]: next }, error: null })
@@ -315,10 +333,10 @@ function ColorDraft({ label, value, onChange, allowAlpha, close }: { label: stri
   </>
 }
 
-export function ColorPicker({ label, value, onChange, disabled = false, mode = 'light', allowAlpha = true, variant = 'field', open: controlledOpen, onOpenChange }: ColorPickerProps) {
+export function ColorPicker({ label, value, onPreview, onCancel, onChange, disabled = false, mode = 'light', allowAlpha = true, variant = 'field', open: controlledOpen, onOpenChange }: ColorPickerProps) {
   const [ownOpen, setOwnOpen] = useState(false)
   const open = controlledOpen ?? ownOpen
   const setOpen = (next: boolean) => { setOwnOpen(next); onOpenChange?.(next) }
   const color = parseColor(value)
-  return <Popover.Root open={open} onOpenChange={setOpen}><Popover.Trigger className={variant === 'swatch' ? 'color-picker-trigger color-picker-trigger-swatch' : 'color-picker-trigger'} disabled={disabled} aria-label={copy.open(label)} title={variant === 'swatch' ? copy.open(label) : undefined}><span className="color-picker-swatch" aria-hidden="true"><span className="color-picker-swatch-fill" style={{ backgroundColor: color ? formatRgb(color) : 'transparent' }} /></span>{variant === 'field' && <span>{value}</span>}</Popover.Trigger><Popover.Portal className={`theme-${mode}`}><Popover.Positioner side="left" align="start" sideOffset={8} className="color-picker-positioner"><Popover.Popup className="color-picker-popup"><ColorDraft label={label} value={value} onChange={onChange} allowAlpha={allowAlpha} close={<Popover.Close className="color-picker-close" aria-label={copy.close}><Icon name="close" /></Popover.Close>} /></Popover.Popup></Popover.Positioner></Popover.Portal></Popover.Root>
+  return <Popover.Root open={open} onOpenChange={setOpen}><Popover.Trigger className={variant === 'swatch' ? 'color-picker-trigger color-picker-trigger-swatch' : 'color-picker-trigger'} disabled={disabled} aria-label={copy.open(label)} title={variant === 'swatch' ? copy.open(label) : undefined}><span className="color-picker-swatch" aria-hidden="true"><span className="color-picker-swatch-fill" style={{ backgroundColor: color ? formatRgb(color) : 'transparent' }} /></span>{variant === 'field' && <span>{value}</span>}</Popover.Trigger><Popover.Portal className={`theme-${mode}`}><Popover.Positioner side="left" align="start" sideOffset={8} className="color-picker-positioner"><Popover.Popup className="color-picker-popup"><ColorDraft label={label} value={value} onPreview={onPreview} onCancel={onCancel} onChange={onChange} allowAlpha={allowAlpha} close={<Popover.Close className="color-picker-close" aria-label={copy.close}><Icon name="close" /></Popover.Close>} /></Popover.Popup></Popover.Positioner></Popover.Portal></Popover.Root>
 }

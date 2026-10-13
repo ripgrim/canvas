@@ -243,7 +243,7 @@ async function createEditor(): Promise<void> {
     webPreferences: {
       ...secureWebPreferences,
       session: editorSession,
-      ...(target.localCapabilities ? { preload: resolve(directory, '../preload/index.cjs'), additionalArguments: localCapabilityArguments(target) } : {}),
+      ...(target.localCapabilities ? { preload: resolve(directory, '../preload/index.cjs'), additionalArguments: localCapabilityArguments(target, smoke) } : {}),
     },
   })
   editorWindow = window
@@ -400,6 +400,23 @@ async function createEditor(): Promise<void> {
     try {
       const request = parseCollaborationRequest(payload)
       const service = cloudFiles
+      if (!service && request.method === 'getSnapshot') {
+        return {
+          ok: true,
+          value: {
+            status: 'unavailable',
+            shellState: null,
+            localClientId: null,
+            localProfile: null,
+            canMutate: false,
+            canManageShare: false,
+            participants: [],
+            agents: [],
+            error: null,
+          },
+        }
+      }
+      if (!service && (request.method === 'retry' || request.method === 'leave')) return { ok: true, value: null }
       if (!service) throw new Error('Collaboration is unavailable.')
       if (request.method === 'getSnapshot') return { ok: true, value: service.collaborationSnapshot() }
       if (request.method === 'updateAwareness') { service.updateAwareness(request.args[0], request.args[1]); return { ok: true, value: null } }

@@ -45,8 +45,25 @@ export function InspectorFlexRemoveButton({ label, title, disabled = false, onCl
   return <button type="button" className="inspector-flex-small-action" aria-label={label} title={title} disabled={disabled} onClick={onClick}><InspectorFlexGlyph kind="remove" /></button>
 }
 
+export function nextInspectorInputIndex(current: number, count: number, reverse: boolean): number | null {
+  const next = current + (reverse ? -1 : 1)
+  return current >= 0 && next >= 0 && next < count ? next : null
+}
+
 export function InspectorFlexPanel({ alignment, direction, wrap, gap, overflow, crossGap, padding }: { alignment: ReactNode; direction: ReactNode; wrap: ReactNode; gap: ReactNode; overflow: ReactNode; crossGap?: ReactNode; padding: ReactNode }) {
-  return <div className="inspector-flex-panel">
+  const numericTab = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) return
+    const target = event.target
+    if (!(target instanceof HTMLInputElement) || !target.matches('.inspector-input')) return
+    const root = event.currentTarget.closest<HTMLElement>('.editor-root') ?? event.currentTarget
+    const inputs = Array.from(root.querySelectorAll<HTMLInputElement>('input.inspector-input:not(:disabled)'))
+    const next = nextInspectorInputIndex(inputs.indexOf(target), inputs.length, event.shiftKey)
+    if (next === null) return
+    event.preventDefault()
+    inputs[next]!.focus()
+    inputs[next]!.select()
+  }
+  return <div className="inspector-flex-panel" onKeyDown={numericTab}>
     <div className="inspector-flex-alignment">{alignment}</div>
     <div className="inspector-flex-controls">
       <div className="inspector-flex-control-row"><span>{direction}</span>{wrap}</div>

@@ -4,9 +4,9 @@ import { appearanceLimits, defaultFillColor, imageMimes, nextBorders, validateIm
 import { nodeAppearance } from '@canvas/repo-engine/file-document'
 import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAssetReference, ImageExtension, ImageMime, Outline, Stroke } from '@canvas/repo-engine/appearance'
 import type { DocumentNodeLayout } from '@canvas/repo-engine/document'
-import { intrinsic, layoutFromLegacy, legacyLayout, percent } from '@canvas/repo-engine/layout'
+import { layoutFromLegacy, legacyLayout } from '@canvas/repo-engine/layout'
 import type { NodeLayout, SizingMode } from '@canvas/repo-engine/layout'
-import { positionAbsolute, positionFlow, positionFreeform, setAspectRatio, setAxisBound, setAxisLength, setAxisSizingMany, setInset, setSpacing, setZIndex } from './layout-commands'
+import { positionAbsolute, positionFlow, positionFreeform, setAspectRatio, setAxisBound, setAxisLength, setAxisSizing, setAxisSizingMany, setInset, setSpacing, setZIndex, sizingModeOf } from './layout-commands'
 import { createFlexCommands } from './layout-flex-commands'
 import type { LayoutCommandContext } from './layout-flex-commands'
 import { paperWrapCopy, planPaperWrap } from './layout-wrap-planner'
@@ -795,6 +795,38 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     }
     return executeBatch(commands)
   }
+  const setTextSizingModes = (entries: readonly { nodeId: string; axes: readonly ResizeAxis[]; mode: 'fixed' | 'fit' | 'fill' | 'relative'; measured?: { width?: number; height?: number }; parent?: { width?: number; height?: number }; local?: { x: number; y: number } }[]) => {
+    const commands: FileCommand[] = []
+    for (const entry of entries) {
+      const target = node(entry.nodeId)
+      if (!target || target.type !== 'text' || !target.textStyle || !target.textSizing || !entry.axes.length) return false
+      const textStyle = structuredClone(target.textStyle)
+      const textSizing = structuredClone(target.textSizing)
+      const parentId = parentOf(entry.nodeId)
+      const parent = parentId ? node(parentId) : undefined
+      const display = parent && parent.type !== 'root' ? parent.layout?.container?.display ?? 'freeform' : null
+      const direction = display === 'flex' && parent && parent.type !== 'root' ? parent.layout?.container?.flex?.direction ?? 'column' : null
+      let layout = target.layout ?? { item: { position: { mode: nodePositionMode(target) ?? 'freeform' as const } } }
+      const styleCommands: FileCommand[] = []
+      for (const resizeAxis of entry.axes) {
+        const axis: Axis = resizeAxis === 'x' ? 'width' : 'height'
+        const current = textSizing[axis]
+        textSizing[axis] = entry.mode === 'relative' ? { mode: 'relative', value: current.mode === 'relative' ? current.value : 100 } : { mode: entry.mode }
+        if (axis === 'height' && entry.mode !== 'fit') delete textStyle.maxLines
+        const next = setAxisSizing(layout, axis, entry.mode === 'fit' ? 'hug' : entry.mode, { measuredPx: entry.measured?.[axis], parentPx: entry.parent?.[axis] }, direction, display, entry.local)
+        // TextSizing owns the axis value. Layout stores only the parent-dependent contract: anchors or Flex growth.
+        if (next) layout = setAxisLength(next, axis, null)
+        if (entry.mode === 'fixed') {
+          const measured = entry.measured?.[axis]
+          if (typeof measured === 'number' && Number.isFinite(measured) && measured > 0) styleCommands.push({ type: 'node.setStyles', nodeId: entry.nodeId, styles: { [axis]: Math.max(1, Math.round(measured)) } })
+        }
+      }
+      commands.push({ type: 'node.setLayout', nodeId: entry.nodeId, layout })
+      commands.push(...styleCommands)
+      commands.push({ type: 'node.setTextProperties', nodeId: entry.nodeId, textStyle, textSizing })
+    }
+    return executeBatch(commands)
+  }
   const uniqueName = (names: Iterable<string>, base: string) => {
     const used = new Set(names)
     if (!used.has(base)) return base
@@ -1130,16 +1162,10 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           }
           return executeBatch(commands)
         },
+        /** Changes text sizing intent and the parent-dependent layout contract in one undo step. */
+        setSizingModes: setTextSizingModes,
         /** Resize-handle shortcuts change sizing intent through the same complete-property command. */
-        setSizingMode: (nodeId: string, axes: readonly ResizeAxis[], mode: 'fit' | 'fill') => {
-          const target = node(nodeId)
-          if (!target || target.type !== 'text' || !target.textStyle || !target.textSizing || !axes.length) return false
-          const textStyle = structuredClone(target.textStyle)
-          const textSizing = structuredClone(target.textSizing)
-          if (axes.includes('x')) textSizing.width = { mode }
-          if (axes.includes('y')) { textSizing.height = { mode }; if (mode !== 'fit') delete textStyle.maxLines }
-          return execute({ type: 'node.setTextProperties', nodeId, textStyle, textSizing })
-        },
+        setSizingMode: (nodeId: string, axes: readonly ResizeAxis[], mode: 'fit' | 'fill', geometry?: { measured?: { width?: number; height?: number }; parent?: { width?: number; height?: number }; local?: { x: number; y: number } }) => setTextSizingModes([{ nodeId, axes, mode, ...geometry }]),
         begin: beginTextEditing,
         update: updateTextEditing,
         commit: commitTextEditing,
@@ -1250,12 +1276,29 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         /** Semantic sizing for one axis across a selection, each node with its own measurement (LAY-SIZE-003). One batch. */
         sizing: (axis: Axis, mode: SizingMode, targets: SizingTarget[]) => executeBatch(Object.entries(setAxisSizingMany(targets.filter(target => node(target.id)?.type === 'component'), axis, mode)).map(([nodeId, layout]): FileCommand => ({ type: 'node.setLayout', nodeId, layout }))),
         /** Primitive Fixed/Fit/Fill uses styles as fixed authority and layout only for semantic non-pixel sizing. */
-        primitiveSizing: (axis: Axis, mode: 'fixed' | 'hug' | 'fill', targets: readonly { id: string; measuredPx?: number }[]) => executeBatch(targets.flatMap(({ id, measuredPx }): FileCommand[] => {
+        primitiveSizing: (axis: Axis, mode: 'fixed' | 'hug' | 'fill', targets: readonly { id: string; measuredPx?: number; parentPx?: number; parentMeasuredPx?: number; local?: { x: number; y: number } }[]) => executeBatch(targets.flatMap(({ id, measuredPx, parentPx, parentMeasuredPx, local }): FileCommand[] => {
           const current = node(id)
           if (!isPrimitive(current) || current.type === 'text') return []
           const base = current.layout ?? { item: { position: { mode: 'freeform' as const } } }
-          const nextLayout = setAxisLength(base, axis, mode === 'fixed' ? null : mode === 'hug' ? intrinsic() : percent(100))
-          if (mode !== 'fixed') return [{ type: 'node.setLayout', nodeId: id, layout: nextLayout }]
+          const parentId = parentOf(id)
+          const parent = parentId ? node(parentId) : undefined
+          const display = parent && parent.type !== 'root' ? parent.layout?.container?.display ?? 'freeform' : null
+          const direction = display === 'flex' && parent && parent.type !== 'root' ? parent.layout?.container?.flex?.direction ?? 'column' : null
+          const sized = setAxisSizing(base, axis, mode, { measuredPx, parentPx }, direction, display, local)
+          const nextLayout = mode === 'fixed' && sized ? setAxisLength(sized, axis, null) : sized
+          if (!nextLayout) return []
+          if (mode !== 'fixed') {
+            const commands: FileCommand[] = []
+            const parentFits = parent && parent.type !== 'root' && parent.type !== 'text' && sizingModeOf(parent.layout, axis) === 'hug'
+            const childCanFit = current.type === 'frame'
+            if (mode === 'fill' && nodePositionMode(current) === 'flow' && parentFits && !childCanFit && parent?.type === 'frame') {
+              const fixedParent = typeof parentMeasuredPx === 'number' && Number.isFinite(parentMeasuredPx) && parentMeasuredPx > 0 ? Math.max(1, Math.round(parentMeasuredPx)) : parent.styles[axis]
+              commands.push({ type: 'node.setLayout', nodeId: parent.id, layout: setAxisLength(parent.layout ?? { item: { position: { mode: nodePositionMode(parent) ?? 'freeform' } } }, axis, null) })
+              commands.push({ type: 'node.setStyles', nodeId: parent.id, styles: { [axis]: fixedParent } })
+            }
+            commands.push({ type: 'node.setLayout', nodeId: id, layout: nextLayout })
+            return commands
+          }
           const fixed = typeof measuredPx === 'number' && Number.isFinite(measuredPx) && measuredPx > 0 ? Math.max(1, Math.round(measuredPx)) : current.styles[axis]
           return [
             { type: 'node.setLayout', nodeId: id, layout: nextLayout },

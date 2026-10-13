@@ -52,7 +52,7 @@ function render(node: HudProjectionEntry, locked = false, flowDrag: HudProjectio
 }
 
 describe('PAPER-FLEX-006-HUD canonical DOM HUD targets', () => {
-  it('places semantic targets at literal projected points and preserves effective-handle identity', () => {
+  it('CANVAS-RESIZE-SIDES-001 places all corner and one-axis targets at literal projected points', () => {
     const projected = entry()
     const poses = resizeHandlePoses(projected)
     expect(poses[0]).toMatchObject({ handle: 'top-left', center: { x: 470, y: 300 }, active: true, cursor: 'nesw-resize' })
@@ -67,6 +67,8 @@ describe('PAPER-FLEX-006-HUD canonical DOM HUD targets', () => {
     expect(html).toContain('data-hud-generation="4"')
     expect(html).toContain('data-handles-for="selected"')
     expect(html).toContain('data-handle="top-left"')
+    expect(html.match(/data-handle=/g)).toHaveLength(8)
+    for (const side of ['top', 'right', 'bottom', 'left']) expect(html).toContain(`data-handle="${side}" data-edge="true"`)
     expect(html).toContain('data-rotation-handles-for="selected"')
     expect(html).toContain('data-rotation-handle="top-left"')
     expect(html).toContain('data-active="true"')

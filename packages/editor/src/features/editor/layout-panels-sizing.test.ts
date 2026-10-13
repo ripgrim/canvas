@@ -27,6 +27,7 @@ describe('AT-CAN-002 attached sizing menus', () => {
   it('only adds Fit in flex context and Fill for flex items', () => {
     expect(sizingModesForContext(false, false)).toEqual(['fixed'])
     expect(sizingModesForContext(true, false)).toEqual(['fixed', 'hug'])
-    expect(sizingModesForContext(false, true)).toEqual(['fixed', 'hug', 'fill'])
+    expect(sizingModesForContext(false, true)).toEqual(['fixed', 'fill'])
+    expect(sizingModesForContext(true, true)).toEqual(['fixed', 'hug', 'fill'])
   })
 })

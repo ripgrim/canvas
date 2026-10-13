@@ -73,9 +73,8 @@ export function sizingFieldState(available: readonly SizingMode[], current: Sizi
   return { currentLabel, options }
 }
 
-export function sizingModesForContext(flexContainer: boolean, flexItem: boolean): SizingMode[] {
-  if (!flexContainer && !flexItem) return ['fixed']
-  return ['fixed', 'hug', ...(flexItem ? ['fill' as const] : [])]
+export function sizingModesForContext(intrinsicContent: boolean, hasParent: boolean): SizingMode[] {
+  return ['fixed', ...(intrinsicContent ? ['hug' as const] : []), ...(hasParent ? ['fill' as const] : [])]
 }
 
 /**
@@ -164,7 +163,8 @@ function ComponentLayoutSection({ context }: { context: ComponentContext }) {
   const flipY = nodes.length > 0 && nodes.every(node => scale(node).y < 0)
   const flexContainer = nodes.every(node => node.layout?.container?.display === 'flex')
   const flexItem = nodes.every(node => parentDirection(file, node.id) !== null)
-  const flexSizing = flexContainer || flexItem
+  const hasParent = nodes.every(node => !isRootChild(file, node.id))
+  const semanticSizing = flexContainer || flexItem || hasParent
   const commitCoordinate = (side: 'left' | 'top', value: number) => {
     if (absolute) { layout().inset(side, px(value), ids); return }
     layout().setMany(Object.fromEntries(nodes.flatMap((node, index) => {
@@ -181,23 +181,23 @@ function ComponentLayoutSection({ context }: { context: ComponentContext }) {
   const transform = (update: (node: ComponentNode) => NodeLayout) => { layout().setMany(Object.fromEntries(nodes.map(node => [node.id, update(node)]))) }
   const compactAxis = (axis: Axis) => {
     const sizing = agree(nodes.map(node => sizingModeOf(node.layout, axis)))
-    const available = sizingModesForContext(flexContainer, flexItem)
+    const available = sizingModesForContext(true, hasParent)
     const relative = !sizing.mixed && sizing.value === 'relative'
-    const showsValue = !sizing.mixed && (!flexSizing || sizing.value === 'fixed' || relative)
-    const numericOverride = !sizing.mixed && flexSizing && (sizing.value === 'hug' || sizing.value === 'fill' || sizing.value === 'auto')
+    const showsValue = !sizing.mixed && (!semanticSizing || sizing.value === 'fixed' || relative)
+    const numericOverride = !sizing.mixed && semanticSizing && (sizing.value === 'hug' || sizing.value === 'fill' || sizing.value === 'auto')
     const value = agree(nodes.map(node => { const length = node.layout?.item[axis]?.value; return length?.kind === 'px' || length?.kind === 'percent' ? length.value : undefined }))
     const measured = agree(nodes.map(node => geometry.nodes[node.id]?.rect[axis]))
     const label = axis === 'width' ? copy.width : copy.height
     const prefix = axis === 'width' ? copy.prefixes.width : copy.prefixes.height
-    const effectiveSizing = !sizing.mixed && flexSizing && sizing.value === 'auto' ? 'hug' : sizing.value
+    const effectiveSizing = !sizing.mixed && semanticSizing && sizing.value === 'auto' ? 'hug' : sizing.value
     const sizingField = sizingFieldState(available, effectiveSizing, sizing.mixed)
     const toLength = (next: number): LayoutLength => relative ? { kind: 'percent', value: next } : { kind: 'px', value: next }
     const choose = (next: string) => {
       const mode: SizingMode = next === 'fit' ? 'hug' : next as SizingMode
       layout().sizing(axis, mode, sizingTargets(file, geometry, ids, axis))
     }
-    const field = <InspectorScrubField id={`sizing-${axis}`} label={label} prefix={prefix} value={showsValue ? shown(value) ?? shown(measured) : null} placeholder={flexSizing ? sizingField.currentLabel : mixedPlaceholder(measured)} min={0} max={relative ? 99 : limit} {...(!relative && context.numericTokens.length ? { tokens: context.numericTokens, tokenLabel: copy.numericToken(label) } : {})} {...(relative ? { suffix: copy.percentSuffix } : {})} disabled={disabled || !showsValue && !numericOverride} onCommit={next => { layout().length(axis, toLength(next), ids) }} onScrubStart={() => scrubSession(nodes, (before, next) => setAxisLength(before, axis, toLength(next)))} />
-    return flexSizing ? <SizingField label={copy.sizingMode(label)} currentLabel={sizingField.currentLabel} options={sizingField.options} disabled={disabled} onChoose={choose} field={field} /> : field
+    const field = <InspectorScrubField id={`sizing-${axis}`} label={label} prefix={prefix} value={showsValue ? shown(value) ?? shown(measured) : null} placeholder={semanticSizing ? sizingField.currentLabel : mixedPlaceholder(measured)} min={0} max={relative ? 99 : limit} {...(!relative && context.numericTokens.length ? { tokens: context.numericTokens, tokenLabel: copy.numericToken(label) } : {})} {...(relative ? { suffix: copy.percentSuffix } : {})} disabled={disabled || !showsValue && !numericOverride} onCommit={next => { layout().length(axis, toLength(next), ids) }} onScrubStart={() => scrubSession(nodes, (before, next) => setAxisLength(before, axis, toLength(next)))} />
+    return semanticSizing ? <SizingField label={copy.sizingMode(label)} currentLabel={sizingField.currentLabel} options={sizingField.options} disabled={disabled} onChoose={choose} field={field} /> : field
   }
   return <InspectorSection id="layout" title={copy.layout}>
     <InspectorRow>

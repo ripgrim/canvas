@@ -24,9 +24,9 @@ export function resolveEditorTarget(webUrl: string | undefined, development: boo
   return { kind: 'hosted', url: url.href, origin: url.origin, development: false, localCapabilities: false }
 }
 
-export function localCapabilityArguments(target: EditorTarget): string[] {
+export function localCapabilityArguments(target: EditorTarget, allowUnauthenticatedWorkspace = false): string[] {
   if (!target.localCapabilities) return []
-  return ['--design-editor-local-capabilities', `--design-editor-editor-url=${target.url}`]
+  return ['--design-editor-local-capabilities', `--design-editor-editor-url=${target.url}`, ...(allowUnauthenticatedWorkspace ? ['--design-editor-unauthenticated-workspace'] : [])]
 }
 
 export function mayExposeLocalCapabilities(isMainFrame: boolean, argv: readonly string[], currentUrl: string): boolean {

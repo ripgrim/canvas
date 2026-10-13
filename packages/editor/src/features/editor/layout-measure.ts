@@ -137,7 +137,10 @@ export function sizingTargets(file: FileDocument, geometry: LayoutGeometry, ids:
   return ids.filter(id => file.nodes[id]?.type === 'component').map(id => {
     const measured = measuredPx(geometry, id, axis)
     const parent = parentContentPx(file, geometry, id, axis)
-    return { id, layout: layoutOf(file, id), measurement: { ...(measured !== undefined ? { measuredPx: measured } : {}), ...(parent !== undefined ? { parentPx: parent } : {}) }, parentDirection: parentDirection(file, id) }
+    const parentId = parentIdOf(file, id)
+    const parentDisplay = parentId ? file.nodes[parentId]?.type === 'root' ? null : file.nodes[parentId]?.layout?.container?.display ?? 'freeform' : null
+    const local = localPoint(file, geometry, id)
+    return { id, layout: layoutOf(file, id), measurement: { ...(measured !== undefined ? { measuredPx: measured } : {}), ...(parent !== undefined ? { parentPx: parent } : {}) }, parentDisplay, parentDirection: parentDirection(file, id), ...(local ? { local } : {}) }
   })
 }
 

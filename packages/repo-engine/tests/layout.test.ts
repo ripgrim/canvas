@@ -282,6 +282,18 @@ describe('item projection', () => {
     expect(projectItemStyle(flow({ flex: { grow: 1, basis: { kind: 'px', value: 0 } } }), 'grid').flexGrow).toBeNull()
   })
 
+  it('PAPER-FILL-001: semantic Fill projects by parent axis instead of as a universal 100 percent size', () => {
+    const fill = { value: { kind: 'percent' as const, value: 100 } }
+    const rowMain = projectItemStyle(flow({ width: fill }), { display: 'flex', flexDirection: 'row' })
+    expect([rowMain.width, rowMain.flexGrow, rowMain.flexShrink, rowMain.flexBasis]).toEqual([null, '1', '1', '0%'])
+    const rowCross = projectItemStyle(flow({ height: fill }), { display: 'flex', flexDirection: 'row' })
+    expect([rowCross.height, rowCross.alignSelf]).toEqual([null, 'stretch'])
+    const gridWidth = projectItemStyle(flow({ width: fill }), { display: 'grid' })
+    expect([gridWidth.width, gridWidth.justifySelf]).toEqual([null, 'stretch'])
+    const constrained = projectItemStyle({ position: { mode: 'absolute', left: { kind: 'px', value: 0 }, right: { kind: 'px', value: 0 } }, width: fill }, { display: 'freeform' })
+    expect(constrained.width).toBeNull()
+  })
+
   it('LAY-SCHEMA-002: transform projects rotate then scale', () => {
     expect(projectItemStyle(flow({ transform: { rotate: 45, scale: { x: 2, y: 1 } } }), null).transform).toBe('rotate(45deg) scale(2, 1)')
     expect(projectItemStyle(flow({ transform: { scale: 1.5 } }), null).transform).toBe('scale(1.5)')

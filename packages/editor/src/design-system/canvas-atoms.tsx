@@ -105,7 +105,7 @@ export function NodeNameEditor({ id, pose, value, label, onCommit, onCancel }: {
 export type CanvasTextKeyAction = 'continue' | 'newline' | 'commit' | 'cancel' | 'next' | 'previous'
 export function canvasTextKeyAction(event: Pick<KeyboardEvent<HTMLElement>, 'key' | 'ctrlKey' | 'metaKey'> & Partial<Pick<KeyboardEvent<HTMLElement>, 'shiftKey'> & { isComposing: boolean }>): CanvasTextKeyAction {
   if (event.isComposing) return 'continue'
-  if (event.key === 'Escape') return 'cancel'
+  if (event.key === 'Escape') return 'commit'
   if (event.key === 'Tab') return event.shiftKey ? 'previous' : 'next'
   if (event.key === 'Enter') return event.ctrlKey || event.metaKey ? 'commit' : 'newline'
   return 'continue'

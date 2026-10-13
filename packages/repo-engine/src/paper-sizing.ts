@@ -195,7 +195,11 @@ const capability = (capabilities: PaperAxisCapabilities, intent: PaperAxisIntent
 }
 
 const fixedDecision = (value: number): PaperAxisDecision => positive(value) ? { intent: 'fixed', fixedPx: value } : fail('Paper sizing requires a positive finite fixed size')
-const fitDecision = (): PaperAxisDecision => ({ intent: 'fit', stored: { value: { kind: 'intrinsic', value: 'fit-content' } } })
+const fitDecision = (minimum?: number): PaperAxisDecision => {
+  const stored: AxisSize = { value: { kind: 'intrinsic', value: 'fit-content' } }
+  if (minimum !== undefined && positive(minimum)) stored.min = { kind: 'px', value: minimum }
+  return { intent: 'fit', stored }
+}
 const fillDecision = (): PaperAxisDecision => ({ intent: 'fill', stored: { value: { kind: 'percent', value: 100 } } })
 
 function preservedDecision(axis: PaperAxisSnapshot): PaperAxisDecision {
@@ -405,11 +409,8 @@ export function planPaperAddSizing(input: PaperAddSizingInput): PaperAddSizingPl
     const source = input.parent.axes[axis]
     const inferred = input.inferred[axis]
     if (source.intent === 'fixed') {
-      if (axis === 'width' && input.direction === 'column') parentAxes[axis] = fixedDecision(inferred)
-      else {
-        if (!input.parentCapabilities[axis].fit) fail(`Add Flex requires Fit ${axis} for a fixed parent`)
-        parentAxes[axis] = fitDecision()
-      }
+      if (!input.parentCapabilities[axis].fit) fail(`Add Flex requires Fit ${axis} for a fixed parent`)
+      parentAxes[axis] = fitDecision(source.measured)
       continue
     }
     if (source.intent !== 'auto') {
@@ -437,13 +438,5 @@ export function planPaperAddSizing(input: PaperAddSizingInput): PaperAddSizingPl
     } else parentAxes[axis] = fixedDecision(inferred)
   }
 
-  if (input.direction === 'column' && input.parent.axes.width.intent === 'fixed' && input.children.length > 0) {
-    const widest = Math.max(...input.children.map(child => Math.round(child.snapshot.measured.width)))
-    input.children.forEach((child, index) => {
-      if (Math.round(child.snapshot.measured.width) !== widest) return
-      if (!child.capabilities.width.fill) fail('The widest column child cannot become Fill width')
-      childAxes[index]!.axes.width = fillDecision()
-    })
-  }
   return { parentAxes, childAxes }
 }

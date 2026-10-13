@@ -55,11 +55,11 @@ describe('sizing transitions', () => {
     expect(sizingModeOf({ item: { position: { mode: 'flow' }, width: { value: percent(99) } } }, 'width')).toBe('relative')
     expect(sizingModeOf(undefined, 'width')).toBe('auto')
   })
-  it('Fixed takes the measured size and keeps bounds; Fill is exactly 100%; Hug is fit-content; Auto is auto', () => {
+  it('Fixed takes the measured size; absolute Fill uses opposing constraints; Hug is fit-content; Auto is auto', () => {
     const fixed = setAxisSizing(absolute, 'height', 'fixed', { measuredPx: 143.5 })!
     expect(fixed.item.height).toEqual({ value: px(144) })
     expect(fixed.item.width).toEqual({ value: px(200), min: px(50) })
-    expect(setAxisSizing(absolute, 'width', 'fill', {})!.item.width).toEqual({ value: percent(100), min: px(50) })
+    expect(setAxisSizing(absolute, 'width', 'fill', {})!.item).toEqual({ position: { mode: 'absolute', left: px(0), top: px(34), right: px(0), zIndex: 3 }, height: { value: percent(100) }, aspectRatio: 1.5 })
     expect(setAxisSizing(absolute, 'width', 'hug', {})!.item.width).toEqual({ value: { kind: 'intrinsic', value: 'fit-content' }, min: px(50) })
     expect(setAxisSizing(absolute, 'width', 'auto', {})!.item.width).toEqual({ value: { kind: 'auto' }, min: px(50) })
   })
@@ -78,6 +78,19 @@ describe('sizing transitions', () => {
     expect(setAxisSizing(start, 'width', 'fixed', { measuredPx: 90 }, 'column')!.item).toEqual({ position: { mode: 'flow' }, width: { value: px(90) }, flex: { grow: 1 } })
     const triple: NodeLayout = { item: { position: { mode: 'flow' }, flex: { grow: 1, shrink: 1, basis: { kind: 'auto' } } } }
     expect(setAxisSizing(triple, 'height', 'fixed', { measuredPx: 20 }, 'column')!.item.flex).toEqual({ grow: 1, shrink: 1, basis: { kind: 'auto' } })
+  })
+  it('PAPER-FILL-002: Fill writes constraints in freeform and flex growth only on the Flex main axis', () => {
+    const freeform = setAxisSizing(undefined, 'width', 'fill', { measuredPx: 80, parentPx: 240 }, null, 'freeform', { x: 24, y: 36 })!
+    expect(freeform.item).toEqual({ position: { mode: 'absolute', left: px(0), top: px(36), right: px(0) } })
+    expect(sizingModeOf(freeform, 'width')).toBe('fill')
+    const fixed = setAxisSizing(freeform, 'width', 'fixed', { measuredPx: 240 }, null, 'freeform')!
+    expect(fixed.item.position).toEqual({ mode: 'absolute', left: px(0), top: px(36) })
+    expect(fixed.item.width).toEqual({ value: px(240) })
+
+    const main = setAxisSizing({ item: { position: { mode: 'flow' } } }, 'width', 'fill', {}, 'row', 'flex')!
+    expect(main.item).toEqual({ position: { mode: 'flow' }, width: { value: percent(100) }, flex: { grow: 1, shrink: 1, basis: px(0) } })
+    const cross = setAxisSizing({ item: { position: { mode: 'flow' } } }, 'height', 'fill', {}, 'row', 'flex')!
+    expect(cross.item).toEqual({ position: { mode: 'flow' }, height: { value: percent(100) } })
   })
   it('LAY-SIZE-003: multi-selection transitions use per-node measurements and skip Relative without a parent', () => {
     const results = setAxisSizingMany([

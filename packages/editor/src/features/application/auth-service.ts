@@ -42,7 +42,7 @@ export const authSessionService = {
   subscribe(listener: () => void): () => void { listeners.add(listener); return () => listeners.delete(listener) },
   getSnapshot(): AuthSessionView { return snapshot },
   getServerSnapshot(): AuthSessionView { return serverSnapshot },
-  allowsUnauthenticatedWorkspace(): boolean { return api === undefined },
+  allowsUnauthenticatedWorkspace(): boolean { return api === undefined || api.allowUnauthenticatedWorkspace === true },
   allowsSignedOutWorkspace(): boolean { return api?.allowSignedOutWorkspace === true },
   signIn(): void {
     if (!api) return

@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "pnpm --filter @canvas/web build && pnpm --filter @canvas/preview-runtime build && pnpm --filter @canvas/repo-engine build && pnpm --filter @canvas/scanner build && pnpm --filter @canvas/repository build && pnpm --filter @canvas/auth build && pnpm --filter @canvas/sync-client build && pnpm build && electron . --development",
     "dev:renderer": "pnpm --filter @canvas/web dev",
-    "build": "node ../../scripts/sync-web-assets.mjs && vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts",
+    "build": "pnpm --filter @canvas/web build && node ../../scripts/sync-web-assets.mjs && vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts",
     "package": "electron-builder --win nsis --publish never",
     "start": "electron .",
     "typecheck": "tsc --noEmit",

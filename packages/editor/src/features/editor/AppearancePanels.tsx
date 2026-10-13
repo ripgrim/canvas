@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { MutableRefObject, ReactNode } from 'react'
 import { applyColorOpacity, canonicalAppearance, convertPaint, defaultOutline } from '@canvas/repo-engine/appearance'
 import type { Appearance, BlendMode, BorderSide, ColorValue, GradientInterpolation, GradientPaint, GradientShape, ImagePaint, Outline, Paint, Stroke, StrokeStyle } from '@canvas/repo-engine/appearance'
 import { resolveColorValue } from '@canvas/repo-engine/file-document'
@@ -58,7 +58,7 @@ function freshTargets(ids: readonly string[]): Target[] {
 }
 
 type ColorLabels = { binding: string; color: string; opacity: string }
-type ColorPartsProps = { id: string; context: Context; slot: ColorSlot; value: ColorValue; mixed?: boolean; labels: ColorLabels; picker?: { open: boolean; onOpenChange: (open: boolean) => void }; opacity?: number; opacityMixed?: boolean; onOpacityChange?: (opacity: number) => void; onChange: (value: ColorValue) => void; onBindingAction?: () => void }
+type ColorPartsProps = { id: string; context: Context; slot: ColorSlot; value: ColorValue; mixed?: boolean; labels: ColorLabels; picker?: { open: boolean; onOpenChange: (open: boolean) => void }; colorGesture: MutableRefObject<boolean>; opacity?: number; opacityMixed?: boolean; onOpacityChange?: (opacity: number) => void; onChange: (value: ColorValue) => void; onBindingAction?: () => void }
 type ColorParts = { bound: boolean; binding: ReactNode; color: ReactNode }
 
 /** The color stored at one slot on every selected node that has it. */
@@ -100,15 +100,28 @@ function unlinkSlot(context: Context, slot: ColorSlot): boolean {
 }
 
 /** A color source select (literal or a theme token) and the editable color field. Editing the color makes it literal. */
-function literalParts({ id, context, value, mixed = false, labels, picker, onChange }: ColorPartsProps): ColorParts {
+function literalParts({ id, context, slot, value, mixed = false, labels, picker, colorGesture, onChange }: ColorPartsProps): ColorParts {
   const { file, mode, disabled, targets } = context
   const resolved = resolveColorValue(file.theme, value, targets[0] ? context.paletteOf(targets[0].id) : {})
   const hex = colorToHex(resolved ?? fallbackColor)
-  const commit = (next: string) => onChange(literal(next))
+  const preview = (next: string) => {
+    const gesture = commands().gesture
+    if (!colorGesture.current) { gesture.begin(); colorGesture.current = true }
+    gesture.preview(overridesFor(targets, appearance => withColorAtSlot(appearance, slot, literal(next))))
+  }
+  const cancel = () => {
+    if (!colorGesture.current) return
+    commands().gesture.cancel()
+    colorGesture.current = false
+  }
+  const commit = (next: string) => {
+    cancel()
+    onChange(literal(next))
+  }
   return {
     bound: false,
     binding: <TokenChooser id={`${id}-binding`} label={labels.binding} placeholder={labels.binding} options={chooserOptions(context)} disabled={disabled} onChoose={tokenId => onChange({ kind: 'token', tokenId })} />,
-    color: <InspectorColorField id={`${id}-color`} label={labels.color} opacityLabel={labels.opacity} value={hex} {...(mixed ? { mixed: copy.mixed } : {})} disabled={disabled} swatch={<ColorPicker variant="swatch" label={labels.color} value={hex} mode={mode} disabled={disabled} onChange={commit} {...(picker ?? {})} />} onCommit={commit} />,
+    color: <InspectorColorField id={`${id}-color`} label={labels.color} opacityLabel={labels.opacity} value={hex} {...(mixed ? { mixed: copy.mixed } : {})} disabled={disabled} swatch={<ColorPicker variant="swatch" label={labels.color} value={hex} mode={mode} disabled={disabled} onPreview={preview} onCancel={cancel} onChange={commit} {...(picker ?? {})} />} onCommit={commit} />,
   }
 }
 
@@ -155,8 +168,9 @@ function colorParts(props: ColorPartsProps): ColorParts {
   return boundParts(props, state as Exclude<BindingState, { kind: 'empty' | 'literal' | 'mixed-literals' }>, entries)
 }
 
-function ColorLine(props: ColorPartsProps & { trailing?: ReactNode }) {
-  const parts = colorParts(props)
+function ColorLine(props: Omit<ColorPartsProps, 'colorGesture'> & { trailing?: ReactNode }) {
+  const colorGesture = useRef(false)
+  const parts = colorParts({ ...props, colorGesture })
   return <AppearanceLine layout="value-actions">{parts.color}{parts.binding}{props.trailing}</AppearanceLine>
 }
 
@@ -291,7 +305,8 @@ function GradientBody({ context, paint, index, number, isMixed, write, live }: B
     setActive(selected => selected > index ? selected - 1 : Math.min(selected, paint.stops.length - 2))
   }
   const stopLabels = { binding: copy.stopBinding(stopNumber(current)), color: copy.stopColor(stopNumber(current)), opacity: copy.stopOpacity(stopNumber(current)) }
-  const parts = colorParts({ id: `fill-${paint.id}-stop`, context, slot: stopSlot(current), value: stop.color, mixed: isMixed('stops'), labels: stopLabels, picker: { open: pickerOpen, onOpenChange: setPickerOpen }, onChange: color => write(withStop(paint, current, { color })), onBindingAction: () => setPickerOpen(false) })
+  const colorGesture = useRef(false)
+  const parts = colorParts({ id: `fill-${paint.id}-stop`, context, slot: stopSlot(current), value: stop.color, mixed: isMixed('stops'), labels: stopLabels, picker: { open: pickerOpen, onOpenChange: setPickerOpen }, colorGesture, onChange: color => write(withStop(paint, current, { color })), onBindingAction: () => setPickerOpen(false) })
   return <>
     <AppearanceLine>
       <AppearanceSelect id={`fill-${paint.id}-shape`} label={copy.shape(number)} value={isMixed('shape') ? null : paint.shape} placeholder={copy.mixed} options={shapes} disabled={disabled} onChange={shape => write({ ...paint, shape: shape as GradientShape })} />

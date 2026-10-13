@@ -3,13 +3,20 @@
  * aspect ratio and spacing. Every function returns the next v4 layout record for one node without touching the
  * store, so multi-selection edits can gather results and commit them as one batch (one undo entry).
  */
-import { applyDefiniteMainAxis, autoLength, classifySizing, normalizeItem, transitionSizing } from '@canvas/repo-engine/layout'
+import { applyDefiniteMainAxis, autoLength, classifySizing, normalizeItem, px, transitionSizing } from '@canvas/repo-engine/layout'
 import type { AxisSize, DisplayMode, FlexDirection, InsetLength, LayoutItem, LayoutLength, NodeLayout, NodeSpacing, NodeTransform, SizingMode } from '@canvas/repo-engine/layout'
 
 export type Axis = 'width' | 'height'
 export type InsetSide = 'left' | 'right' | 'top' | 'bottom'
 export type AxisMeasurement = { measuredPx?: number | undefined; parentPx?: number | undefined }
-export type SizingTarget = { id: string; layout: NodeLayout | undefined; measurement: AxisMeasurement; parentDirection?: FlexDirection | null }
+export type SizingTarget = {
+  id: string
+  layout: NodeLayout | undefined
+  measurement: AxisMeasurement
+  parentDisplay?: DisplayMode | null
+  parentDirection?: FlexDirection | null
+  local?: { x: number; y: number }
+}
 
 export const emptyLayout = (): NodeLayout => ({ item: { position: { mode: 'flow' } } })
 const withItem = (layout: NodeLayout | undefined, item: LayoutItem): NodeLayout => ({ ...(layout ?? emptyLayout()), item })
@@ -83,20 +90,43 @@ export function setZIndex(layout: NodeLayout | undefined, zIndex: number | null)
   return withItem(layout, { ...item, position })
 }
 
-export const sizingModeOf = (layout: NodeLayout | undefined, axis: Axis): SizingMode => classifySizing(layout?.item[axis]?.value)
+const axisSides = (axis: Axis) => axis === 'width' ? (['left', 'right'] as const) : (['top', 'bottom'] as const)
+const fillsByConstraints = (item: LayoutItem, axis: Axis): boolean => {
+  if (item.position.mode !== 'absolute') return false
+  const [start, end] = axisSides(axis)
+  return item.position[start]?.kind === 'px' && item.position[start].value === 0 && item.position[end]?.kind === 'px' && item.position[end].value === 0 && item[axis] === undefined
+}
+export const sizingModeOf = (layout: NodeLayout | undefined, axis: Axis): SizingMode => layout && fillsByConstraints(layout.item, axis) ? 'fill' : classifySizing(layout?.item[axis]?.value)
 const isMainAxis = (axis: Axis, direction: FlexDirection | null | undefined) => direction ? (direction.startsWith('row') ? axis === 'width' : axis === 'height') : false
+const isPaperFlexFill = (item: LayoutItem): boolean => item.flex?.grow === 1 && item.flex.shrink === 1 && item.flex.basis?.kind === 'px' && item.flex.basis.value === 0
 
 /**
  * Changes one axis to a sizing mode using this node's own measurement. Returns null when the transition has nothing
  * to store (Calculate without a source value). A definite main axis inside a Flex parent applies the shrink rule.
  */
-export function setAxisSizing(layout: NodeLayout | undefined, axis: Axis, mode: SizingMode, measurement: AxisMeasurement, parentDirection: FlexDirection | null = null): NodeLayout | null {
+export function setAxisSizing(layout: NodeLayout | undefined, axis: Axis, mode: SizingMode, measurement: AxisMeasurement, parentDirection: FlexDirection | null = null, parentDisplay: DisplayMode | null = null, local?: { x: number; y: number }): NodeLayout | null {
   const item = itemOf(layout)
   const current = item[axis]
   const length = transitionSizing(mode, { current: current?.value, measuredPx: measurement.measuredPx, parentPx: measurement.parentPx })
   if (!length) return null
-  const nextAxis: AxisSize = { ...(current ?? {}), value: length }
-  let next: LayoutItem = { ...item, [axis]: nextAxis }
+  let next: LayoutItem = structuredClone(item)
+  const wasFill = sizingModeOf(withItem(layout, next), axis) === 'fill'
+  if (mode === 'fill' && (parentDisplay === 'freeform' || next.position.mode === 'absolute')) {
+    if (next.position.mode !== 'absolute') next.position = { mode: 'absolute', left: px(Math.round(local?.x ?? 0)), top: px(Math.round(local?.y ?? 0)) }
+    const [start, end] = axisSides(axis)
+    next.position[start] = px(0)
+    next.position[end] = px(0)
+    delete next[axis]
+  } else {
+    if (wasFill && next.position.mode === 'absolute') {
+      const [, end] = axisSides(axis)
+      delete next.position[end]
+    }
+    const nextAxis: AxisSize = { ...(current ?? {}), value: length }
+    next[axis] = nextAxis
+  }
+  if (parentDisplay === 'flex' && mode === 'fill' && isMainAxis(axis, parentDirection)) next.flex = { grow: 1, shrink: 1, basis: px(0) }
+  else if (parentDisplay === 'flex' && isMainAxis(axis, parentDirection) && isPaperFlexFill(next)) delete next.flex
   if (isMainAxis(axis, parentDirection) && parentDirection) next = applyDefiniteMainAxis(next, parentDirection)
   return withItem(layout, next)
 }
@@ -107,7 +137,7 @@ export function setAxisSizingMany(targets: readonly SizingTarget[], axis: Axis, 
     const hasParent = typeof target.measurement.parentPx === 'number' && Number.isFinite(target.measurement.parentPx) && target.measurement.parentPx > 0
     const current = target.layout?.item[axis]?.value
     if (mode === 'relative' && !hasParent && current?.kind !== 'percent') continue
-    const next = setAxisSizing(target.layout, axis, mode, target.measurement, target.parentDirection ?? null)
+    const next = setAxisSizing(target.layout, axis, mode, target.measurement, target.parentDirection ?? null, target.parentDisplay ?? null, target.local)
     if (next) results[target.id] = next
   }
   return results

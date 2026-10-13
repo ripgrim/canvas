@@ -256,8 +256,8 @@ describe('PAPER-FLEX-003 Paper sizing snapshots and transitions', () => {
     const planSuccess = { parent: primitive('parent', null, measured(200, 100)), direction: 'row' as const, inferred: measured(180, 80), parentIsFlexChild: false, parentCapabilities: all, children: [{ snapshot: primitive('child', null, measured(40, 20)), capabilities: all }] }
     assertUnchanged(planSuccess, () => planPaperAddSizing(planSuccess))
     const noFill = { ...all, width: { ...all.width, fill: false } }
-    const planFailure = { ...planSuccess, direction: 'column' as const, children: [{ snapshot: primitive('child', null, measured(40, 20)), capabilities: noFill }] }
-    assertUnchanged(planFailure, () => planPaperAddSizing(planFailure), true)
+    const fixedParentWithoutChildFill = { ...planSuccess, direction: 'column' as const, children: [{ snapshot: primitive('child', null, measured(40, 20)), capabilities: noFill }] }
+    assertUnchanged(fixedParentWithoutChildFill, () => planPaperAddSizing(fixedParentWithoutChildFill))
   })
 })
 
@@ -267,24 +267,24 @@ describe('PAPER-FLEX-003 Add-parent sizing', () => {
   it('11 turns fixed row parent width and fixed height into Fit', () => {
     const result = planPaperAddSizing({ parent: primitive('parent', layout({ mode: 'freeform' }), measured(240, 120)), direction: 'row', inferred: measured(208, 64), parentIsFlexChild: false, parentCapabilities: all, children: [child('one', 40)] })
     expect(result.parentAxes).toStrictEqual({
-      width: { intent: 'fit', stored: { value: { kind: 'intrinsic', value: 'fit-content' } } },
-      height: { intent: 'fit', stored: { value: { kind: 'intrinsic', value: 'fit-content' } } },
+      width: { intent: 'fit', stored: { value: { kind: 'intrinsic', value: 'fit-content' }, min: { kind: 'px', value: 240 } } },
+      height: { intent: 'fit', stored: { value: { kind: 'intrinsic', value: 'fit-content' }, min: { kind: 'px', value: 120 } } },
     })
   })
 
-  it('12 keeps inferred fixed width for a fixed column parent while height becomes Fit', () => {
+  it('12 turns both fixed column parent axes into Fit', () => {
     const result = planPaperAddSizing({ parent: primitive('parent', null, measured(240, 120)), direction: 'column', inferred: measured(208, 64), parentIsFlexChild: false, parentCapabilities: all, children: [child('one', 40)] })
     expect(result.parentAxes).toStrictEqual({
-      width: { intent: 'fixed', fixedPx: 208 },
-      height: { intent: 'fit', stored: { value: { kind: 'intrinsic', value: 'fit-content' } } },
+      width: { intent: 'fit', stored: { value: { kind: 'intrinsic', value: 'fit-content' }, min: { kind: 'px', value: 240 } } },
+      height: { intent: 'fit', stored: { value: { kind: 'intrinsic', value: 'fit-content' }, min: { kind: 'px', value: 120 } } },
     })
   })
 
-  it('kills the row-column swap mutant with opposite literal width decisions', () => {
+  it('uses the same Fit width decision for fixed row and column parents', () => {
     const parent = primitive('parent', null, measured(240, 120))
     const base = { parent, inferred: measured(208, 64), parentIsFlexChild: false, parentCapabilities: all, children: [child('one', 40)] }
     expect(planPaperAddSizing({ ...base, direction: 'row' }).parentAxes.width.intent).toBe('fit')
-    expect(planPaperAddSizing({ ...base, direction: 'column' }).parentAxes.width).toStrictEqual({ intent: 'fixed', fixedPx: 208 })
+    expect(planPaperAddSizing({ ...base, direction: 'column' }).parentAxes.width.intent).toBe('fit')
   })
 
   it('13 transfers one dependent Relative intent to an auto parent and makes that child Fill', () => {
@@ -306,7 +306,7 @@ describe('PAPER-FLEX-003 Add-parent sizing', () => {
     expect(result.childAxes).toStrictEqual([{ nodeId: 'fill', axes: {} }, { nodeId: 'relative', axes: {} }])
   })
 
-  it('15 marks every greatest rounded-width tie Fill in a fixed-width column', () => {
+  it('15 leaves child widths intact when a fixed-width column becomes Fit', () => {
     const result = planPaperAddSizing({
       parent: primitive('parent', null, measured(240, 120)),
       direction: 'column',
@@ -316,8 +316,8 @@ describe('PAPER-FLEX-003 Add-parent sizing', () => {
       children: [child('tie-a', 100.49), child('tie-b', 100.4), child('narrow', 99.4)],
     })
     expect(result.childAxes).toStrictEqual([
-      { nodeId: 'tie-a', axes: { width: { intent: 'fill', stored: { value: { kind: 'percent', value: 100 } } } } },
-      { nodeId: 'tie-b', axes: { width: { intent: 'fill', stored: { value: { kind: 'percent', value: 100 } } } } },
+      { nodeId: 'tie-a', axes: {} },
+      { nodeId: 'tie-b', axes: {} },
       { nodeId: 'narrow', axes: {} },
     ])
   })
@@ -329,7 +329,7 @@ describe('PAPER-FLEX-003 Add-parent sizing', () => {
     expect(planPaperAddSizing({ ...base, parentIsFlexChild: true }).parentAxes.width).toStrictEqual({ intent: 'fill', stored: { value: { kind: 'percent', value: 100 } } })
   })
 
-  it('fails closed when Add requires unavailable parent or widest-child sizing', () => {
+  it('fails closed when Add requires an unavailable parent sizing mode', () => {
     const fixedParent = primitive('fixed-parent', null, measured(240, 120))
     const noFit = { ...all, width: { ...all.width, fit: false } }
     expect(() => planPaperAddSizing({ parent: fixedParent, direction: 'row', inferred: measured(200, 80), parentIsFlexChild: false, parentCapabilities: noFit, children: [child('one', 40)] })).toThrow('requires Fit width')
@@ -338,6 +338,6 @@ describe('PAPER-FLEX-003 Add-parent sizing', () => {
     const noFill = { ...all, width: { ...all.width, fill: false } }
     expect(() => planPaperAddSizing({ parent: autoParent, direction: 'row', inferred: measured(200, 80), parentIsFlexChild: true, parentCapabilities: noFill, children: [child('one', 40)] })).toThrow('requires Fill width')
 
-    expect(() => planPaperAddSizing({ parent: fixedParent, direction: 'column', inferred: measured(200, 80), parentIsFlexChild: false, parentCapabilities: all, children: [{ snapshot: primitive('widest', null, measured(100, 20)), capabilities: noFill }] })).toThrow('widest column child cannot become Fill width')
+    expect(planPaperAddSizing({ parent: fixedParent, direction: 'column', inferred: measured(200, 80), parentIsFlexChild: false, parentCapabilities: all, children: [{ snapshot: primitive('widest', null, measured(100, 20)), capabilities: noFill }] }).parentAxes.width.intent).toBe('fit')
   })
 })

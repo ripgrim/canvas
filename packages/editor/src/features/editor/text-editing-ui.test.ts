@@ -101,8 +101,8 @@ describe('PAPER-TEXT-005 keyboard and completion semantics', () => {
     expect(canvasTextKeyAction({ key: 'Enter', ctrlKey: false, metaKey: true, shiftKey: false })).toBe('commit')
   })
 
-  it('maps Escape and both Tab directions without treating ordinary keys as commands', () => {
-    expect(canvasTextKeyAction({ key: 'Escape', ctrlKey: false, metaKey: false })).toBe('cancel')
+  it('TEXT-ESCAPE-COMMIT-001 commits on Escape and maps both Tab directions without treating ordinary keys as commands', () => {
+    expect(canvasTextKeyAction({ key: 'Escape', ctrlKey: false, metaKey: false })).toBe('commit')
     expect(canvasTextKeyAction({ key: 'Tab', ctrlKey: false, metaKey: false, shiftKey: false })).toBe('next')
     expect(canvasTextKeyAction({ key: 'Tab', ctrlKey: false, metaKey: false, shiftKey: true })).toBe('previous')
     expect(canvasTextKeyAction({ key: 'a', ctrlKey: false, metaKey: false })).toBe('continue')

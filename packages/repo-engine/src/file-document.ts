@@ -1614,6 +1614,27 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       const relationship = placeRelationship(file, command.nodeId, command.placement, atoms)
       const previousParent = file.relationships[command.nodeId]!.parentId
       file.relationships[command.nodeId] = relationship
+      if (node.type !== 'component') {
+        const targetParent = file.nodes[relationship.parentId]!
+        const targetDisplay = nodeChildDisplay(targetParent)
+        const sourceMode = nodePositionMode(node)
+        if ((targetParent.type === 'root' || targetDisplay === 'freeform') && sourceMode === 'flow') {
+          const item = { ...(node.layout?.item ?? {}), position: { mode: 'freeform' as const } }
+          delete item.flex
+          delete item.grid
+          if (targetParent.type === 'root') {
+            if (item.width?.value.kind === 'percent') delete item.width
+            if (item.height?.value.kind === 'percent') delete item.height
+            if (node.type === 'text' && node.textSizing) {
+              if (node.textSizing.width.mode === 'fill' || node.textSizing.width.mode === 'relative') node.textSizing.width = { mode: 'fixed' }
+              if (node.textSizing.height.mode === 'fill' || node.textSizing.height.mode === 'relative') node.textSizing.height = { mode: 'fixed' }
+            }
+          }
+          node.layout = { ...(node.layout ?? {}), item }
+        } else if (targetParent.type !== 'root' && targetDisplay !== null && targetDisplay !== 'freeform' && sourceMode !== 'flow') {
+          node.layout = { ...(node.layout ?? {}), item: { ...(node.layout?.item ?? {}), position: { mode: 'flow' } } }
+        }
+      }
       if (command.preserveWorldPosition && previousParent !== relationship.parentId && node.type !== 'component') {
         // newLocal = inverse(newParentWorld) x oldWorld, for unrotated parents a translation.
         const parentWorld = worldPosition(file, relationship.parentId)

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { layerTreeScrollStep, layerTreeZone, resolveLayerTreeDrop, surpassedLayerTreeThreshold } from './layer-tree-gesture'
 
@@ -34,5 +35,16 @@ describe('layer tree gesture math', () => {
     expect(layerTreeScrollStep(110, 100, 300)).toBe(-3)
     expect(layerTreeScrollStep(200, 100, 300)).toBe(0)
     expect(layerTreeScrollStep(295, 100, 300)).toBe(4.5)
+  })
+})
+
+describe('LAYER-DRAG-SELECTION-001 layer row selection behavior', () => {
+  it('prevents selection on draggable rows while restoring it for the rename input', () => {
+    const css = readFileSync(new URL('../../design-system/canvas.css', import.meta.url), 'utf8')
+    const rowRule = /\.document-layer-item\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+    const renameRule = /\.sidebar-inline-name\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+
+    expect(rowRule).toContain('user-select: none')
+    expect(renameRule).toContain('user-select: text')
   })
 })
