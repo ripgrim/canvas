@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createBuilderArguments, createPackageEnvironment } from './package-desktop.mjs'
-import { evaluateReleasePolicy } from './release-policy.mjs'
+import { evaluateReleasePolicy, nextReleaseVersion } from './release-policy.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const pullRequestWorkflow = await readFile(resolve(root, '.github/workflows/desktop-build.yml'), 'utf8')
@@ -29,6 +29,7 @@ const releaseInput = {
   runNumber: '41',
   rootVersion: '0.1.0',
   desktopVersion: '0.1.0',
+  existingTags: [],
   pulls: [{ number: 73, merged_at: '2026-10-11T12:00:00Z', base: { ref: 'staging' }, head: { ref: 'feature/mobile' } }],
 }
 
@@ -36,6 +37,7 @@ test('RELEASE-SECURITY-002 accepts only an owner-triggered merged pull request',
   assert.match(releaseWorkflow, /pull_request:[\s\S]*- staging[\s\S]*- main[\s\S]*- closed/)
   assert.match(releaseWorkflow, /github\.event\.pull_request\.merged == true/)
   assert.match(releaseWorkflow, /node scripts\/release-policy\.mjs/)
+  assert.match(releaseWorkflow, /EXISTING_RELEASE_TAGS="\$tags"/)
 
   assert.deepEqual(evaluateReleasePolicy(releaseInput), {
     channel: 'staging',
@@ -85,6 +87,28 @@ test('RELEASE-PIPELINE-001 gates publication on channel migration and the merged
   assert.equal(production.channel, 'production')
   assert.equal(production.tag, 'v0.1.0')
   assert.equal(production.version, '0.1.0')
+})
+
+test('UPDATE-FEED-001 promotes occupied tags to one monotonic release version', () => {
+  const tags = ['v0.1.0', 'v0.1.1', 'v0.1.2-nightly.41', 'not-a-release']
+  assert.equal(nextReleaseVersion('0.1.1', tags), '0.1.2')
+  assert.equal(nextReleaseVersion('0.2.0', tags), '0.2.0')
+
+  const nightly = evaluateReleasePolicy({ ...releaseInput, rootVersion: '0.1.1', desktopVersion: '0.1.1', existingTags: tags })
+  assert.equal(nightly.tag, 'v0.1.2-nightly.42')
+  assert.equal(nightly.version, '0.1.2-nightly.42')
+  assert.equal(nightly.title, `Comp Canvas Nightly 0.1.2 (${'a'.repeat(7)})`)
+
+  const production = evaluateReleasePolicy({
+    ...releaseInput,
+    branch: 'main',
+    rootVersion: '0.1.1',
+    desktopVersion: '0.1.1',
+    existingTags: tags,
+    pulls: [{ number: 75, merged_at: '2026-10-11T14:00:00Z', base: { ref: 'main' }, head: { ref: 'staging' } }],
+  })
+  assert.equal(production.tag, 'v0.1.2')
+  assert.equal(production.version, '0.1.2')
 })
 
 test('RELEASE-PIPELINE-002 builds migration workspace dependencies on a clean runner', () => {

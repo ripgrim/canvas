@@ -13,7 +13,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ github.event.pull_request.base.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -47,7 +47,8 @@ jobs:
         run: |
           set -euo pipefail
           pulls="$(gh api -H 'Accept: application/vnd.github+json' "/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls")"
-          ASSOCIATED_PULLS_JSON="$pulls" node scripts/release-policy.mjs >> "$GITHUB_OUTPUT"
+          tags="$(gh api --paginate -H 'Accept: application/vnd.github+json' "/repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name')"
+          ASSOCIATED_PULLS_JSON="$pulls" EXISTING_RELEASE_TAGS="$tags" node scripts/release-policy.mjs >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ needs.authorize.outputs.channel }} desktop release
@@ -242,7 +243,7 @@ jobs:
         run: |
           set -euo pipefail
           if gh api "/repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release tag $RELEASE_TAG already exists. Bump the application version before the next production release." >&2
+            echo "Release tag $RELEASE_TAG was created after release authorization. Retry after the active channel release finishes." >&2
             exit 1
           fi
           if ! compgen -G 'release/*' >/dev/null; then
