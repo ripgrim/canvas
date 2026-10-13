@@ -9,6 +9,7 @@ import { evaluateReleasePolicy, nextReleaseVersion } from './release-policy.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const pullRequestWorkflow = await readFile(resolve(root, '.github/workflows/desktop-build.yml'), 'utf8')
 const releaseWorkflow = await readFile(resolve(root, '.github/workflows/release.yml'), 'utf8')
+const packagedLaunchSmoke = await readFile(resolve(root, 'apps/desktop/tests/packaged-launch-smoke.mjs'), 'utf8')
 const databasePackage = JSON.parse(await readFile(resolve(root, 'packages/database/package.json'), 'utf8'))
 const stagingTemplate = await readFile(resolve(root, '.env.staging.example'), 'utf8')
 const productionTemplate = await readFile(resolve(root, '.env.production.example'), 'utf8')
@@ -168,4 +169,5 @@ test('RELEASE-DESKTOP-002 keeps previews out of update feeds and isolates nightl
   assert.ok(nightly.includes('--config.publish.channel=nightly'))
   assert.ok(nightly.includes('--config.appId=com.comp-canvas.desktop.nightly'))
   assert.ok(nightly.includes('--config.win.publisherName=Comp Canvas, LLC'))
+  assert.match(packagedLaunchSmoke, /mode === 'staging' \? 'Comp Canvas Nightly\.exe' : 'Comp Canvas\.exe'/)
 })
