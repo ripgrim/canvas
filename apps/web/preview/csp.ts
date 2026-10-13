@@ -5,22 +5,42 @@ const editorFrameAncestors = [
   'https://canvas.ripgrim.com',
 ]
 
-export const previewContentSecurityPolicy = [
-  "default-src 'none'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
-  "font-src 'self' data:",
-  "connect-src 'none'",
-  "media-src 'none'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'none'",
-  `frame-ancestors ${editorFrameAncestors.join(' ')}`,
-].join('; ')
+function validatedLoopbackOrigin(value: string) {
+  const origin = new URL(value)
+  const loopback = origin.hostname === '127.0.0.1' || origin.hostname === 'localhost'
+  if (origin.protocol !== 'http:' || !loopback || origin.origin !== value) {
+    throw new Error('The preview editor origin must be an HTTP loopback origin.')
+  }
+  return origin.origin
+}
 
-export const previewResponseHeaders = Object.freeze({
-  'Content-Security-Policy': previewContentSecurityPolicy,
-  'Referrer-Policy': 'no-referrer',
-  'X-Content-Type-Options': 'nosniff',
-})
+export function createPreviewContentSecurityPolicy(additionalEditorOrigin?: string) {
+  const ancestors = additionalEditorOrigin
+    ? [...editorFrameAncestors, validatedLoopbackOrigin(additionalEditorOrigin)]
+    : editorFrameAncestors
+  return [
+    "default-src 'none'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "connect-src 'none'",
+    "media-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    `frame-ancestors ${ancestors.join(' ')}`,
+  ].join('; ')
+}
+
+export function createPreviewResponseHeaders(additionalEditorOrigin?: string) {
+  return Object.freeze({
+    'Content-Security-Policy': createPreviewContentSecurityPolicy(additionalEditorOrigin),
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+  })
+}
+
+export const previewContentSecurityPolicy = createPreviewContentSecurityPolicy()
+
+export const previewResponseHeaders = createPreviewResponseHeaders()

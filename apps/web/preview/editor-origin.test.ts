@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { createServer } from 'vite'
-import { previewContentSecurityPolicy, previewResponseHeaders } from './csp'
+import { createPreviewContentSecurityPolicy, previewContentSecurityPolicy, previewResponseHeaders } from './csp'
 
 vi.mock('@canvas/preview-runtime/browser', () => ({ startPreview: vi.fn() }))
 vi.mock('virtual:canvas-verified-component-registry', () => ({ RegistryEntry: null, RegistryProvider: undefined, registry: [], registryContract: { version: 1, fingerprint: 'sha256-empty', entry: null }, registryProviderProps: {}, registryThemeAdapters: [] }))
@@ -47,6 +47,17 @@ describe('bundled preview editor origin', () => {
       expect(response.headers.get('referrer-policy')).toBe('no-referrer')
     } finally {
       await server.close()
+    }
+  })
+  it('AT-PRV-001 permits one exact loopback editor origin', () => {
+    const csp = createPreviewContentSecurityPolicy('http://127.0.0.1:4327')
+    expect(csp).toContain('http://127.0.0.1:4327')
+    expect(csp).not.toContain('http://127.0.0.1:4328')
+  })
+
+  it('AT-PRV-001 rejects unsafe additional editor origins', () => {
+    for (const origin of ['https://example.com', 'http://127.0.0.1:4327/path', 'http://127.0.0.2:4327']) {
+      expect(() => createPreviewContentSecurityPolicy(origin)).toThrow('The preview editor origin must be an HTTP loopback origin.')
     }
   })
   it('accepts the registered desktop origin and canonical remote origins', () => {

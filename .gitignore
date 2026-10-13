@@ -17,6 +17,12 @@ apps/desktop/.tmp/
 
 # Local agent and research material
 .agents/
+!.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/pr-evidence/
+!.agents/skills/pr-evidence/SKILL.md
 .claude/
 gui/
 AGENTS.md

@@ -14,7 +14,7 @@ declare const __DESIGN_EDITOR_WEB_BUILD_ID__: string
 declare const __DESIGN_EDITOR_APP_VERSION__: string
 
 const bridge = (window as Window & { designEditor?: DesktopBridge }).designEditor
-const previewOrigin = import.meta.env.DEV ? 'http://127.0.0.1:4318' : import.meta.env.VITE_PREVIEW_ORIGIN
+const previewOrigin = import.meta.env.VITE_PREVIEW_ORIGIN || (import.meta.env.DEV ? 'http://127.0.0.1:4318' : undefined)
 const apiOrigin = import.meta.env.VITE_API_ORIGIN
 const cloudAdapter = !bridge && apiOrigin
   ? createCloudAdapter({ apiOrigin, previewOrigin, editorOrigin: window.location.origin, assetsOrigin: import.meta.env.VITE_ASSETS_ORIGIN, loginOrigin: import.meta.env.VITE_LOGIN_ORIGIN, syncBuildId: import.meta.env.VITE_COLLABORATION_BUILD_ID })

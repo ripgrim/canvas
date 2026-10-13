@@ -26,6 +26,56 @@ Verify MIME precedence, versioned internal payloads, editable-target bypass, SVG
 - Keep screenshots, recordings, diffs, and diagnostics with the test result.
 - Label unsupported adapters as unsupported. Do not rerun against a different adapter and claim the requested case passed.
 
+## Pull request interaction evidence
+
+### PR-EVIDENCE-001: Deterministic planning
+
+Map both sides of every changed path through the trusted capability registry. The same changes in any order produce identical canonical plans. Unmapped paths and visual capabilities without scenarios fail.
+
+### PR-EVIDENCE-002: Strict manifest
+
+Accept only the versioned manifest schema, safe relative paths, unique scenarios, unique assets, content hashes, exact run identity, and explicit nonvisual reasons. Reject unknown keys and unsafe paths.
+
+### PR-EVIDENCE-003: Browser capture
+
+Run the transient-move pilot through public automation actions and real pointer input. Capture before, held, and after screenshots plus a recording. Verify preview geometry, HUD geometry, committed state, and viewport stability independently.
+
+### PR-EVIDENCE-004: Electron capture
+
+Deferred until the browser pilot is stable. Do not report Electron evidence from a browser adapter.
+
+### PR-EVIDENCE-005: Deterministic media
+
+Verify the pinned FFmpeg tools by size and SHA-256. Normalize the browser recording to VP9 WebM, preserve observed cadence, decode the full result, reject blank or static output, enforce 30 seconds and 9 MiB, and extract a PNG poster.
+
+### PR-EVIDENCE-006: Relevance gate
+
+Run only scenarios selected by the deterministic plan. Nonvisual changes require a concrete registry reason. New observable behavior cannot bypass capture.
+
+### PR-EVIDENCE-007: Idempotent publication
+
+Replace only the managed PR evidence block. Preserve unrelated PR prose. Repeating the same publication performs no PR body write.
+
+### PR-EVIDENCE-008: Rendered PR verification
+
+Publish content-addressed media through the read-only evidence service. Re-read the PR and verify its raw body, rendered HTML, managed key, and every media URL.
+
+### PR-EVIDENCE-SEC-001: Untrusted capture boundary
+
+The pull-request workflow has read-only contents, no secrets, no environment, no persisted credentials, and no write permission.
+
+### PR-EVIDENCE-SEC-002: Trusted publisher boundary
+
+The workflow-run publisher checks out only the default branch, never executes pull-request code, downloads the exact upstream artifact, rejects extra archive entries and symlinks, and validates repository, PR, base, head, run, attempt, registry, files, scenarios, assertions, bytes, and hashes before writing.
+
+### PR-EVIDENCE-PERF-001: Bounded evidence cost
+
+Use one browser worker, one scenario per selected capability set, bounded process output, bounded media, no fixed waits, and no FFmpeg binary in the application package.
+
+### PR-EVIDENCE-NEG-001: Evidence mutation controls
+
+Mutate one tool hash, media hash, manifest identity, scenario assertion, archive path, and media origin. Each mutation must fail before publication.
+
 ## P0 end-to-end
 
 ### AT-P0-001: Local login composition and promotion
