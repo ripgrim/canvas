@@ -1,0 +1,30 @@
+packages/editor/src/features/editor/layout-measure.ts
+  s_012c57818fbf95::t_06c323e2a69063 520-521
+  s_012c57818fbf95::t_ad2c7ae122199c 280
+  s_012c57818fbf95::t_90b4f34c6b1a70 281-286
+packages/editor/src/features/editor/canvas-gestures.test.ts
+  s_012c57818fbf95::t_f30a3e4a46cf44 495-496
+  s_012c57818fbf95::t_8d5bf8bcd1d501 446,469,491-492
+  s_012c57818fbf95::t_fac04b355287e3 480-481,488-490,493-494
+  s_012c57818fbf95::t_d52556e8720f87 380-414
+packages/editor/src/features/editor/canvas-gestures.ts
+  s_012c57818fbf95::t_d52556e8720f87 87,472-473,480,888-895,909,1116-1122,1153
+packages/editor/src/features/editor/layout-measure-resize.test.ts
+  s_012c57818fbf95::t_ad2c7ae122199c 274-295
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "489c389585da5020ddeb3c8a05f3da8ae178be46",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
