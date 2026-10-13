@@ -1,0 +1,180 @@
+tests/pr-evidence/package.json
+  s_012c57818fbf95::t_0558db5d77b2b7 1-4
+apps/web/vite.preview.config.ts
+  s_012c57818fbf95::t_f79152f6363a14 9,23
+  s_012c57818fbf95::t_31f8910b6778f1 27
+scripts/pr-evidence-artifact.test.mjs
+  s_012c57818fbf95::t_5f1ebadd3df629 1-10
+tests/pr-evidence/registry.json
+  s_012c57818fbf95::t_1f6c9161d2093f 27
+  s_012c57818fbf95::t_66ca213378b35c 1-17,19-26,28-55
+  s_012c57818fbf95::t_00565cec071493 18
+packages/editor-automation/src/index.ts
+  s_012c57818fbf95::t_f164466e89e46a 69,73
+  s_012c57818fbf95::t_4423160cc53cf3 1-68,70-72,74-185
+tests/pr-evidence/scenarios/transient-move.spec.ts
+  s_012c57818fbf95::t_8ef2eeef65420d 1-6,8-9,11-109,111-136
+  s_012c57818fbf95::t_f79152f6363a14 110
+  s_012c57818fbf95::t_f0c74789a20751 10
+  s_012c57818fbf95::t_a9315a480a6344 7
+apps/evidence-service/tests/evidence-service.test.ts
+  s_012c57818fbf95::t_d7d568997f40b6 1-14,16-18,20,22-30,34-37
+  s_012c57818fbf95::t_3418ab34d44763 21,31-33
+  s_012c57818fbf95::t_d3375bec09ec0a 19
+  s_012c57818fbf95::t_b5006c932014ce 15
+packages/pr-evidence/tsconfig.json
+  s_012c57818fbf95::t_e481ce169208e3 1-5
+scripts/pr-evidence-workflows.test.mjs
+  s_012c57818fbf95::t_7bb0521d85b4c9 25-26
+  s_012c57818fbf95::t_f0c74789a20751 1-5,7-17,34
+  s_012c57818fbf95::t_0a7c85f9ecb3bc 24
+  s_012c57818fbf95::t_38cf870a0094f6 6,18-23,27-33
+packages/editor-automation/tests/automation.test.ts
+  s_012c57818fbf95::t_f164466e89e46a 31
+  s_012c57818fbf95::t_4423160cc53cf3 1-30,32-34
+tests/pr-evidence/playwright.config.ts
+  s_012c57818fbf95::t_97d98bc17fad05 23-24,26,30-34,36-40
+  s_012c57818fbf95::t_f79152f6363a14 25,28-29,35
+  s_012c57818fbf95::t_31f8910b6778f1 27
+  s_012c57818fbf95::t_8ef2eeef65420d 1-2,9-15,17-22,41
+  s_012c57818fbf95::t_f0c74789a20751 3-8,16
+packages/pr-evidence/tests/media.test.ts
+  s_012c57818fbf95::t_9106f3786d9375 1-25
+packages/pr-evidence/src/index.ts
+  s_012c57818fbf95::t_e481ce169208e3 2,4,6
+  s_012c57818fbf95::t_9106f3786d9375 5
+  s_012c57818fbf95::t_a1b3e2de28e8e7 3,7
+  s_012c57818fbf95::t_70753dc7f82f6a 1
+packages/pr-evidence/src/publisher.ts
+  s_012c57818fbf95::t_d3375bec09ec0a 77,101-102,133-138
+  s_012c57818fbf95::t_ee16239a8f7dca 115
+  s_012c57818fbf95::t_e481ce169208e3 4-8,15-20,22,25-36,38-45,120-130,132,140-149
+  s_012c57818fbf95::t_fccbc4ecb9e0a9 3,21,23-24,37,46-76,78-81,118-119,131,139
+  s_012c57818fbf95::t_c774fcb00b6c7d 1-2,9-14,82-100,103-114,116-117
+.github/workflows/pr-evidence.yml
+  s_012c57818fbf95::t_c41157ee961c54 1-92
+apps/evidence-service/tsconfig.json
+  s_012c57818fbf95::t_d7d568997f40b6 1-5
+packages/pr-evidence/tests/manifest.test.ts
+  s_012c57818fbf95::t_c774fcb00b6c7d 4,60-62,66,68-69,71-78,80-81
+  s_012c57818fbf95::t_d3375bec09ec0a 67,70,82-92
+  s_012c57818fbf95::t_e481ce169208e3 1,3,6-44,93-94
+  s_012c57818fbf95::t_ee16239a8f7dca 2,63-65,79
+  s_012c57818fbf95::t_fccbc4ecb9e0a9 5,45-59
+packages/editor-automation/tsconfig.build.json
+  s_012c57818fbf95::t_4423160cc53cf3 1-13
+.github/workflows/pr-evidence-publish.yml
+  s_012c57818fbf95::t_9948e2afa505e1 76-77
+  s_012c57818fbf95::t_aa6dea99b17804 1-27,29-49,60-62,64-75,78-84
+  s_012c57818fbf95::t_3418ab34d44763 28
+  s_012c57818fbf95::t_7bb0521d85b4c9 50-59,63
+package.json
+  s_012c57818fbf95::t_63a07670828ea0 64
+  s_012c57818fbf95::t_f0c74789a20751 65
+  s_012c57818fbf95::t_06dced4e4c2c95 81-82
+  s_012c57818fbf95::t_7bb0521d85b4c9 67
+  s_012c57818fbf95::t_00565cec071493 71
+  s_012c57818fbf95::t_117869c0651d3f 41-42,66
+  s_012c57818fbf95::t_c41157ee961c54 68-70
+packages/editor-automation/tsconfig.json
+  s_012c57818fbf95::t_4423160cc53cf3 1-5
+apps/evidence-service/wrangler.jsonc
+  s_012c57818fbf95::t_9948e2afa505e1 6-9
+  s_012c57818fbf95::t_d7d568997f40b6 1-5,10-13
+scripts/pr-evidence-publish.mjs
+  s_012c57818fbf95::t_041bc3bfb08342 3,5-6,19-21,118
+  s_012c57818fbf95::t_aa6dea99b17804 1-2,4,7-18,22-117,119-160
+apps/evidence-service/src/index.ts
+  s_012c57818fbf95::t_3418ab34d44763 17-18,20,26
+  s_012c57818fbf95::t_d7d568997f40b6 1-16,19,21-25,27-58
+packages/pr-evidence/src/process.ts
+  s_012c57818fbf95::t_9106f3786d9375 1-8,13-20,23,25,28,31-35,37-41
+  s_012c57818fbf95::t_7bc4273742d40e 9-12,21-22,24,26-27,29-30,36
+scripts/pr-evidence-cloudflare.mjs
+  s_012c57818fbf95::t_117869c0651d3f 1,4,7-10,14-27,29,45-47,49-60
+  s_012c57818fbf95::t_041bc3bfb08342 2-3,5,11-13,48
+  s_012c57818fbf95::t_363ce609a2a0e0 6,28,30-44
+apps/web/src/client.tsx
+  s_012c57818fbf95::t_f79152f6363a14 17
+packages/editor/src/design-system/canvas-atoms.tsx
+  s_012c57818fbf95::t_80faba8395ada2 195,197
+packages/pr-evidence/package.json
+  s_012c57818fbf95::t_e481ce169208e3 1-25
+packages/pr-evidence/src/registry.ts
+  s_012c57818fbf95::t_70753dc7f82f6a 40-60
+  s_012c57818fbf95::t_f124594eb0c598 63-98,228-248
+  s_012c57818fbf95::t_ab001c62708222 18,113,115,117
+  s_012c57818fbf95::t_e481ce169208e3 1-17,19-39,61-62,99-112,114,116,118-185,188-227,249
+  s_012c57818fbf95::t_f164466e89e46a 186-187
+.agents/skills/pr-evidence/SKILL.md
+  s_012c57818fbf95::t_1f6c9161d2093f 14
+  s_012c57818fbf95::t_38cf870a0094f6 1-13,15-27
+packages/pr-evidence/src/capture.ts
+  s_012c57818fbf95::t_70753dc7f82f6a 1-82
+packages/editor-automation/package.json
+  s_012c57818fbf95::t_4423160cc53cf3 1-29
+apps/evidence-service/package.json
+  s_012c57818fbf95::t_d7d568997f40b6 1-16
+.gitignore
+  s_012c57818fbf95::t_38cf870a0094f6 20-25
+packages/pr-evidence/src/media.ts
+  s_012c57818fbf95::t_a1b3e2de28e8e7 1-117
+scripts/pr-evidence.mjs
+  s_012c57818fbf95::t_ce9608854959c9 29-33
+  s_012c57818fbf95::t_c41157ee961c54 1-28,34-113
+tests/pr-evidence/registry.ts
+  s_012c57818fbf95::t_66ca213378b35c 1-2,4,6-8
+  s_012c57818fbf95::t_8ef2eeef65420d 3,5
+apps/web/preview/csp.ts
+  s_012c57818fbf95::t_f79152f6363a14 8-15,17-46
+packages/pr-evidence/tests/capture.test.ts
+  s_012c57818fbf95::t_70753dc7f82f6a 1-16
+packages/editor/src/features/editor/DocumentLayers.tsx
+  s_012c57818fbf95::t_80faba8395ada2 152
+packages/pr-evidence/tsconfig.build.json
+  s_012c57818fbf95::t_e481ce169208e3 1-13
+packages/pr-evidence/tests/toolchain.test.ts
+  s_012c57818fbf95::t_9106f3786d9375 1-39
+packages/pr-evidence/src/manifest.ts
+  s_012c57818fbf95::t_f164466e89e46a 91-93,97-99
+  s_012c57818fbf95::t_e481ce169208e3 1-90,94-96,100-146
+packages/editor-automation/src/playwright.ts
+  s_012c57818fbf95::t_f164466e89e46a 57,61,65-69,89-91,95-96,111-114
+  s_012c57818fbf95::t_4423160cc53cf3 1-56,58-60,62-64,70-88,92-94,97-110,115-126
+scripts/pr-evidence-cloudflare.test.mjs
+  s_012c57818fbf95::t_117869c0651d3f 1-9
+scripts/pr-evidence-artifact.mjs
+  s_012c57818fbf95::t_5f1ebadd3df629 1-62
+apps/web/preview/editor-origin.test.ts
+  s_012c57818fbf95::t_7d09ad988ad5b8 4,51-60
+  s_012c57818fbf95::t_6d5c9a84cbb131 61
+packages/pr-evidence/src/toolchain.ts
+  s_012c57818fbf95::t_9106f3786d9375 27,83,107-111
+  s_012c57818fbf95::t_a1b3e2de28e8e7 1-26,28-82,84-106,112
+tools/pr-evidence/ffmpeg.json
+  s_012c57818fbf95::t_a1b3e2de28e8e7 1-29
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_30f4fb4655a097 29-78
+packages/pr-evidence/tests/registry.test.ts
+  s_012c57818fbf95::t_ab001c62708222 10
+  s_012c57818fbf95::t_70753dc7f82f6a 2,35-42
+  s_012c57818fbf95::t_e481ce169208e3 1,3-9,11-34,43-44
+pnpm-lock.yaml
+  s_012c57818fbf95::t_d29fd971ef21b2 11-16,140-151,661-676,702-717
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "81a71dad990c86eebeec2b1afce59b947f93628e",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
