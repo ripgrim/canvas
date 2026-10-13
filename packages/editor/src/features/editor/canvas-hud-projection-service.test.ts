@@ -7,6 +7,7 @@ import type { ResizePresentation, ResizePresentationItem } from './resize-projec
 import type { SceneGeometry } from './scene-geometry'
 import type { FlowDragPresentation } from './flow-drag-presentation'
 import { createStableMobileQuickActionsStore, mobileQuickActionsPhase } from './mobile-editor'
+import { createPreviewCameraStore } from './preview-camera-store'
 
 const revision = 4, measurementRevision = 12, layoutGeneration = 0
 const worldQuad = [{ x: 30, y: 10 }, { x: 30, y: 80 }, { x: -70, y: 80 }, { x: -70, y: 10 }] as const
@@ -98,11 +99,13 @@ function setup(mobile = false) {
   let currentGeometry = geometry
   const measured = { getSnapshot: () => currentGeometry, subscribe: (listener: () => void) => { geometryListeners.add(listener); return () => geometryListeners.delete(listener) } }
   const viewport = { getSnapshot: () => mobile, subscribe: (listener: () => void) => { mobileListeners.add(listener); return () => mobileListeners.delete(listener) } }
-  const service = createCanvasHudProjectionService(store, measured, viewport)
+  const cameras = createPreviewCameraStore()
+  const service = createCanvasHudProjectionService(store, measured, viewport, undefined, cameras)
   service.start()
   return {
     store,
     service,
+    cameras,
     setGeometry(next: SceneGeometry) {
       currentGeometry = next
       for (const listener of geometryListeners) listener()
@@ -111,6 +114,26 @@ function setup(mobile = false) {
 }
 
 describe('AT-CAN-005-HUD shared HUD projection service', () => {
+  it('AT-CAN-PAN-001 projects visible chrome from the runtime-applied camera instead of an unacknowledged target', () => {
+    const { cameras, service, store } = setup()
+    const before = service.getSnapshot().frame!
+    store.setViewport({ x: 90, y: 70, zoom: 2 })
+    expect(service.getSnapshot().frame!.key.camera).toStrictEqual({ x: 90, y: 70, zoom: 2 })
+
+    cameras.expect(1, 1)
+    expect(service.getSnapshot().frame!.key.camera).toStrictEqual({ x: 90, y: 70, zoom: 2 })
+    cameras.publish(1, 1, { x: 25, y: 35, zoom: 2, width: 800, height: 600 })
+    expect(service.getSnapshot().frame!.key.camera).toStrictEqual({ x: 25, y: 35, zoom: 2 })
+    expect(service.getSnapshot().frame!.byNodeId.selected!.screenAabb).not.toStrictEqual(before.byNodeId.selected!.screenAabb)
+
+    store.setViewport({ x: 140, y: 110, zoom: 2 })
+    expect(service.getSnapshot().frame!.key.camera).toStrictEqual({ x: 25, y: 35, zoom: 2 })
+    cameras.expect(1, 2)
+    expect(service.getSnapshot().frame!.key.camera).toStrictEqual({ x: 25, y: 35, zoom: 2 })
+    cameras.publish(1, 2, { x: 140, y: 110, zoom: 2, width: 800, height: 600 })
+    expect(service.getSnapshot().frame!.key.camera).toStrictEqual({ x: 140, y: 110, zoom: 2 })
+  })
+
   it('keeps the selected outline attached to a rotated node throughout a transient move', () => {
     const { store, service } = setup()
     const before = service.getSnapshot()

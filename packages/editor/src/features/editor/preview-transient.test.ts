@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { hydratePreviewDocument, previewConnection, previewTransientMoves } from './preview-service'
-import { previewResizePresentation } from './preview-transient'
+import { collaborationTransforms, previewResizePresentation } from './preview-transient'
 import { projectPreviewPage } from '@canvas/repo-engine/file-preview'
 import { isPreviewDocument, type PreviewDocument } from '@canvas/preview-runtime/protocol'
 import { sceneGeometry } from './scene-geometry'
@@ -39,6 +39,13 @@ describe('AT-CAN-005 preview transient move projection', () => {
     expect(previewTransientMoves(file, 'page-1', move({ frame: { x: 110, y: 205, width: 300, height: 200 }, child: { x: 130, y: 235, width: 40, height: 50 } }, { x: 10, y: 5 }))).toEqual([
       { nodeId: 'frame', dx: 10, dy: 5 },
     ])
+  })
+
+  it('marks Alt-drag geometry as an optimistic duplicate without exposing that flag to collaboration transforms', () => {
+    const transient = { ...move({ child: { x: 132, y: 242, width: 40, height: 50 } }, { x: 12, y: 12 }), duplicate: true }
+    const projected = previewTransientMoves(file, 'page-1', transient)
+    expect(projected).toEqual([{ nodeId: 'child', dx: 12, dy: 12, duplicate: true }])
+    expect(collaborationTransforms(projected)).toEqual([{ nodeId: 'child', dx: 12, dy: 12 }])
   })
 
   it('returns no preview offset outside a live move', () => {

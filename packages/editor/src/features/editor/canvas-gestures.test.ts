@@ -898,7 +898,7 @@ describe('PAPER-FLEX-006 production flow drag controller', () => {
     expect(store.getSnapshot().transient).toBeNull()
   })
 
-  it('Alt-drag leaves one inert-source clone and keeps the original selected', async () => {
+  it('Alt-drag keeps the source fixed and selects the moved duplicate', async () => {
     const { store, gestures } = setup(undefined, { left: 0, top: 0 }, undefined, flowFixture())
     store.select('child')
 
@@ -908,7 +908,7 @@ describe('PAPER-FLEX-006 production flow drag controller', () => {
     gestures.pointerUp({ ...pointer(550, 575), altKey: true, timeStamp: 2_120 })
 
     await vi.waitFor(() => expect(fileChildren(store.getSnapshot().file!, 'frame')).toHaveLength(3))
-    expect(store.getSnapshot().selection).toEqual(['child'])
+    expect(store.getSnapshot().selection).toEqual(['unused'])
     expect(store.getSnapshot().file!.nodes.unused).toBeDefined()
   })
 
@@ -1074,7 +1074,7 @@ describe('AT-CAN-005 selected container pointer precedence', () => {
     expect(primitivePosition(store, 'child')).toEqual({ left: 32, top: 20 })
   })
 
-  it('Alt-drags a freeform node while leaving one duplicate at its source', () => {
+  it('Alt-drags a live duplicate while leaving the original at its source', () => {
     const { store, gestures } = setup()
     store.select('child')
     const start = { ...pointer(550, 450), altKey: true }
@@ -1084,9 +1084,9 @@ describe('AT-CAN-005 selected container pointer precedence', () => {
     gestures.pointerMove({ ...pointer(562, 450), altKey: true })
     gestures.pointerUp({ ...pointer(562, 450), altKey: true })
 
-    expect(primitivePosition(store, 'child')).toEqual({ left: 32, top: 20 })
-    expect(store.getSnapshot().file!.nodes.unused).toMatchObject({ id: 'unused', type: 'rectangle', styles: { left: 20, top: 20, width: 160, height: 100 } })
-    expect(store.getSnapshot().selection).toEqual(['child'])
+    expect(primitivePosition(store, 'child')).toEqual({ left: 20, top: 20 })
+    expect(store.getSnapshot().file!.nodes.unused).toMatchObject({ id: 'unused', type: 'rectangle', styles: { left: 32, top: 20, width: 160, height: 100 } })
+    expect(store.getSnapshot().selection).toEqual(['unused'])
   })
 
   it('lets the deep-selection modifier bypass selected-container drag precedence', () => {

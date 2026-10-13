@@ -462,12 +462,16 @@ function validFlowDrag(authority: GestureAuthoritySnapshot, presentation: FlowDr
   if (authority.selection.length !== 1 || authority.selection[0] !== presentation.original.documentNodeId) return false
   const node = authority.scene.byId.get(presentation.original.documentNodeId)
   if (!node || node.kind !== presentation.original.kind || node.name !== presentation.original.name) return false
+  const duplicatePreview = presentation.supportClone !== null && presentation.movingVisual.kind === 'document-node'
   const expectedNameAnchor = presentation.original.mode === 'flow' ? 'source' : 'current'
   const expectedNameGeometry = presentation.original.mode === 'flow' ? presentation.original.source : presentation.original.current
   if (presentation.original.namePresentation.visible !== true
     || presentation.original.namePresentation.anchor !== expectedNameAnchor
     || !sameFlowGeometry(presentation.original.namePresentation.pose, expectedNameGeometry)) return false
-  if (presentation.original.mode === 'flow') {
+  if (duplicatePreview) {
+    if (presentation.movingVisual.kind !== 'document-node' || presentation.movingVisual.documentNodeId !== presentation.original.documentNodeId
+      || !sameFlowGeometry(presentation.movingVisual.geometry, presentation.original.current)) return false
+  } else if (presentation.original.mode === 'flow') {
     if (presentation.movingVisual.kind !== 'fill-ghost' || !sameFlowGeometry(presentation.movingVisual.geometry, presentation.original.current)) return false
   } else if (presentation.movingVisual.kind !== 'document-node' || presentation.movingVisual.documentNodeId !== presentation.original.documentNodeId
     || !sameFlowGeometry(presentation.movingVisual.geometry, presentation.original.current)) return false

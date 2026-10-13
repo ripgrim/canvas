@@ -30,7 +30,7 @@ const accepted: [string, Record<string, unknown>, PreviewDocument | null][] = [
   ['set-layout', layout([item]), document()],
   ['set-transient-move', transient([{ nodeId: 'button-1', dx: 10, dy: -20, width: 140, height: 60 }]), document()],
   ['set-theme', { ...envelope, type: 'set-theme', theme: { attribute: 'dark', colorScheme: 'dark' } }, null],
-  ['set-camera', { ...envelope, type: 'set-camera', camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 } }, null],
+  ['set-camera', { ...envelope, type: 'set-camera', sequence: 1, camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 } }, null],
   ['set-interaction-mode', { ...envelope, type: 'set-interaction-mode', mode: 'select' }, null],
   ['set-selection', { ...envelope, type: 'set-selection', nodeIds: ['button-1'], color: '#009ff0' }, document()],
   ['set-document', { ...envelope, type: 'set-document', document: document(), flowDragTerminalPolicy: 'preserve-matching-committed-handoff' }, null],
@@ -189,6 +189,7 @@ describe('AT-CAN-005 transient move boundary', () => {
     expect(deliver(transient([move]), document())).toEqual(transient([move]))
     expect(deliver(transient([{ ...move, width: 140, height: 60 }]), document())).toEqual(transient([{ ...move, width: 140, height: 60 }]))
     expect(deliver(transient([{ ...move, rotationDelta: 22.5 }]), document())).toEqual(transient([{ ...move, rotationDelta: 22.5 }]))
+    expect(deliver(transient([{ ...move, duplicate: true }]), document())).toEqual(transient([{ ...move, duplicate: true }]))
     const appearance = { fills: [{ type: 'image', assetId: 'flowers', fit: 'cover', geometry: { x: -20, y: 0, width: 180, height: 120 } }] }
     expect(deliver(transient([{ ...move, width: 140, height: 60, appearance }]), document())).toEqual(transient([{ ...move, width: 140, height: 60, appearance }]))
     expect(deliver(transient([]), null)).toEqual(transient([]))
@@ -205,6 +206,7 @@ describe('AT-CAN-005 transient move boundary', () => {
     ['a negative height', { ...move, height: -1 }],
     ['an over-limit width', { ...move, width: 1_000_001 }],
     ['a non-finite rotation', { ...move, rotationDelta: Number.NaN }],
+    ['a false duplicate marker', { ...move, duplicate: false }],
     ['an invalid image geometry', { ...move, appearance: { fills: [{ type: 'image', assetId: 'flowers', fit: 'cover', geometry: { x: 0, y: 0, width: 0, height: 40 } }] } }],
   ])('rejects %s', (_, candidate) => {
     expect(deliver(transient([candidate]), document())).toBeNull()

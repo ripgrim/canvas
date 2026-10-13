@@ -59,6 +59,12 @@ export function positionFlow(layout: NodeLayout | undefined, parentDisplay: Disp
   if (item.position.mode === 'flow') return layout ?? emptyLayout()
   return withItem(layout, normalizeItem({ ...item, position: { mode: 'flow' } }, parentDisplay))
 }
+/** Flow to a freeform primitive: Flex-only item controls drop while semantic width and height survive. */
+export function positionFreeform(layout: NodeLayout | undefined): NodeLayout {
+  const item = itemOf(layout)
+  if (item.position.mode === 'freeform') return layout ?? { item: { position: { mode: 'freeform' } } }
+  return withItem(layout, { position: { mode: 'freeform' }, ...(item.width ? { width: item.width } : {}), ...(item.height ? { height: item.height } : {}) })
+}
 /** Sets or clears one inset of an absolute node. Opposing insets are preserved (anchors stay as authored). */
 export function setInset(layout: NodeLayout | undefined, side: InsetSide, length: InsetLength | null): NodeLayout | null {
   const item = itemOf(layout)

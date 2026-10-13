@@ -47,7 +47,7 @@ export type PreviewTheme = { attribute: string | null; colorScheme: 'light' | 'd
 /** Placement for one mounted node: the five-field host placement plus optional layout longhands projected by the editor. */
 export type PreviewLayoutItem = { nodeId: string; mode: 'flow' | 'absolute'; x: number; y: number; order: number; width?: number; height?: number; declarations?: LayoutDeclarations }
 /** Pointer-only visual bounds. Optional dimensions make resize gestures live without changing the document. */
-export type PreviewTransientMove = { nodeId: string; dx: number; dy: number; width?: number; height?: number; rotationDelta?: number; appearance?: PreviewAppearance }
+export type PreviewTransientMove = { nodeId: string; dx: number; dy: number; duplicate?: true; width?: number; height?: number; rotationDelta?: number; appearance?: PreviewAppearance }
 export type PreviewPresentationFence = { documentRevision: number; layoutGeneration: number; measurementRevision: number }
 export type PreviewMoveWorldPresentation = {
   kind: 'move-world'
@@ -107,7 +107,7 @@ export type PreviewCommand =
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-transient-presentations'; presentations: PreviewTransientPresentation[] }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'apply-flow-drag-transaction'; transaction: PreviewFlowDragTransaction }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-selection'; nodeIds: string[]; color: string; renderChrome?: boolean }
-  | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-camera'; camera: PreviewCamera }
+  | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-camera'; sequence: number; camera: PreviewCamera }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'dispose' }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'ping' }
 
@@ -119,6 +119,7 @@ export type PreviewEvent =
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'diagnostic'; message: string }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'selected'; componentId: string; instanceId?: string; bounds: { x: number; y: number; width: number; height: number } }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'wheel'; wheel: PreviewWheel }
+  | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'camera-applied'; sequence: number; camera: PreviewCamera }
 
 export function isJsonValue(value: unknown, depth = 0): value is JsonValue {
   if (depth > 12) return false
@@ -613,7 +614,8 @@ export function acceptPreviewCommand(event: Pick<MessageEvent, 'origin' | 'sourc
   if ((data.type === 'dispose' || data.type === 'ping') && Object.keys(data).length === 4) return data as PreviewCommand
   if (data.type === 'set-theme') return exactFields(data, ['channel', 'version', 'generation', 'type', 'theme']) && isPreviewTheme(data.theme) ? data as PreviewCommand : null
   if (data.type === 'set-interaction-mode') return exactFields(data, ['channel', 'version', 'generation', 'type', 'mode']) && ['select', 'pan', 'interact'].includes(data.mode as string) ? data as PreviewCommand : null
-  if (data.type === 'set-camera') return exactFields(data, ['channel', 'version', 'generation', 'type', 'camera']) && isPreviewCamera(data.camera) ? data as PreviewCommand : null
+  if (data.type === 'set-camera') return exactFields(data, ['channel', 'version', 'generation', 'type', 'sequence', 'camera'])
+    && Number.isSafeInteger(data.sequence) && (data.sequence as number) >= 0 && isPreviewCamera(data.camera) ? data as PreviewCommand : null
   if (data.type === 'set-layout') {
     if (!exactFields(data, ['channel', 'version', 'generation', 'type', 'items', 'layoutGeneration', 'flowDragTerminalPolicy']) || data.flowDragTerminalPolicy !== 'preserve-matching-committed-handoff' || !Array.isArray(data.items) || data.items.length > 500 || !Number.isSafeInteger(data.layoutGeneration) || (data.layoutGeneration as number) < 0) return null
     const ids = new Set<string>()
@@ -632,8 +634,9 @@ export function acceptPreviewCommand(event: Pick<MessageEvent, 'origin' | 'sourc
     const ids = new Set<string>()
     for (const item of data.items) {
       if (!record(item)) return null
-      const fields = ['nodeId', 'dx', 'dy', ...['width', 'height', 'rotationDelta', 'appearance'].filter(key => Object.hasOwn(item, key))]
+      const fields = ['nodeId', 'dx', 'dy', ...['duplicate', 'width', 'height', 'rotationDelta', 'appearance'].filter(key => Object.hasOwn(item, key))]
       if (!exactFields(item, fields) || !validId(item.nodeId) || ids.has(item.nodeId) || !finiteWithin(item.dx, coordinateLimit) || !finiteWithin(item.dy, coordinateLimit)) return null
+      if (Object.hasOwn(item, 'duplicate') && item.duplicate !== true) return null
       for (const key of ['width', 'height']) if (Object.hasOwn(item, key) && (!finiteWithin(item[key], coordinateLimit) || (item[key] as number) < 1)) return null
       if (Object.hasOwn(item, 'rotationDelta') && !finiteWithin(item.rotationDelta, coordinateLimit)) return null
       if (Object.hasOwn(item, 'appearance')) {
@@ -696,6 +699,8 @@ export function acceptPreviewEvent(event: Pick<MessageEvent, 'origin' | 'source'
       && (!Object.hasOwn(data, 'camera') || isPreviewCamera(data.camera)) ? data as PreviewEvent : null
   }
   if (data.type === 'wheel') return exactFields(data, ['channel', 'version', 'generation', 'type', 'wheel']) && isPreviewWheel(data.wheel) ? data as PreviewEvent : null
+  if (data.type === 'camera-applied') return exactFields(data, ['channel', 'version', 'generation', 'type', 'sequence', 'camera'])
+    && Number.isSafeInteger(data.sequence) && (data.sequence as number) >= 0 && isPreviewCamera(data.camera) ? data as PreviewEvent : null
   if (data.type === 'ready' && typeof data.componentId === 'string' && data.componentId.length <= 200 && Object.keys(data).length === 5) return data as PreviewEvent
   if (data.type === 'diagnostic' && typeof data.message === 'string' && data.message.length <= 4000 && Object.keys(data).length === 5) return data as PreviewEvent
   if (data.type !== 'selected' || typeof data.componentId !== 'string' || data.componentId.length > 200 || !record(data.bounds) || Object.keys(data).length !== (Object.hasOwn(data, 'instanceId') ? 7 : 6) || (Object.hasOwn(data, 'instanceId') && !validId(data.instanceId))) return null

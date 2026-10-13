@@ -629,51 +629,33 @@ export function planGestureCommand(snapshot: GestureCommandSnapshot, intents: re
       const duplicate: Extract<FileCommand, { type: 'node.duplicate' }> = { type: 'node.duplicate', nodeId: paper.nodeId, ids }
       try { working = applyFileCommand(working, duplicate, [...snapshot.atoms], { allowUnavailableBindings: true }) } catch { return null }
       commands.push(duplicate)
-      const copyId = ids[paper.nodeId]
-      if (!copyId) return null
-      const sourcePlacement: PlacementIntent = { parentId: paper.sourceRelationship.parentId,
-        ...(paper.sourceRelationship.slot.presence === 'present' ? { slot: paper.sourceRelationship.slot.value } : {}), index: paper.sourceIndex }
-      const cloneRelationship = checkedRelationshipProjection(working, copyId, sourcePlacement, snapshot.atoms)
-      if (!cloneRelationship) return null
-      working = cloneRelationship.file
-      if (!sameValue(cloneRelationship.command.expected, cloneRelationship.command.source)) commands.push(cloneRelationship.command)
-      if (paper.clone.mode === 'absolute') {
-        if (!paper.clone.rect) return null
-        const absoluteClone = applyAbsoluteProjection(working, copyId, paper.clone.rect, snapshot.atoms)
-        if (!absoluteClone) return null
-        working = absoluteClone.file
-        commands.push(absoluteClone.command)
-      }
     }
+    const movingId = ids?.[paper.nodeId] ?? paper.nodeId
     const targetSlot = paper.target.slotPresence === 'present' ? { slot: paper.target.slotValue! } : {}
-    let targetIndex = paper.clone ? paper.target.rawIndex : paper.target.semanticIndex
-    const sameSourceTarget = paper.target.parentId === paper.sourceRelationship.parentId
-      && paper.target.slotPresence === paper.sourceRelationship.slot.presence
-      && (paper.target.slotPresence === 'absent' || paper.sourceRelationship.slot.presence === 'present' && paper.target.slotValue === paper.sourceRelationship.slot.value)
-    if (paper.clone && sameSourceTarget && targetIndex === paper.sourceIndex) targetIndex += 1
+    const targetIndex = paper.clone ? paper.target.rawIndex : paper.target.semanticIndex
     if (snapshot.file.nodes[paper.target.parentId]?.type === 'root') {
       if (paper.mode !== 'absolute' || !paper.rect) return null
       if (!paper.sourceRect) return null
-      const sourceAbsolute = applyAbsoluteProjection(working, paper.nodeId, paper.sourceRect, snapshot.atoms)
+      const sourceAbsolute = applyAbsoluteProjection(working, movingId, paper.sourceRect, snapshot.atoms)
       if (!sourceAbsolute) return null
       working = sourceAbsolute.file
       commands.push(sourceAbsolute.command)
-      const rootRelationship = checkedRelationshipProjection(working, paper.nodeId, { parentId: paper.target.parentId, index: targetIndex }, snapshot.atoms)
+      const rootRelationship = checkedRelationshipProjection(working, movingId, { parentId: paper.target.parentId, index: targetIndex }, snapshot.atoms)
       if (!rootRelationship) return null
       working = rootRelationship.file
       commands.push(rootRelationship.command)
-      const rootProjection = applyAbsoluteProjection(working, paper.nodeId, paper.rect, snapshot.atoms)
+      const rootProjection = applyAbsoluteProjection(working, movingId, paper.rect, snapshot.atoms)
       if (!rootProjection) return null
       working = rootProjection.file
       commands.push(rootProjection.command)
     } else {
-      const originalRelationship = checkedRelationshipProjection(working, paper.nodeId, { parentId: paper.target.parentId, ...targetSlot, index: targetIndex }, snapshot.atoms)
+      const originalRelationship = checkedRelationshipProjection(working, movingId, { parentId: paper.target.parentId, ...targetSlot, index: targetIndex }, snapshot.atoms)
       if (!originalRelationship) return null
       working = originalRelationship.file
       if (!sameValue(originalRelationship.command.expected, originalRelationship.command.source)) commands.push(originalRelationship.command)
       if (paper.mode === 'absolute') {
         if (!paper.rect) return null
-        const absoluteOriginal = applyAbsoluteProjection(working, paper.nodeId, paper.rect, snapshot.atoms)
+        const absoluteOriginal = applyAbsoluteProjection(working, movingId, paper.rect, snapshot.atoms)
         if (!absoluteOriginal) return null
         working = absoluteOriginal.file
         commands.push(absoluteOriginal.command)
@@ -682,7 +664,7 @@ export function planGestureCommand(snapshot: GestureCommandSnapshot, intents: re
     if (!commands.length) return null
     const command: FileCommand = commands.length === 1 ? commands[0]! : { type: 'batch', commands }
     if (!closesHistory(snapshot, command)) return null
-    return { command, selection: [paper.nodeId], duplicateIds }
+    return { command, selection: [movingId], duplicateIds }
   }
   const duplicateIds: Record<string, Record<string, string>> = {}
   const assigned = new Set(Object.keys(snapshot.file.nodes))
@@ -717,16 +699,10 @@ export function planGestureCommand(snapshot: GestureCommandSnapshot, intents: re
       const ids = duplicateIds[intent.nodeId]!
       const copyId = ids[intent.nodeId]!
       commands.push({ type: 'node.duplicate', nodeId: intent.nodeId, ids })
-      commands.push({ type: 'node.reorder', nodeId: copyId, index: intent.sourcePlacement.index })
       const node = snapshot.file.nodes[intent.nodeId] as Exclude<FileNode, { type: 'root' }>
-      if (intent.clone.mode === 'absolute') appendAbsoluteCommands(commands, copyId, node, intent.clone.rect)
-      if (intent.original.mode === 'absolute') appendAbsoluteCommands(commands, intent.nodeId, node, intent.original.rect)
-      else {
-        const raw = intent.original.placement.index
-        const target = raw === intent.sourcePlacement.index ? raw + 1 : raw
-        commands.push({ type: 'node.reorder', nodeId: intent.nodeId, index: target })
-      }
-      selection.push(intent.nodeId)
+      if (intent.original.mode === 'absolute') appendAbsoluteCommands(commands, copyId, node, intent.original.rect)
+      else commands.push({ type: 'node.reorder', nodeId: copyId, index: intent.original.placement.index })
+      selection.push(copyId)
       continue
     }
   }

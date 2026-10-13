@@ -7,6 +7,7 @@ import type { HudFlowDragProjection, HudProjectionFrame, HudQuad } from './canva
 import { editorMobileBreakpoint } from './mobile-editor'
 import { worldRectToScreen, worldToScreen } from './canvas-math'
 import type { Rect } from './canvas-math'
+import { previewCameraStore } from './preview-camera-store'
 
 export type PaintedHud = {
   projectionGeneration: number
@@ -238,6 +239,10 @@ export function createCanvasHudPainter(store = documentStore, projections = canv
     animationFrame = null
     if (!canvas) return
     const state: DocumentState = store.getSnapshot()
+    const cameraSnapshot = previewCameraStore.getSnapshot()
+    const presentedCamera = cameraSnapshot?.camera
+    const camera = presentedCamera ? { x: presentedCamera.x, y: presentedCamera.y, zoom: presentedCamera.zoom } : state.viewport
+    const viewportSize = presentedCamera ? { width: presentedCamera.width, height: presentedCamera.height } : state.viewportSize
     const observedProjection = projections.getSnapshot()
     const currentProjection = projections.getSnapshot()
     const projection = canvasHudPaintProjection(observedProjection, currentProjection)
@@ -257,7 +262,7 @@ export function createCanvasHudPainter(store = documentStore, projections = canv
     const outlineWidth = projection.frame?.key.mobile ? 2 : 1
 
     if (transient?.kind === 'marquee') {
-      const screen = worldRectToScreen(transient.rect, state.viewport, state.viewportSize)
+      const screen = worldRectToScreen(transient.rect, camera, viewportSize)
       context.save()
       context.fillStyle = `color-mix(in srgb, ${palette.selection} 10%, transparent)`
       context.fillRect(Math.round(screen.x), Math.round(screen.y), Math.round(screen.width), Math.round(screen.height))
@@ -269,8 +274,8 @@ export function createCanvasHudPainter(store = documentStore, projections = canv
       context.strokeStyle = palette.guide
       context.lineWidth = 1
       for (const guide of transient.guides) {
-        const start = worldToScreen(guide.axis === 'x' ? { x: guide.position, y: guide.start } : { x: guide.start, y: guide.position }, state.viewport, state.viewportSize)
-        const end = worldToScreen(guide.axis === 'x' ? { x: guide.position, y: guide.end } : { x: guide.end, y: guide.position }, state.viewport, state.viewportSize)
+        const start = worldToScreen(guide.axis === 'x' ? { x: guide.position, y: guide.start } : { x: guide.start, y: guide.position }, camera, viewportSize)
+        const end = worldToScreen(guide.axis === 'x' ? { x: guide.position, y: guide.end } : { x: guide.end, y: guide.position }, camera, viewportSize)
         context.beginPath()
         if (guide.axis === 'x') { context.moveTo(crisp(start.x), Math.round(start.y)); context.lineTo(crisp(start.x), Math.round(end.y)) }
         else { context.moveTo(Math.round(start.x), crisp(start.y)); context.lineTo(Math.round(end.x), crisp(start.y)) }
@@ -278,7 +283,7 @@ export function createCanvasHudPainter(store = documentStore, projections = canv
       }
       context.restore()
       if (transient.insertion) {
-        const screen = worldRectToScreen(transient.insertion.rect, state.viewport, state.viewportSize)
+        const screen = worldRectToScreen(transient.insertion.rect, camera, viewportSize)
         context.save()
         context.fillStyle = palette.selection
         context.fillRect(Math.round(screen.x), Math.round(screen.y), Math.max(2, Math.round(screen.width)), Math.max(2, Math.round(screen.height)))
@@ -290,7 +295,7 @@ export function createCanvasHudPainter(store = documentStore, projections = canv
       }
     }
     if (transient?.kind === 'draw') {
-      const screen = worldRectToScreen(transient.rect, state.viewport, state.viewportSize)
+      const screen = worldRectToScreen(transient.rect, camera, viewportSize)
       context.save()
       context.fillStyle = `color-mix(in srgb, ${palette.surface} 60%, transparent)`
       if (transient.elementKind === 'shape') {
@@ -336,7 +341,7 @@ export function createCanvasHudPainter(store = documentStore, projections = canv
     start() {
       if (stops.length) return
       projections.start()
-      stops = [store.subscribe(schedule), projections.subscribe(schedule)]
+      stops = [store.subscribe(schedule), projections.subscribe(schedule), previewCameraStore.subscribe(schedule)]
       const onResize = () => schedule()
       window.addEventListener('resize', onResize)
       stops.push(() => window.removeEventListener('resize', onResize))

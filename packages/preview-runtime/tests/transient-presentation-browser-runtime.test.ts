@@ -91,7 +91,7 @@ afterAll(async () => { await dispose?.() }, 30_000)
 describe('PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 v8 browser presentation runtime', () => {
   it('applies one parent-padding projection, preserves transforms and assets, rejects stale samples, and restores every lifecycle edge', async () => {
     await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument(), theme: { attribute: null, colorScheme: 'light' } })
-    await send({ type: 'set-camera', camera: { x: -400, y: -300, zoom: 1, width: 800, height: 600 } })
+    await send({ type: 'set-camera', sequence: 1, camera: { x: -400, y: -300, zoom: 1, width: 800, height: 600 } })
     await frame.waitForSelector('[data-preview-canvas="selected"]')
     await frame.evaluate(() => {
       const primitive = document.querySelector<HTMLElement>('[data-preview-canvas="selected"]')!
@@ -109,6 +109,14 @@ describe('PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 v8 browser pres
 
     expect(await firstMeasurementRevision()).toBe(1)
     const initialMeasurementRevision = await currentMeasurementRevision()
+    const geometryCount = await page.evaluate(() => ((window as unknown as { previewMessages?: { type?: string }[] }).previewMessages ?? []).filter(message => message.type === 'geometry').length)
+    await send({ type: 'set-camera', sequence: 2, camera: { x: -360, y: -280, zoom: 1, width: 800, height: 600 } })
+    await send({ type: 'set-camera', sequence: 3, camera: { x: -440, y: -320, zoom: 1, width: 800, height: 600 } })
+    await send({ type: 'set-camera', sequence: 4, camera: { x: -400, y: -300, zoom: 1, width: 800, height: 600 } })
+    await new Promise(resolveWait => setTimeout(resolveWait, 100))
+    expect(await frame.$eval('#preview-root', element => (element as HTMLElement).style.transform)).toBe('translate(-400px, -300px) scale(1)')
+    expect(await page.evaluate(() => ((window as unknown as { previewMessages?: { type?: string }[] }).previewMessages ?? []).filter(message => message.type === 'geometry').length)).toBe(geometryCount)
+    expect(await page.evaluate(() => ((window as unknown as { previewMessages?: { type?: string; sequence?: number }[] }).previewMessages ?? []).filter(message => message.type === 'camera-applied').map(message => message.sequence))).toStrictEqual([1, 2, 3, 4])
     let fence = { documentRevision: 12, layoutGeneration: 0, measurementRevision: initialMeasurementRevision }
     const presentation = (sampleSequence: number) => ({
       kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'resize-1', sampleSequence, fence,

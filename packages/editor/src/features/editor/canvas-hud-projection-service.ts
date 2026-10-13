@@ -9,6 +9,8 @@ import type { ResizePresentation } from './resize-projection'
 import type { PreviewCommittedDocumentReceipt } from './preview-service'
 import { sceneGeometry } from './scene-geometry'
 import type { SceneGeometry } from './scene-geometry'
+import { previewCameraStore } from './preview-camera-store'
+import type { PreviewCameraSnapshot } from './preview-camera-store'
 
 type DocumentSource = Readonly<{
   getSnapshot: () => GestureAuthorityDocumentState & ReturnType<typeof documentStore.getSnapshot>
@@ -22,6 +24,11 @@ type GeometrySource = Readonly<{
 
 type MobileSource = Readonly<{
   getSnapshot: () => boolean
+  subscribe: (listener: () => void) => () => void
+}>
+
+type CameraSource = Readonly<{
+  getSnapshot: () => PreviewCameraSnapshot
   subscribe: (listener: () => void) => () => void
 }>
 
@@ -74,6 +81,7 @@ type AuthorityInputs = Readonly<{
   viewportSize: GestureAuthorityDocumentState['viewportSize']
   selection: GestureAuthorityDocumentState['selection']
   geometry: SceneGeometry
+  presentedCamera: PreviewCameraSnapshot
 }>
 
 type FrameInputs = Readonly<{
@@ -96,7 +104,8 @@ const sameAuthorityInputs = (left: AuthorityInputs | null, right: AuthorityInput
   && left.viewport === right.viewport
   && left.viewportSize === right.viewportSize
   && left.selection === right.selection
-  && left.geometry === right.geometry)
+  && left.geometry === right.geometry
+  && left.presentedCamera === right.presentedCamera)
 
 const sameFrameInputs = (left: FrameInputs | null, right: FrameInputs): boolean => Boolean(left
   && left.authority === right.authority
@@ -156,6 +165,7 @@ export function createCanvasHudProjectionService(
   geometry: GeometrySource = sceneGeometry,
   mobile: MobileSource = mobileViewport,
   project: Projection = projectHudFrame,
+  cameras: CameraSource = previewCameraStore,
 ) {
   let authorityInputs: AuthorityInputs | null = null
   let authority: GestureAuthoritySnapshot | null = null
@@ -173,6 +183,12 @@ export function createCanvasHudProjectionService(
     if (disposed) return
     const state = documents.getSnapshot()
     const measured = geometry.getSnapshot()
+    const presentedCamera = cameras.getSnapshot()
+    const projectionState = presentedCamera?.camera ? {
+      ...state,
+      viewport: { x: presentedCamera.camera.x, y: presentedCamera.camera.y, zoom: presentedCamera.camera.zoom },
+      viewportSize: { width: presentedCamera.camera.width, height: presentedCamera.camera.height },
+    } : state
     if (activeFlowDrag?.receipt) {
       const receipt = activeFlowDrag.receipt
       const settled = state.file?.fileId === receipt.fileId
@@ -209,14 +225,15 @@ export function createCanvasHudProjectionService(
       pageId: state.pageId,
       atoms: state.atoms,
       layoutGeneration: state.layoutGeneration,
-      viewport: state.viewport,
-      viewportSize: state.viewportSize,
+      viewport: projectionState.viewport,
+      viewportSize: projectionState.viewportSize,
       selection: state.selection,
       geometry: measured,
+      presentedCamera,
     }
     if (!activeFlowDrag && !sameAuthorityInputs(authorityInputs, nextAuthorityInputs)) {
       authorityInputs = nextAuthorityInputs
-      authority = captureGestureAuthority(documents.getSnapshot, geometry.getSnapshot)
+      authority = captureGestureAuthority(() => projectionState, geometry.getSnapshot)
     }
     if (activeFlowDrag) authority = activeFlowDrag.authority
     const editingNodeId = state.textEditing?.nodeId
@@ -292,7 +309,7 @@ export function createCanvasHudProjectionService(
     },
     start() {
       if (disposed || stops.length) return
-      stops = [documents.subscribe(recompute), geometry.subscribe(recompute), mobile.subscribe(recompute)]
+      stops = [documents.subscribe(recompute), geometry.subscribe(recompute), mobile.subscribe(recompute), cameras.subscribe(recompute)]
       recompute()
     },
     stop() {

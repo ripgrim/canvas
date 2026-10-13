@@ -20,12 +20,46 @@ class FakeElement {
   inert = false
   removed = false
   setAttribute(name: string, value: string) { this.attributes.set(name, value) }
+  removeAttribute(name: string) { this.attributes.delete(name) }
   getAttribute(name: string) { return this.attributes.get(name) ?? null }
+  querySelectorAll() { return [] }
   append(child: FakeElement) { child.parentElement = this; this.children.push(child) }
+  insertBefore(child: FakeElement, reference: FakeElement | null) {
+    child.parentElement = this
+    const index = reference ? this.children.indexOf(reference) : -1
+    if (index < 0) this.children.push(child)
+    else this.children.splice(index, 0, child)
+  }
+  cloneNode() {
+    const clone = new FakeElement()
+    for (const [name, value] of this.style.values) clone.style.values.set(name, { ...value })
+    for (const [name, value] of this.attributes) clone.attributes.set(name, value)
+    return clone
+  }
   remove() { this.removed = true; if (this.parentElement) this.parentElement.children.splice(this.parentElement.children.indexOf(this), 1) }
 }
 
 describe('AT-CAN-006 transient move presentation', () => {
+  it('moves an inert optimistic duplicate while leaving the authored source untouched', () => {
+    const parent = new FakeElement()
+    const source = new FakeElement()
+    source.style.setProperty('translate', '3px 4px')
+    parent.append(source)
+    const ownerDocument = { defaultView: { HTMLElement: FakeElement, getComputedStyle: (element: FakeElement) => ({ translate: element.style.getPropertyValue('translate') }) } }
+    const layer = createTransientMoveLayer(ownerDocument, { querySelector: () => source })
+
+    layer.update([{ nodeId: 'node-1', dx: 10, dy: 20, duplicate: true }])
+
+    expect(source.style.getPropertyValue('translate')).toBe('3px 4px')
+    expect(parent.children).toHaveLength(2)
+    const duplicate = parent.children[1]!
+    expect(duplicate.getAttribute('data-preview-transient-clone')).toBe('')
+    expect(duplicate.inert).toBe(true)
+    expect(duplicate.style.getPropertyValue('translate')).toBe('13px 24px')
+    layer.clear()
+    expect(parent.children).toEqual([source])
+  })
+
   it('indexes an element and its base translation once for the lifetime of a gesture', () => {
     const element = new FakeElement()
     element.style.setProperty('translate', '3px 4px')

@@ -9,6 +9,7 @@ import { sceneGeometry } from '../editor/scene-geometry'
 import { buildScene } from '../editor/canvas-scene'
 import { unionRects, worldRectToScreen, worldToScreen } from '../editor/canvas-math'
 import type { Rect } from '../editor/canvas-math'
+import { previewCameraStore } from '../editor/preview-camera-store'
 
 const colors = [
   { background: 'var(--color-4)', foreground: 'var(--collaborator-color-4-foreground)' },
@@ -137,6 +138,8 @@ export function CollaborationCanvasPresence() {
   const collaboration = useSyncExternalStore(collaborationService.subscribe, collaborationService.getSnapshot, collaborationService.getSnapshot)
   const document = useSyncExternalStore(documentStore.subscribe, documentStore.getSnapshot, documentStore.getSnapshot)
   const geometry = useSyncExternalStore(sceneGeometry.subscribe, sceneGeometry.getSnapshot, sceneGeometry.getSnapshot)
+  const cameraSnapshot = useSyncExternalStore(previewCameraStore.subscribe, previewCameraStore.getSnapshot, previewCameraStore.getSnapshot)
+  const presentedCamera = cameraSnapshot?.camera
   if (!document.file || !document.pageId) return null
   const scene = buildScene(document.file, document.pageId, geometry.nodes, document.layoutGeneration)
   const localTransientRects: Record<string, Rect> = document.transient?.kind === 'move' ? document.transient.rects : {}
@@ -147,9 +150,11 @@ export function CollaborationCanvasPresence() {
     const selection = awareness.selection?.pageId === document.pageId ? unionRects(awareness.selection.nodeIds.map(id => {
       return collaborationSelectionRect(scene.byId.get(id)?.rect, localTransientRects[id], transforms.get(id))
     }).filter(rect => rect !== undefined)) : null
-    const selectionScreen = selection ? worldRectToScreen(selection, document.viewport, document.viewportSize) : null
+    const camera = presentedCamera ? { x: presentedCamera.x, y: presentedCamera.y, zoom: presentedCamera.zoom } : document.viewport
+    const viewportSize = presentedCamera ? { width: presentedCamera.width, height: presentedCamera.height } : document.viewportSize
+    const selectionScreen = selection ? worldRectToScreen(selection, camera, viewportSize) : null
     const smoothed = collaboration.cursorPositions[participant.presenceId]
-    const cursor = smoothed?.pageId === document.pageId ? worldToScreen(smoothed, document.viewport, document.viewportSize) : null
+    const cursor = smoothed?.pageId === document.pageId ? worldToScreen(smoothed, camera, viewportSize) : null
     const rawCursor = awareness.cursor?.pageId === document.pageId ? awareness.cursor : null
     const snap = Boolean(rawCursor && smoothed && rawCursor.x === smoothed.x && rawCursor.y === smoothed.y)
     return <Fragment key={participant.presenceId}>

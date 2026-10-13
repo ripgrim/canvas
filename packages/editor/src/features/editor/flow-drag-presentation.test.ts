@@ -337,6 +337,8 @@ describe('PAPER-FLEX-006-PRESENTATION-V8, PAPER-FLEX-007-PRESENTATION-V8, and AT
     const cloneAuthority = authority(currentState)
     const before = structuredClone(cloneAuthority)
     const presentation = project(currentState, cloneAuthority)!
+    expect(presentation.original.dom).toStrictEqual({ treatment: 'unchanged', opacity: null, opacityPriority: 'normal', zIndex: null })
+    expect(presentation.movingVisual).toStrictEqual({ kind: 'document-node', documentNodeId: 'node', geometry: presentation.original.current })
     expect(presentation.supportClone).toStrictEqual({
       key: { kind: 'flow-support-clone', interactionId: 'interaction-9', gestureGeneration: 5, cloneGeneration: 1 },
       documentNodeId: null, role: 'inert-marker', layoutParticipation: 'none', generation: 1,

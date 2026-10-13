@@ -1,4 +1,4 @@
-import { ancestorsOf, applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, legacyTextProperties, pageRoot, resolveToken, validateFileCommand, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
+import { acceptsChild, ancestorsOf, applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, legacyTextProperties, nodeChildDisplay, nodeIsLocked, nodePositionMode, pageRoot, resolveToken, validateFileCommand, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
 import type { ColorToken, FileCommand, FileDocument, FileNode, NodePlacement, Paint, PrimitiveKind, PrimitiveStylePatch, PrimitiveStyles, SourcePalette, TextSizing, TextStyle, TokenValue } from '@canvas/repo-engine/file-document'
 import { appearanceLimits, defaultFillColor, imageMimes, nextBorders, validateImageAssetReference } from '@canvas/repo-engine/appearance'
 import { nodeAppearance } from '@canvas/repo-engine/file-document'
@@ -6,7 +6,7 @@ import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAsset
 import type { DocumentNodeLayout } from '@canvas/repo-engine/document'
 import { intrinsic, layoutFromLegacy, legacyLayout, percent } from '@canvas/repo-engine/layout'
 import type { NodeLayout, SizingMode } from '@canvas/repo-engine/layout'
-import { positionAbsolute, positionFlow, setAspectRatio, setAxisBound, setAxisLength, setAxisSizingMany, setInset, setSpacing, setZIndex } from './layout-commands'
+import { positionAbsolute, positionFlow, positionFreeform, setAspectRatio, setAxisBound, setAxisLength, setAxisSizingMany, setInset, setSpacing, setZIndex } from './layout-commands'
 import { createFlexCommands } from './layout-flex-commands'
 import type { LayoutCommandContext } from './layout-flex-commands'
 import { paperWrapCopy, planPaperWrap } from './layout-wrap-planner'
@@ -47,7 +47,7 @@ export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text'
 /** Transient gesture state shared between the interaction layer and the HUD. Never persisted. */
 export type CanvasTransient =
   | { kind: 'marquee'; rect: Rect }
-  | { kind: 'move'; rects: Record<string, Rect>; offset: Point; guides: SnapGuide[]; targetFrameId: string | null; insertion: { axis: 'x' | 'y'; rect: Rect } | null }
+  | { kind: 'move'; rects: Record<string, Rect>; offset: Point; guides: SnapGuide[]; targetFrameId: string | null; insertion: { axis: 'x' | 'y'; rect: Rect } | null; duplicate?: boolean }
   | { kind: 'resize'; interactionId: string }
   | { kind: 'draw'; elementKind: PrimitiveKind; rect: Rect; targetFrameId: string | null }
   | { kind: 'pan' }
@@ -113,6 +113,7 @@ export type DocumentHistory = { past: HistoryEntry[]; future: HistoryEntry[] }
 type KeyInput = { key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }
 export type MoveCommit = { id: string; x: number; y: number; parentId?: string | null; width?: number; height?: number }
 export type InsertTarget = { parentId: string | null; slot?: string; index?: number }
+export type LayerTreeDropTarget = InsertTarget & { duplicate?: boolean }
 export type ComponentInsertPoint = { x: number; y: number }
 export type SourceTokenImport = Readonly<{ property: string; name: string; fallback: Color }>
 export type PersistenceCommit = Readonly<{ committed: boolean; persistence: Promise<void> | null }>
@@ -662,6 +663,56 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     }
     return executeBatch(commands, selection)
   }
+  /** Moves or duplicates selected subtree roots as one ordered, undoable layer-tree transaction. */
+  const layerTreeDrop = (nodeIds: readonly string[], target: LayerTreeDropTarget) => {
+    const state = backing.getState()
+    if (!state.file || !state.pageId || persistenceBlocked || state.readOnly) return false
+    const file = state.file
+    const order = documentOrder(file, state.pageId)
+    const candidates = [...new Set(nodeIds)].filter(id => file.nodes[id] && file.nodes[id]!.type !== 'root')
+    const roots = candidates.filter(id => !candidates.some(other => other !== id && descendantsOf(file, other).includes(id))).sort((a, b) => order.indexOf(a) - order.indexOf(b))
+    const parentId = target.parentId ?? pageRoot(file, state.pageId)
+    if (!parentId) return false
+    const parent = file.nodes[parentId]
+    if (!parent || !roots.length || roots.some(id => nodeIsLocked(file, id) || id === parentId || descendantsOf(file, id).includes(parentId) || !acceptsChild(parent, file.nodes[id]!, target.slot, state.atoms))) return false
+    const moving = new Set(target.duplicate ? [] : roots)
+    const allSiblings = childrenOf(file, parentId, target.slot)
+    const siblings = allSiblings.filter(id => !moving.has(id))
+    const requestedIndex = Math.max(0, Math.min(allSiblings.length, target.index ?? allSiblings.length))
+    const removedBefore = allSiblings.slice(0, requestedIndex).filter(id => moving.has(id)).length
+    const index = Math.max(0, Math.min(siblings.length, requestedIndex - removedBefore))
+    const after = index < siblings.length ? file.relationships[siblings[index]!]!.orderKey : null
+    let before = index > 0 ? file.relationships[siblings[index - 1]!]!.orderKey : null
+    const commands: FileCommand[] = []
+    const selection: string[] = []
+    const targetDisplay = nodeChildDisplay(parent)
+    for (const id of roots) {
+      const orderKey = orderKeyBetween(before, after)
+      const placement: NodePlacement = { parentId, orderKey, ...(target.slot !== undefined ? { slot: target.slot } : {}) }
+      if (target.duplicate) {
+        const ids = newIdsFor(file, id)
+        const duplicateId = ids[id]!
+        commands.push({ type: 'node.duplicate', nodeId: id, ids })
+        commands.push({ type: 'node.reparent', nodeId: duplicateId, placement, preserveWorldPosition: true })
+        const source = file.nodes[id]!
+        if (source.type !== 'root' && source.type !== 'component') {
+          const layout = targetDisplay === 'flex' ? positionFlow(source.layout, targetDisplay) : positionFreeform(source.layout)
+          if (nodePositionMode(source) !== layout.item.position.mode) commands.push({ type: 'node.setLayout', nodeId: duplicateId, layout })
+        }
+        selection.push(duplicateId)
+      } else {
+        commands.push({ type: 'node.reparent', nodeId: id, placement, preserveWorldPosition: true })
+        const source = file.nodes[id]!
+        if (source.type !== 'root' && source.type !== 'component') {
+          const layout = targetDisplay === 'flex' ? positionFlow(source.layout, targetDisplay) : positionFreeform(source.layout)
+          if (nodePositionMode(source) !== layout.item.position.mode) commands.push({ type: 'node.setLayout', nodeId: id, layout })
+        }
+        selection.push(id)
+      }
+      before = orderKey
+    }
+    return executeBatch(commands, selection)
+  }
   const moveBy = (nodeId: string, delta: number) => {
     const state = backing.getState()
     const relationship = state.file?.relationships[nodeId]
@@ -1026,6 +1077,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         return execute({ type: 'node.insert', node: { id, type: 'component', componentId, exportName: atom.exportName, props: { ...defaults, ...props }, ...(layout ? { layout } : {}) }, placement: placementFor(target, state) }, [id])
       },
       duplicate,
+      layerTreeDrop,
       delete: (nodeIds = backing.getState().selection) => deleteSelection(nodeIds),
       /** Moves a component instance to another slot or position (layer tree drop). */
       move: (nodeId: string, target: InsertTarget) => { const state = backing.getState(); return state.file ? execute({ type: 'node.reparent', nodeId, placement: placementFor(target, state) }) : false },
@@ -1357,6 +1409,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         const state = backing.getState()
         if (!state.file) return noPersistenceCommit
         const commands: FileCommand[] = []
+        const movedIds: Record<string, string> = {}
         if (settings.duplicate) {
           const moving = new Set(moves.map(move => move.id))
           for (const move of moves) {
@@ -1364,24 +1417,29 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
             const subtree = [move.id, ...descendantsOf(state.file, move.id)]
             const ids = Object.fromEntries(subtree.map(id => [id, makeId()]))
             commands.push({ type: 'node.duplicate', nodeId: move.id, ids })
+            movedIds[move.id] = ids[move.id]!
           }
         }
         for (const move of moves) {
           const item = state.file.nodes[move.id]
           if (!item) continue
+          const movedId = movedIds[move.id] ?? move.id
           if (isPrimitive(item)) {
             const parentId = move.parentId === undefined ? parentOf(move.id) : move.parentId
             if (parentId && parentId !== root(state) && state.file.nodes[parentId]?.type !== 'frame') continue
-            commands.push(...primitiveMove(move.id, { x: move.x, y: move.y }, parentId === root(state) ? null : parentId))
+            const target = parentId ?? root(state)!
+            const parentWorld = target === root(state) ? { x: 0, y: 0 } : worldPosition(state.file, target)
+            if (parentOf(move.id) !== target) commands.push({ type: 'node.reparent', nodeId: movedId, placement: { parentId: target } })
+            commands.push({ type: 'node.setStyles', nodeId: movedId, styles: { left: Math.round(move.x - parentWorld.x), top: Math.round(move.y - parentWorld.y) } })
             continue
           }
           if (item.type !== 'component' || !isRootChild(move.id)) continue
           // Leaving the host flow bakes the measured width so the component keeps the size it had (Paper: capture sizing intent before layout changes).
           const placement = legacyLayout(item.layout)
           const baked = placement.mode === 'absolute' || placement.width !== undefined || move.width === undefined ? {} : { width: Math.max(1, Math.round(move.width)) }
-          commands.push(placementCommand(item, { ...placement, ...baked, mode: 'absolute', x: Math.round(move.x), y: Math.round(move.y) }))
+          commands.push({ type: 'node.setLayout', nodeId: movedId, layout: layoutFromLegacy({ ...placement, ...baked, mode: 'absolute', x: Math.round(move.x), y: Math.round(move.y) }, item.layout) })
         }
-        return executeBatchWithPersistence(commands, moves.map(move => move.id))
+        return executeBatchWithPersistence(commands, moves.map(move => movedIds[move.id] ?? move.id))
       },
       // Pages ------------------------------------------------------------------------------------------------------
       /** Creates a page. With `activate: false` the open page stays put so a router can push the new page as its own history entry. */

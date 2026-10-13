@@ -6,6 +6,7 @@ import { createPreviewConnection } from './preview-service'
 import { documentStore } from './document-store'
 import { editorStore } from './store'
 import { sceneGeometry } from './scene-geometry'
+import { previewCameraStore } from './preview-camera-store'
 
 const file = (): FileDocument => ({
   schemaVersion: 9,
@@ -66,9 +67,34 @@ function harness() {
 afterEach(() => {
   while (cleanups.length) cleanups.pop()!()
   editorStore.set({ snapshot: null, previewReady: false, previewThemeId: null, runtimeInstanceIds: null, compositionPreview: false, error: null })
+  previewCameraStore.reset()
 })
 
 describe('FILE-ASSET-001 and ERROR-VISIBILITY-001 preview connection hydration', () => {
+  it('AT-CAN-PAN-001 publishes only the newest camera once per frame during a pan', () => {
+    const { deliver, flushAllFrames, setAsset, target } = harness()
+    setAsset({ mime: 'image/png', data: 'AAAA' })
+    flushAllFrames()
+    target.postMessage.mockClear()
+
+    documentStore.setTransient({ kind: 'pan' })
+    documentStore.setViewport({ x: 10, y: 15, zoom: 1 })
+    documentStore.setViewport({ x: 24, y: 31, zoom: 1 })
+
+    expect(target.postMessage.mock.calls.filter(([command]) => command.type === 'set-camera')).toHaveLength(0)
+    flushAllFrames()
+    const cameras = target.postMessage.mock.calls.map(([command]) => command).filter(command => command.type === 'set-camera')
+    expect(cameras).toStrictEqual([expect.objectContaining({ sequence: expect.any(Number), camera: { x: 24, y: 31, zoom: 1, width: 0, height: 0 } })])
+    const pending = { generation: 1, sentSequence: cameras[0]!.sequence, appliedSequence: -1, camera: null, settled: false }
+    expect(previewCameraStore.getSnapshot()).toStrictEqual(pending)
+    deliver({ channel: 'design-editor-preview', version: 8, generation: 1, type: 'camera-applied', sequence: cameras[0]!.sequence, camera: { x: 10, y: 15, zoom: 1, width: 0, height: 0 } })
+    expect(previewCameraStore.getSnapshot()).toStrictEqual(pending)
+    deliver({ channel: 'design-editor-preview', version: 8, generation: 1, type: 'camera-applied', sequence: cameras[0]!.sequence, camera: cameras[0]!.camera })
+    expect(previewCameraStore.getSnapshot()).toStrictEqual({ generation: 1, sentSequence: cameras[0]!.sequence, appliedSequence: cameras[0]!.sequence, camera: cameras[0]!.camera, settled: true })
+    documentStore.setTransient(null)
+    flushAllFrames()
+  })
+
   it('AT-CAN-005 forwards every distinct live transform without waiting for another animation frame', () => {
     const { flushAllFrames, setAsset, target } = harness()
     setAsset({ mime: 'image/png', data: 'AAAA' })

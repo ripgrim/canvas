@@ -420,9 +420,10 @@ function validateFlowDragPresentationWire(
       || topology.relationship.orderKey !== null && topology.relationship.orderKey !== original.sourceRelationship.orderKey) return false
   }
   const delta = { x: value.pointer.currentWorld.x - value.pointer.downWorld.x, y: value.pointer.currentWorld.y - value.pointer.downWorld.y }
+  const duplicatePreview = value.supportClone !== null && dataRecord(value.movingVisual) && value.movingVisual.kind === 'document-node'
   if (!translatedGeometry(source, delta, current)) return false
   if (original.mode === 'flow') {
-    if (original.sourceOffsetParentPose !== null || !domTreatment(original.dom, 'drag-dimmed')) return false
+    if (original.sourceOffsetParentPose !== null || !domTreatment(original.dom, duplicatePreview ? 'unchanged' : 'drag-dimmed')) return false
   } else {
     if (!exactDataObject(original.sourceOffsetParentPose, ['coordinateSpace', 'offsetParentNodeId', 'sourceOffsetParentPaddingToWorld', 'matrix'])
       || original.sourceOffsetParentPose.coordinateSpace !== 'source-offset-parent'
@@ -433,14 +434,18 @@ function validateFlowDragPresentationWire(
     if (!samePoint(projected[0], current.quad[0]) || !samePoint(projected[1], current.quad[1])
       || !samePoint(projected[2], current.quad[2]) || !samePoint(projected[3], current.quad[3])) return false
     const elevated = value.target !== null && dataRecord(value.target) && value.target.parentId !== original.sourceRelationship.parentId && value.target.parentId !== sourceFence.pageRootId
-    if (!domTreatment(original.dom, elevated ? 'drag-elevated' : 'unchanged')) return false
+    if (!domTreatment(original.dom, duplicatePreview ? 'unchanged' : elevated ? 'drag-elevated' : 'unchanged')) return false
   }
   if (!exactDataObject(original.namePresentation, ['visible', 'anchor', 'pose']) || original.namePresentation.visible !== true
     || original.namePresentation.anchor !== (original.mode === 'flow' ? 'source' : 'current') || !geometry(original.namePresentation.pose)
     || !sameGeometry(original.namePresentation.pose, original.mode === 'flow' ? source : current)) return false
 
   if (!dataRecord(value.movingVisual)) return false
-  if (original.mode === 'flow') {
+  if (duplicatePreview) {
+    if (!exactDataObject(value.movingVisual, ['kind', 'documentNodeId', 'geometry']) || value.movingVisual.kind !== 'document-node'
+      || value.movingVisual.documentNodeId !== original.documentNodeId || !geometry(value.movingVisual.geometry)
+      || !sameGeometry(value.movingVisual.geometry, current)) return false
+  } else if (original.mode === 'flow') {
     if (!exactDataObject(value.movingVisual, ['kind', 'documentNodeId', 'geometry', 'fill', 'hitTesting', 'a11y'])
       || value.movingVisual.kind !== 'fill-ghost' || value.movingVisual.documentNodeId !== null || !geometry(value.movingVisual.geometry)
       || !sameGeometry(value.movingVisual.geometry, current) || value.movingVisual.hitTesting !== 'none' || value.movingVisual.a11y !== 'hidden'

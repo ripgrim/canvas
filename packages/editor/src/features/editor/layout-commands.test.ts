@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NodeLayout } from '@canvas/repo-engine/layout'
-import { flipTransform, positionAbsolute, positionFlow, rotateTransformQuarter, setAspectRatio, setAxisBound, setAxisLength, setAxisSizing, setAxisSizingMany, setInset, setSpacing, setTransformRotation, setZIndex, sizingModeOf } from './layout-commands'
+import { flipTransform, positionAbsolute, positionFlow, positionFreeform, rotateTransformQuarter, setAspectRatio, setAxisBound, setAxisLength, setAxisSizing, setAxisSizingMany, setInset, setSpacing, setTransformRotation, setZIndex, sizingModeOf } from './layout-commands'
 
 const px = (value: number) => ({ kind: 'px' as const, value })
 const percent = (value: number) => ({ kind: 'percent' as const, value })
@@ -20,6 +20,10 @@ describe('positioning transitions', () => {
   it('round trip flow -> absolute -> flow leaves the record equal to the normalized start', () => {
     const start: NodeLayout = { item: { position: { mode: 'flow' }, width: { value: px(120) }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } } }
     expect(positionFlow(positionAbsolute(start, { x: 5, y: 6 }), 'flex')).toEqual(start)
+  })
+  it('LAY-GEST-004: flow to freeform drops Flex-only item controls and keeps axis sizing', () => {
+    const flow: NodeLayout = { item: { position: { mode: 'flow' }, width: { value: px(120) }, height: { value: percent(100) }, flex: { grow: 1 } } }
+    expect(positionFreeform(flow)).toEqual({ item: { position: { mode: 'freeform' }, width: { value: px(120) }, height: { value: percent(100) } } })
   })
   it('insets and z-index only exist on absolute nodes and keep their opposing anchors', () => {
     expect(setInset({ item: { position: { mode: 'flow' } } }, 'left', px(1))).toBeNull()

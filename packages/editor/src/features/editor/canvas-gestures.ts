@@ -738,6 +738,7 @@ export function createCanvasGestures(
   const movePreview = (current: Extract<Gesture, { kind: 'move' }>, event: PointerLike) => {
     const state = store.getSnapshot()
     const world = worldAt(current, event)
+    const duplicate = event.altKey && event.getModifierState?.('AltGraph') !== true
     if (current.flow) {
       const flex = flexDrop(current, world)
       if (flex) {
@@ -746,7 +747,7 @@ export function createCanvasGestures(
         const insertion = guide ? { axis: guide.axis, rect: guide.axis === 'x' ? { x: guide.position - thickness / 2, y: guide.start, width: thickness, height: guide.end - guide.start } : { x: guide.start, y: guide.position - thickness / 2, width: guide.end - guide.start, height: thickness } } : null
         const rect = current.startRects[current.flow.id]!
         const offset = { x: world.x - current.startWorld.x, y: world.y - current.startWorld.y }
-        setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + offset.x, y: rect.y + offset.y } }, offset, guides: [], targetFrameId: null, insertion })
+        setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + offset.x, y: rect.y + offset.y } }, offset, guides: [], targetFrameId: null, insertion, duplicate })
         return
       }
       const parent = current.scene.byId.get(current.flow.parentId)
@@ -764,7 +765,7 @@ export function createCanvasGestures(
       }
       const rect = current.startRects[current.flow.id]!
       const delta = { x: world.x - current.startWorld.x, y: world.y - current.startWorld.y }
-      setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + delta.x, y: rect.y + delta.y } }, offset: delta, guides: [], targetFrameId: null, insertion })
+      setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + delta.x, y: rect.y + delta.y } }, offset: delta, guides: [], targetFrameId: null, insertion, duplicate })
       return
     }
     const delta = { x: world.x - current.startWorld.x, y: world.y - current.startWorld.y }
@@ -780,7 +781,7 @@ export function createCanvasGestures(
     const rects: Record<string, Rect> = {}
     for (const id of current.ids) { const rect = current.startRects[id]; if (rect) rects[id] = roundRect({ ...rect, x: rect.x + delta.x + snap.dx, y: rect.y + delta.y + snap.dy }) }
     const offset = primary && rects[primary.id] ? { x: rects[primary.id]!.x - current.startRects[primary.id]!.x, y: rects[primary.id]!.y - current.startRects[primary.id]!.y } : { x: delta.x + snap.dx, y: delta.y + snap.dy }
-    setTransient({ kind: 'move', rects, offset, guides: snap.guides, targetFrameId: primitives.length ? targetFrameId : null, insertion: null })
+    setTransient({ kind: 'move', rects, offset, guides: snap.guides, targetFrameId: primitives.length ? targetFrameId : null, insertion: null, duplicate })
   }
   const commitMove = (current: Extract<Gesture, { kind: 'move' }>, event: PointerLike) => {
     const transient = store.getSnapshot().transient

@@ -128,6 +128,49 @@ describe('AT-CAN file loading and pages', () => {
     expect(file(store).nodes.outer).toMatchObject({ name: 'Locked frame', isLocked: true })
   })
 
+  it('AT-CAN-001 reparents a layer-tree selection in one undoable transaction', () => {
+    const store = loaded()
+    expect(store.commands.layerTreeDrop(['box'], { parentId: 'outer', index: 1 })).toBe(true)
+    expect(file(store).relationships.box!.parentId).toBe('outer')
+    expect(childrenOf(file(store), 'outer')).toEqual(['inner', 'box'])
+    expect(store.getHistory().past).toHaveLength(1)
+    expect(store.undo()).toBe(true)
+    expect(file(store).relationships.box!.parentId).toBe('root-1')
+  })
+
+  it('AT-CAN-001 Alt-duplicates a subtree at the target without moving its source', () => {
+    const store = loaded()
+    expect(store.commands.layerTreeDrop(['box'], { parentId: 'outer', index: 1, duplicate: true })).toBe(true)
+    expect(file(store).relationships.box!.parentId).toBe('root-1')
+    expect(file(store).relationships['new-1']).toMatchObject({ parentId: 'outer' })
+    expect(store.getSnapshot().selection).toEqual(['new-1'])
+    expect(store.getHistory().past).toHaveLength(1)
+  })
+
+  it('AT-CAN-001 converts a child leaving Flex to freeform without changing its world position', () => {
+    const source = fixture()
+    const outer = source.nodes.outer!
+    const inner = source.nodes.inner!
+    if (outer.type !== 'frame' || inner.type !== 'frame') throw new Error('Fixture frames are missing')
+    outer.layout = { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } }
+    inner.layout = { item: { position: { mode: 'flow' } } }
+    const store = loadedFrom(source)
+    const before = worldPosition(file(store), 'inner')
+    expect(store.commands.layerTreeDrop(['inner'], { parentId: null, index: 1 })).toBe(true)
+    expect(file(store).nodes.inner).toMatchObject({ layout: { item: { position: { mode: 'freeform' } } } })
+    expect(worldPosition(file(store), 'inner')).toEqual(before)
+  })
+
+  it('AT-CAN-001 rejects cyclic and type-invalid drops without creating history', () => {
+    const store = loaded()
+    expect(store.commands.layerTreeDrop(['outer'], { parentId: 'inner', index: 0 })).toBe(false)
+    expect(store.commands.layerTreeDrop(['box'], { parentId: 'card', index: 0 })).toBe(false)
+    expect(store.commands.setLocked('box', true)).toBe(true)
+    const historyAfterLock = store.getHistory().past.length
+    expect(store.commands.layerTreeDrop(['box'], { parentId: 'outer', index: 0 })).toBe(false)
+    expect(store.getHistory().past).toHaveLength(historyAfterLock)
+  })
+
   it('creates, renames, duplicates, reorders, and deletes pages with page-scoped undo', () => {
     const store = loaded()
     const created = store.commands.createPage()
@@ -305,13 +348,13 @@ describe('AT-CAN primitive canvas commands', () => {
     expect(childrenOf(file(store), 'root-1')).toEqual(['outer', 'box', 'new-1', 'card'])
   })
 
-  it('duplicates at the source while Alt-drag moves the selected original in one history step', () => {
+  it('keeps the Alt-drag source fixed while the selected duplicate moves in one history step', () => {
     const store = loaded()
     store.select('box')
     expect(store.commands.commitMove([{ id: 'box', x: 720, y: 460, parentId: null }], { duplicate: true }).committed).toBe(true)
-    expect(store.getSnapshot().selection).toEqual(['box'])
-    expect(styles(store, 'box')).toMatchObject({ left: 720, top: 460 })
-    expect(file(store).nodes['new-1']).toMatchObject({ id: 'new-1', type: 'rectangle', styles: { left: 600, top: 400, width: 50, height: 40 } })
+    expect(store.getSnapshot().selection).toEqual(['new-1'])
+    expect(styles(store, 'box')).toMatchObject({ left: 600, top: 400 })
+    expect(file(store).nodes['new-1']).toMatchObject({ id: 'new-1', type: 'rectangle', styles: { left: 720, top: 460, width: 50, height: 40 } })
     store.undo()
     expect(file(store).nodes['new-1']).toBeUndefined()
     expect(styles(store, 'box')).toMatchObject({ left: 600, top: 400 })

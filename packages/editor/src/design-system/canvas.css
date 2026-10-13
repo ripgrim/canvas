@@ -39,10 +39,14 @@
 .canvas-text-editor::selection { background: var(--color-1-transparent); }
 .dimension-badge { position: absolute; display: inline-flex; align-items: center; min-height: 20px; padding: 0 var(--space-xs); border-radius: var(--radius-xs); background: var(--color-4); color: var(--cte-accent-text); font-family: var(--font-data); font-size: var(--size-xxs); line-height: var(--line-xxs); letter-spacing: var(--letter-spacing-xxs); font-weight: var(--weight-data-regular); white-space: nowrap; transform: translate(-50%, var(--space-xs)); pointer-events: none; }
 .node-label-hit { height: var(--line-xs); overflow: hidden; opacity: 0; color: transparent; background: transparent; box-shadow: none; }
-.document-tree { display: flex; flex-direction: column; padding: var(--space-xxs) 0; }
-.document-layer-item { display: flex; align-items: center; gap: var(--space-xxs); min-width: 0; height: 30px; margin: 0 var(--space-xs); padding: 0 var(--space-xxs); padding-left: calc(var(--space-xxs) + var(--layer-depth) * var(--space-l)); border-radius: var(--radius-xs); color: var(--neutral-9); cursor: pointer; transition: background var(--motion-duration) var(--motion-easing); }
+.document-tree { position: relative; display: flex; flex-direction: column; min-height: 0; overflow: auto; outline: none; }
+.document-tree[data-copying] { cursor: copy; }
+.document-layer-item { display: flex; align-items: center; flex: 0 0 28px; gap: var(--space-xxs); box-sizing: border-box; min-width: max-content; width: 100%; height: 28px; padding: 0 var(--space-xxs); padding-left: calc(var(--space-xxs) + var(--layer-depth) * var(--space-l)); color: var(--neutral-9); cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 28px; transition: background var(--motion-duration) var(--motion-easing), opacity var(--motion-duration) var(--motion-easing); }
 .document-layer-item:hover { background: var(--neutral-2); }
 .document-layer-item[data-selected] { background: var(--color-1-transparent); color: var(--neutral-10); }
+.document-layer-item[data-drop-target], .document-slot[data-drop-target] { background: var(--color-1-transparent); }
+.document-layer-item[data-dragging] { opacity: .5; }
+.document-layer-drop-indicator { position: absolute; right: 0; z-index: 2; height: 2px; background: var(--color-4); pointer-events: none; }
 .document-layer-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--font-ui); font-weight: var(--weight-ui-regular); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); }
 .document-layer-item[data-selected] .document-layer-name { font-weight: var(--weight-ui-medium); }
 .layer-toggle { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: var(--space-m); height: var(--space-m); border: 0; border-radius: var(--radius-xs); padding: var(--space-zero); background: var(--color-none); color: inherit; font: inherit; cursor: pointer; }
@@ -54,7 +58,8 @@
 .document-layer-item[data-selected] .document-layer-icon { color: var(--neutral-10); }
 .document-layer-item[data-hidden] .document-layer-name, .document-layer-item[data-hidden] .document-layer-icon { opacity: 0.45; }
 .document-slot-label { display: block; padding: var(--space-xxs) var(--space-xs); padding-left: calc(var(--space-xxs) + var(--layer-depth) * var(--space-m) + var(--space-m) + var(--space-xxs)); color: var(--neutral-6); font-family: var(--font-data); font-weight: var(--weight-data-regular); font-size: var(--size-xxs); line-height: var(--line-xxs); letter-spacing: var(--letter-spacing-xxs); }
-.document-slot { min-height: var(--space-l); }
+.document-slot { flex: 0 0 28px; box-sizing: border-box; min-width: max-content; width: 100%; height: 28px; content-visibility: auto; contain-intrinsic-size: auto 28px; }
+.sidebar-inline-name { height: 20px; }
 .layer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xxs); padding: var(--space-xs) var(--space-s); box-shadow: inset 0 var(--border-s) 0 var(--cte-border); }
 .layer-actions .button { padding: var(--space-xxs) var(--space-xs); color: var(--neutral-8); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); }
 .layer-actions .button:hover { color: var(--neutral-10); }

@@ -83,6 +83,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
   let transientMoves = []
   let transientPresentations = []
   let camera = { x: 0, y: 0, zoom: 1, width: window.innerWidth, height: window.innerHeight }
+  let cameraSequence = -1
   let disposed = false
   let failed = false
   const send = (type, payload) => window.parent.postMessage({ channel: 'design-editor-preview', version: protocolVersion, generation, type, ...payload }, editorOrigin)
@@ -297,7 +298,12 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     else if (command.type === 'ping') return
     else if (command.type === 'set-theme') { setTheme(command.theme); geometry.refresh() }
     else if (command.type === 'set-interaction-mode') interactionMode = command.mode
-    else if (command.type === 'set-camera') { camera = { ...command.camera }; applyCamera(); geometry.refresh() }
+    else if (command.type === 'set-camera' && command.sequence > cameraSequence) {
+      cameraSequence = command.sequence
+      camera = { ...command.camera }
+      applyCamera()
+      send('camera-applied', { sequence: cameraSequence, camera })
+    }
     else if (command.type === 'set-layout') {
       geometry.suspend(); transientMoveLayer.clear(); if (command.layoutGeneration !== layoutGeneration) presentationSequences.clear(); clearTransientPresentations(); layoutLayer.setTransientBounds([])
       retireUnmatchedFlow('layout', command.layoutGeneration)

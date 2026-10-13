@@ -8,6 +8,7 @@ export type PreviewTransientMove = Readonly<{
   nodeId: string
   dx: number
   dy: number
+  duplicate?: true
   width?: number
   height?: number
   rotationDelta?: number
@@ -116,9 +117,9 @@ export function previewTransientMoves(file: FileDocument | null, pageId: string 
     }
     return true
   })
-  return roots.map(nodeId => ({ nodeId, dx: transient.offset.x, dy: transient.offset.y }))
+  return roots.map(nodeId => ({ nodeId, dx: transient.offset.x, dy: transient.offset.y, ...(transient.duplicate ? { duplicate: true as const } : {}) }))
 }
 
 export function collaborationTransforms(moves: readonly PreviewTransientMove[]) {
-  return moves.map(({ appearance: _appearance, ...transform }) => Object.freeze(transform))
+  return moves.map(({ appearance: _appearance, duplicate: _duplicate, ...transform }) => Object.freeze(transform))
 }

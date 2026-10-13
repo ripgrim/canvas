@@ -223,8 +223,8 @@ describe('Paper Flex terminal intent', () => {
     })
     const plan = planGestureCommand(source, [resolved!.intent], id => `copy-${id}`)!
     const next = applyFileCommand(source.file, plan.command, [])
-    expect(plan.selection).toEqual(['a'])
-    expect(childrenOf(next, 'flex')).toEqual(['copy-a', 'b', 'c', 'd', 'e', 'a'])
+    expect(plan.selection).toEqual(['copy-a'])
+    expect(childrenOf(next, 'flex')).toEqual(['a', 'b', 'c', 'd', 'e', 'copy-a'])
   })
 
   it('accepts Component children and preserves their slot in the placement', () => {
@@ -256,7 +256,7 @@ describe('Paper Flex terminal intent', () => {
     ] })
   })
 
-  it('processes same-sample Alt before primary, leaving a flow clone while the original becomes absolute', () => {
+  it('processes same-sample Alt before primary, leaving the original in flow while the duplicate becomes absolute', () => {
     const source = rotatedAuthority()
     const resolved = derive(source, 'a', { x: 248, y: -70 }, [{ world: { x: 198, y: -100 }, modifiers: { alt: true, primary: true } }])
     expect(resolved).toStrictEqual({
@@ -270,17 +270,16 @@ describe('Paper Flex terminal intent', () => {
     })
     expect(Object.isFrozen((resolved!.intent as { sourcePlacement: object }).sourcePlacement)).toBe(true)
     const plan = planGestureCommand(source, [resolved!.intent], id => `copy-${id}`)!
-    expect(plan.selection).toEqual(['a'])
+    expect(plan.selection).toEqual(['copy-a'])
     expect(plan.command).toStrictEqual({ type: 'batch', commands: [
       { type: 'node.duplicate', nodeId: 'a', ids: { a: 'copy-a' } },
-      { type: 'node.reorder', nodeId: 'copy-a', index: 0 },
-      { type: 'node.setLayout', nodeId: 'a', layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: -10 }, top: { kind: 'px', value: 29 } } } } },
-      { type: 'node.setStyles', nodeId: 'a', styles: { width: 60, height: 20 } },
+      { type: 'node.setLayout', nodeId: 'copy-a', layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: -10 }, top: { kind: 'px', value: 29 } } } } },
+      { type: 'node.setStyles', nodeId: 'copy-a', styles: { width: 60, height: 20 } },
     ] })
     const next = applyFileCommand(source.file, plan.command, [])
-    expect(childrenOf(next, 'parent')).toEqual(['copy-a', 'a'])
-    expect(next.nodes['copy-a']).toMatchObject({ layout: { item: { position: { mode: 'flow' } } } })
-    expect(next.nodes.a).toMatchObject({ layout: { item: { position: { mode: 'absolute' } } } })
+    expect(childrenOf(next, 'parent')).toEqual(['a', 'copy-a'])
+    expect(next.nodes['copy-a']).toMatchObject({ layout: { item: { position: { mode: 'absolute' } } } })
+    expect(next.nodes.a).toMatchObject({ layout: { item: { position: { mode: 'flow' } } } })
   })
 
   it('captures an absolute clone when primary was already active before Alt', () => {

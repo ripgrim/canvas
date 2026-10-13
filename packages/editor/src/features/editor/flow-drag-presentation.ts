@@ -404,10 +404,13 @@ export function projectFlowDragPresentation(input: ProjectFlowDragPresentationIn
   const source = copyGeometry(authority.node.source)
   const current = copyGeometry(authority.node.current)
   const differentNonRootTarget = Boolean(state.target && state.target.parentId !== state.sourceRelationship.parentId && state.target.parentId !== authority.pageRootId)
-  const dom = state.originalMode === 'flow' ? structuredClone(authority.contract.flowOriginal)
+  const dom = state.clone ? structuredClone(authority.contract.unchangedOriginal)
+    : state.originalMode === 'flow' ? structuredClone(authority.contract.flowOriginal)
     : differentNonRootTarget ? structuredClone(authority.contract.elevatedOriginal) : structuredClone(authority.contract.unchangedOriginal)
-  const namePose = state.originalMode === 'flow' ? source : current
-  const movingVisual: FlowDragPresentation['movingVisual'] = state.originalMode === 'flow'
+  const namePose = state.clone || state.originalMode === 'flow' ? source : current
+  const movingVisual: FlowDragPresentation['movingVisual'] = state.clone
+    ? { kind: 'document-node', documentNodeId: state.nodeId, geometry: current }
+    : state.originalMode === 'flow'
     ? { kind: 'fill-ghost', documentNodeId: null, geometry: current, fill: structuredClone(authority.contract.ghost), hitTesting: 'none', a11y: 'hidden' }
     : { kind: 'document-node', documentNodeId: state.nodeId, geometry: current }
   const sourceOffsetParentPose: FlowDragPresentation['original']['sourceOffsetParentPose'] = authority.node.absolutePose ? {
