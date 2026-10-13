@@ -1,0 +1,168 @@
+packages/editor/src/features/editor/layer-tree-gesture.test.ts
+  s_012c57818fbf95::t_fcb5cae24fc4e9 1,40-48
+  s_012c57818fbf95::t_2964dcad3c2912 49-50
+packages/editor/src/design-system/canvas-atoms.client.test.ts
+  s_012c57818fbf95::t_4eba35e5dfd978 7-8
+  s_012c57818fbf95::t_40b0925560eac9 1-6,9-65
+packages/repo-engine/src/layout.ts
+  s_012c57818fbf95::t_f4dda723151a40 384-389,393-395,426-428,447-470
+  s_e18d232d8e09ca::t_659034d8060447 471
+packages/editor/src/features/editor/LayoutPanels.tsx
+  s_012c57818fbf95::t_37ceff2fc0431b 76-77,166-167,184,186-187,192,199-200
+apps/desktop/src/main/index.ts
+  s_012c57818fbf95::t_9dd8640b7e6d87 403-418
+  s_012c57818fbf95::t_a6715f328513ee 246,419
+packages/editor/src/capabilities.ts
+  s_012c57818fbf95::t_a6715f328513ee 164-165
+packages/editor/src/features/editor/layout-panels-sizing.test.ts
+  s_012c57818fbf95::t_37ceff2fc0431b 30-31
+packages/editor/src/features/editor/canvas-gestures.ts
+  s_012c57818fbf95::t_04caec2c514fc3 23,1066,1072,1076
+  s_012c57818fbf95::t_e247af7e1f125a 1067-1071,1073-1075
+apps/desktop/package.json
+  s_012c57818fbf95::t_e6ead47a806c15 10
+packages/editor/src/design-system/color-picker.client.test.ts
+  s_012c57818fbf95::t_791d80b7519065 1-4,6-22,24-68
+  s_012c57818fbf95::t_51deaf5d23d797 5,23
+packages/repo-engine/src/paper-sizing.ts
+  s_012c57818fbf95::t_2b7b4ef174bcac 413
+  s_012c57818fbf95::t_0677d1329e1df8 198-199,201-202
+  s_012c57818fbf95::t_fb2cc80bf7e391 200
+  s_012c57818fbf95::t_f996f1505bb2f7 412
+apps/desktop/tests/launch-smoke.mjs
+  s_012c57818fbf95::t_a6715f328513ee 136
+packages/repo-engine/src/file-preview.ts
+  s_012c57818fbf95::t_c2dd627f5a7f72 72,82
+  s_012c57818fbf95::t_0c1281482955a8 37-45,83
+  s_012c57818fbf95::t_cbff157239dec2 71,73-74,80
+  s_012c57818fbf95::t_6077347e1508ad 12,46-49,70,75-79,151,154,163,168,171,174,183-184
+packages/editor/src/design-system/canvas.css
+  s_012c57818fbf95::t_6b89d1333c743a 24
+  s_012c57818fbf95::t_56d81cb4951c27 27-28,46,64
+packages/editor/src/features/editor/DocumentLayers.tsx
+  s_012c57818fbf95::t_56d81cb4951c27 89
+packages/editor/src/features/application/auth-service.ts
+  s_012c57818fbf95::t_a6715f328513ee 45
+packages/repo-engine/tests/layout.test.ts
+  s_012c57818fbf95::t_161e0eaeb54975 293
+  s_012c57818fbf95::t_11f1ab1f9e89d6 285-292,294-296
+packages/editor/src/features/editor/layout-measure.ts
+  s_012c57818fbf95::t_a84b95cec523b9 140-143
+apps/web/src/adapters/desktop.ts
+  s_012c57818fbf95::t_a6715f328513ee 5,41
+packages/editor/src/features/editor/InspectorPanels.tsx
+  s_012c57818fbf95::t_e2e631d0f6d852 24,105,108
+  s_012c57818fbf95::t_37ceff2fc0431b 82-86,90-92,97,99,103
+  s_012c57818fbf95::t_782f48def160d6 106-107,109
+packages/editor/src/features/editor/document-store.test.ts
+  s_012c57818fbf95::t_167cfca52210c0 284-286,291-299,301-307,309-312,317-322
+  s_012c57818fbf95::t_9887e6886368b2 287,290,313,316
+  s_012c57818fbf95::t_0a34d0cb81bb4e 359-360,363-365
+  s_012c57818fbf95::t_8376be8d7b8616 379
+  s_012c57818fbf95::t_fc59386da8d146 300
+  s_012c57818fbf95::t_b2c2090fc8ee10 288,314
+  s_012c57818fbf95::t_97563fcea7b8f9 372-377,386
+  s_012c57818fbf95::t_d4e5f6187e6324 384-385
+  s_012c57818fbf95::t_d181562912bc86 367
+  s_012c57818fbf95::t_0b8bee9841fd2c 358,361-362,366,368-371,387-392
+  s_012c57818fbf95::t_a6a7639bc2a09d 378,380-383
+  s_012c57818fbf95::t_da6f50431e9652 289,315
+  s_012c57818fbf95::t_a6c6bc8aa8c823 308
+packages/editor/src/design-system/inspector-atoms.tsx
+  s_012c57818fbf95::t_b2aeed170dbdd8 48-52,54-66
+packages/editor/src/features/editor/SelectionColorsPanel.tsx
+  s_012c57818fbf95::t_20e19262832dc7 1,17-38,54
+packages/editor/src/features/editor/SelectionHud.test.ts
+  s_012c57818fbf95::t_56d81cb4951c27 55,70-71
+apps/desktop/src/preload/index.ts
+  s_012c57818fbf95::t_a6715f328513ee 50
+packages/repo-engine/tests/paper-sizing.test.ts
+  s_012c57818fbf95::t_2b7b4ef174bcac 270-271,278-279
+  s_012c57818fbf95::t_d80b40f83eb451 259-260,275,283,287,309,319-320,332,341
+packages/preview-runtime/src/scene-styles.mjs
+  s_012c57818fbf95::t_72a6035077700a 202,204-207
+  s_012c57818fbf95::t_79ea58040dac90 201,203,213-214
+apps/desktop/tests/web-target.test.ts
+  s_012c57818fbf95::t_a6715f328513ee 69-78
+packages/editor/src/features/editor/text-editing-ui.test.ts
+  s_012c57818fbf95::t_56d81cb4951c27 104-105
+apps/desktop/src/preload/contracts.ts
+  s_012c57818fbf95::t_a6715f328513ee 22
+packages/editor/src/design-system/color-picker.tsx
+  s_012c57818fbf95::t_ef78162bf28042 15,17,19,47,157,164,166-168,170-171,174,176,179,192-194,196-197,205-206,213-214,224,336,341
+  s_012c57818fbf95::t_e5fa018f64e6e5 16,18,151
+packages/editor/src/features/editor/display-conversion.test.ts
+  s_012c57818fbf95::t_f996f1505bb2f7 199
+  s_012c57818fbf95::t_0677d1329e1df8 150
+  s_012c57818fbf95::t_2b7b4ef174bcac 172-173,210
+  s_012c57818fbf95::t_50df63a03e626f 211
+  s_012c57818fbf95::t_035ff1b098afbf 238,241-242
+packages/editor/src/features/editor/layout-commands.ts
+  s_012c57818fbf95::t_011b58428c5263 6
+  s_012c57818fbf95::t_02a70936d8293a 12-19,93-99,101,107,112-129,140
+packages/editor/src/design-system/canvas-atoms.tsx
+  s_012c57818fbf95::t_56d81cb4951c27 108
+packages/editor/src/features/editor/TextInspector.tsx
+  s_012c57818fbf95::t_04caec2c514fc3 1,7-8,118,133-134,148
+  s_012c57818fbf95::t_e247af7e1f125a 135-147
+packages/editor/src/features/editor/layout-commands.test.ts
+  s_012c57818fbf95::t_a6c6bc8aa8c823 62
+  s_012c57818fbf95::t_9347aa8a526552 82-94
+  s_012c57818fbf95::t_57d1e345da4a99 58
+packages/editor/src/features/editor/document-store.ts
+  s_012c57818fbf95::t_ffe1c9754cce39 1279,1290-1301
+  s_012c57818fbf95::t_05ea02335f0e7a 9
+  s_012c57818fbf95::t_04caec2c514fc3 1165
+  s_012c57818fbf95::t_206eea54e182f2 1283-1284
+  s_012c57818fbf95::t_779a472f0883ec 817-818
+  s_012c57818fbf95::t_d2a54127447b5b 7
+  s_012c57818fbf95::t_a6c6bc8aa8c823 810,821,825-826
+  s_012c57818fbf95::t_e3ace10690a156 1285-1286,1289
+  s_012c57818fbf95::t_117c67f4ca7865 1287-1288
+  s_012c57818fbf95::t_14a4bbb9bea40b 798-809,811-816,819-820,822-824,827-829,1166,1168
+packages/editor/src/features/editor/layout-flex-store.test.ts
+  s_012c57818fbf95::t_2b7b4ef174bcac 158
+packages/repo-engine/src/file-document.ts
+  s_012c57818fbf95::t_00d6ebea215dfd 1625-1627,1632
+  s_012c57818fbf95::t_0b8bee9841fd2c 1617-1620,1622-1624,1633,1636-1637
+  s_012c57818fbf95::t_50b63a63c875e1 1628-1631
+  s_012c57818fbf95::t_8b4cb12b3618ce 1621,1634-1635
+apps/desktop/tests/cloud-files.test.ts
+  s_012c57818fbf95::t_49c12436feb9cd 27-30
+packages/editor/src/features/editor/AppearancePanels.tsx
+  s_012c57818fbf95::t_e53ff6a3e3a281 171
+  s_012c57818fbf95::t_39d0bc1a8029f0 2,61,103,107-120,124,172-173,308-309
+apps/desktop/src/main/web-target.ts
+  s_012c57818fbf95::t_a6715f328513ee 27,29
+packages/editor/src/features/editor/layout-measure.test.ts
+  s_012c57818fbf95::t_57d1e345da4a99 106-108,112
+packages/preview-runtime/tests/text-runtime.test.ts
+  s_012c57818fbf95::t_6faf3de59180b1 107-113
+packages/editor/src/features/editor/layout-panels-flex.test.ts
+  s_012c57818fbf95::t_b2aeed170dbdd8 7,74-80
+  s_012c57818fbf95::t_a83d76e9366dae 172-179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6d53f535fce9c395efc3b2eaa6e507185420cb48",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
