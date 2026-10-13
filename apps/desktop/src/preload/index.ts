@@ -47,6 +47,7 @@ async function invokeUpdate(request: UpdateRequest): Promise<ApplicationUpdateSn
 }
 
 const api: DesignEditorApi = Object.freeze({
+  allowUnauthenticatedWorkspace: process.argv.filter(argument => argument === '--design-editor-unauthenticated-workspace').length === 1,
   listFiles: () => invoke<readonly DesktopFileSummary[]>({ method: 'listFiles', args: [] }),
   createFile: () => invoke<DesktopFileSummary>({ method: 'createFile', args: [] }),
   openFile: (fileId: string) => invoke<DesktopProjectSnapshot>({ method: 'openFile', args: [fileId] }),

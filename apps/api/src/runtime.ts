@@ -20,6 +20,7 @@ export function getApiRuntime(environment: NodeJS.ProcessEnv = process.env): Api
   const github = githubServices(pool, environment)
   const store = createPostgresControlPlane(pool)
   const serviceToken = required(environment, 'API_SERVICE_TOKEN')
+  const revision = deploymentRevision(environment)
   const app = createApiApp({
     auth: getHostedAuth(environment),
     store,
@@ -34,11 +35,17 @@ export function getApiRuntime(environment: NodeJS.ProcessEnv = process.env): Api
       store,
       upload: createHostedLegacyAssetUploader({ assetsOrigin: required(environment, 'ASSETS_ORIGIN'), serviceToken }),
     }),
+    ...(revision ? { deploymentRevision: revision } : {}),
     allowedOrigins: apiAllowedOrigins(environment),
     ...(github ? { github } : {}),
   })
   runtime = Object.freeze({ app, pool })
   return runtime
+}
+
+function deploymentRevision(environment: NodeJS.ProcessEnv): string | undefined {
+  const value = environment.VERCEL_GIT_COMMIT_SHA?.trim() || environment.GITHUB_SHA?.trim()
+  return value && /^[0-9a-f]{40}$/i.test(value) ? value.toLowerCase() : undefined
 }
 
 export function apiAllowedOrigins(environment: NodeJS.ProcessEnv): readonly string[] {

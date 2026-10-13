@@ -191,7 +191,11 @@ export function createGeometryObserver(container, publish, getCamera = null, get
   }
   const refresh = () => { if (active && !suspended && frame === null) frame = view.requestAnimationFrame(measure) }
   const resize = new view.ResizeObserver(refresh)
-  const mutation = new view.MutationObserver(refresh)
+  const mutation = new view.MutationObserver((records = []) => {
+    // The preview root's inline transform is the camera. It changes screen projection only, never world geometry.
+    // Measuring the whole scene for every pan sample both wastes a frame and can publish stale camera geometry.
+    if (records.some(record => record.target !== container || record.type !== 'attributes' || record.attributeName !== 'style')) refresh()
+  })
   const stop = () => { active = false; suspended = false; if (frame !== null) view.cancelAnimationFrame(frame); frame = null; resize.disconnect(); mutation.disconnect(); observed.clear(); view.removeEventListener('scroll', refresh, true); view.removeEventListener('resize', refresh) }
   return {
     start: () => { if (active) return; active = true; mutation.observe(container, { subtree: true, childList: true, attributes: true, characterData: true }); view.addEventListener('scroll', refresh, true); view.addEventListener('resize', refresh); refresh() },

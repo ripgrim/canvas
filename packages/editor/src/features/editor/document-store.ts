@@ -1,12 +1,12 @@
-import { applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, legacyTextProperties, pageRoot, resolveToken, validateFileCommand, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
+import { acceptsChild, ancestorsOf, applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, legacyTextProperties, nodeChildDisplay, nodeIsLocked, nodePositionMode, pageRoot, resolveToken, validateFileCommand, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
 import type { ColorToken, FileCommand, FileDocument, FileNode, NodePlacement, Paint, PrimitiveKind, PrimitiveStylePatch, PrimitiveStyles, SourcePalette, TextSizing, TextStyle, TokenValue } from '@canvas/repo-engine/file-document'
 import { appearanceLimits, defaultFillColor, imageMimes, nextBorders, validateImageAssetReference } from '@canvas/repo-engine/appearance'
 import { nodeAppearance } from '@canvas/repo-engine/file-document'
 import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAssetReference, ImageExtension, ImageMime, Outline, Stroke } from '@canvas/repo-engine/appearance'
 import type { DocumentNodeLayout } from '@canvas/repo-engine/document'
-import { intrinsic, layoutFromLegacy, legacyLayout, percent } from '@canvas/repo-engine/layout'
+import { layoutFromLegacy, legacyLayout } from '@canvas/repo-engine/layout'
 import type { NodeLayout, SizingMode } from '@canvas/repo-engine/layout'
-import { positionAbsolute, positionFlow, setAspectRatio, setAxisBound, setAxisLength, setAxisSizingMany, setInset, setSpacing, setZIndex } from './layout-commands'
+import { positionAbsolute, positionFlow, positionFreeform, setAspectRatio, setAxisBound, setAxisLength, setAxisSizing, setAxisSizingMany, setInset, setSpacing, setZIndex, sizingModeOf } from './layout-commands'
 import { createFlexCommands } from './layout-flex-commands'
 import type { LayoutCommandContext } from './layout-flex-commands'
 import { paperWrapCopy, planPaperWrap } from './layout-wrap-planner'
@@ -47,7 +47,7 @@ export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text'
 /** Transient gesture state shared between the interaction layer and the HUD. Never persisted. */
 export type CanvasTransient =
   | { kind: 'marquee'; rect: Rect }
-  | { kind: 'move'; rects: Record<string, Rect>; offset: Point; guides: SnapGuide[]; targetFrameId: string | null; insertion: { axis: 'x' | 'y'; rect: Rect } | null }
+  | { kind: 'move'; rects: Record<string, Rect>; offset: Point; guides: SnapGuide[]; targetFrameId: string | null; insertion: { axis: 'x' | 'y'; rect: Rect } | null; duplicate?: boolean }
   | { kind: 'resize'; interactionId: string }
   | { kind: 'draw'; elementKind: PrimitiveKind; rect: Rect; targetFrameId: string | null }
   | { kind: 'pan' }
@@ -113,6 +113,7 @@ export type DocumentHistory = { past: HistoryEntry[]; future: HistoryEntry[] }
 type KeyInput = { key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }
 export type MoveCommit = { id: string; x: number; y: number; parentId?: string | null; width?: number; height?: number }
 export type InsertTarget = { parentId: string | null; slot?: string; index?: number }
+export type LayerTreeDropTarget = InsertTarget & { duplicate?: boolean }
 export type ComponentInsertPoint = { x: number; y: number }
 export type SourceTokenImport = Readonly<{ property: string; name: string; fallback: Color }>
 export type PersistenceCommit = Readonly<{ committed: boolean; persistence: Promise<void> | null }>
@@ -662,6 +663,56 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     }
     return executeBatch(commands, selection)
   }
+  /** Moves or duplicates selected subtree roots as one ordered, undoable layer-tree transaction. */
+  const layerTreeDrop = (nodeIds: readonly string[], target: LayerTreeDropTarget) => {
+    const state = backing.getState()
+    if (!state.file || !state.pageId || persistenceBlocked || state.readOnly) return false
+    const file = state.file
+    const order = documentOrder(file, state.pageId)
+    const candidates = [...new Set(nodeIds)].filter(id => file.nodes[id] && file.nodes[id]!.type !== 'root')
+    const roots = candidates.filter(id => !candidates.some(other => other !== id && descendantsOf(file, other).includes(id))).sort((a, b) => order.indexOf(a) - order.indexOf(b))
+    const parentId = target.parentId ?? pageRoot(file, state.pageId)
+    if (!parentId) return false
+    const parent = file.nodes[parentId]
+    if (!parent || !roots.length || roots.some(id => nodeIsLocked(file, id) || id === parentId || descendantsOf(file, id).includes(parentId) || !acceptsChild(parent, file.nodes[id]!, target.slot, state.atoms))) return false
+    const moving = new Set(target.duplicate ? [] : roots)
+    const allSiblings = childrenOf(file, parentId, target.slot)
+    const siblings = allSiblings.filter(id => !moving.has(id))
+    const requestedIndex = Math.max(0, Math.min(allSiblings.length, target.index ?? allSiblings.length))
+    const removedBefore = allSiblings.slice(0, requestedIndex).filter(id => moving.has(id)).length
+    const index = Math.max(0, Math.min(siblings.length, requestedIndex - removedBefore))
+    const after = index < siblings.length ? file.relationships[siblings[index]!]!.orderKey : null
+    let before = index > 0 ? file.relationships[siblings[index - 1]!]!.orderKey : null
+    const commands: FileCommand[] = []
+    const selection: string[] = []
+    const targetDisplay = nodeChildDisplay(parent)
+    for (const id of roots) {
+      const orderKey = orderKeyBetween(before, after)
+      const placement: NodePlacement = { parentId, orderKey, ...(target.slot !== undefined ? { slot: target.slot } : {}) }
+      if (target.duplicate) {
+        const ids = newIdsFor(file, id)
+        const duplicateId = ids[id]!
+        commands.push({ type: 'node.duplicate', nodeId: id, ids })
+        commands.push({ type: 'node.reparent', nodeId: duplicateId, placement, preserveWorldPosition: true })
+        const source = file.nodes[id]!
+        if (source.type !== 'root' && source.type !== 'component') {
+          const layout = targetDisplay === 'flex' ? positionFlow(source.layout, targetDisplay) : positionFreeform(source.layout)
+          if (nodePositionMode(source) !== layout.item.position.mode) commands.push({ type: 'node.setLayout', nodeId: duplicateId, layout })
+        }
+        selection.push(duplicateId)
+      } else {
+        commands.push({ type: 'node.reparent', nodeId: id, placement, preserveWorldPosition: true })
+        const source = file.nodes[id]!
+        if (source.type !== 'root' && source.type !== 'component') {
+          const layout = targetDisplay === 'flex' ? positionFlow(source.layout, targetDisplay) : positionFreeform(source.layout)
+          if (nodePositionMode(source) !== layout.item.position.mode) commands.push({ type: 'node.setLayout', nodeId: id, layout })
+        }
+        selection.push(id)
+      }
+      before = orderKey
+    }
+    return executeBatch(commands, selection)
+  }
   const moveBy = (nodeId: string, delta: number) => {
     const state = backing.getState()
     const relationship = state.file?.relationships[nodeId]
@@ -741,6 +792,38 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       if (placement.mode === 'absolute') { commands.push(placementCommand(item, { ...placement, x: placement.x + dx, y: placement.y + dy })); continue }
       const rect = scene?.byId.get(id)?.rect
       if (rect && isRootChild(id)) commands.push(placementCommand(item, { ...placement, ...(placement.width === undefined ? { width: Math.max(1, Math.round(rect.width)) } : {}), mode: 'absolute', x: Math.round(rect.x + dx), y: Math.round(rect.y + dy) }))
+    }
+    return executeBatch(commands)
+  }
+  const setTextSizingModes = (entries: readonly { nodeId: string; axes: readonly ResizeAxis[]; mode: 'fixed' | 'fit' | 'fill' | 'relative'; measured?: { width?: number; height?: number }; parent?: { width?: number; height?: number }; local?: { x: number; y: number } }[]) => {
+    const commands: FileCommand[] = []
+    for (const entry of entries) {
+      const target = node(entry.nodeId)
+      if (!target || target.type !== 'text' || !target.textStyle || !target.textSizing || !entry.axes.length) return false
+      const textStyle = structuredClone(target.textStyle)
+      const textSizing = structuredClone(target.textSizing)
+      const parentId = parentOf(entry.nodeId)
+      const parent = parentId ? node(parentId) : undefined
+      const display = parent && parent.type !== 'root' ? parent.layout?.container?.display ?? 'freeform' : null
+      const direction = display === 'flex' && parent && parent.type !== 'root' ? parent.layout?.container?.flex?.direction ?? 'column' : null
+      let layout = target.layout ?? { item: { position: { mode: nodePositionMode(target) ?? 'freeform' as const } } }
+      const styleCommands: FileCommand[] = []
+      for (const resizeAxis of entry.axes) {
+        const axis: Axis = resizeAxis === 'x' ? 'width' : 'height'
+        const current = textSizing[axis]
+        textSizing[axis] = entry.mode === 'relative' ? { mode: 'relative', value: current.mode === 'relative' ? current.value : 100 } : { mode: entry.mode }
+        if (axis === 'height' && entry.mode !== 'fit') delete textStyle.maxLines
+        const next = setAxisSizing(layout, axis, entry.mode === 'fit' ? 'hug' : entry.mode, { measuredPx: entry.measured?.[axis], parentPx: entry.parent?.[axis] }, direction, display, entry.local)
+        // TextSizing owns the axis value. Layout stores only the parent-dependent contract: anchors or Flex growth.
+        if (next) layout = setAxisLength(next, axis, null)
+        if (entry.mode === 'fixed') {
+          const measured = entry.measured?.[axis]
+          if (typeof measured === 'number' && Number.isFinite(measured) && measured > 0) styleCommands.push({ type: 'node.setStyles', nodeId: entry.nodeId, styles: { [axis]: Math.max(1, Math.round(measured)) } })
+        }
+      }
+      commands.push({ type: 'node.setLayout', nodeId: entry.nodeId, layout })
+      commands.push(...styleCommands)
+      commands.push({ type: 'node.setTextProperties', nodeId: entry.nodeId, textStyle, textSizing })
     }
     return executeBatch(commands)
   }
@@ -1026,6 +1109,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         return execute({ type: 'node.insert', node: { id, type: 'component', componentId, exportName: atom.exportName, props: { ...defaults, ...props }, ...(layout ? { layout } : {}) }, placement: placementFor(target, state) }, [id])
       },
       duplicate,
+      layerTreeDrop,
       delete: (nodeIds = backing.getState().selection) => deleteSelection(nodeIds),
       /** Moves a component instance to another slot or position (layer tree drop). */
       move: (nodeId: string, target: InsertTarget) => { const state = backing.getState(); return state.file ? execute({ type: 'node.reparent', nodeId, placement: placementFor(target, state) }) : false },
@@ -1078,16 +1162,10 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           }
           return executeBatch(commands)
         },
+        /** Changes text sizing intent and the parent-dependent layout contract in one undo step. */
+        setSizingModes: setTextSizingModes,
         /** Resize-handle shortcuts change sizing intent through the same complete-property command. */
-        setSizingMode: (nodeId: string, axes: readonly ResizeAxis[], mode: 'fit' | 'fill') => {
-          const target = node(nodeId)
-          if (!target || target.type !== 'text' || !target.textStyle || !target.textSizing || !axes.length) return false
-          const textStyle = structuredClone(target.textStyle)
-          const textSizing = structuredClone(target.textSizing)
-          if (axes.includes('x')) textSizing.width = { mode }
-          if (axes.includes('y')) { textSizing.height = { mode }; if (mode !== 'fit') delete textStyle.maxLines }
-          return execute({ type: 'node.setTextProperties', nodeId, textStyle, textSizing })
-        },
+        setSizingMode: (nodeId: string, axes: readonly ResizeAxis[], mode: 'fit' | 'fill', geometry?: { measured?: { width?: number; height?: number }; parent?: { width?: number; height?: number }; local?: { x: number; y: number } }) => setTextSizingModes([{ nodeId, axes, mode, ...geometry }]),
         begin: beginTextEditing,
         update: updateTextEditing,
         commit: commitTextEditing,
@@ -1198,12 +1276,29 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         /** Semantic sizing for one axis across a selection, each node with its own measurement (LAY-SIZE-003). One batch. */
         sizing: (axis: Axis, mode: SizingMode, targets: SizingTarget[]) => executeBatch(Object.entries(setAxisSizingMany(targets.filter(target => node(target.id)?.type === 'component'), axis, mode)).map(([nodeId, layout]): FileCommand => ({ type: 'node.setLayout', nodeId, layout }))),
         /** Primitive Fixed/Fit/Fill uses styles as fixed authority and layout only for semantic non-pixel sizing. */
-        primitiveSizing: (axis: Axis, mode: 'fixed' | 'hug' | 'fill', targets: readonly { id: string; measuredPx?: number }[]) => executeBatch(targets.flatMap(({ id, measuredPx }): FileCommand[] => {
+        primitiveSizing: (axis: Axis, mode: 'fixed' | 'hug' | 'fill', targets: readonly { id: string; measuredPx?: number; parentPx?: number; parentMeasuredPx?: number; local?: { x: number; y: number } }[]) => executeBatch(targets.flatMap(({ id, measuredPx, parentPx, parentMeasuredPx, local }): FileCommand[] => {
           const current = node(id)
           if (!isPrimitive(current) || current.type === 'text') return []
           const base = current.layout ?? { item: { position: { mode: 'freeform' as const } } }
-          const nextLayout = setAxisLength(base, axis, mode === 'fixed' ? null : mode === 'hug' ? intrinsic() : percent(100))
-          if (mode !== 'fixed') return [{ type: 'node.setLayout', nodeId: id, layout: nextLayout }]
+          const parentId = parentOf(id)
+          const parent = parentId ? node(parentId) : undefined
+          const display = parent && parent.type !== 'root' ? parent.layout?.container?.display ?? 'freeform' : null
+          const direction = display === 'flex' && parent && parent.type !== 'root' ? parent.layout?.container?.flex?.direction ?? 'column' : null
+          const sized = setAxisSizing(base, axis, mode, { measuredPx, parentPx }, direction, display, local)
+          const nextLayout = mode === 'fixed' && sized ? setAxisLength(sized, axis, null) : sized
+          if (!nextLayout) return []
+          if (mode !== 'fixed') {
+            const commands: FileCommand[] = []
+            const parentFits = parent && parent.type !== 'root' && parent.type !== 'text' && sizingModeOf(parent.layout, axis) === 'hug'
+            const childCanFit = current.type === 'frame'
+            if (mode === 'fill' && nodePositionMode(current) === 'flow' && parentFits && !childCanFit && parent?.type === 'frame') {
+              const fixedParent = typeof parentMeasuredPx === 'number' && Number.isFinite(parentMeasuredPx) && parentMeasuredPx > 0 ? Math.max(1, Math.round(parentMeasuredPx)) : parent.styles[axis]
+              commands.push({ type: 'node.setLayout', nodeId: parent.id, layout: setAxisLength(parent.layout ?? { item: { position: { mode: nodePositionMode(parent) ?? 'freeform' } } }, axis, null) })
+              commands.push({ type: 'node.setStyles', nodeId: parent.id, styles: { [axis]: fixedParent } })
+            }
+            commands.push({ type: 'node.setLayout', nodeId: id, layout: nextLayout })
+            return commands
+          }
           const fixed = typeof measuredPx === 'number' && Number.isFinite(measuredPx) && measuredPx > 0 ? Math.max(1, Math.round(measuredPx)) : current.styles[axis]
           return [
             { type: 'node.setLayout', nodeId: id, layout: nextLayout },
@@ -1280,8 +1375,12 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         if (!state.file || !state.pageId) return false
         const id = makeId()
         const size = canvasElementSizes[kind]
-        const item: FileNode = { id, type: kind, name: elementNames[kind], styles: { left: Math.round(bounds.x), top: Math.round(bounds.y), width: bounds.width === undefined ? size.width : Math.max(1, Math.round(bounds.width)), height: bounds.height === undefined ? size.height : Math.max(1, Math.round(bounds.height)), ...(kind === 'frame' ? { overflow: 'clip' as const } : {}) }, appearance: defaultAppearance(kind, makeId), ...(kind === 'text' ? { text: 'Text', ...legacyTextProperties() } : {}) }
-        return execute({ type: 'node.insert', node: item, placement: { parentId: bounds.parentId ?? root(state)! } }, [id])
+        const parentId = bounds.parentId ?? root(state)!
+        const parent = state.file.nodes[parentId]
+        const parentDisplay = parent && parent.type !== 'root' ? parent.layout?.container?.display : undefined
+        const layout: NodeLayout | undefined = parentDisplay && parentDisplay !== 'freeform' ? { item: { position: { mode: 'flow' } } } : undefined
+        const item: FileNode = { id, type: kind, name: elementNames[kind], styles: { left: Math.round(bounds.x), top: Math.round(bounds.y), width: bounds.width === undefined ? size.width : Math.max(1, Math.round(bounds.width)), height: bounds.height === undefined ? size.height : Math.max(1, Math.round(bounds.height)), ...(kind === 'frame' ? { overflow: 'clip' as const } : {}) }, appearance: defaultAppearance(kind, makeId), ...(kind === 'text' ? { text: 'Text', ...legacyTextProperties() } : {}), ...(layout ? { layout } : {}) }
+        return execute({ type: 'node.insert', node: item, placement: { parentId } }, [id])
       },
       /** Creates Paper-style empty text and starts one grouped creation/edit transaction. */
       insertCanvasText: (intent: CanvasCreationIntent, bounds: { x: number; y: number; parentId?: string | null } & Partial<Pick<CanvasBounds, 'width' | 'height'>>) => {
@@ -1289,6 +1388,10 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         if (!state.file || !state.pageId || textSession) return false
         if (intent === 'drag' && (bounds.width === undefined || bounds.height === undefined)) return false
         const id = makeId()
+        const parentId = bounds.parentId ?? root(state)!
+        const parent = state.file.nodes[parentId]
+        const parentDisplay = parent && parent.type !== 'root' ? parent.layout?.container?.display : undefined
+        const layout: NodeLayout | undefined = parentDisplay && parentDisplay !== 'freeform' ? { item: { position: { mode: 'flow' } } } : undefined
         const textSizing: TextSizing = intent === 'point'
           ? { width: { mode: 'fit' }, height: { mode: 'fit' } }
           : { width: { mode: 'fixed' }, height: { mode: 'fixed' } }
@@ -1307,8 +1410,9 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
             height: intent === 'point' ? 1 : Math.max(1, Math.round(bounds.height!)),
           },
           appearance: defaultAppearance('text', makeId),
+          ...(layout ? { layout } : {}),
         }
-        const placement = { parentId: bounds.parentId ?? root(state)! }
+        const placement = { parentId }
         const insert: Extract<FileCommand, { type: 'node.insert' }> = { type: 'node.insert', node: item, placement }
         const creation = { before: currentView(), pastBefore: [...past], futureBefore: [...future], insert }
         if (!execute(insert, [id])) return false
@@ -1344,26 +1448,41 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         return executeWithPersistence(plannedCommand, [...plan.selection], undefined, true, plannedCommand, strict ? () => gestureCommitAllowed(snapshot, true) : undefined, persistenceIntent)
       },
       /** Commits freeform moves in world coordinates as one history step. Primitives may change parent; component roots leave the host flow. */
-      commitMove: (moves: MoveCommit[]): PersistenceCommit => {
+      commitMove: (moves: MoveCommit[], settings: { duplicate?: boolean } = {}): PersistenceCommit => {
         const state = backing.getState()
         if (!state.file) return noPersistenceCommit
         const commands: FileCommand[] = []
+        const movedIds: Record<string, string> = {}
+        if (settings.duplicate) {
+          const moving = new Set(moves.map(move => move.id))
+          for (const move of moves) {
+            if (!state.file.nodes[move.id] || ancestorsOf(state.file, move.id).some(id => moving.has(id))) continue
+            const subtree = [move.id, ...descendantsOf(state.file, move.id)]
+            const ids = Object.fromEntries(subtree.map(id => [id, makeId()]))
+            commands.push({ type: 'node.duplicate', nodeId: move.id, ids })
+            movedIds[move.id] = ids[move.id]!
+          }
+        }
         for (const move of moves) {
           const item = state.file.nodes[move.id]
           if (!item) continue
+          const movedId = movedIds[move.id] ?? move.id
           if (isPrimitive(item)) {
             const parentId = move.parentId === undefined ? parentOf(move.id) : move.parentId
             if (parentId && parentId !== root(state) && state.file.nodes[parentId]?.type !== 'frame') continue
-            commands.push(...primitiveMove(move.id, { x: move.x, y: move.y }, parentId === root(state) ? null : parentId))
+            const target = parentId ?? root(state)!
+            const parentWorld = target === root(state) ? { x: 0, y: 0 } : worldPosition(state.file, target)
+            if (parentOf(move.id) !== target) commands.push({ type: 'node.reparent', nodeId: movedId, placement: { parentId: target } })
+            commands.push({ type: 'node.setStyles', nodeId: movedId, styles: { left: Math.round(move.x - parentWorld.x), top: Math.round(move.y - parentWorld.y) } })
             continue
           }
           if (item.type !== 'component' || !isRootChild(move.id)) continue
           // Leaving the host flow bakes the measured width so the component keeps the size it had (Paper: capture sizing intent before layout changes).
           const placement = legacyLayout(item.layout)
           const baked = placement.mode === 'absolute' || placement.width !== undefined || move.width === undefined ? {} : { width: Math.max(1, Math.round(move.width)) }
-          commands.push(placementCommand(item, { ...placement, ...baked, mode: 'absolute', x: Math.round(move.x), y: Math.round(move.y) }))
+          commands.push({ type: 'node.setLayout', nodeId: movedId, layout: layoutFromLegacy({ ...placement, ...baked, mode: 'absolute', x: Math.round(move.x), y: Math.round(move.y) }, item.layout) })
         }
-        return executeBatchWithPersistence(commands)
+        return executeBatchWithPersistence(commands, moves.map(move => movedIds[move.id] ?? move.id))
       },
       // Pages ------------------------------------------------------------------------------------------------------
       /** Creates a page. With `activate: false` the open page stays put so a router can push the new page as its own history entry. */

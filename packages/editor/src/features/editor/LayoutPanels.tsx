@@ -5,7 +5,7 @@ import { itemAlignments, maxGridTracks, sizingModes, spacingSides } from '@canva
 import type { CrossAlignment, DisplayMode, FlexContainer, GridContainer, GridItem, InsetLength, ItemAlignment, LayoutContainer, LayoutGap, LayoutLength, MainDistribution, MarginSide, NodeLayout, NodeSpacing, SizingMode, SpacingSides } from '@canvas/repo-engine/layout'
 import { parseGridTemplate, tracksToCss } from '@canvas/repo-engine/grid-tracks'
 import type { GridTrack } from '@canvas/repo-engine/grid-tracks'
-import { InspectorAlert, InspectorAnchorGrid, InspectorCheck, InspectorFixedSlot, InspectorFlexDirection, InspectorFlexEntryAction, InspectorFlexOverflow, InspectorFlexPaddingToggle, InspectorFlexPanel, InspectorFlexWrap, InspectorGroup, InspectorIconButton, InspectorNote, InspectorRadioGroup, InspectorRow, InspectorRowSpacer, InspectorScrubField, InspectorSection, InspectorSpacingHeading, InspectorSpacingMode, InspectorTextButton, InspectorTextField, InspectorTrackRow, InspectorTransformActions } from '../../design-system/inspector-atoms'
+import { InspectorAlert, InspectorAnchorGrid, InspectorCheck, InspectorFixedSlot, InspectorFlexBlock, InspectorFlexDirection, InspectorFlexEntryAction, InspectorFlexGlyph, InspectorFlexOverflow, InspectorFlexPaddingToggle, InspectorFlexPanel, InspectorFlexRemoveButton, InspectorFlexWrap, InspectorGroup, InspectorIconButton, InspectorNote, InspectorRadioGroup, InspectorRow, InspectorRowSpacer, InspectorScrubField, InspectorSection, InspectorSpacingHeading, InspectorSpacingMode, InspectorTextButton, InspectorTextField, InspectorTrackRow, InspectorTransformActions } from '../../design-system/inspector-atoms'
 import type { InspectorFlexMatrixMode, InspectorFlexOverflowAction } from '../../design-system/inspector-atoms'
 import type { InspectorAnchorCell, InspectorNumericToken, InspectorScrubSession } from '../../design-system/inspector-atoms'
 import { AppearanceSelect } from '../../design-system/appearance-atoms'
@@ -73,9 +73,8 @@ export function sizingFieldState(available: readonly SizingMode[], current: Sizi
   return { currentLabel, options }
 }
 
-export function sizingModesForContext(flexContainer: boolean, flexItem: boolean): SizingMode[] {
-  if (!flexContainer && !flexItem) return ['fixed']
-  return ['fixed', 'hug', ...(flexItem ? ['fill' as const] : [])]
+export function sizingModesForContext(intrinsicContent: boolean, hasParent: boolean): SizingMode[] {
+  return ['fixed', ...(intrinsicContent ? ['hug' as const] : []), ...(hasParent ? ['fill' as const] : [])]
 }
 
 /**
@@ -124,7 +123,7 @@ export function LayoutSections({ nodes, file, disabled }: { nodes: readonly Comp
   const flex = nodes.every(node => node.layout?.container?.display === 'flex')
   return <>
     <ComponentLayoutSection context={context} />
-    <ContainerSection context={context} />
+    <ContainerSection context={context} mode="supplemental" />
     <ItemSection context={context} />
     {!flex && <SpacingSection context={context} />}
   </>
@@ -136,7 +135,7 @@ export function FrameContainerSections({ nodes, file, disabled }: { nodes: reado
   const sourceTokens = useSyncExternalStore(editorStore.subscribe, () => editorStore.getSnapshot().snapshot?.tokens ?? noSourceTokens, () => editorStore.getSnapshot().snapshot?.tokens ?? noSourceTokens)
   if (!nodes.length) return null
   const context: FrameContext = { kind: 'frame', file, nodes, ids: nodes.map(node => node.id), geometry, disabled, numericTokens: numericLayoutTokens(sourceTokens, -limit) }
-  return <ContainerSection context={context} />
+  return <ContainerSection context={context} mode="embedded" />
 }
 
 // Position ------------------------------------------------------------------------------------------------------------
@@ -164,7 +163,8 @@ function ComponentLayoutSection({ context }: { context: ComponentContext }) {
   const flipY = nodes.length > 0 && nodes.every(node => scale(node).y < 0)
   const flexContainer = nodes.every(node => node.layout?.container?.display === 'flex')
   const flexItem = nodes.every(node => parentDirection(file, node.id) !== null)
-  const flexSizing = flexContainer || flexItem
+  const hasParent = nodes.every(node => !isRootChild(file, node.id))
+  const semanticSizing = flexContainer || flexItem || hasParent
   const commitCoordinate = (side: 'left' | 'top', value: number) => {
     if (absolute) { layout().inset(side, px(value), ids); return }
     layout().setMany(Object.fromEntries(nodes.flatMap((node, index) => {
@@ -181,22 +181,23 @@ function ComponentLayoutSection({ context }: { context: ComponentContext }) {
   const transform = (update: (node: ComponentNode) => NodeLayout) => { layout().setMany(Object.fromEntries(nodes.map(node => [node.id, update(node)]))) }
   const compactAxis = (axis: Axis) => {
     const sizing = agree(nodes.map(node => sizingModeOf(node.layout, axis)))
-    const available = sizingModesForContext(flexContainer, flexItem)
+    const available = sizingModesForContext(true, hasParent)
     const relative = !sizing.mixed && sizing.value === 'relative'
-    const editableSize = !sizing.mixed && (!flexSizing || sizing.value === 'fixed' || relative)
+    const showsValue = !sizing.mixed && (!semanticSizing || sizing.value === 'fixed' || relative)
+    const numericOverride = !sizing.mixed && semanticSizing && (sizing.value === 'hug' || sizing.value === 'fill' || sizing.value === 'auto')
     const value = agree(nodes.map(node => { const length = node.layout?.item[axis]?.value; return length?.kind === 'px' || length?.kind === 'percent' ? length.value : undefined }))
     const measured = agree(nodes.map(node => geometry.nodes[node.id]?.rect[axis]))
     const label = axis === 'width' ? copy.width : copy.height
     const prefix = axis === 'width' ? copy.prefixes.width : copy.prefixes.height
-    const effectiveSizing = !sizing.mixed && flexSizing && sizing.value === 'auto' ? 'hug' : sizing.value
+    const effectiveSizing = !sizing.mixed && semanticSizing && sizing.value === 'auto' ? 'hug' : sizing.value
     const sizingField = sizingFieldState(available, effectiveSizing, sizing.mixed)
     const toLength = (next: number): LayoutLength => relative ? { kind: 'percent', value: next } : { kind: 'px', value: next }
     const choose = (next: string) => {
       const mode: SizingMode = next === 'fit' ? 'hug' : next as SizingMode
       layout().sizing(axis, mode, sizingTargets(file, geometry, ids, axis))
     }
-    const field = <InspectorScrubField id={`sizing-${axis}`} label={label} prefix={prefix} value={editableSize ? shown(value) ?? shown(measured) : null} placeholder={flexSizing ? sizingField.currentLabel : mixedPlaceholder(measured)} min={0} max={relative ? 99 : limit} {...(!relative && context.numericTokens.length ? { tokens: context.numericTokens, tokenLabel: copy.numericToken(label) } : {})} {...(relative ? { suffix: copy.percentSuffix } : {})} disabled={disabled || !editableSize} onCommit={next => { layout().length(axis, toLength(next), ids) }} onScrubStart={() => scrubSession(nodes, (before, next) => setAxisLength(before, axis, toLength(next)))} />
-    return flexSizing ? <SizingField label={copy.sizingMode(label)} currentLabel={sizingField.currentLabel} options={sizingField.options} disabled={disabled} onChoose={choose} field={field} /> : field
+    const field = <InspectorScrubField id={`sizing-${axis}`} label={label} prefix={prefix} value={showsValue ? shown(value) ?? shown(measured) : null} placeholder={semanticSizing ? sizingField.currentLabel : mixedPlaceholder(measured)} min={0} max={relative ? 99 : limit} {...(!relative && context.numericTokens.length ? { tokens: context.numericTokens, tokenLabel: copy.numericToken(label) } : {})} {...(relative ? { suffix: copy.percentSuffix } : {})} disabled={disabled || !showsValue && !numericOverride} onCommit={next => { layout().length(axis, toLength(next), ids) }} onScrubStart={() => scrubSession(nodes, (before, next) => setAxisLength(before, axis, toLength(next)))} />
+    return semanticSizing ? <SizingField label={copy.sizingMode(label)} currentLabel={sizingField.currentLabel} options={sizingField.options} disabled={disabled} onChoose={choose} field={field} /> : field
   }
   return <InspectorSection id="layout" title={copy.layout}>
     <InspectorRow>
@@ -218,6 +219,7 @@ function ComponentLayoutSection({ context }: { context: ComponentContext }) {
       <InspectorRowSpacer />
     </InspectorRow>}
     {locked && <InspectorNote icon="lock">{copy.lockedToLayout}</InspectorNote>}
+    <ContainerSection context={context} mode="embedded" />
   </InspectorSection>
 }
 const withScrub = (start: (() => InspectorScrubSession) | undefined) => start ? { onScrubStart: start } : {}
@@ -263,7 +265,7 @@ export function setSelectedContainerDisplay(next: DisplayMode): SelectedDisplayR
   }
 }
 
-function ContainerSection({ context }: { context: ContainerContext }) {
+function ContainerSection({ context, mode }: { context: ContainerContext; mode: 'embedded' | 'supplemental' }) {
   const { file, nodes, ids, geometry, disabled } = context
   const containers = nodes.map(node => node.layout?.container)
   const display = agree(containers.map(container => container?.display ?? (context.kind === 'frame' ? 'freeform' : null)))
@@ -280,20 +282,20 @@ function ContainerSection({ context }: { context: ContainerContext }) {
   const flexNodes = nodes.filter(node => node.layout?.container?.display === 'flex' && node.layout.container.flex)
   const flexContext = { ...context, nodes: flexNodes, ids: flexNodes.map(node => node.id) }
   if (!flexNodes.length) {
-    if (current === 'grid' && context.kind === 'component') return <>{entryControl}<InspectorSection id="container" title={copy.displays.grid}>
+    if (mode === 'embedded') return entryControl
+    if (current === 'grid' && context.kind === 'component') return <InspectorSection id="container" title={copy.displays.grid}>
       <GridControls context={context} grids={authored.map(container => container.grid!)} />
       <GapControls context={context} />
       {authored.length === nodes.length && <OverflowControl context={context} containers={authored} />}
-    </InspectorSection></>
-    return entryControl
+    </InspectorSection>
+    return null
   }
-  return <>{entryControl}<InspectorSection id="container" title={copy.flex} actions={remove ? <InspectorIconButton label="Remove flex" title="Remove flex · Shift+Alt+A" icon="trash" disabled={disabled} onClick={() => runInspectorFlexAction('remove-flex')} /> : null}>
-    <FlexControls context={flexContext} />
-    {statuses.map(status => <InspectorNote key={status} icon="alert">{copy.layoutStatuses[status]}</InspectorNote>)}
-    {conflicts.length > 0 && <InspectorNote icon="alert">{copy.layoutConflicts(conflicts.join(', '))}</InspectorNote>}
-  </InspectorSection>
-  {context.kind === 'component' && authored.length === nodes.length && <InspectorSection id="container-overflow-section" title={copy.overflow}><OverflowControl context={context} containers={authored} /></InspectorSection>}
-  </>
+  if (mode === 'embedded') return <>{entryControl}<InspectorFlexBlock title={copy.flex} action={remove ? <InspectorFlexRemoveButton label="Remove flex" title="Remove flex · Shift+Alt+A" disabled={disabled} onClick={() => runInspectorFlexAction('remove-flex')} /> : undefined}>
+      <FlexControls context={flexContext} />
+      {statuses.map(status => <InspectorNote key={status} icon="alert">{copy.layoutStatuses[status]}</InspectorNote>)}
+      {conflicts.length > 0 && <InspectorNote icon="alert">{copy.layoutConflicts(conflicts.join(', '))}</InspectorNote>}
+    </InspectorFlexBlock></>
+  return context.kind === 'component' && authored.length === nodes.length ? <InspectorSection id="container-overflow-section" title={copy.overflow}><OverflowControl context={context} containers={authored} /></InspectorSection> : null
 }
 
 const anchorNames = ['start', 'center', 'end'] as const
@@ -395,8 +397,8 @@ function FlexControls({ context }: { context: FlexContext }) {
   const matrix = <InspectorAnchorGrid label={copy.alignment} cells={cells} mode={mode} direction={axis ?? 'row'} disabled={disabled || axis === null || wrap.mixed} onSelect={choose} onSpaceBetween={setMainSpace} />
   const directionControl = <InspectorFlexDirection label={copy.direction} rowLabel={copy.directions.row} columnLabel={copy.directions.column} axis={axis} disabled={disabled || direction.mixed} onAxis={changeDirection} />
   const wrapControl = <InspectorFlexWrap label={copy.wrap} wrapped={wrapping} disabled={disabled || wrap.mixed} onChange={next => { layout().setWrap(next ? 'wrap' : 'nowrap', ids) }} />
-  const mainGapControl = <InspectorScrubField id="container-gap-main" label={axis === 'row' ? 'Horizontal gap' : axis === 'column' ? 'Vertical gap' : copy.gap} prefix={<Icon name="flex-row" />} value={shown(mainGap)} placeholder={mixedPlaceholder(mainGap)} min={0} max={limit} tokens={gapTokens} tokenLabel={copy.numericToken(copy.gap)} disabled={disabled} onCommit={value => setAxisGap('main', value)} />
-  const crossGapControl = wrapping ? <InspectorScrubField id="container-gap-cross" label={axis === 'row' ? 'Vertical gap' : axis === 'column' ? 'Horizontal gap' : copy.gap} prefix={<Icon name="flex-row" />} value={shown(crossGap)} placeholder={mixedPlaceholder(crossGap)} min={0} max={limit} tokens={gapTokens} tokenLabel={copy.numericToken(copy.gap)} disabled={disabled} onCommit={value => setAxisGap('cross', value)} /> : undefined
+  const mainGapControl = <InspectorScrubField id="container-gap-main" label={axis === 'row' ? 'Horizontal gap' : axis === 'column' ? 'Vertical gap' : copy.gap} prefix={<InspectorFlexGlyph kind="gap" column={axis === 'column'} />} value={shown(mainGap)} placeholder={mixedPlaceholder(mainGap)} min={0} max={limit} tokens={gapTokens} tokenLabel={copy.numericToken(copy.gap)} disabled={disabled} onCommit={value => setAxisGap('main', value)} />
+  const crossGapControl = wrapping ? <InspectorScrubField id="container-gap-cross" label={axis === 'row' ? 'Vertical gap' : axis === 'column' ? 'Horizontal gap' : copy.gap} prefix={<InspectorFlexGlyph kind="gap" column={axis !== 'column'} />} value={shown(crossGap)} placeholder={mixedPlaceholder(crossGap)} min={0} max={limit} tokens={gapTokens} tokenLabel={copy.numericToken(copy.gap)} disabled={disabled} onCommit={value => setAxisGap('cross', value)} /> : undefined
   const overflowControl = <InspectorFlexOverflow label="More flex alignment options" mainLabel={overflowLabels.main} crossLabel={overflowLabels.cross} showCross={wrapping} mainChecked={!justify.mixed && justify.value === 'space-between'} crossChecked={wrapping && !alignContent.mixed && alignContent.value === 'space-between'} firstBaselineChecked={baselineValue === 'baseline'} lastBaselineChecked={baselineValue === 'last baseline'} disabled={disabled} onAction={overflow} />
   return <InspectorFlexPanel alignment={matrix} direction={directionControl} wrap={wrapControl} gap={mainGapControl} overflow={overflowControl} crossGap={crossGapControl} padding={<PaperFlexPadding context={context} />} />
 }
@@ -419,7 +421,7 @@ function PaperFlexPadding({ context }: { context: FlexContext }) {
   const field = (part: 'x' | 'y' | 'left' | 'top' | 'right' | 'bottom') => {
     const value = agree(nodes.map(node => { const value = sides(node); return part === 'x' || part === 'left' ? value.left : part === 'y' || part === 'top' ? value.top : value[part] }))
     const label = part === 'x' ? 'Horizontal padding' : part === 'y' ? 'Vertical padding' : `${part[0]!.toUpperCase()}${part.slice(1)} padding`
-    const prefix = part === 'x' ? 'X' : part === 'y' ? 'Y' : part[0]!.toUpperCase()
+    const prefix = part === 'x' ? <InspectorFlexGlyph kind="padding-horizontal" /> : part === 'y' ? <InspectorFlexGlyph kind="padding-vertical" /> : part[0]!.toUpperCase()
     return <InspectorScrubField key={part} id={`flex-padding-${part}`} label={label} prefix={prefix} value={shown(value)} placeholder={mixedPlaceholder(value)} min={0} max={limit} tokens={context.numericTokens.filter(token => token.value >= 0)} tokenLabel={copy.numericToken(label)} disabled={disabled} onCommit={next => write(node => { const current = sides(node); if (part === 'x') return { x: next, y: current.top }; if (part === 'y') return { x: current.left, y: next }; return { ...current, [part]: next } })} />
   }
   const toggle = <InspectorFlexPaddingToggle label="Individual padding" individual={individual} disabled={disabled} onChange={changeMode} />

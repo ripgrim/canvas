@@ -1,0 +1,13 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "comp-canvas-pr-evidence",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-13",
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "evidence.canvas.ripgrim.com", "custom_domain": true }
+  ],
+  "r2_buckets": [
+    { "binding": "EVIDENCE", "bucket_name": "comp-canvas-pr-evidence", "remote": true }
+  ]
+}

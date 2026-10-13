@@ -15,6 +15,7 @@ export const canvasCopy = {
   componentUnavailable: 'This component is not available from the current source registry.',
   resizeHandle: (name: string, handle: string) => `Resize ${name} from ${handle.replace('-', ' ')}`,
   rotationHandle: (name: string, handle: string) => `Rotate ${name} from ${handle.replace('-', ' ')}`,
+  radiusHandle: (name: string, corner: string) => `Round ${name}'s ${corner.replace(/([A-Z])/g, ' $1').toLowerCase()} corner`,
   renameLabel: (name: string) => `Rename ${name}`, editText: (name: string) => `Edit text in ${name}`,
   renameType: (type: string) => `Rename ${type}`,
   quickActions: 'Quick actions', moveNode: 'Move', scaleNode: 'Scale', rotateClockwise: 'Rotate 90 degrees clockwise', deleteNode: (name: string) => `Delete ${name}`,

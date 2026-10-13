@@ -1,8 +1,9 @@
 import { memo, useSyncExternalStore } from 'react'
 import type { CSSProperties, PointerEvent } from 'react'
-import { nodeIsLocked } from '@canvas/repo-engine/file-document'
+import { nodeAppearance, nodeIsLocked } from '@canvas/repo-engine/file-document'
+import { expandedCornerRadii, supportsCornerRadii } from '@canvas/repo-engine/appearance'
 import type { TextLineHeight, TextSizing, TextStyle } from '@canvas/repo-engine/file-document'
-import { CanvasHud, MobileSelectionActions, NodeLabel, NodeNameEditor, ResizeHandles, RotationHandles } from '../../design-system/canvas-atoms'
+import { CanvasHud, CanvasTextEditor, CornerRadiusHandles, MobileSelectionActions, NodeLabel, NodeNameEditor, ResizeHandles, RotationHandles } from '../../design-system/canvas-atoms'
 import type { HandleName, ResizeHandlePose, RotationHandlePose } from '../../design-system/canvas-atoms'
 import { Button, Icon } from '../../design-system/atoms'
 import { documentStore } from './document-store'
@@ -15,6 +16,7 @@ import type { HudProjectionEntry, HudQuad } from './canvas-hud-projection'
 import { createStableMobileQuickActionsStore, mobileQuickActionsPhase, mobileQuickActionsPosition, shouldMountMobileQuickActions } from './mobile-editor'
 import type { MobileQuickActionsPhase } from './mobile-editor'
 import { rotateTransformQuarter } from './layout-commands'
+import { cornerRadiusHandlePoses } from './corner-radius-handles'
 
 const lineHeightCss = (value: TextLineHeight): string | number => {
   if (value.kind === 'normal') return 'normal'
@@ -25,7 +27,6 @@ const lineHeightCss = (value: TextLineHeight): string | number => {
   return value.value
 }
 
-/** Retained for the text-editing controller. This renderer does not use it until the projector owns an exact editor pose. */
 export function canvasTextEditorStyle(base: { x: number; y: number; width: number; height: number }, rotation: number, zoom: number, text: TextStyle, sizing: TextSizing): CSSProperties {
   const safeZoom = Math.max(0.0001, zoom)
   const width = base.width / safeZoom
@@ -52,6 +53,18 @@ export function canvasTextEditorStyle(base: { x: number; y: number; width: numbe
     wordBreak: 'normal',
     overflow: sizing.height.mode === 'fit' ? 'visible' : 'hidden',
     ...(text.maxLines !== undefined ? { display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: String(text.maxLines), overflow: 'hidden' } : {}),
+  }
+}
+
+/** Places the editor on the projector-owned node face, including ancestor transforms. */
+export function canvasTextEditorPose(entry: HudProjectionEntry): Readonly<{ base: { x: number; y: number; width: number; height: number }; rotation: number }> {
+  const [topLeft, topRight, bottomRight, bottomLeft] = entry.screenQuad
+  const width = Math.hypot(topRight.x - topLeft.x, topRight.y - topLeft.y)
+  const height = Math.hypot(bottomLeft.x - topLeft.x, bottomLeft.y - topLeft.y)
+  const center = { x: (topLeft.x + bottomRight.x) / 2, y: (topLeft.y + bottomRight.y) / 2 }
+  return {
+    base: { x: center.x - width / 2, y: center.y - height / 2, width, height },
+    rotation: angleOf(topLeft, topRight) * 180 / Math.PI,
   }
 }
 
@@ -101,7 +114,7 @@ export function rotationHandlePoses(entry: HudProjectionEntry): readonly Rotatio
   ] as const
   return corners.map(([handle, corner]) => {
     const length = Math.hypot(corner.x - center.x, corner.y - center.y) || 1
-    return { handle, center: { x: corner.x + (corner.x - center.x) * 12 / length, y: corner.y + (corner.y - center.y) * 12 / length } }
+    return { handle, center: { x: corner.x + (corner.x - center.x) * 24 / length, y: corner.y + (corner.y - center.y) * 24 / length } }
   })
 }
 
@@ -151,10 +164,11 @@ export function SelectionHud({ projections = canvasHudProjectionService, documen
   const frame = currentHudProjectionFrame(projection, projections.getSnapshot())
   const quickNodeId = state.selection.length === 1 ? state.selection[0] : undefined
   const quickNode = quickNodeId ? state.file?.nodes[quickNodeId] : undefined
+  const holdsTextEditorPose = Boolean(state.textEditing && frame?.byNodeId[state.textEditing.nodeId]?.kind === 'text' && frame.key.fileRevision < (state.file?.revision ?? 0))
   if (!frame || !state.file || !state.pageId
     || frame.key.fileId !== state.file.fileId
     || frame.key.pageId !== state.pageId
-    || frame.key.fileRevision !== state.file.revision
+    || frame.key.fileRevision !== state.file.revision && !holdsTextEditorPose
     || frame.key.layoutGeneration !== state.layoutGeneration
     || frame.key.selection.length !== state.selection.length
     || !frame.key.selection.every((id, index) => state.selection[index] === id)) return null
@@ -179,17 +193,35 @@ export function SelectionHud({ projections = canvasHudProjectionService, documen
   }
   const selected = frame.entries.find(entry => entry.policy.selected)
   const renaming = state.renaming ? frame.byNodeId[state.renaming] : undefined
+  const textEditing = state.textEditing ? frame.byNodeId[state.textEditing.nodeId] : undefined
+  const editingTextNode = state.textEditing ? state.file.nodes[state.textEditing.nodeId] : undefined
+  const editingText = editingTextNode?.type === 'text' && typeof editingTextNode.text === 'string' && editingTextNode.textStyle && editingTextNode.textSizing
+    ? { id: editingTextNode.id, name: editingTextNode.name, text: editingTextNode.text, textStyle: editingTextNode.textStyle, textSizing: editingTextNode.textSizing }
+    : null
+  const textEditorPose = textEditing?.kind === 'text' ? canvasTextEditorPose(textEditing) : null
   const editableLabels = frame.entries.filter(entry => entry.policy.showLabel && !entry.policy.readOnly && !entry.policy.locked && renaming?.nodeId !== entry.nodeId)
   const namePose = renaming && renaming.kind !== 'text' && !renaming.policy.readOnly && !renaming.policy.locked
     ? { x: renaming.label.origin.x, y: renaming.label.origin.y, width: renaming.label.maxWidth, angle: renaming.label.angle }
     : null
   const controls = selected?.policy.showHandles && state.renaming === null ? resizeHandlePoses(selected) : []
   const rotationControls = selected?.policy.showHandles && state.renaming === null && !frame.key.mobile ? rotationHandlePoses(selected) : []
+  const activeRadiusCorner = selected ? canvasGestures.radiusActiveCorner(selected.nodeId) : null
+  const selectedNode = selected ? state.file.nodes[selected.nodeId] : undefined
+  const selectedAppearance = selected && state.appearanceOverrides && Object.hasOwn(state.appearanceOverrides, selected.nodeId)
+    ? state.appearanceOverrides[selected.nodeId] ?? undefined
+    : nodeAppearance(selectedNode)
+  const radiusControls = selected && selectedNode && selectedNode.type !== 'root'
+    && selected.policy.showHandles && state.renaming === null && !frame.key.mobile
+    && supportsCornerRadii(selectedNode.type) && (state.hover === selected.nodeId || activeRadiusCorner !== null)
+    ? cornerRadiusHandlePoses(selected, expandedCornerRadii(selectedAppearance?.cornerRadii)).map(pose => ({ ...pose, active: pose.corner === activeRadiusCorner }))
+    : []
 
   return <><CanvasHud generation={projection.generation}>
     {editableLabels.map(entry => <NodeLabel key={entry.nodeId} id={entry.nodeId} pose={{ x: entry.label.origin.x, y: entry.label.origin.y, width: entry.label.maxWidth, angle: entry.label.angle }} name={entry.name} selected={entry.policy.selected} locked={false} onPointerDown={event => { if (canvasGestures.labelPointerDown(event, entry.nodeId)) capture(event) }} {...handlers} onDoubleClick={() => documentStore.setRenaming(entry.nodeId)} />)}
+    {selected && radiusControls.length > 0 && <CornerRadiusHandles id={selected.nodeId} generation={projection.generation} poses={radiusControls} labelFor={corner => copy.radiusHandle(selected.name, corner)} onHandlePointerDown={(event, corner) => { if (canvasGestures.radiusPointerDown(event, selected.nodeId, corner)) capture(event) }} {...handlers} />}
     {selected && controls.length > 0 && <ResizeHandles id={selected.nodeId} generation={projection.generation} poses={controls} labelFor={handle => copy.resizeHandle(selected.name, handle)} onHandlePointerDown={(event, handle) => { if (canvasGestures.handlePointerDown(event, selected.nodeId, handle)) capture(event) }} onHandleDoubleClick={(event, handle) => { event.preventDefault(); event.stopPropagation(); canvasGestures.handleDoubleClick(selected.nodeId, handle, event.altKey) }} {...handlers} />}
     {selected && rotationControls.length > 0 && <RotationHandles id={selected.nodeId} generation={projection.generation} poses={rotationControls} labelFor={handle => copy.rotationHandle(selected.name, handle)} onHandlePointerDown={(event, handle) => { if (canvasGestures.rotationPointerDown(event, selected.nodeId, handle)) capture(event) }} {...handlers} />}
     {renaming && namePose && <NodeNameEditor id={renaming.nodeId} pose={namePose} value={renaming.name} label={copy.renameLabel(renaming.name)} onCommit={value => { documentStore.commands.rename(renaming.nodeId, value); documentStore.setRenaming(null) }} onCancel={() => documentStore.setRenaming(null)} />}
+    {state.textEditing && textEditing && textEditorPose && editingText && <CanvasTextEditor id={editingText.id} value={editingText.text} label={copy.editText(editingText.name)} style={canvasTextEditorStyle(textEditorPose.base, textEditorPose.rotation, frame.key.camera.zoom, editingText.textStyle, editingText.textSizing)} onUpdate={value => documentStore.commands.text.update(state.textEditing!.sessionId, value)} onCommit={() => { documentStore.commands.text.commit(state.textEditing!.sessionId) }} onCancel={() => { documentStore.commands.text.cancel(state.textEditing!.sessionId) }} onTraverse={direction => { const editing = state.textEditing!; if (documentStore.commands.text.commit(editing.sessionId)) documentStore.commands.text.focusAdjacent(editing.nodeId, direction) }} />}
   </CanvasHud>{mobileQuickActions}</>
 }

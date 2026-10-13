@@ -28,7 +28,7 @@ describe('scene protocol', () => {
     expect(isPreviewDocument(withElement(0, { fill: '#ffffff' }))).toBe(false)
     expect(isPreviewDocument(withElement(0, { clip: 'yes' }))).toBe(false)
     expect(isPreviewDocument({ ...document, tokens: { accent: '#7c3aed' } })).toBe(false)
-    const camera = { ...envelope, type: 'set-camera', camera: { x: 12.5, y: -30, zoom: 8, width: 1200, height: 800 } }
+    const camera = { ...envelope, type: 'set-camera', sequence: 1, camera: { x: 12.5, y: -30, zoom: 8, width: 1200, height: 800 } }
     expect(acceptPreviewCommand({ origin: 'https://editor.test', source, data: camera }, 'https://editor.test', source, 3)).toEqual(camera)
     expect(acceptPreviewCommand({ origin: 'https://editor.test', source, data: { ...camera, camera: { ...camera.camera, zoom: 0 } } }, 'https://editor.test', source, 3)).toBeNull()
     expect(acceptPreviewCommand({ origin: 'https://editor.test', source, data: { ...camera, camera: { ...camera.camera, extra: 1 } } }, 'https://editor.test', source, 3)).toBeNull()
@@ -124,6 +124,9 @@ describe('scene protocol', () => {
     const wheel = { ...envelope, type: 'wheel', wheel: { deltaX: 0, deltaY: -53, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 410, clientY: 220 } }
     expect(acceptPreviewEvent({ origin: 'https://preview.test', source, data: wheel }, 'https://preview.test', source, 3)).toEqual(wheel)
     expect(acceptPreviewEvent({ origin: 'https://preview.test', source, data: { ...wheel, wheel: { ...wheel.wheel, deltaMode: 3 } } }, 'https://preview.test', source, 3)).toBeNull()
+    const cameraApplied = { ...envelope, type: 'camera-applied', sequence: 7, camera: geometry.camera }
+    expect(acceptPreviewEvent({ origin: 'https://preview.test', source, data: cameraApplied }, 'https://preview.test', source, 3)).toEqual(cameraApplied)
+    expect(acceptPreviewEvent({ origin: 'https://preview.test', source, data: { ...cameraApplied, sequence: -1 } }, 'https://preview.test', source, 3)).toBeNull()
   })
 
   it('derives primitive styles from appearance and keeps the legacy host at the old frame origin', () => {

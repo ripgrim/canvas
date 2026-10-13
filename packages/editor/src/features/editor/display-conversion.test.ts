@@ -147,7 +147,7 @@ describe('to Flex', () => {
         }),
       to: 'flex',
     })
-    expect(result.layouts.frame).toEqual({ item: { position: flow, width: { value: { kind: 'intrinsic', value: 'fit-content' } }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } }, container: { display: 'flex', gap: 20, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } }, spacing: { padding: { x: 20, y: 30 } } })
+    expect(result.layouts.frame).toEqual({ item: { position: flow, width: { value: { kind: 'intrinsic', value: 'fit-content' }, min: px(300) }, height: { value: { kind: 'intrinsic', value: 'fit-content' }, min: px(100) } }, container: { display: 'flex', gap: 20, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } }, spacing: { padding: { x: 20, y: 30 } } })
     expect(result.order).toEqual(['a', 'b', 'c'])
     for (const id of ['a', 'b', 'c']) expect(result.layouts[id]).toEqual({ item: { position: flow } })
     expect(result.unsupported).toBeUndefined()
@@ -169,8 +169,8 @@ describe('to Flex', () => {
       measured: directAdd({ containerSize: { width, height }, children: [], directAddLeadingInset: { x: 0, y: 0 }, kind: 'direct-add', isRoot: false }, { item: { position: { mode: 'freeform' } } }, {}),
       to: 'flex',
     }).layouts.frame
-    expect(empty(100, 100)).toEqual({ item: { position: { mode: 'freeform' }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } }, container: { display: 'flex', gap: 16, flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } }, spacing: { padding: { x: 16, y: 16 } } })
-    expect(empty(101, 100)).toEqual({ item: { position: { mode: 'freeform' }, width: { value: { kind: 'intrinsic', value: 'fit-content' } }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } }, container: { display: 'flex', gap: 16, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'center' } }, spacing: { padding: { x: 16, y: 16 } } })
+    expect(empty(100, 100)).toEqual({ item: { position: { mode: 'freeform' }, width: { value: { kind: 'intrinsic', value: 'fit-content' }, min: px(100) }, height: { value: { kind: 'intrinsic', value: 'fit-content' }, min: px(100) } }, container: { display: 'flex', gap: 16, flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } }, spacing: { padding: { x: 16, y: 16 } } })
+    expect(empty(101, 100)).toEqual({ item: { position: { mode: 'freeform' }, width: { value: { kind: 'intrinsic', value: 'fit-content' }, min: px(101) }, height: { value: { kind: 'intrinsic', value: 'fit-content' }, min: px(100) } }, container: { display: 'flex', gap: 16, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'center' } }, spacing: { padding: { x: 16, y: 16 } } })
   })
 
   it('puts ordinary Freeform children in flow but preserves every absolute inset and clears stale item data', () => {
@@ -196,7 +196,7 @@ describe('to Flex', () => {
     expect(result.layouts.frame?.item.position).toEqual({ mode: 'freeform' })
   })
 
-  it('PAPER-FLEX-003 keeps a fixed column width as the inferred fixed fallback and changes fixed height to Fit', () => {
+  it('FLEX-CONVERT-FIT-001 changes both fixed axes to Fit when adding Flex', () => {
     const input: FlexInferenceInput = { containerSize: { width: 200, height: 120 }, directAddLeadingInset: { x: 8, y: 10 }, kind: 'direct-add', isRoot: false, children: [analysisChild('a', 8, 10, 60, 20), analysisChild('b', 8, 50, 40, 20)] }
     const conversionInput: DisplayConversionInput = {
       container: { ...node('frame', { item: { position: { mode: 'freeform' } } }), parentDisplay: null },
@@ -207,8 +207,8 @@ describe('to Flex', () => {
     const before = JSON.stringify(conversionInput)
     const result = convert(conversionInput)
     expect(JSON.stringify(conversionInput)).toBe(before)
-    expect(result.layouts.frame?.item).toEqual({ position: { mode: 'freeform' }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } })
-    expect(result.primitiveSizes?.frame).toEqual({ width: 76, height: 120 })
+    expect(result.layouts.frame?.item).toEqual({ position: { mode: 'freeform' }, width: { value: { kind: 'intrinsic', value: 'fit-content' }, min: px(200) }, height: { value: { kind: 'intrinsic', value: 'fit-content' }, min: px(120) } })
+    expect(result.primitiveSizes?.frame).toBeUndefined()
   })
 
   it('PAPER-FLEX-003 maps auto without dependents to Fit, or Fill when the converted parent is itself a Flex child', () => {
@@ -235,11 +235,11 @@ describe('to Flex', () => {
     expect(two.primitiveSizes?.frame?.width).toBe(140)
   })
 
-  it('PAPER-FLEX-003 gives Fill width to every rounded widest tie in a column', () => {
+  it('FLEX-CONVERT-FIT-001 does not create child Fill cycles when a fixed column becomes Fit', () => {
     const input: FlexInferenceInput = { containerSize: { width: 160, height: 160 }, directAddLeadingInset: { x: 10, y: 10 }, kind: 'direct-add', isRoot: false, children: [analysisChild('a', 10, 10, 50.4, 20), analysisChild('b', 10, 50, 50.49, 20)] }
     const result = convert({ container: { ...node('frame'), parentDisplay: null }, children: [{ ...node('a'), defaultPosition: 'freeform' }, { ...node('b'), defaultPosition: 'freeform' }], measured: directAdd(input, null, { a: null, b: null }), to: 'flex' })
-    expect(result.layouts.a?.item.width).toEqual({ value: percent(100) })
-    expect(result.layouts.b?.item.width).toEqual({ value: percent(100) })
+    expect(result.layouts.a?.item.width).toBeUndefined()
+    expect(result.layouts.b?.item.width).toBeUndefined()
   })
 
   it('does not accept the old rect-only measurement as Flex authorization', () => {

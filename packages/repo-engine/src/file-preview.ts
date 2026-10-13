@@ -9,7 +9,7 @@ import type { ColorScheme } from './node-theme.js'
 import { defaultDesignThemeId, resolveDesignTheme } from './design-themes.js'
 import type { DesignTheme } from './design-themes.js'
 import { colorToCss } from './color.js'
-import type { DisplayMode, NodeLayout, PositionMode } from './layout.js'
+import type { LayoutContainer, NodeLayout, ParentLayoutContext, PositionMode } from './layout.js'
 import { assetReferences, childrenOf, flowHost, hostOrigin, nodeAppearance, nodeChildDisplay, pageRoot, projectAppearance, resolveColorValue } from './file-document.js'
 import type { FileDocument, ImageAssetReference, PreviewAppearance, SourcePalette } from './file-document.js'
 import type { TextSizing, TextStyle } from './text.js'
@@ -34,9 +34,19 @@ const kebab = (name: string) => name.replace(/[A-Z]/g, letter => `-${letter.toLo
  * so documents authored before schema v4 reach the runtime unchanged; px insets and px sizes travel in the placement
  * fields (the runtime positions roots against the host origin), everything else travels here.
  */
-export function layoutDeclarations(layout: NodeLayout | undefined, parentDisplay: DisplayMode | null, origin: { x: number; y: number } | null = null): Record<string, string> | undefined {
-  if (!layout || (isLegacyOnlyLayout(layout) && parentDisplay === null)) return undefined
-  const projection = { ...projectContainerStyle(layout.container), ...projectItemStyle(layout.item, parentDisplay), ...projectSpacingStyle(layout.spacing) }
+const parentContext = (container: LayoutContainer | null): ParentLayoutContext | null => {
+  if (!container) return null
+  if (container.display !== 'flex') return { display: container.display }
+  return {
+    display: container.display,
+    ...(container.flex?.direction ? { flexDirection: container.flex.direction } : {}),
+    ...(container.flex?.alignContent ? { flexAlignContent: container.flex.alignContent } : {}),
+  }
+}
+
+export function layoutDeclarations(layout: NodeLayout | undefined, parentContainer: LayoutContainer | null, origin: { x: number; y: number } | null = null): Record<string, string> | undefined {
+  if (!layout || (isLegacyOnlyLayout(layout) && parentContainer === null)) return undefined
+  const projection = { ...projectContainerStyle(layout.container), ...projectItemStyle(layout.item, parentContext(parentContainer)), ...projectSpacingStyle(layout.spacing) }
   const { position } = layout.item
   if (position.mode === 'absolute') {
     projection.position = null
@@ -57,11 +67,20 @@ export function layoutDeclarations(layout: NodeLayout | undefined, parentDisplay
  * these declarations are applied after that fallback and therefore own the rendered axis. Missing layout stays absent
  * so v8 freeform documents retain their exact legacy absolute rendering path.
  */
-export function primitiveLayoutProjection(layout: NodeLayout | undefined, parentDisplay: DisplayMode | null): PreviewPrimitiveLayout | undefined {
-  if (!layout) return undefined
-  const projection = { ...projectContainerStyle(layout.container), ...projectItemStyle(layout.item, parentDisplay), ...projectSpacingStyle(layout.spacing) }
+export function primitiveLayoutProjection(layout: NodeLayout | undefined, parentContainer: LayoutContainer | null, textSizing?: TextSizing): PreviewPrimitiveLayout | undefined {
+  if (!layout && !textSizing) return undefined
+  if (!layout && textSizing && textSizing.width.mode !== 'fill' && textSizing.width.mode !== 'relative' && textSizing.height.mode !== 'fill' && textSizing.height.mode !== 'relative') return undefined
+  const source = layout ?? { item: { position: { mode: 'freeform' as const } } }
+  const item = structuredClone(source.item)
+  if (textSizing) for (const axis of ['width', 'height'] as const) {
+    const sizing = textSizing[axis]
+    if (sizing.mode === 'fill') item[axis] = { value: { kind: 'percent', value: 100 } }
+    else if (sizing.mode === 'relative') item[axis] = { value: { kind: 'percent', value: sizing.value } }
+  }
+  const projection = { ...projectContainerStyle(source.container), ...projectItemStyle(item, parentContext(parentContainer)), ...projectSpacingStyle(source.spacing) }
   const declarations = Object.fromEntries(Object.entries(projection).filter((entry): entry is [string, string] => entry[1] !== null).map(([name, value]) => [kebab(name), value]))
-  return { mode: layout.item.position.mode, declarations }
+  if (!layout && Object.keys(declarations).length === 0) return undefined
+  return { mode: source.item.position.mode, declarations }
 }
 export type PreviewProjection = { document: PreviewPageDocument; layout: PreviewLayoutEntry[]; themeDiagnostics: ThemeDiagnostic[] }
 
@@ -129,10 +148,10 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
     }
     return projected ? { appearance: projected } : {}
   }
-  const visitComponent = (id: string, order: number, parentDisplay: DisplayMode | null) => {
+  const visitComponent = (id: string, order: number, parentContainer: LayoutContainer | null) => {
     const node = file.nodes[id]
     if (!node || node.type !== 'component') return
-    const ownDisplay = containerDisplay(node.layout)
+    const ownContainer = node.layout?.container ?? null
     const children: Record<string, string[]> = {}
     const slotOrders = new Map<string, number>()
     for (const childId of childrenOf(file, id)) {
@@ -141,18 +160,18 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
       ;(children[slot] ??= []).push(childId)
       const childOrder = slotOrders.get(slot) ?? 0
       slotOrders.set(slot, childOrder + 1)
-      visitComponent(childId, childOrder, ownDisplay)
+      visitComponent(childId, childOrder, ownContainer)
     }
     const themed = themeOf(id)
     nodes[id] = { id, componentId: node.componentId, exportName: node.exportName, props: structuredClone(node.props), children, ...(node.name !== undefined ? { name: node.name } : {}), ...appearanceOf(id, themed.palette), theme: themed.theme }
     const placement = legacyLayout(node.layout)
-    const declarations = layoutDeclarations(node.layout, parentDisplay, parentDisplay === null && file.relationships[id]?.parentId === root ? hostOrigin(flowHost) : null)
+    const declarations = layoutDeclarations(node.layout, parentContainer, parentContainer === null && file.relationships[id]?.parentId === root ? hostOrigin(flowHost) : null)
     layout.push({ nodeId: id, mode: placement.mode, x: placement.x, y: placement.y, order, ...(placement.width !== undefined ? { width: placement.width } : {}), ...(placement.height !== undefined ? { height: placement.height } : {}), ...(declarations ? { declarations } : {}) })
   }
-  const visitPrimitive = (id: string, parentId: string | null, parentDisplay: DisplayMode | null) => {
+  const visitPrimitive = (id: string, parentId: string | null, parentContainer: LayoutContainer | null) => {
     const node = file.nodes[id]
     if (!node || node.type === 'root' || node.type === 'component') return
-    const primitiveLayout = primitiveLayoutProjection(node.layout, parentDisplay)
+    const primitiveLayout = primitiveLayoutProjection(node.layout, parentContainer, node.type === 'text' ? node.textSizing : undefined)
     elements.push({
       id, kind: node.type, name: node.name, x: node.styles.left, y: node.styles.top, width: node.styles.width, height: node.styles.height, rotation: node.styles.rotation ?? 0,
       ...(node.styles.flipX ? { flipX: true } : {}), ...(node.styles.flipY ? { flipY: true } : {}),
@@ -161,8 +180,8 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
       ...(node.type === 'frame' ? { clip: node.styles.overflow !== 'visible' } : {}),
       ...(primitiveLayout ? { layout: primitiveLayout } : {}),
     })
-    const childDisplay = nodeChildDisplay(node)
-    for (const childId of childrenOf(file, id)) visitPrimitive(childId, id, childDisplay)
+    const childContainer = node.layout?.container ?? (node.type === 'frame' ? { display: nodeChildDisplay(node) } as LayoutContainer : null)
+    for (const childId of childrenOf(file, id)) visitPrimitive(childId, id, childContainer)
   }
   const rootIds: string[] = []
   let componentOrder = 0

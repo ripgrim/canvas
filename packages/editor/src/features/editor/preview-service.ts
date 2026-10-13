@@ -21,6 +21,7 @@ import type { FlowDragPresentation } from './flow-drag-presentation'
 import { wheelPanDelta, wheelZoomFactor } from './canvas-math'
 import { activeDesignTheme, normalizeCssColor, previewThemeMessage, themeProjectionContext } from './design-theme'
 import { createFrameQueue } from './frame-queue'
+import { previewCameraStore } from './preview-camera-store'
 export { normalizeCssColor }
 
 export type PreviewResizeSample = Readonly<{
@@ -238,6 +239,9 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
   let listening = false
   let signature = ''
   let cameraSignature = ''
+  let cameraSequence = 0
+  let appliedCameraSequence = -1
+  const sentCameras = new Map<number, PreviewCamera>()
   let transientSignature = '[]'
   let strictPresentationSignature = ''
   let strictPresentationContext: Readonly<{
@@ -574,7 +578,14 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
     const envelope = { channel: 'design-editor-preview', version: protocolVersion, generation: preview.activeGeneration } as const
     const camera = { x: document.viewport.x, y: document.viewport.y, zoom: document.viewport.zoom, width: document.viewportSize.width, height: document.viewportSize.height }
     const nextCamera = JSON.stringify(camera)
-    if (nextCamera !== cameraSignature) { cameraSignature = nextCamera; target.postMessage({ ...envelope, type: 'set-camera', camera }, preview.origin) }
+    if (nextCamera !== cameraSignature) {
+      cameraSignature = nextCamera
+      cameraSequence += 1
+      sentCameras.set(cameraSequence, camera)
+      previewCameraStore.expect(preview.activeGeneration, cameraSequence)
+      while (sentCameras.size > 8) sentCameras.delete(sentCameras.keys().next().value!)
+      target.postMessage({ ...envelope, type: 'set-camera', sequence: cameraSequence, camera }, preview.origin)
+    }
     const transientMoves = activeFlowDrag ? [] : previewTransientMoves(document.file, document.pageId, document.transient, projectedDocument)
     const nextTransient = JSON.stringify(transientMoves)
     if (nextTransient !== '[]' && nextTransient !== transientSignature) publishTransient({ target, origin: preview.origin, envelope, items: transientMoves, signature: nextTransient })
@@ -634,7 +645,10 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
   const syncDocument = () => {
     // Canvas move and resize already have their own latest-frame transient queue. Feeding that queue immediately avoids
     // adding a second frame of latency while inspector-only previews take the coalesced projection path.
-    if (documentStore.getSnapshot().transient) sync()
+    // Camera-only pan samples can arrive much faster than the preview iframe paints. Publish only the newest camera per
+    // frame so an input burst cannot leave the rendered document behind the parent-owned selection chrome.
+    const transient = documentStore.getSnapshot().transient
+    if (transient && transient.kind !== 'pan') sync()
     else syncFrames.request()
   }
   const handleMessage = (event: MessageEvent) => {
@@ -649,6 +663,13 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
         documentStore.setEditPolicy(undefined)
         editorStore.set({ runtimeInstanceIds: accepted.instanceIds, compositionPreview: false })
       }
+    }
+    if (accepted.type === 'camera-applied') {
+      const sent = sentCameras.get(accepted.sequence)
+      if (!sent || accepted.sequence <= appliedCameraSequence || JSON.stringify(sent) !== JSON.stringify(accepted.camera)) return
+      appliedCameraSequence = accepted.sequence
+      for (const sequence of sentCameras.keys()) if (sequence <= accepted.sequence) sentCameras.delete(sequence)
+      previewCameraStore.publish(preview.activeGeneration, accepted.sequence, accepted.camera)
     }
     if (accepted.type === 'geometry') {
       const current = documentStore.getSnapshot()
@@ -1016,7 +1037,7 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       stopCollaboration = collaborationService.subscribe(sync)
       collaborationService.bindRemoteFlowPreview(remoteFlowBridge)
     },
-    stop: () => { window.removeEventListener('message', handleMessage); stopEditor?.(); stopDocument?.(); stopCollaboration?.(); collaborationService.bindRemoteFlowPreview(null); stopEditor = undefined; stopDocument = undefined; stopCollaboration = undefined; listening = false; syncFrames.cancel(); retireFlowDragBeforeContextChange(); retireAllRemoteFlowDrags(); clearStrictPresentationBeforeContextChange(); committedProjectionRetry = null; target = null; signature = ''; cameraSignature = ''; transientSignature = '[]'; projectedDocument = null; projectedAuthority = null; assetHydrationError = null; geometryGeneration = null; sceneGeometry.clear(); documentStore.setEditPolicy(undefined) },
+    stop: () => { window.removeEventListener('message', handleMessage); stopEditor?.(); stopDocument?.(); stopCollaboration?.(); collaborationService.bindRemoteFlowPreview(null); stopEditor = undefined; stopDocument = undefined; stopCollaboration = undefined; listening = false; syncFrames.cancel(); retireFlowDragBeforeContextChange(); retireAllRemoteFlowDrags(); clearStrictPresentationBeforeContextChange(); committedProjectionRetry = null; target = null; signature = ''; cameraSignature = ''; cameraSequence = 0; appliedCameraSequence = -1; sentCameras.clear(); previewCameraStore.reset(); transientSignature = '[]'; projectedDocument = null; projectedAuthority = null; assetHydrationError = null; geometryGeneration = null; sceneGeometry.clear(); documentStore.setEditPolicy(undefined) },
     sync,
     publishResizePresentation,
     clearResizePresentation,
@@ -1036,6 +1057,10 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       documentStore.setEditPolicy(undefined)
       signature = ''
       cameraSignature = ''
+      cameraSequence = 0
+      appliedCameraSequence = -1
+      sentCameras.clear()
+      previewCameraStore.reset()
       transientSignature = '[]'
       projectedAuthority = null
       editorStore.set({ previewReady: false, runtimeInstanceIds: null })
@@ -1050,6 +1075,10 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       documentStore.setEditPolicy(undefined)
       signature = ''
       cameraSignature = ''
+      cameraSequence = 0
+      appliedCameraSequence = -1
+      sentCameras.clear()
+      previewCameraStore.reset()
       transientSignature = '[]'
       projectedAuthority = null
       const preview = editorStore.getSnapshot().snapshot?.preview

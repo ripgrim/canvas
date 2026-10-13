@@ -59,7 +59,7 @@ export function createSelectionDecorations(ownerDocument) {
 
 function renderCanvasTree(elements, parentId, offset, assets) {
   return elements.filter(element => element.parentId === parentId).map(element => {
-    const children = element.kind === 'frame' ? renderCanvasTree(elements, element.id, { x: 0, y: 0 }, assets) : element.kind === 'text' ? element.text : null
+    const children = element.kind === 'frame' ? renderCanvasTree(elements, element.id, { x: 0, y: 0 }, assets) : element.kind === 'text' ? element.text || '\u00a0' : null
     return React.createElement('div', { key: element.id, 'data-preview-canvas': element.id, 'data-preview-kind': element.kind, 'aria-hidden': 'true', style: canvasElementStyle(element, assets, offset) }, children)
   })
 }
@@ -83,6 +83,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
   let transientMoves = []
   let transientPresentations = []
   let camera = { x: 0, y: 0, zoom: 1, width: window.innerWidth, height: window.innerHeight }
+  let cameraSequence = -1
   let disposed = false
   let failed = false
   const send = (type, payload) => window.parent.postMessage({ channel: 'design-editor-preview', version: protocolVersion, generation, type, ...payload }, editorOrigin)
@@ -297,7 +298,12 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     else if (command.type === 'ping') return
     else if (command.type === 'set-theme') { setTheme(command.theme); geometry.refresh() }
     else if (command.type === 'set-interaction-mode') interactionMode = command.mode
-    else if (command.type === 'set-camera') { camera = { ...command.camera }; applyCamera(); geometry.refresh() }
+    else if (command.type === 'set-camera' && command.sequence > cameraSequence) {
+      cameraSequence = command.sequence
+      camera = { ...command.camera }
+      applyCamera()
+      send('camera-applied', { sequence: cameraSequence, camera })
+    }
     else if (command.type === 'set-layout') {
       geometry.suspend(); transientMoveLayer.clear(); if (command.layoutGeneration !== layoutGeneration) presentationSequences.clear(); clearTransientPresentations(); layoutLayer.setTransientBounds([])
       retireUnmatchedFlow('layout', command.layoutGeneration)

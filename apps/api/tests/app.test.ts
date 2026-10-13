@@ -83,6 +83,15 @@ function githubServices(input: Readonly<{ provider?: GitHubProviderPort }> = {})
 }
 
 describe('hosted control-plane API', () => {
+  it('DEPLOY-STAGING-001 reports the exact deployed revision without authentication', async () => {
+    const revision = 'a'.repeat(40)
+    const app = createApiApp({ auth: auth(), store: createMemoryControlPlane(), serviceToken, registryFingerprint, deploymentRevision: revision })
+    const response = await app(request('/healthz/deployment'))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(await body(response)).toEqual({ revision })
+  })
+
   it('ERROR-VISIBILITY-001 logs an unexpected failure and returns the same safe request id', async () => {
     const requestId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
     const reportError = vi.fn()

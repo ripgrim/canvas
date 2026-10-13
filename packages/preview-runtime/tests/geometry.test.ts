@@ -192,7 +192,7 @@ describe('ED-CAN06 geometry service ownership', () => {
     const listeners = new Map<string, () => void>()
     let sequence = 0
     let resizeCallback = () => {}
-    let mutationCallback = () => {}
+    let mutationCallback: (records?: { target: unknown; type: string; attributeName: string | null }[]) => void = () => {}
     let resizeDisconnected = false
     let mutationDisconnected = false
     const view = {
@@ -201,7 +201,7 @@ describe('ED-CAN06 geometry service ownership', () => {
       addEventListener: (event: string, callback: () => void) => listeners.set(event, callback),
       removeEventListener: (event: string) => listeners.delete(event),
       ResizeObserver: class { constructor(callback: () => void) { resizeCallback = callback } observe() {} unobserve() {} disconnect() { resizeDisconnected = true } },
-      MutationObserver: class { constructor(callback: () => void) { mutationCallback = callback } observe() {} disconnect() { mutationDisconnected = true } },
+      MutationObserver: class { constructor(callback: typeof mutationCallback) { mutationCallback = callback } observe() {} disconnect() { mutationDisconnected = true } },
     }
     const container = { ownerDocument: { defaultView: view }, querySelectorAll: () => [], getBoundingClientRect: () => ({ x: 0, y: 0, width: 480, height: 640 }) }
     const deliveries: unknown[] = []
@@ -213,11 +213,16 @@ describe('ED-CAN06 geometry service ownership', () => {
     expect(frames.size).toBe(1)
     flush()
     expect(deliveries).toEqual([{ items: [], root: { componentId: 'login-form', bounds: { x: 0, y: 0, width: 480, height: 640 } }, documentRevision: 0, layoutGeneration: 0 }])
+    mutationCallback([{ target: container, type: 'attributes', attributeName: 'style' }])
+    expect(frames.size).toBe(0)
+    mutationCallback([{ target: {}, type: 'attributes', attributeName: 'style' }])
+    expect(frames.size).toBe(1)
+    flush()
     observer.refresh(); flush()
-    expect(deliveries.length).toBe(2)
+    expect(deliveries.length).toBe(3)
     observer.refresh(); observer.stop(); flush(); resizeCallback(); mutationCallback()
     expect(frames.size).toBe(0)
-    expect(deliveries.length).toBe(2)
+    expect(deliveries.length).toBe(3)
     expect(listeners.size).toBe(0)
     expect(resizeDisconnected).toBe(true)
     expect(mutationDisconnected).toBe(true)

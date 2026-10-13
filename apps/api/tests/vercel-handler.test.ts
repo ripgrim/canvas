@@ -19,5 +19,10 @@ describe('Vercel API adapter', () => {
     const request = new Request('http://127.0.0.1:4320/healthz')
     expect(restoreVercelRequestPath(request)).toBe(request)
   })
+
+  it('DEPLOY-VERCEL-001 restores the deployment health path used by staging promotion', () => {
+    const request = new Request('https://api.example.test/api/handler?__canvas_path=healthz%2Fdeployment')
+    expect(restoreVercelRequestPath(request).url).toBe('https://api.example.test/healthz/deployment')
+  })
 })
 

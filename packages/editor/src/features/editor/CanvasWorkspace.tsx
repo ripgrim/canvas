@@ -15,6 +15,7 @@ import { EditorToolRail, editorTools } from './ToolRail'
 import type { EditorTool, EditorToolAvailability } from './ToolRail'
 import { NodeContextMenu } from './NodeContextMenu'
 import { CollaborationCanvasPresence, CollaborationFollowIndicator, CollaborationPresence, CollaborationReadOnlyNotice } from '../collaboration/CollaborationPresence'
+import { previewCameraStore } from './preview-camera-store'
 
 export type CanvasWorkspaceProps = {
   src?: string | undefined
@@ -37,17 +38,21 @@ const attachHud = (element: HTMLCanvasElement | null) => canvasHudPainter.attach
 export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcuts, onHome, placeholder, status, theme, readOnly = false, mobile = false, panels }: CanvasWorkspaceProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const state = useSyncExternalStore(store.subscribe, store.getViewSnapshot, store.getViewSnapshot)
+  const cameraSnapshot = useSyncExternalStore(previewCameraStore.subscribe, previewCameraStore.getSnapshot, previewCameraStore.getSnapshot)
+  const presentedCamera = cameraSnapshot?.camera
+  const visibleCamera = presentedCamera ? { x: presentedCamera.x, y: presentedCamera.y, zoom: presentedCamera.zoom } : state.viewport
+  const visibleViewportSize = presentedCamera ? { width: presentedCamera.width, height: presentedCamera.height } : state.viewportSize
   const connected = Boolean(src && ready)
   const availability = Object.fromEntries(editorTools.map(tool => [tool, !state.file ? { available: false, reason: copy.openFileForTools } : !connected ? { available: false, reason: copy.connectPreviewForTools } : { available: true, reason: '' }])) as unknown as EditorToolAvailability
   const selectTool = (tool: EditorTool) => store.setTool(tool)
-  const grid = gridBackground(state.viewport, state.viewportSize, typeof window === 'undefined' ? 1 : window.devicePixelRatio)
+  const grid = gridBackground(visibleCamera, visibleViewportSize, typeof window === 'undefined' ? 1 : window.devicePixelRatio)
   return <Surface roleName="canvas-area" label={copy.preview}>
     {mobile && <MobileCanvasHeader><FileHomeButton label={copy.files} disabled={!onHome} onClick={() => onHome?.()} /></MobileCanvasHeader>}
     <CanvasViewport label={copy.preview} attach={attachViewport}>
       {/* A fresh iframe per URL: changing src on a mounted iframe would push a joint history entry and break Back/Forward. */}
       {src && <LiveCanvasPreview key={src} src={src} title={copy.preview} onReady={onReady} onError={onError} />}
       <CanvasPixelGrid visible={state.gridVisible} size={grid.size} position={grid.position} lineWidth={grid.lineWidth} />
-      <CanvasWorldOrigin camera={state.viewport} />
+      <CanvasWorldOrigin camera={visibleCamera} />
       <CanvasStage active={connected} readOnly={readOnly} onOpenContextMenu={setContextMenu} onDismissContextMenu={() => setContextMenu(null)} />
       {connected && <><CanvasHudCanvas attach={attachHud} /><SelectionHud /><CollaborationCanvasPresence /></>}
       <CollaborationFollowIndicator />

@@ -104,6 +104,13 @@ describe('PAPER-TEXT-002: preview text protocol and CSS', () => {
     expect(freeformTextAxisSize({ mode: 'relative', value: 50 }, 180)).toBe('50%')
   })
 
+  it('PAPER-FILL-003: honors parent-projected stretch and flex growth for text Fill', () => {
+    const cross = { ...text({ width: { mode: 'fill' }, height: { mode: 'fixed' } }), layout: { mode: 'flow', declarations: { 'align-self': 'stretch' } } }
+    expect(canvasElementStyle(cross)).toMatchObject({ width: undefined, alignSelf: 'stretch' })
+    const main = { ...text({ width: { mode: 'fill' }, height: { mode: 'fixed' } }), layout: { mode: 'flow', declarations: { 'flex-grow': '1', 'flex-shrink': '1', 'flex-basis': '0%' } } }
+    expect(canvasElementStyle(main)).toMatchObject({ width: undefined, flexGrow: '1', flexShrink: '1', flexBasis: '0%' })
+  })
+
   it('anchors intrinsic width to the stored left, center, or right alignment reference', () => {
     const sizing = { width: { mode: 'fit' }, height: { mode: 'fit' } }
     expect(canvasElementStyle(text(sizing, { ...textStyle, horizontalAlign: 'left' })).left).toBe('12px')

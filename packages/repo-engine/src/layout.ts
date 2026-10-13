@@ -381,9 +381,18 @@ export function applyDefiniteMainAxis(item: LayoutItem, direction: FlexDirection
 // CSS projection ------------------------------------------------------------------------------------------------------
 
 export type StyleProjection = Record<string, string | null>
+export type ParentLayoutContext = {
+  display: DisplayMode
+  flexDirection?: FlexDirection
+  flexAlignContent?: ContentDistribution
+}
+export type ParentLayoutInput = DisplayMode | ParentLayoutContext | null
 const gapToCss = (gap: LayoutGap | undefined): StyleProjection => gap === undefined ? { columnGap: null, rowGap: null } : typeof gap === 'number' ? { columnGap: `${gap}px`, rowGap: `${gap}px` } : { columnGap: `${gap.x}px`, rowGap: `${gap.y}px` }
 const css = (value: string | undefined) => value === undefined ? null : value === 'start' || value === 'end' ? `flex-${value}` : value
 const plain = (value: string | undefined) => value ?? null
+const parentContext = (parent: ParentLayoutInput): ParentLayoutContext | null => typeof parent === 'string' ? { display: parent } : parent
+const fillAxis = (item: LayoutItem, axis: 'width' | 'height'): boolean => classifySizing(item[axis]?.value) === 'fill'
+const mainAxis = (axis: 'width' | 'height', direction: FlexDirection | undefined): boolean => direction?.startsWith('row') ? axis === 'width' : direction?.startsWith('column') ? axis === 'height' : false
 
 /** Longhand declarations for a container; `null` clears the longhand so stale stylesheet state cannot leak through. */
 export function projectContainerStyle(container: LayoutContainer | undefined): StyleProjection {
@@ -414,7 +423,9 @@ function trackCss(track: GridTrack): string {
 }
 
 /** Longhand declarations for an item in a parent of `parentDisplay`. Flow nodes clear every inset. */
-export function projectItemStyle(item: LayoutItem, parentDisplay: DisplayMode | null): StyleProjection {
+export function projectItemStyle(item: LayoutItem, parent: ParentLayoutInput): StyleProjection {
+  const context = parentContext(parent)
+  const parentDisplay = context?.display ?? null
   const projection: StyleProjection = { position: null, left: null, right: null, top: null, bottom: null, zIndex: null, flexGrow: null, flexShrink: null, flexBasis: null, gridColumnStart: null, gridColumnEnd: null, gridRowStart: null, gridRowEnd: null, justifySelf: null, alignSelf: null, aspectRatio: null, transform: null, ...axisSizeToCss(item.width, 'width'), ...axisSizeToCss(item.height, 'height') }
   if (item.position.mode === 'absolute') {
     projection.position = 'absolute'
@@ -432,6 +443,31 @@ export function projectItemStyle(item: LayoutItem, parentDisplay: DisplayMode | 
     projection.gridColumnStart = column.start; projection.gridColumnEnd = column.end
     projection.gridRowStart = row.start; projection.gridRowEnd = row.end
     projection.justifySelf = plain(item.grid.justifySelf); projection.alignSelf = plain(item.grid.alignSelf)
+  }
+  for (const axis of ['width', 'height'] as const) {
+    if (!fillAxis(item, axis)) continue
+    if (item.position.mode === 'absolute') {
+      const pair = axis === 'width' ? item.position.left !== undefined && item.position.right !== undefined : item.position.top !== undefined && item.position.bottom !== undefined
+      if (pair) projection[axis] = null
+      continue
+    }
+    if (parentDisplay === 'flex') {
+      if (mainAxis(axis, context?.flexDirection)) {
+        projection[axis] = null
+        projection.flexGrow ??= '1'
+        projection.flexShrink ??= '1'
+        projection.flexBasis ??= '0%'
+      } else {
+        projection[axis] = null
+        projection.alignSelf = 'stretch'
+      }
+      continue
+    }
+    if (parentDisplay === 'grid') {
+      projection[axis] = null
+      if (axis === 'width') projection.justifySelf = 'stretch'
+      else projection.alignSelf = 'stretch'
+    }
   }
   if (item.transform) {
     const parts: string[] = []

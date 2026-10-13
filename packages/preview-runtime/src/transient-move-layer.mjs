@@ -2,6 +2,10 @@ import { fillGeometryStyle } from './scene-styles.mjs'
 
 const selectorFor = nodeId => `[data-preview-instance="${nodeId}"], [data-preview-canvas="${nodeId}"]`
 const cssName = name => name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`).replace(/^webkit-/, '-webkit-')
+const stripDomIds = element => {
+  element.removeAttribute('id')
+  for (const child of element.querySelectorAll('[id]')) child.removeAttribute('id')
+}
 
 /**
  * Moves mounted design roots and temporarily sizes primitive canvas nodes during a pointer gesture. The layer owns no
@@ -23,18 +27,34 @@ export function createTransientMoveLayer(ownerDocument, container) {
   const restore = nodeId => {
     const state = applied.get(nodeId)
     if (!state) return
+    if (state.clone) {
+      state.element.remove()
+      applied.delete(nodeId)
+      return
+    }
     for (const property of state.originals.keys()) restoreProperty(state, property)
     applied.delete(nodeId)
   }
   const clear = () => {
-    for (const state of applied.values()) for (const property of state.originals.keys()) restoreProperty(state, property)
-    applied.clear()
+    for (const nodeId of [...applied.keys()]) restore(nodeId)
   }
   const stateFor = item => {
     const existing = applied.get(item.nodeId)
-    if (existing) return existing
-    const element = container.querySelector(selectorFor(item.nodeId))
+    if (existing && existing.clone === Boolean(item.duplicate)) return existing
+    if (existing) restore(item.nodeId)
+    const source = container.querySelector(selectorFor(item.nodeId))
+    if (!(source instanceof ownerDocument.defaultView.HTMLElement)) return null
+    const element = item.duplicate ? source.cloneNode(true) : source
     if (!(element instanceof ownerDocument.defaultView.HTMLElement)) return null
+    if (item.duplicate) {
+      stripDomIds(element)
+      element.setAttribute('data-preview-transient-clone', '')
+      element.setAttribute('aria-hidden', 'true')
+      element.inert = true
+      element.style.setProperty('pointer-events', 'none', 'important')
+      element.style.setProperty('z-index', '1000000')
+      source.parentElement?.insertBefore(element, source.nextSibling)
+    }
     const computed = ownerDocument.defaultView.getComputedStyle(element).translate
     const pixels = /^(-?\d+(?:\.\d+)?)px(?: (-?\d+(?:\.\d+)?)px)?$/.exec(computed)
     const state = {
@@ -45,6 +65,7 @@ export function createTransientMoveLayer(ownerDocument, container) {
       seenFrame: frame,
       baseX: pixels ? Number(pixels[1]) : 0,
       baseY: pixels?.[2] ? Number(pixels[2]) : 0,
+      clone: Boolean(item.duplicate),
     }
     applied.set(item.nodeId, state)
     return state
@@ -237,7 +258,7 @@ export function createFlowDragLayer(ownerDocument, container) {
     const state = applied.get(key)
     if (state) { restoreState(state); applied.delete(key) }
     const visual = visuals.get(key)
-    if (visual) { visual.ghost?.remove(); visual.marker?.remove(); visuals.delete(key) }
+    if (visual) { visual.ghost?.remove(); visual.clone?.remove(); visual.marker?.remove(); visuals.delete(key) }
   }
   const clear = () => {
     for (const key of new Set([...applied.keys(), ...visuals.keys()])) retire(key)
@@ -247,8 +268,8 @@ export function createFlowDragLayer(ownerDocument, container) {
     const component = editorDocument?.nodes?.[id]
     const primitive = editorDocument?.canvas?.elements?.find(candidate => candidate.id === id)
     const selector = component
-      ? `[data-preview-instance="${id}"][data-preview-component="${component.componentId}"]`
-      : primitive ? `[data-preview-canvas="${id}"][data-preview-kind="${primitive.kind}"]` : null
+      ? `[data-preview-instance="${id}"][data-preview-component="${component.componentId}"]:not([data-preview-flow-clone])`
+      : primitive ? `[data-preview-canvas="${id}"][data-preview-kind="${primitive.kind}"]:not([data-preview-flow-clone])` : null
     if (!selector) return null
     const matches = [...container.querySelectorAll(selector)]
     if (matches.length !== 1 || !(matches[0] instanceof view.HTMLElement)) return null
@@ -274,6 +295,7 @@ export function createFlowDragLayer(ownerDocument, container) {
   const declarationsFor = (presentation, roots) => {
     const declarations = new Map()
     const dom = presentation.original.dom
+    if (presentation.supportClone && presentation.movingVisual.kind === 'document-node') return declarations
     if (presentation.original.mode === 'flow') {
       declarations.set('opacity', { value: '0.6', priority: 'important' })
       return declarations
@@ -323,7 +345,7 @@ export function createFlowDragLayer(ownerDocument, container) {
     }
   }
   const syncVisual = (key, presentation) => {
-    const visual = visuals.get(key) ?? { ghost: null, marker: null }
+    const visual = visuals.get(key) ?? { ghost: null, clone: null, marker: null }
     if (presentation.movingVisual.kind === 'fill-ghost' && !visual.ghost) {
       const ghost = ownerDocument.createElement('div')
       ghost.setAttribute('aria-hidden', 'true')
@@ -346,15 +368,34 @@ export function createFlowDragLayer(ownerDocument, container) {
     visuals.set(key, visual)
     return visual
   }
+  const syncClone = (visual, presentation, roots) => {
+    if (presentation.supportClone && presentation.movingVisual.kind === 'document-node' && !visual.clone) {
+      const clone = roots.element.cloneNode(true)
+      if (clone instanceof view.HTMLElement) {
+        stripDomIds(clone)
+        clone.setAttribute('data-preview-flow-clone', '')
+        clone.setAttribute('aria-hidden', 'true')
+        clone.tabIndex = -1
+        clone.inert = true
+        Object.assign(clone.style, { position: 'absolute', left: '0px', top: '0px', margin: '0px', pointerEvents: 'none', transformOrigin: '0 0', zIndex: '1000000' })
+        container.append(clone)
+        visual.clone = clone
+      }
+    } else if ((!presentation.supportClone || presentation.movingVisual.kind !== 'document-node') && visual.clone) {
+      visual.clone.remove()
+      visual.clone = null
+    }
+  }
   const updateVisual = (visual, presentation) => {
-    if (!visual.ghost) return
+    const element = visual.ghost ?? visual.clone
+    if (!element) return
     const geometry = presentation.movingVisual.geometry
     const [topLeft, topRight, , bottomLeft] = geometry.quad
     const { width, height } = geometry.semanticSize
     const matrix = [(topRight.x - topLeft.x) / width, (topRight.y - topLeft.y) / width, (bottomLeft.x - topLeft.x) / height, (bottomLeft.y - topLeft.y) / height, topLeft.x, topLeft.y]
-    visual.ghost.style.width = `${width}px`
-    visual.ghost.style.height = `${height}px`
-    visual.ghost.style.transform = matrixText(matrix)
+    element.style.width = `${width}px`
+    element.style.height = `${height}px`
+    element.style.transform = matrixText(matrix)
   }
   const apply = () => {
     if (applying) return
@@ -369,7 +410,9 @@ export function createFlowDragLayer(ownerDocument, container) {
         const declarations = declarationsFor(presentation, roots)
         if (!declarations) { retire(key); continue }
         write(stateFor(key, roots), declarations)
-        updateVisual(syncVisual(key, presentation), presentation)
+        const visual = syncVisual(key, presentation)
+        syncClone(visual, presentation, roots)
+        updateVisual(visual, presentation)
       }
       for (const key of new Set([...applied.keys(), ...visuals.keys()])) if (!desired.has(key)) retire(key)
     } finally { applying = false }

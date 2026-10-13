@@ -1,0 +1,56 @@
+{
+  "adoptionSha": "81a71dad990c86eebeec2b1afce59b947f93628e",
+  "capabilities": [
+    {
+      "id": "editor.canvas.transient-move",
+      "paths": [
+        "packages/editor/src/features/editor/canvas-*.ts",
+        "packages/editor/src/features/editor/CanvasStage.tsx",
+        "packages/preview-runtime/src/**",
+        "tests/pr-evidence/scenarios/transient-move.spec.ts"
+      ],
+      "evidence": "visual"
+    },
+    {
+      "id": "evidence.infrastructure",
+      "paths": [
+        "packages/editor-automation/**",
+        "packages/pr-evidence/**",
+        "apps/evidence-service/**",
+        "tests/pr-evidence/**",
+        "scripts/pr-evidence*.mjs",
+        ".github/workflows/pr-evidence*.yml",
+        ".agents/skills/pr-evidence/**",
+        "tools/pr-evidence/**",
+        "package.json",
+        "pnpm-lock.yaml",
+        ".gitignore",
+        "ACCEPTANCE-TESTS.md",
+        "apps/web/src/client.tsx",
+        "apps/web/preview/csp.ts",
+        "apps/web/preview/editor-origin.test.ts",
+        "apps/web/vite.preview.config.ts",
+        "packages/editor/src/design-system/canvas-atoms.tsx",
+        "packages/editor/src/features/editor/DocumentLayers.tsx"
+      ],
+      "evidence": "visual"
+    },
+    {
+      "id": "documentation.research",
+      "paths": ["docs/research/**"],
+      "evidence": "nonvisual",
+      "reason": "Research documents do not change runtime behavior."
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "editor.transient-move",
+      "title": "Selection follows a transient move",
+      "capabilities": ["editor.canvas.transient-move", "evidence.infrastructure"],
+      "adapters": ["browser"],
+      "assertions": ["hud.follows", "model.commits-on-release", "preview.moves-while-held", "viewport.stable"],
+      "screenshots": ["before", "held", "after"],
+      "video": true
+    }
+  ]
+}

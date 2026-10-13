@@ -66,6 +66,16 @@ describe('preload capability gate', () => {
     }
   })
 
+  it('adds the unauthenticated workspace grant only when main explicitly requests it', () => {
+    const target = resolveEditorTarget(undefined, false)
+    expect(localCapabilityArguments(target, true)).toEqual([
+      '--design-editor-local-capabilities',
+      '--design-editor-editor-url=design-editor://app/',
+      '--design-editor-unauthenticated-workspace',
+    ])
+    expect(localCapabilityArguments(target, false)).not.toContain('--design-editor-unauthenticated-workspace')
+  })
+
   it('accepts only the development document explicitly granted by main', () => {
     const args = ['--design-editor-local-capabilities', '--design-editor-editor-url=http://127.0.0.1:4317/']
     expect(localCapabilityArguments(resolveEditorTarget(undefined, true))).toEqual(args)

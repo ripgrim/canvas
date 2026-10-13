@@ -128,21 +128,40 @@ describe('Paper flow terminal semantics', () => {
     ] })
   })
 
-  it('allocates an Alt support clone only after preflight and keeps the original selected', () => {
+  it('commits a flow child dragged onto the page root as an absolute node', () => {
+    const authority = fixture()
+    const started = begin(authority)
+    const state = samplePaperFlowDrag(started, {
+      world: { x: 600, y: 200 }, viewport: { x: 600, y: 200 }, timestamp: 100,
+      modifiers: { altKey: false, ctrlKey: true, metaKey: false }, platform: 'windows',
+      authority: { ...authority.start, gestureGeneration: 4, owned: true },
+      resolveTarget: edge => resolveFlowDragTarget({ authority, state: edge, hoveredNodeId: 'root' }),
+    })!
+    expect(state.target).toMatchObject({ parentId: 'root', rawIndex: 2, semanticIndex: 2, guideWorld: null })
+    const intent = derivePaperFlowTerminalIntent({ authority, state })!
+    expect(intent).not.toBeNull()
+    const plan = planGestureCommand(authority, [intent], vi.fn())!
+    expect(plan).not.toBeNull()
+    const applied = applyFileCommand(authority.file, plan.command, [])
+    expect(applied.relationships.a!.parentId).toBe('root')
+    expect(applied.nodes.a).toMatchObject({ layout: { item: { position: { mode: 'freeform' } } }, styles: { left: 590, top: 190, width: 60, height: 20 } })
+  })
+
+  it('allocates an Alt duplicate only after preflight, keeps the source fixed, and selects the moved clone', () => {
     const authority = fixture()
     const state = sample(authority, begin(authority), { x: 420, y: 20 }, true, false)
     const intent = derivePaperFlowTerminalIntent({ authority, state })!
     const allocate = vi.fn(() => 'copy-a')
     const plan = planGestureCommand(authority, [intent], allocate)!
     expect(allocate).toHaveBeenCalledTimes(1)
-    expect(plan.selection).toStrictEqual(['a'])
+    expect(plan.selection).toStrictEqual(['copy-a'])
     expect(plan.duplicateIds).toStrictEqual({ a: { a: 'copy-a' } })
     const result = applyFileCommand(authority.file, plan.command, [])
-    expect(result.relationships['copy-a']).toStrictEqual({ parentId: 'source', orderKey: 'F' })
-    expect(result.relationships.a).toStrictEqual({ parentId: 'target', orderKey: 'Y' })
+    expect(result.relationships['copy-a']!.parentId).toBe('target')
+    expect(result.relationships.a).toStrictEqual({ parentId: 'source', orderKey: 'V' })
   })
 
-  it('retains an absolute clone at its exact entry geometry while the original returns to flow', () => {
+  it('moves the duplicate to its terminal flow target even when clone mode began from an absolute sample', () => {
     const authority = fixture()
     const absolute = sample(authority, begin(authority), { x: 30, y: 20 }, false, true)
     const entry = paperFlowAbsoluteDropGeometry({ file: authority.file, scene: authority.scene, geometry: authority.geometry, fence: authority.start, childId: 'a', parentId: 'source', pointerDownWorld: { x: 20, y: 20 }, terminalWorld: { x: 35, y: 20 } })!
@@ -150,13 +169,8 @@ describe('Paper flow terminal semantics', () => {
     const returned = sample(authority, cloned, { x: 420, y: 20 }, true, false)
     const plan = planGestureCommand(authority, [derivePaperFlowTerminalIntent({ authority, state: returned })!], () => 'copy-a')!
     const applied = applyFileCommand(authority.file, plan.command, [])
-    const copy = applied.nodes['copy-a']!
-    expect(copy.type).toBe('rectangle')
-    if (copy.type === 'rectangle') {
-      expect(copy.layout?.item.position).toStrictEqual({ mode: 'absolute', left: { kind: 'px', value: 25 }, top: { kind: 'px', value: 10 } })
-      expect(copy.styles).toMatchObject({ width: 60, height: 20 })
-    }
-    expect(applied.relationships.a!.parentId).toBe('target')
+    expect(applied.relationships['copy-a']!.parentId).toBe('target')
+    expect(applied.relationships.a!.parentId).toBe('source')
   })
 
   it('rejects stale latest state, target fences, no-op flow, and invalid terminal geometry before allocation', () => {
@@ -229,7 +243,7 @@ describe('Paper flow terminal semantics', () => {
     expect(result.committed).toBe(true)
     await result.persistence
     expect(allocated).toHaveBeenCalledTimes(1)
-    expect(store.getSnapshot().selection).toStrictEqual(['a'])
+    expect(store.getSnapshot().selection).toStrictEqual(['copy-a'])
     expect(store.getHistory().past).toHaveLength(1)
     expect(writes).toHaveLength(1)
     expect(writes[0]).toMatchObject({ expectedRevision: 7, persistenceIntent: { kind: 'commands', commands: [{ type: 'batch' }] } })

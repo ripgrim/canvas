@@ -156,3 +156,87 @@ describe('UI-MOBILE-004-C5-HUD-RETIRE mounted production quick-actions boundary'
 
   })
 })
+
+describe('PAPER-TEXT-004 mounted canvas text editor boundary', () => {
+  it('mounts the plaintext editor from the measured text projection during a real edit session', async () => {
+    window.matchMedia = (() => ({
+      matches: false,
+      media: '(max-width: 760px)',
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => true,
+    })) as typeof window.matchMedia
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+
+    const [{ SelectionHud }, { documentStore }, { sceneGeometry }, { canvasHudProjectionService }] = await Promise.all([
+      import('./SelectionHud'),
+      import('./document-store'),
+      import('./scene-geometry'),
+      import('./canvas-hud-projection-service'),
+    ])
+    const textFile: FileDocument = {
+      schemaVersion: 9,
+      fileId: 'hud-client-file',
+      revision,
+      pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      nodes: {
+        root: { id: 'root', type: 'root' },
+        text: {
+          id: 'text', type: 'text', name: 'Heading', text: 'Editable',
+          styles: { left: -70, top: 10, width: 100, height: 24 },
+          textStyle: { fontFamily: 'Inter, sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'px', value: 24 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false },
+          textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+          layout: { item: { position: { mode: 'freeform' } } },
+        },
+      },
+      relationships: { text: { parentId: 'root', orderKey: 'V' } },
+      theme: { tokens: {} },
+    }
+    documentStore.clear()
+    sceneGeometry.clear()
+    canvasHudProjectionService.stop()
+    documentStore.load(textFile, [], { replace: true, pageId: 'page' })
+    documentStore.setViewport({ x: 0, y: 0, zoom: 2 })
+    documentStore.setViewportSize({ width: 800, height: 600 })
+    sceneGeometry.update({
+      text: {
+        canvasKind: 'text', documentRevision: revision, layoutGeneration,
+        rect: { x: -70, y: 10, width: 100, height: 24 }, worldAabb: { x: -70, y: 10, width: 100, height: 24 },
+        offset: { x: -70, y: 10, width: 100, height: 24, origin: { x: 50, y: 12 } },
+        offsetParentNodeId: null, directChild: true, transform: [1, 0, 0, 1, 0, 0], offsetParentToRoot: [1, 0, 0, 1, 0, 0],
+        text: { resolvedLineHeight: 24 },
+      },
+    }, { documentRevision: revision, layoutGeneration, measurementRevision })
+    canvasHudProjectionService.start()
+    expect(documentStore.commands.text.begin('text')).not.toBeNull()
+
+    const host = document.createElement('div')
+    document.body.append(host)
+    mountedRoot = createRoot(host)
+    await act(async () => { mountedRoot?.render(createElement(SelectionHud)) })
+
+    const editor = host.querySelector<HTMLElement>('.canvas-text-editor')
+    expect(editor).not.toBeNull()
+    expect(editor?.getAttribute('contenteditable')).toBe('plaintext-only')
+    expect(editor?.getAttribute('aria-label')).toBe('Edit text in Heading')
+    expect(editor?.textContent).toBe('Editable')
+    expect(editor?.style.transform).toBe('rotate(0deg) scale(2)')
+
+    await act(async () => {
+      editor!.innerText = 'First update'
+      editor!.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'e' }))
+    })
+    expect(host.querySelector('.canvas-text-editor')).toBe(editor)
+    expect(documentStore.getSnapshot().file?.nodes.text).toMatchObject({ text: 'First update' })
+
+    await act(async () => {
+      editor!.innerText = 'Second update'
+      editor!.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'e' }))
+    })
+    expect(host.querySelector('.canvas-text-editor')).toBe(editor)
+    expect(documentStore.getSnapshot().file?.nodes.text).toMatchObject({ text: 'Second update' })
+  })
+})

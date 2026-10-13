@@ -186,7 +186,7 @@ describe('Phase 4 gesture command planner prerequisite', () => {
     expect(next.nodes).not.toHaveProperty('copy-b')
   })
 
-  it('clones the complete subtree at source, moves the original from before the target, and closes undo and redo', () => {
+  it('keeps the complete source subtree fixed, moves its clone to the target, and closes undo and redo', () => {
     const source = compositeSnapshot()
     const allocate = vi.fn((id: string) => `copy-${id}`)
     const plan = planGestureCommand(source, [cloneMove(
@@ -197,18 +197,17 @@ describe('Phase 4 gesture command planner prerequisite', () => {
     expect(plan).toStrictEqual({
       command: { type: 'batch', commands: [
         { type: 'node.duplicate', nodeId: 'a', ids: { a: 'copy-a', 'a-leaf': 'copy-a-leaf' } },
-        { type: 'node.reorder', nodeId: 'copy-a', index: 0 },
-        { type: 'node.reorder', nodeId: 'a', index: 2 },
+        { type: 'node.reorder', nodeId: 'copy-a', index: 2 },
       ] },
-      selection: ['a'],
+      selection: ['copy-a'],
       duplicateIds: { a: { a: 'copy-a', 'a-leaf': 'copy-a-leaf' } },
     })
     const next = assertClosedHistory(source, plan!.command)
-    expect(childrenOf(next, 'flex')).toEqual(['copy-a', 'b', 'a'])
+    expect(childrenOf(next, 'flex')).toEqual(['a', 'b', 'copy-a'])
     expect(next.relationships['copy-a-leaf']).toEqual({ parentId: 'copy-a', orderKey: 'V' })
   })
 
-  it('moves the original from after the target while leaving the clone at the captured source index', () => {
+  it('moves the clone before the source while the source identity stays fixed', () => {
     const source = snapshot()
     const intent: GestureFinalIntent = {
       kind: 'clone-source-and-move-original',
@@ -218,14 +217,13 @@ describe('Phase 4 gesture command planner prerequisite', () => {
       original: { mode: 'flow', placement: { parentId: 'flex', index: 0 } },
     }
     const plan = planGestureCommand(source, [intent], id => `copy-${id}`)
-    expect(plan!.selection).toEqual(['b'])
+    expect(plan!.selection).toEqual(['copy-b'])
     expect(plan!.command).toStrictEqual({ type: 'batch', commands: [
       { type: 'node.duplicate', nodeId: 'b', ids: { b: 'copy-b' } },
-      { type: 'node.reorder', nodeId: 'copy-b', index: 1 },
-      { type: 'node.reorder', nodeId: 'b', index: 0 },
+      { type: 'node.reorder', nodeId: 'copy-b', index: 0 },
     ] })
     const next = assertClosedHistory(source, plan!.command)
-    expect(childrenOf(next, 'flex')).toEqual(['b', 'a', 'copy-b'])
+    expect(childrenOf(next, 'flex')).toEqual(['copy-b', 'a', 'b'])
   })
 
   it('keeps a source-zone raw gap as a valid composite no-op instead of discarding the duplication', () => {
@@ -237,24 +235,23 @@ describe('Phase 4 gesture command planner prerequisite', () => {
     expect(plan.command).toStrictEqual({ type: 'batch', commands: [
       { type: 'node.duplicate', nodeId: 'a', ids: { a: 'copy-a', 'a-leaf': 'copy-a-leaf' } },
       { type: 'node.reorder', nodeId: 'copy-a', index: 0 },
-      { type: 'node.reorder', nodeId: 'a', index: 1 },
     ] })
     expect(childrenOf(assertClosedHistory(source, plan.command), 'flex')).toEqual(['copy-a', 'a', 'b'])
   })
 
   it.each([
-    ['flow clone and flow original', { mode: 'flow' as const }, { mode: 'flow' as const, placement: { parentId: 'flex', index: 2 } }, ['copy-a', 'b', 'a']],
-    ['flow clone and absolute original', { mode: 'flow' as const }, { mode: 'absolute' as const, parentId: 'flex', rect: rect(37, 51, 100, 40) }, ['copy-a', 'a', 'b']],
-    ['absolute clone and flow original', { mode: 'absolute' as const, rect: rect(15, 16, 100, 40) }, { mode: 'flow' as const, placement: { parentId: 'flex', index: 2 } }, ['copy-a', 'b', 'a']],
-    ['absolute clone and absolute original', { mode: 'absolute' as const, rect: rect(15, 16, 100, 40) }, { mode: 'absolute' as const, parentId: 'flex', rect: rect(37, 51, 100, 40) }, ['copy-a', 'a', 'b']],
+    ['flow clone and flow original', { mode: 'flow' as const }, { mode: 'flow' as const, placement: { parentId: 'flex', index: 2 } }, ['a', 'b', 'copy-a']],
+    ['flow clone and absolute original', { mode: 'flow' as const }, { mode: 'absolute' as const, parentId: 'flex', rect: rect(37, 51, 100, 40) }, ['a', 'copy-a', 'b']],
+    ['absolute clone and flow original', { mode: 'absolute' as const, rect: rect(15, 16, 100, 40) }, { mode: 'flow' as const, placement: { parentId: 'flex', index: 2 } }, ['a', 'b', 'copy-a']],
+    ['absolute clone and absolute original', { mode: 'absolute' as const, rect: rect(15, 16, 100, 40) }, { mode: 'absolute' as const, parentId: 'flex', rect: rect(37, 51, 100, 40) }, ['a', 'copy-a', 'b']],
   ])('applies and history-closes %s', (_name, clone, original, expectedOrder) => {
     const source = compositeSnapshot()
     const plan = planGestureCommand(source, [cloneMove(clone, original)], id => `copy-${id}`)!
-    expect(plan.selection).toEqual(['a'])
+    expect(plan.selection).toEqual(['copy-a'])
     const next = assertClosedHistory(source, plan.command)
     expect(childrenOf(next, 'flex')).toEqual(expectedOrder)
-    expect((next.nodes['copy-a'] as { layout?: { item: { position: { mode: string } } } }).layout!.item.position.mode).toBe(clone.mode)
-    expect((next.nodes.a as { layout?: { item: { position: { mode: string } } } }).layout!.item.position.mode).toBe(original.mode)
+    expect((next.nodes['copy-a'] as { layout?: { item: { position: { mode: string } } } }).layout!.item.position.mode).toBe(original.mode)
+    expect((next.nodes.a as { layout?: { item: { position: { mode: string } } } }).layout!.item.position.mode).toBe('flow')
   })
 
   it('preserves a Component slot for both identities', () => {
@@ -266,24 +263,24 @@ describe('Phase 4 gesture command planner prerequisite', () => {
       original: { mode: 'absolute', parentId: 'component-parent', rect: rect(44, 19, 90, 36) },
     }
     const plan = planGestureCommand(source, [intent], id => `copy-${id}`)!
-    expect(plan.selection).toEqual(['component-child'])
+    expect(plan.selection).toEqual(['copy-component-child'])
     const next = assertClosedHistory(source, plan.command)
     expect(next.relationships['copy-component-child']).toMatchObject({ parentId: 'component-parent', slot: 'children' })
     expect(next.relationships['component-child']).toMatchObject({ parentId: 'component-parent', slot: 'children' })
   })
 
-  it('detects the identity-reversal mutation that selects and moves the clone', () => {
+  it('detects the old identity-reversal behavior that moved the source instead of the clone', () => {
     const source = compositeSnapshot()
     const correct = planGestureCommand(source, [cloneMove({ mode: 'flow' }, { mode: 'flow', placement: { parentId: 'flex', index: 2 } })], id => `copy-${id}`)!
     const mutated: FileCommand = { type: 'batch', commands: [
       { type: 'node.duplicate', nodeId: 'a', ids: { a: 'copy-a', 'a-leaf': 'copy-a-leaf' } },
-      { type: 'node.reorder', nodeId: 'copy-a', index: 2 },
+      { type: 'node.reorder', nodeId: 'a', index: 2 },
     ] }
     const wrong = applyFileCommand(source.file, mutated, atoms)
     const right = applyFileCommand(source.file, correct.command, atoms)
-    expect(correct.selection).toEqual(['a'])
-    expect(['copy-a']).not.toEqual(correct.selection)
-    expect(childrenOf(wrong, 'flex')).toEqual(['a', 'b', 'copy-a'])
+    expect(correct.selection).toEqual(['copy-a'])
+    expect(['a']).not.toEqual(correct.selection)
+    expect(childrenOf(wrong, 'flex')).toEqual(['copy-a', 'b', 'a'])
     expect(childrenOf(wrong, 'flex')).not.toEqual(childrenOf(right, 'flex'))
   })
 

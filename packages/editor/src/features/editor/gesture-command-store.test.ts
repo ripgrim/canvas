@@ -99,24 +99,21 @@ const expectedBatch: FileCommand = {
   type: 'batch',
   commands: [
     { type: 'node.duplicate', nodeId: 'a', ids: { a: 'copy-a' } },
-    { type: 'node.reorder', nodeId: 'copy-a', index: 0 },
-    { type: 'node.reorder', nodeId: 'a', index: 2 },
+    { type: 'node.reorder', nodeId: 'copy-a', index: 2 },
   ],
 }
 const expectedHistoryRedo: FileCommand = {
   type: 'batch',
   commands: [
     { type: 'node.duplicate', nodeId: 'a', ids: { a: 'copy-a' } },
-    { type: 'node.restoreRelationship', nodeId: 'copy-a', expected: { parentId: 'flex', orderKey: 'VV' }, source: { parentId: 'flex', orderKey: 'F' } },
-    { type: 'node.restoreRelationship', nodeId: 'a', expected: { parentId: 'flex', orderKey: 'V' }, source: { parentId: 'flex', orderKey: 'X' } },
+    { type: 'node.restoreRelationship', nodeId: 'copy-a', expected: { parentId: 'flex', orderKey: 'VV' }, source: { parentId: 'flex', orderKey: 'X' } },
   ],
 }
 const expectedPostFile = (): FileDocument => {
   const file = fixture()
   file.revision = 8
   file.nodes['copy-a'] = { id: 'copy-a', type: 'rectangle', name: 'A', styles: { left: 0, top: 0, width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } }
-  file.relationships['copy-a'] = { parentId: 'flex', orderKey: 'F' }
-  file.relationships.a = { parentId: 'flex', orderKey: 'X' }
+  file.relationships['copy-a'] = { parentId: 'flex', orderKey: 'X' }
   return file
 }
 const stable = (file: FileDocument | null) => {
@@ -234,7 +231,7 @@ describe('Phase 4 gesture document-store transaction seam', () => {
     await result.persistence
     expect(allocated).toEqual(['copy-a'])
     expect(writes).toStrictEqual([{ expectedRevision: 7, intent: { kind: 'commands', commands: [expectedBatch] } }])
-    expect(store.getSnapshot().selection).toEqual(['a'])
+    expect(store.getSnapshot().selection).toEqual(['copy-a'])
     expect(store.getSnapshot().canUndo).toBe(true)
     expect(store.getHistory().past).toHaveLength(1)
     expect(store.getHistory().past[0]!.redo).toStrictEqual(expectedHistoryRedo)
@@ -248,7 +245,7 @@ describe('Phase 4 gesture document-store transaction seam', () => {
     expect(store.redo()).toBe(true)
     expect(stable(store.getSnapshot().file)).toStrictEqual(stable(expectedPostFile()))
     expect(store.getSnapshot().file!.revision).toBe(10)
-    expect(store.getSnapshot().selection).toEqual(['a'])
+    expect(store.getSnapshot().selection).toEqual(['copy-a'])
   })
 
   it('passes the already planned command to one synchronous binder and persists that exact intent once', async () => {

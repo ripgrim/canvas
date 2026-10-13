@@ -37,6 +37,7 @@ type Store = ReturnType<typeof createDocumentStore>
 const load = (file: FileDocument) => { const store = createDocumentStore(() => 'unused'); store.load(file, atoms); return store }
 const file = (store: Store) => store.getSnapshot().file!
 const layoutOf = (store: Store, id: string) => (file(store).nodes[id] as ComponentNode).layout
+const declarations = (store: Store, id: string) => layoutDeclarations(layoutOf(store, id), layoutOf(store, 'card')!.container!)
 const gridItem = (store: Store, id: string) => layoutOf(store, id)?.item.grid
 const tracks = (store: Store) => layoutOf(store, 'card')!.container!.grid!
 const order = (store: Store) => childrenOf(file(store), 'card')
@@ -227,8 +228,8 @@ describe('LAY-GRID-006 (model): explicit collisions persist and auto placement a
     expect(revision(store)).toBe(1)
     expect(gridItem(store, 'a')).toEqual({ columnStart: 1, rowStart: 1 })
     expect(gridItem(store, 'b')).toEqual({ columnStart: 1, rowStart: 1 })
-    expect(layoutDeclarations(layoutOf(store, 'a'), 'grid')).toEqual({ 'grid-column-start': '1', 'grid-row-start': '1' })
-    expect(layoutDeclarations(layoutOf(store, 'b'), 'grid')).toEqual({ 'grid-column-start': '1', 'grid-row-start': '1' })
+    expect(declarations(store, 'a')).toEqual({ 'grid-column-start': '1', 'grid-row-start': '1' })
+    expect(declarations(store, 'b')).toEqual({ 'grid-column-start': '1', 'grid-row-start': '1' })
     expect(store.commands.layout.grid.occupancy('card')).toEqual({ a: area(1, 1), b: area(1, 1), c: area(2, 1) })
     expect(store.commands.layout.grid.isManual('card')).toBe(true)
   })
@@ -240,19 +241,19 @@ describe('setPlacement and moveToCell', () => {
     const grid = store.commands.layout.grid
     expect(grid.setPlacement({ columnStart: 2 }, ['a'])).toBe(true)
     expect(gridItem(store, 'a')).toEqual({ columnStart: 2 })
-    expect(layoutDeclarations(layoutOf(store, 'a'), 'grid')).toEqual({ 'grid-column-start': '2' })
+    expect(declarations(store, 'a')).toEqual({ 'grid-column-start': '2' })
     expect(grid.setPlacement({ columnSpan: 3 }, ['a'])).toBe(true)
     expect(gridItem(store, 'a')).toEqual({ columnStart: 2, columnSpan: 3 })
-    expect(layoutDeclarations(layoutOf(store, 'a'), 'grid')).toEqual({ 'grid-column-start': '2', 'grid-column-end': 'span 3' })
+    expect(declarations(store, 'a')).toEqual({ 'grid-column-start': '2', 'grid-column-end': 'span 3' })
     expect(grid.setPlacement({ columnStart: null }, ['a'])).toBe(true)
     expect(gridItem(store, 'a')).toEqual({ columnSpan: 3 })
-    expect(layoutDeclarations(layoutOf(store, 'a'), 'grid')).toEqual({ 'grid-column-start': 'span 3' })
+    expect(declarations(store, 'a')).toEqual({ 'grid-column-start': 'span 3' })
     expect(grid.setPlacement({ columnSpan: null, rowSpan: 2, alignSelf: 'center' }, ['a'])).toBe(true)
     expect(gridItem(store, 'a')).toEqual({ rowSpan: 2, alignSelf: 'center' })
-    expect(layoutDeclarations(layoutOf(store, 'a'), 'grid')).toEqual({ 'grid-row-start': 'span 2', 'align-self': 'center' })
+    expect(declarations(store, 'a')).toEqual({ 'grid-row-start': 'span 2', 'align-self': 'center' })
     expect(grid.setPlacement({ rowSpan: null, alignSelf: null }, ['a'])).toBe(true)
     expect(layoutOf(store, 'a')).toEqual({ item: { position: flow } })
-    expect(layoutDeclarations(layoutOf(store, 'a'), 'grid')).toBeUndefined()
+    expect(declarations(store, 'a')).toBeUndefined()
     expect(revision(store)).toBe(5)
     // Out of range, fractional, unknown alignment, a node outside any Grid, and a no-op: nothing is written.
     for (const bad of [{ columnStart: 0 }, { rowStart: 1001 }, { columnSpan: 1.5 }, { rowSpan: -1 }, { justifySelf: 'baseline' as never }]) expect(grid.setPlacement(bad, ['a', 'b'])).toBe(false)

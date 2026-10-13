@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "comp-canvas-thumbnail-jobs-preview",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["* * * * *"] },
+  "containers": [
+    {
+      "name": "comp-canvas-thumbnail-jobs-preview",
+      "class_name": "ThumbnailJobContainer",
+      "image": "Dockerfile",
+      "image_build_context": "../..",
+      "instance_type": "standard-1",
+      "max_instances": 1,
+      "rollout_step_percentage": 100,
+      "observability": { "logs": { "enabled": true } }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "THUMBNAIL_CONTAINERS", "class_name": "ThumbnailJobContainer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ThumbnailJobContainer"] }],
+  "vars": {
+    "API_ORIGIN": "https://api-staging.canvas.ripgrim.com",
+    "ASSETS_ORIGIN": "https://assets-staging.canvas.ripgrim.com",
+    "THUMBNAIL_RENDERER_ORIGIN": "https://thumbnails-staging.canvas.ripgrim.com"
+  }
+}

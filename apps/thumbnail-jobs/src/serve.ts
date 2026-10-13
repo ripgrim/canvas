@@ -21,6 +21,8 @@ const queue = createThumbnailQueueProcessor({
 })
 const port = Number(process.env.PORT ?? 4324)
 if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) throw new Error('PORT is invalid.')
+const host = process.env.HOST?.trim() || '127.0.0.1'
+if (host !== '127.0.0.1' && host !== '0.0.0.0') throw new Error('HOST is invalid.')
 
 const server = createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/healthz') return send(response, 200, { ok: true })
@@ -37,8 +39,8 @@ const server = createServer(async (request, response) => {
 })
 
 let stopping = false
-server.listen(port, '127.0.0.1', () => {
-  process.stdout.write(`Thumbnail jobs: http://127.0.0.1:${port}/\n`)
+server.listen(port, host, () => {
+  process.stdout.write(`Thumbnail jobs: http://${host}:${port}/\n`)
   void processQueue()
 })
 const stop = () => {
@@ -54,7 +56,7 @@ async function processQueue(): Promise<void> {
       const result = await queue.runOnce()
       await wait(result === 'idle' ? 1_000 : 0)
     } catch (error) {
-      process.stderr.write(`Thumbnail job failed: ${error instanceof Error ? error.message : String(error)}\n`)
+      process.stderr.write(`Thumbnail queue attempt failed: ${error instanceof Error ? error.message : String(error)}\n`)
       await wait(2_000)
     }
   }

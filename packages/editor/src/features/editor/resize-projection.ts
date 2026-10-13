@@ -74,12 +74,11 @@ function childAuthority(snapshot: GestureAuthoritySnapshot, nodeId: string, pare
   return resizeDescendantPresentationAuthority(snapshot, nodeId, parentId, expectedGroupToWorld)
 }
 
-function nodePositionWritable(node: FileNode): boolean {
+function nodeResizeWritable(node: FileNode, context: 'selected' | 'inherited'): boolean {
   if (node.type === 'root') return false
   const position = node.layout?.item.position
   const mode = nodePositionMode(node)
-  // TODO: Project selected flow nodes after browser reflow can prove their terminal parent-local position.
-  if (mode === 'flow') return false
+  if (mode === 'flow') return context === 'selected'
   if (mode === 'freeform') return node.type !== 'component'
   return mode === 'absolute'
     && position?.mode === 'absolute'
@@ -185,7 +184,7 @@ function verifiedItem(
   context: 'selected' | 'inherited',
 ): ResizePresentationItem | null {
   const node = file.nodes[authority.nodeId]
-  if (!node || node.type === 'root' || (context === 'selected' && nodeIsLocked(file, node.id)) || !finiteRect(rect) || !nodePositionWritable(node)) return null
+  if (!node || node.type === 'root' || (context === 'selected' && nodeIsLocked(file, node.id)) || !finiteRect(rect) || !nodeResizeWritable(node, context)) return null
   const oldNodeToWorld = nodeBorderToWorld(authority.groupToWorld, authority.startRect, authority.rotationDegrees)
   const newNodeToWorld = nodeBorderToWorld(groupToWorld, rect, authority.rotationDegrees)
   const projected = projectedAuthority(authority, groupToWorld)
@@ -265,7 +264,7 @@ export function projectResizePresentation(
   const selected = resizeGeometryAuthority(snapshot, authority.nodeId)
   if (!selected || !exactAuthority(selected, authority)) return null
   const selectedNode = snapshot.file.nodes[selected.nodeId]
-  if (!selectedNode || selectedNode.type === 'root' || !nodePositionWritable(selectedNode)) return null
+  if (!selectedNode || selectedNode.type === 'root' || !nodeResizeWritable(selectedNode, 'selected')) return null
 
   const selectedItem = verifiedItem(snapshot.file, selected, sample.rect, selected.groupToWorld, sample.contentLocked, 'selected')
   if (!selectedItem) return null
@@ -289,7 +288,7 @@ export function projectResizePresentation(
         const current = childAuthority(snapshot, childId, parentId, oldChildGroup)
         if (!current || !sameMatrix(current.groupToWorld, oldChildGroup)) return false
         const rect = ordinaryChildRect(parentStart, parentNext, border, current.startRect)
-        if (!rect || !nodePositionWritable(child)) return false
+        if (!rect || !nodeResizeWritable(child, 'inherited')) return false
         const item = verifiedItem(snapshot.file, current, rect, newChildGroup, false, 'inherited')
         if (!item) return false
         items.push(item)
@@ -316,7 +315,7 @@ export function projectResizePresentation(
         const current = childAuthority(snapshot, childId, selected.nodeId, oldGroup)
         if (!current || !sameMatrix(current.groupToWorld, oldGroup)) return false
         const rect = fixedChildRect(current, oldGroup, nextGroup)
-        if (!rect || !nodePositionWritable(child)) return false
+        if (!rect || !nodeResizeWritable(child, 'inherited')) return false
         const item = verifiedItem(snapshot.file, current, rect, nextGroup, false, 'inherited')
         const oldWorld = projectResizeRectToWorld(current, current.startRect)
         if (!item || !oldWorld || !sameQuad(item.world, oldWorld)) return false

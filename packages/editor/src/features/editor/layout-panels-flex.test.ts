@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { FlexContainer } from '@canvas/repo-engine/layout'
-import { InspectorAnchorGrid, InspectorFlexDirection, InspectorFlexWrap, InspectorScrubField, InspectorSpacingMode, InspectorTransformActions, inspectorFlexOverflowItems, moveFlexMatrixCell } from '../../design-system/inspector-atoms'
+import { InspectorAnchorGrid, InspectorFlexDirection, InspectorFlexWrap, InspectorScrubField, InspectorSpacingMode, InspectorTransformActions, inspectorFlexOverflowItems, moveFlexMatrixCell, nextInspectorInputIndex } from '../../design-system/inspector-atoms'
 import type { InspectorAnchorCell } from '../../design-system/inspector-atoms'
 import { numericLayoutTokens, paperFlexBaseline, paperFlexDirection, paperFlexMainSpaceBetween, paperFlexOverflowLabels, runInspectorFlexAction } from './LayoutPanels'
 import { SelectionInspector } from './InspectorPanels'
@@ -71,6 +71,13 @@ afterEach(() => {
 })
 
 describe('PAPER-FLEX-001 inspector entry and active block', () => {
+  it('FLEX-TAB-001 advances directly between inspector inputs', () => {
+    expect(nextInspectorInputIndex(1, 4, false)).toBe(2)
+    expect(nextInspectorInputIndex(2, 4, true)).toBe(1)
+    expect(nextInspectorInputIndex(3, 4, false)).toBeNull()
+    expect(nextInspectorInputIndex(0, 4, true)).toBeNull()
+  })
+
   it('renders nothing for an empty selection and only Add flex for an eligible singleton', () => {
     documentStore.load(fixture(), [], { replace: true })
     expect(renderToStaticMarkup(h(SelectionInspector))).toBe('')
@@ -90,7 +97,7 @@ describe('PAPER-FLEX-001 inspector entry and active block', () => {
 
     const mixed = renderSelection('flex', 'free2')
     expect(mixed.indexOf('>Wrap in flex<')).toBeGreaterThan(-1)
-    expect(mixed.indexOf('>Wrap in flex<')).toBeLessThan(mixed.indexOf('data-section="container"'))
+    expect(mixed.indexOf('>Wrap in flex<')).toBeLessThan(mixed.indexOf('class="inspector-flex-block"'))
     expect(mixed).toContain('aria-label="Remove flex"')
   })
 
@@ -108,10 +115,10 @@ describe('PAPER-FLEX-001 inspector entry and active block', () => {
     expect(wrap).toBeLessThan(gap)
     expect(gap).toBeLessThan(overflow)
     expect(overflow).toBeLessThan(padding)
-    const flexEnd = html.indexOf('</section>', padding)
+    const layoutEnd = html.indexOf('</section>', padding)
     const clip = html.indexOf('id="layout-clip"')
-    expect(flexEnd).toBeGreaterThan(padding)
-    expect(clip).toBeGreaterThan(flexEnd)
+    expect(clip).toBeGreaterThan(padding)
+    expect(layoutEnd).toBeGreaterThan(clip)
     expect(html.indexOf('aria-label="Column"')).toBeLessThan(html.indexOf('aria-label="Row"'))
     expect(html).toContain('aria-label="Remove flex"')
     expect(html).not.toContain('Reverse direction')
@@ -128,19 +135,63 @@ describe('PAPER-FLEX-001 inspector entry and active block', () => {
     expect(matrixHtml).not.toContain('tabindex=')
   })
 
-  it('places Clip content immediately after the Flex block and never inside Layout', () => {
+  it('places Add/Flex and Clip content inside Layout in Paper order', () => {
     const html = renderSelection('flex')
     const layoutStart = html.indexOf('data-section="layout"')
     const layoutEnd = html.indexOf('</section>', layoutStart)
-    const flexStart = html.indexOf('data-section="container"')
-    const flexEnd = html.indexOf('</section>', flexStart)
+    const flexStart = html.indexOf('class="inspector-flex-block"')
     const clip = html.indexOf('id="layout-clip"')
 
     expect(layoutStart).toBeGreaterThan(-1)
-    expect(layoutEnd).toBeLessThan(flexStart)
-    expect(flexEnd).toBeLessThan(clip)
-    expect(html.slice(layoutStart, layoutEnd)).not.toContain('id="layout-clip"')
-    expect(html.slice(flexEnd, clip)).not.toContain('data-section=')
+    expect(flexStart).toBeGreaterThan(layoutStart)
+    expect(clip).toBeGreaterThan(flexStart)
+    expect(layoutEnd).toBeGreaterThan(clip)
+
+    const free = renderSelection('free')
+    const freeLayoutStart = free.indexOf('data-section="layout"')
+    const add = free.indexOf('>Add flex<')
+    const freeLayoutEnd = free.indexOf('</section>', freeLayoutStart)
+    expect(add).toBeGreaterThan(freeLayoutStart)
+    expect(freeLayoutEnd).toBeGreaterThan(add)
+  })
+
+  it('keeps a Fit flex frame size field editable so typing a number can override it', () => {
+    const file = fixture()
+    const node = file.nodes.flex
+    if (!node || node.type !== 'frame' || node.layout?.container?.display !== 'flex') throw new Error('Expected the Flex fixture')
+    node.layout.item.width = { value: { kind: 'intrinsic', value: 'fit-content' } }
+    documentStore.load(file, [], { replace: true })
+    documentStore.select('flex')
+
+    const html = renderToStaticMarkup(h(SelectionInspector))
+    const width = /<input id="layout-width"[^>]*>/.exec(html)?.[0]
+    expect(width).toContain('placeholder="Fit"')
+    expect(width).not.toContain('disabled')
+  })
+
+  it('FLEX-FILL-001 exposes Fill for a nested freeform primitive without inventing Fit', () => {
+    const html = renderSelection('child')
+    expect(html).toContain('aria-label="Width sizing: Fixed"')
+    expect(html).toContain('aria-label="Height sizing: Fixed"')
+    expect(html).toContain('>Fill<')
+    expect(html).not.toContain('>Fit<')
+  })
+
+  it('uses Paper flex glyph geometry instead of generic editor icons', () => {
+    const html = renderSelection('flex')
+    expect(html).toContain('class="inspector-flex-glyph" width="10" height="2" viewBox="0 0 10 2"')
+    expect(html).toContain('class="inspector-flex-glyph" data-column="true" width="9" height="9" viewBox="0 0 9 9"')
+    expect(html).toContain('class="inspector-flex-glyph" width="13" height="11" viewBox="0 0 13 11"')
+    expect(html).toContain('class="inspector-flex-glyph" width="13" height="12" viewBox="0 0 13 12"')
+    expect(html).toContain('class="inspector-flex-glyph" width="12" height="12" viewBox="0 0 12 12" fill="currentColor"')
+    expect(html).toContain('aria-label="Individual padding"')
+    expect(html).not.toContain('data-icon="trash"')
+    expect(html).not.toContain('data-icon="list"')
+  })
+
+  it('keeps every individual padding field the same width', () => {
+    const css = readFileSync(new URL('../../design-system/inspector.css', import.meta.url), 'utf8')
+    expect(css).toMatch(/\.inspector-flex-padding \.inspector-row > \.inspector-row-spacer\s*\{[^}]*flex:\s*0 0 16px;/)
   })
 
   it('shows cross gap only while wrapping and switches between axis and individual padding', () => {

@@ -100,14 +100,20 @@ export function createEditorFlowTopologyAuthority(file: FileDocument, atoms: rea
     })
   }
   const acceptsTarget = (target: FlowDragTargetTopology) => {
-    if (target.pageId !== pageId || target.pageRootId !== page.rootNodeId || target.targetLane.parentId === page.rootNodeId) return false
+    if (target.pageId !== pageId || target.pageRootId !== page.rootNodeId) return false
     const sourceNode = file.nodes[target.sourceNodeId]
     const authoritative = source(target.sourceNodeId)
     const parent = file.nodes[target.targetLane.parentId]
-    if (!sourceNode || !authoritative || !parent || !pageNodes.has(target.targetLane.parentId)
+    const targetIsRoot = target.targetLane.parentId === page.rootNodeId
+    if (!sourceNode || !authoritative || !parent || !targetIsRoot && !pageNodes.has(target.targetLane.parentId)
       || targetInsideSource(target.sourceNodeId, target.targetLane.parentId)) return false
     const slot = target.targetLane.slot.presence === 'present' ? target.targetLane.slot.value : undefined
     if (!acceptsChild(parent, sourceNode, slot, atoms as Atom[])) return false
+    if (targetIsRoot) {
+      if (parent.type !== 'root' || target.targetLane.slot.presence !== 'absent' || target.line !== 0) return false
+      const targetNodes = laneNodes(target.targetLane)
+      return Boolean(targetNodes && target.rawIndex <= targetNodes.length && target.semanticIndex <= targetNodes.length)
+    }
     if (parent.type === 'frame' && (target.targetLane.slot.presence !== 'absent' || nodeChildDisplay(parent) !== 'flex')) return false
     if (parent.type === 'component' && target.targetLane.slot.presence !== 'present') return false
     if (parent.type !== 'frame' && parent.type !== 'component') return false

@@ -8,7 +8,8 @@ const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const mode = process.argv.slice(2).find(argument => argument !== '--')
 assert.ok(mode === 'local' || mode === 'staging' || mode === 'production', 'Pass the packaged desktop mode to the smoke test.')
 
-const executable = resolve(desktopRoot, 'release', mode, 'win-unpacked', 'Comp Canvas.exe')
+const executableName = mode === 'staging' ? 'Comp Canvas Nightly.exe' : 'Comp Canvas.exe'
+const executable = resolve(desktopRoot, 'release', mode, 'win-unpacked', executableName)
 await access(executable)
 
 const result = await new Promise((resolveResult, reject) => {
@@ -34,4 +35,4 @@ const result = await new Promise((resolveResult, reject) => {
 assert.equal(result.signal, null, result.output)
 assert.equal(result.code, 0, result.output)
 assert.doesNotMatch(result.output, /SyntaxError|Uncaught Exception|startup failed/i)
-console.log(JSON.stringify({ status: 'passed', mode, executable: 'Comp Canvas.exe' }))
+console.log(JSON.stringify({ status: 'passed', mode, executable: executableName }))

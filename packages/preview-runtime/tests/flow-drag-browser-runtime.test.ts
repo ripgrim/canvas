@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { chromium, type Browser, type Frame, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createPreviewRuntime } from '../src/index.js'
+import { validateFlowDragPresentationStructure } from '@canvas/sync-protocol/flow'
 import { fixtureRegistry } from './fixture-registry.js'
 
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
@@ -100,6 +101,32 @@ beforeAll(async () => {
 afterAll(async () => { await dispose?.() }, 30_000)
 
 describe('PAPER-FLEX-006-RUNTIME-V8, PAPER-FLEX-007-RUNTIME-V8, AT-CAN-005-RUNTIME-V8, and CLOUD-SYNC-GESTURE-001-RUNTIME-V8', () => {
+  it('renders the optimistic Alt duplicate at the pointer while leaving the authored source untouched', async () => {
+    await send({ type: 'set-document', flowDragTerminalPolicy: policy, document: document(), theme: { attribute: null, colorScheme: 'light' } })
+    await frame.waitForSelector('[data-preview-canvas="flow"]')
+    const sourceMeasurement = await measurement()
+    const fence = { fileId: 'file', fileRevision: 1, measurementRevision: sourceMeasurement, documentRevision: 1, layoutGeneration: 0, pageId: 'page', pageRootId: 'page-root' }
+    const base = common('optimistic-duplicate', 1, fence, 'flow', 'flow')
+    const optimistic = {
+      ...base,
+      original: { ...base.original, dom: { treatment: 'unchanged', opacity: null, opacityPriority: 'normal', zIndex: null } },
+      movingVisual: { kind: 'document-node', documentNodeId: 'flow', geometry: geometry(210, 110) },
+    }
+    expect(validateFlowDragPresentationStructure(optimistic, { interactionId: 'optimistic-duplicate', gestureGeneration: 1, sequence: 1 }, fence)).toBe(true)
+
+    await send({ type: 'apply-flow-drag-transaction', transaction: transaction(optimistic as ReturnType<typeof common>) })
+
+    const rendered = await waitFor(() => frame.evaluate(() => {
+      const source = document.querySelector<HTMLElement>('[data-preview-canvas="flow"]:not([data-preview-flow-clone])')!
+      const clone = document.querySelector<HTMLElement>('[data-preview-flow-clone]')
+      return { sourceOpacity: source.style.opacity, cloneCount: document.querySelectorAll('[data-preview-flow-clone]').length, cloneTransform: clone?.style.transform ?? '', clonePointerEvents: clone?.style.pointerEvents ?? '' }
+    }), value => value.cloneCount === 1)
+    expect(rendered).toStrictEqual({ sourceOpacity: '', cloneCount: 1, cloneTransform: 'matrix(1, 0, 0, 1, 210, 110)', clonePointerEvents: 'none' })
+
+    await send({ type: 'apply-flow-drag-transaction', transaction: transaction(optimistic as ReturnType<typeof common>, { kind: 'tombstone' }) })
+    expect(await waitFor(() => frame.evaluate(() => document.querySelectorAll('[data-preview-flow-clone]').length), value => value === 0)).toBe(0)
+  }, 90_000)
+
   it('renders exact flow and transformed absolute projections, orders generations, and holds terminal pixels through a document-first commit', async () => {
     await send({ type: 'set-document', flowDragTerminalPolicy: policy, document: document(), theme: { attribute: null, colorScheme: 'light' } })
     await new Promise(resolveWait => setTimeout(resolveWait, 100))

@@ -1,5 +1,7 @@
 import type { PrimitiveKind } from '@canvas/repo-engine/file-document'
-import { childrenOf as fileChildrenOf, descendantsOf as fileDescendantsOf, nodeIsLocked, pageRoot } from '@canvas/repo-engine/file-document'
+import { childrenOf as fileChildrenOf, descendantsOf as fileDescendantsOf, nodeAppearance, nodeIsLocked, pageRoot } from '@canvas/repo-engine/file-document'
+import { canonicalAppearance, expandedCornerRadii, supportsCornerRadii } from '@canvas/repo-engine/appearance'
+import type { Appearance, CornerRadiusKey } from '@canvas/repo-engine/appearance'
 import { documentStore } from './document-store'
 import type { CanvasTransient, DocumentState, MoveCommit, PersistenceCommit } from './document-store'
 import { sceneGeometry } from './scene-geometry'
@@ -18,7 +20,7 @@ import { collaborationTransforms, previewTransientMoves } from './preview-transi
 import type { EditorCollaborationTransform } from '../../capabilities'
 import { captureGestureAuthority } from './gesture-authority'
 import type { GestureAuthoritySnapshot, ResizeGeometryAuthority } from './gesture-authority'
-import { resizeGeometryAuthority } from './layout-measure'
+import { localPoint, parentContentPx, resizeGeometryAuthority } from './layout-measure'
 import { projectResizeRectToWorld } from './layout-measure'
 import { beginLiveResizeInteraction, sampleLiveResizeInteraction } from './live-resize-interaction'
 import type { LiveResizeInteraction, LiveResizeSample } from './live-resize-interaction'
@@ -37,6 +39,8 @@ import type { LocalFlowClaimToken } from '../collaboration/collaboration-service
 import { projectRotationPresentation, rotationDegreesFromPointer } from './rotation-projection'
 import type { RotationCorner } from './rotation-projection'
 import { setTransformRotation } from './layout-commands'
+import { cornerRadiusHandlePoses, radiusFromPointer, resolveAmbiguousCorner } from './corner-radius-handles'
+import type { CornerRadiusHandlePose } from './corner-radius-handles'
 
 export type { ResizeHandle } from './canvas-math'
 export const resizeHandles: readonly ResizeHandle[] = ['top-left', 'top', 'top-right', 'right', 'bottom-right', 'bottom', 'bottom-left', 'left']
@@ -84,6 +88,7 @@ type PendingResize = {
   atoms: DocumentState['atoms']
   pageId: string
   layoutGeneration: number
+  released: boolean
 }
 type RotationBase = Base & {
   kind: 'rotation'
@@ -102,6 +107,16 @@ type RotationBase = Base & {
   presentationId: string
   phaseActive: boolean
 }
+type RadiusBase = Base & {
+  kind: 'radius'
+  id: string
+  pressedCorner: CornerRadiusKey
+  activeCorner: CornerRadiusKey
+  startAppearance: Appearance | undefined
+  startRadii: ReturnType<typeof expandedCornerRadii>
+  poses: readonly CornerRadiusHandlePose[]
+  fileRevision: number
+}
 type Gesture =
   | (Base & { kind: 'pan'; startCamera: Camera })
   | (Base & { kind: 'marquee' })
@@ -112,6 +127,7 @@ type Gesture =
   | ResizeBase
   | PendingResize
   | RotationBase
+  | RadiusBase
 
 type ResizeHudTarget = CanvasHudProjectionSource & Readonly<{
   publishResizePresentation?: (presentation: ResizePresentation, fence: GestureAuthoritySnapshot['start']) => boolean
@@ -197,6 +213,27 @@ export function createCanvasGestures(
       camera: state.viewport, size: state.viewportSize, selection: state.selection, tool: state.tool, readOnly: state.readOnly,
     })
     return frame && projectedFrameMatchesScene(scene, frame) ? { state, scene, frame } : null
+  }
+  const radiusStateCurrent = (current: RadiusBase) => {
+    const state = store.getSnapshot()
+    const node = state.file?.nodes[current.id]
+    return Boolean(node && node.type !== 'root'
+      && state.file?.revision === current.fileRevision
+      && state.selection.length === 1 && state.selection[0] === current.id
+      && !state.readOnly && !state.blocked && !state.textEditing
+      && state.appearanceOverrides !== null)
+  }
+  const previewRadius = (current: RadiusBase, event: PointerLike): boolean => {
+    if (!radiusStateCurrent(current)) return false
+    const delta = { x: event.clientX - current.startClient.x, y: event.clientY - current.startClient.y }
+    current.activeCorner = resolveAmbiguousCorner(current.poses, current.pressedCorner, delta)
+    const pose = current.poses.find(candidate => candidate.corner === current.activeCorner)
+    if (!pose) return false
+    const value = radiusFromPointer(current.startRadii[current.activeCorner], delta, pose, event.shiftKey)
+    const cornerRadii = event.altKey ? { ...current.startRadii, [current.activeCorner]: value } : { all: value } as const
+    const appearance = canonicalAppearance({ ...(current.startAppearance ?? {}), cornerRadii })
+    store.commands.appearance.gesture.preview({ [current.id]: appearance ?? null })
+    return true
   }
   const worldAt = (base: Base, event: Pick<PointerLike, 'clientX' | 'clientY'>) => screenToWorld(viewportPoint(event), base.camera, base.size)
   const distance = (base: Base, event: Pick<PointerLike, 'clientX' | 'clientY'>) => Math.hypot(event.clientX - base.startClient.x, event.clientY - base.startClient.y)
@@ -468,14 +505,15 @@ export function createCanvasGestures(
     gesture = current
     if (Math.hypot(pending.latest.clientX - pending.start.clientX, pending.latest.clientY - pending.start.clientY) < handleDragThresholdCss) return
     current.moved = true
-    if (!publishResizeSample(current, pending.latest)) cancel()
+    if (!publishResizeSample(current, pending.latest)) { cancel(); return }
+    if (pending.released) finishTerminalResize(current)
   }
   const beginPendingResize = (id: string, handle: ResizeHandle, event: PointerLike, claimId: string, lockedIds: readonly string[], state: DocumentState) => {
     if (!state.file || !state.pageId) return false
     const copy = { ...event }
     const pending: PendingResize = {
       kind: 'pending-resize', id, handle, pointerId: event.pointerId, start: copy, latest: copy, claimId, lockedIds,
-      file: state.file, fileSignature: JSON.stringify(state.file), atoms: state.atoms, pageId: state.pageId, layoutGeneration: state.layoutGeneration,
+      file: state.file, fileSignature: JSON.stringify(state.file), atoms: state.atoms, pageId: state.pageId, layoutGeneration: state.layoutGeneration, released: false,
     }
     gesture = pending
     stopPendingGeometry?.()
@@ -512,10 +550,12 @@ export function createCanvasGestures(
       && measured.layoutGeneration === start.layoutGeneration
   }
   const flowTarget = (authority: GestureAuthoritySnapshot, state: PaperFlowDragState) => {
-    const hovered = containingFrameAt(authority.scene, state.currentWorld, state.nodeId)?.id ?? state.sourceRelationship.parentId
+    const hovered = containingFrameAt(authority.scene, state.currentWorld, state.nodeId)?.id ?? pageRoot(authority.file, authority.pageId) ?? state.sourceRelationship.parentId
     return resolveFlowDragTarget({ authority, state, hoveredNodeId: hovered })
   }
   const flowSample = (current: PaperFlowGesture, event: PointerLike) => {
+    const world = worldAt(current, event)
+    const detachedToCanvas = containingFrameAt(current.authority.scene, world, current.state.nodeId) === null
     const entryGeometry = current.state.primaryActive && event.altKey && !current.state.altActive
       ? paperFlowAbsoluteDropGeometry({
         file: current.authority.file,
@@ -525,14 +565,14 @@ export function createCanvasGestures(
         childId: current.state.nodeId,
         parentId: current.state.sourceRelationship.parentId,
         pointerDownWorld: current.state.pointerDownWorld,
-        terminalWorld: worldAt(current, event),
+        terminalWorld: world,
       })
       : undefined
     return samplePaperFlowDrag(current.state, {
-      world: worldAt(current, event),
+      world,
       viewport: viewportPoint(event),
       timestamp: Math.max(eventTime(event), current.state.currentTime),
-      modifiers: { altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altGraph: event.getModifierState?.('AltGraph') ?? false },
+      modifiers: { altKey: event.altKey, ctrlKey: event.ctrlKey || flowPlatform() === 'windows' && detachedToCanvas, metaKey: event.metaKey || flowPlatform() === 'macos' && detachedToCanvas, altGraph: event.getModifierState?.('AltGraph') ?? false },
       platform: flowPlatform(),
       authority: { ...current.state.fence, gestureGeneration: current.state.gestureGeneration, owned: true },
       ...(entryGeometry ? { entryGeometry } : {}),
@@ -698,6 +738,7 @@ export function createCanvasGestures(
   const movePreview = (current: Extract<Gesture, { kind: 'move' }>, event: PointerLike) => {
     const state = store.getSnapshot()
     const world = worldAt(current, event)
+    const duplicate = event.altKey && event.getModifierState?.('AltGraph') !== true
     if (current.flow) {
       const flex = flexDrop(current, world)
       if (flex) {
@@ -706,7 +747,7 @@ export function createCanvasGestures(
         const insertion = guide ? { axis: guide.axis, rect: guide.axis === 'x' ? { x: guide.position - thickness / 2, y: guide.start, width: thickness, height: guide.end - guide.start } : { x: guide.start, y: guide.position - thickness / 2, width: guide.end - guide.start, height: thickness } } : null
         const rect = current.startRects[current.flow.id]!
         const offset = { x: world.x - current.startWorld.x, y: world.y - current.startWorld.y }
-        setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + offset.x, y: rect.y + offset.y } }, offset, guides: [], targetFrameId: null, insertion })
+        setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + offset.x, y: rect.y + offset.y } }, offset, guides: [], targetFrameId: null, insertion, duplicate })
         return
       }
       const parent = current.scene.byId.get(current.flow.parentId)
@@ -724,7 +765,7 @@ export function createCanvasGestures(
       }
       const rect = current.startRects[current.flow.id]!
       const delta = { x: world.x - current.startWorld.x, y: world.y - current.startWorld.y }
-      setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + delta.x, y: rect.y + delta.y } }, offset: delta, guides: [], targetFrameId: null, insertion })
+      setTransient({ kind: 'move', rects: { [current.flow.id]: { ...rect, x: rect.x + delta.x, y: rect.y + delta.y } }, offset: delta, guides: [], targetFrameId: null, insertion, duplicate })
       return
     }
     const delta = { x: world.x - current.startWorld.x, y: world.y - current.startWorld.y }
@@ -740,7 +781,7 @@ export function createCanvasGestures(
     const rects: Record<string, Rect> = {}
     for (const id of current.ids) { const rect = current.startRects[id]; if (rect) rects[id] = roundRect({ ...rect, x: rect.x + delta.x + snap.dx, y: rect.y + delta.y + snap.dy }) }
     const offset = primary && rects[primary.id] ? { x: rects[primary.id]!.x - current.startRects[primary.id]!.x, y: rects[primary.id]!.y - current.startRects[primary.id]!.y } : { x: delta.x + snap.dx, y: delta.y + snap.dy }
-    setTransient({ kind: 'move', rects, offset, guides: snap.guides, targetFrameId: primitives.length ? targetFrameId : null, insertion: null })
+    setTransient({ kind: 'move', rects, offset, guides: snap.guides, targetFrameId: primitives.length ? targetFrameId : null, insertion: null, duplicate })
   }
   const commitMove = (current: Extract<Gesture, { kind: 'move' }>, event: PointerLike) => {
     const transient = store.getSnapshot().transient
@@ -767,7 +808,8 @@ export function createCanvasGestures(
       const parentId = transient.targetFrameId !== null && transient.targetFrameId !== id ? transient.targetFrameId : current.ids.includes(node.parentId ?? '') ? node.parentId ?? null : transient.targetFrameId
       return [{ id, x: rect.x, y: rect.y, parentId: parentId ?? null }]
     })
-    return store.commands.commitMove(moves)
+    const duplicate = event.altKey && event.getModifierState?.('AltGraph') !== true
+    return store.commands.commitMove(moves, { duplicate })
   }
   const commitPaperFlow = async (current: PaperFlowGesture, terminal: FlowDragPresentation) => {
     if (current.claim) {
@@ -823,6 +865,10 @@ export function createCanvasGestures(
       return
     }
     gesture = null
+    if (current.kind === 'radius') {
+      store.commands.appearance.gesture.cancel()
+      return
+    }
     const activeInteractionId = current.kind === 'resize' || current.kind === 'pending-resize' || current.kind === 'rotation' ? current.claimId : interactionId
     interactionId = null
     stopResizeObservers()
@@ -880,6 +926,14 @@ export function createCanvasGestures(
     if (!receipt) resizePreview.clearResizePresentation()
     releaseClaimAfterCommit(current.claimId, commit)
   }
+  const finishTerminalResize = (current: ResizeBase) => {
+    gesture = null
+    stopResizeObservers()
+    const commitAction = () => commitTerminalResize(current)
+    if (interactions.canCommitInteraction(current.claimId)) commitAction()
+    else if (interactions.waitForCommitInteraction) void interactions.waitForCommitInteraction(current.claimId).then(allowed => allowed ? commitAction() : discardTerminalResize(current))
+    else discardTerminalResize(current)
+  }
   const commitTerminalRotation = (current: RotationBase) => {
     if (!frozenRotationStartMatches(current)) { clearRotationPresentation(current); interactions.endInteraction(current.claimId); return }
     const state = store.getSnapshot()
@@ -893,7 +947,29 @@ export function createCanvasGestures(
   }
   return {
     attach: (next: HTMLElement | null) => { element = next },
-    get active() { return gesture !== null },
+    get active() { return gesture !== null && !(gesture.kind === 'pending-resize' && gesture.released) },
+    radiusActiveCorner: (id: string): CornerRadiusKey | null => gesture?.kind === 'radius' && gesture.id === id ? gesture.activeCorner : null,
+    radiusPointerDown: (event: PointerLike, id: string, corner: CornerRadiusKey): boolean => {
+      const context = currentHitContext()
+      const state = context?.state
+      const node = state?.file?.nodes[id]
+      const entry = context?.frame.byNodeId[id]
+      if (gesture || !context || !state?.file || !node || node.type === 'root' || !entry
+        || event.button !== 0 || state.readOnly || state.blocked || state.textEditing || state.transient
+        || state.selection.length !== 1 || state.selection[0] !== id || nodeIsLocked(state.file, id)
+        || !supportsCornerRadii(node.type)) return false
+      const startAppearance = nodeAppearance(node)
+      const startRadii = expandedCornerRadii(startAppearance?.cornerRadii)
+      const poses = cornerRadiusHandlePoses(entry, startRadii)
+      if (!poses.some(pose => pose.corner === corner)) return false
+      store.commands.appearance.gesture.begin()
+      gesture = {
+        ...snapshot(event, state, context.scene),
+        kind: 'radius', id, pressedCorner: corner, activeCorner: corner,
+        startAppearance, startRadii, poses, fileRevision: state.file.revision,
+      }
+      return true
+    },
     cancel,
     /** Pointer down on the empty stage or over scene nodes. */
     stagePointerDown: (event: PointerLike): boolean => {
@@ -987,7 +1063,17 @@ export function createCanvasGestures(
         const rootId = state.pageId ? pageRoot(state.file, state.pageId) : null
         if (!parentId || parentId === rootId) return false
       }
-      return store.commands.text.setSizingMode(id, resizeHandleAxes(handle), fill ? 'fill' : 'fit')
+      const measured = geometry.getSnapshot()
+      const width = measured.nodes[id]?.rect.width
+      const height = measured.nodes[id]?.rect.height
+      const parentWidth = parentContentPx(state.file, measured, id, 'width')
+      const parentHeight = parentContentPx(state.file, measured, id, 'height')
+      const local = localPoint(state.file, measured, id)
+      return store.commands.text.setSizingMode(id, resizeHandleAxes(handle), fill ? 'fill' : 'fit', {
+        measured: { ...(width === undefined ? {} : { width }), ...(height === undefined ? {} : { height }) },
+        parent: { ...(parentWidth === undefined ? {} : { width: parentWidth }), ...(parentHeight === undefined ? {} : { height: parentHeight }) },
+        ...(local ? { local } : {}),
+      })
     },
     pointerMove: (event: PointerLike) => {
       const current = gesture
@@ -1003,6 +1089,12 @@ export function createCanvasGestures(
       if (current.kind === 'pending-resize') {
         current.latest = { ...event }
         resolvePendingResize()
+        return
+      }
+      if (current.kind === 'radius') {
+        if (!current.moved && distance(current, event) <= handleDragThresholdCss) return
+        current.moved = true
+        if (!previewRadius(current, event)) cancel()
         return
       }
       if (current.kind === 'pan') { store.setViewport({ ...current.startCamera, x: current.startCamera.x + event.clientX - current.startClient.x, y: current.startCamera.y + event.clientY - current.startClient.y }); return }
@@ -1100,7 +1192,21 @@ export function createCanvasGestures(
     pointerUp: (event: PointerLike) => {
       const current = gesture
       if (!current || current.pointerId !== event.pointerId) return
-      if (current.kind === 'pending-resize') { cancel(); return }
+      if (current.kind === 'pending-resize') {
+        current.latest = { ...event }
+        if (Math.hypot(current.latest.clientX - current.start.clientX, current.latest.clientY - current.start.clientY) < handleDragThresholdCss) { cancel(); return }
+        current.released = true
+        resolvePendingResize()
+        return
+      }
+      if (current.kind === 'radius') {
+        if (!current.moved && distance(current, event) > handleDragThresholdCss) current.moved = true
+        if (current.moved && !previewRadius(current, event)) { cancel(); return }
+        gesture = null
+        if (current.moved) store.commands.appearance.gesture.commit()
+        else store.commands.appearance.gesture.cancel()
+        return
+      }
       if (current.kind === 'resize' && !current.moved && distance(current, event) >= handleDragThresholdCss) current.moved = true
       if (current.kind === 'resize' && current.moved) {
         if (!publishResizeSample(current, event)) { cancel(); return }
@@ -1131,10 +1237,7 @@ export function createCanvasGestures(
             : { ...bounds, ...local, ...(parent ? { parentId: parent.id } : {}) })
         } else if (store.commands.insertCanvas(current.elementKind, { ...bounds, ...local, ...(parent ? { parentId: parent.id } : {}) })) store.setTool('move')
       } else if (current.kind === 'resize' && current.moved) {
-        const commitAction = () => commitTerminalResize(current)
-        if (interactions.canCommitInteraction(current.claimId)) commitAction()
-        else if (interactions.waitForCommitInteraction) void interactions.waitForCommitInteraction(current.claimId).then(allowed => allowed ? commitAction() : discardTerminalResize(current))
-        else discardTerminalResize(current)
+        finishTerminalResize(current)
         return
       } else if (current.kind === 'rotation' && current.moved) {
         commitTerminalRotation(current)

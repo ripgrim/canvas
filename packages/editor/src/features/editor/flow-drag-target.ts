@@ -1,4 +1,4 @@
-import { acceptsChild, childrenOf, descendantsOf, nodeIsLocked, nodePositionMode } from '@canvas/repo-engine/file-document'
+import { acceptsChild, childrenOf, descendantsOf, nodeIsLocked, nodePositionMode, pageRoot } from '@canvas/repo-engine/file-document'
 import type { FileDocument, FileNode, NodeRelationship } from '@canvas/repo-engine/file-document'
 import { getNodeSlots } from '@canvas/repo-engine/document'
 import { flexDirections, flexWraps } from '@canvas/repo-engine/layout'
@@ -120,6 +120,23 @@ export function resolveFlowDragTarget(input: ResolveFlowDragTargetInput): FlowDr
   if (!sourceNode || sourceNode.type === 'root' || !sourceRelationship || !sameSourceRelationship(sourceRelationship, state.sourceRelationship)) return null
   const sourceSiblings = exactChildren(authority.file, state.sourceRelationship.parentId, state.sourceRelationship.slot)
   if (sourceSiblings[state.sourceIndex] !== state.nodeId || nodeIsLocked(authority.file, state.nodeId)) return null
+
+  const rootId = pageRoot(authority.file, authority.pageId)
+  if (rootId && hoveredNodeId === rootId) {
+    const rootNode = authority.file.nodes[rootId]
+    if (!rootNode || rootNode.type !== 'root' || !acceptsChild(rootNode, sourceNode, undefined, [...authority.atoms])) return null
+    const rawIndex = childrenOf(authority.file, rootId).length
+    return deepFreeze({
+      parentId: rootId,
+      slotPresence: 'absent' as const,
+      slotValue: null,
+      rawIndex,
+      semanticIndex: rawIndex,
+      line: 0,
+      guideWorld: null,
+      fence: { ...state.fence, gestureGeneration: state.gestureGeneration, sampleSequence: state.sampleSequence },
+    })
+  }
 
   const parentId = findCandidate(authority, state.nodeId, hoveredNodeId)
   if (!parentId || parentId === state.nodeId || descendantsOf(authority.file, state.nodeId).includes(parentId)) return null

@@ -4,11 +4,12 @@ import { readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createBuilderArguments, createPackageEnvironment } from './package-desktop.mjs'
-import { evaluateReleasePolicy } from './release-policy.mjs'
+import { evaluateReleasePolicy, nextReleaseVersion } from './release-policy.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const pullRequestWorkflow = await readFile(resolve(root, '.github/workflows/desktop-build.yml'), 'utf8')
 const releaseWorkflow = await readFile(resolve(root, '.github/workflows/release.yml'), 'utf8')
+const packagedLaunchSmoke = await readFile(resolve(root, 'apps/desktop/tests/packaged-launch-smoke.mjs'), 'utf8')
 const databasePackage = JSON.parse(await readFile(resolve(root, 'packages/database/package.json'), 'utf8'))
 const stagingTemplate = await readFile(resolve(root, '.env.staging.example'), 'utf8')
 const productionTemplate = await readFile(resolve(root, '.env.production.example'), 'utf8')
@@ -24,35 +25,47 @@ test('RELEASE-SECURITY-001 keeps secrets and migrations out of pull request buil
 const releaseInput = {
   actor: 'ripgrim',
   triggeringActor: 'ripgrim',
+  event: 'push',
   branch: 'staging',
   sha: 'a'.repeat(40),
   runNumber: '41',
+  startedAt: '2026-10-11T12:34:56Z',
   rootVersion: '0.1.0',
   desktopVersion: '0.1.0',
+  existingTags: [],
   pulls: [{ number: 73, merged_at: '2026-10-11T12:00:00Z', base: { ref: 'staging' }, head: { ref: 'feature/mobile' } }],
 }
 
-test('RELEASE-SECURITY-002 accepts only an owner-triggered merged pull request', () => {
-  assert.match(releaseWorkflow, /pull_request:[\s\S]*- staging[\s\S]*- main[\s\S]*- closed/)
+test('RELEASE-SECURITY-002 accepts owner staging pushes and merged staging-to-main pull requests', () => {
+  assert.match(releaseWorkflow, /push:[\s\S]*- staging/)
+  assert.match(releaseWorkflow, /pull_request:[\s\S]*- main[\s\S]*- closed/)
   assert.match(releaseWorkflow, /github\.event\.pull_request\.merged == true/)
+  assert.match(releaseWorkflow, /github\.event\.head_commit\.timestamp[\s\S]*github\.event\.pull_request\.merged_at/)
   assert.match(releaseWorkflow, /node scripts\/release-policy\.mjs/)
+  assert.match(releaseWorkflow, /EXISTING_RELEASE_TAGS="\$tags"/)
 
   assert.deepEqual(evaluateReleasePolicy(releaseInput), {
     channel: 'staging',
+    release_channel: 'nightly',
     environment: 'staging',
+    prerelease: 'true',
+    make_latest: 'false',
     sha: 'a'.repeat(40),
-    tag: 'v0.1.0-nightly.41',
-    version: '0.1.0-nightly.41',
-    title: `Comp Canvas Nightly 0.1.0 (${'a'.repeat(7)})`,
-    pull_request: '73',
+    tag: 'v0.1.0-nightly.20261011.41',
+    version: '0.1.0-nightly.20261011.41',
+    title: `Comp Canvas Nightly 0.1.0-nightly.20261011.41 (${'a'.repeat(7)})`,
+    source: 'pull request #73',
   })
 })
 
-test('RELEASE-SECURITY-003 rejects unauthorized, direct, and wrong-source releases', () => {
+test('RELEASE-SECURITY-003 rejects unauthorized and wrong-event or wrong-source releases', () => {
   assert.throws(() => evaluateReleasePolicy({ ...releaseInput, actor: 'collaborator' }), /Only ripgrim/)
-  assert.throws(() => evaluateReleasePolicy({ ...releaseInput, pulls: [] }), /not associated with a merged pull request/)
+  assert.equal(evaluateReleasePolicy({ ...releaseInput, pulls: [] }).source, 'an owner-authored staging branch update')
+  assert.throws(() => evaluateReleasePolicy({ ...releaseInput, event: 'pull_request' }), /staging release event is not allowed/)
+  assert.throws(() => evaluateReleasePolicy({ ...releaseInput, startedAt: 'not-a-date' }), /workflow start time is invalid/)
   assert.throws(() => evaluateReleasePolicy({
     ...releaseInput,
+    event: 'pull_request',
     branch: 'main',
     pulls: [{ number: 74, merged_at: '2026-10-11T13:00:00Z', base: { ref: 'main' }, head: { ref: 'feature/bypass' } }],
   }), /must come from the staging branch/)
@@ -67,24 +80,61 @@ test('RELEASE-PIPELINE-001 gates publication on channel migration and the merged
   assert.match(releaseWorkflow, /name: Apply database migrations[\s\S]*pnpm --filter @canvas\/database migrate/)
   assert.match(releaseWorkflow, /name: Publish[\s\S]*needs:[\s\S]*- build[\s\S]*- migrate/)
   assert.match(releaseWorkflow, /--prerelease/)
+  assert.match(releaseWorkflow, /release_channel: \$\{\{ steps\.release\.outputs\.release_channel \}\}/)
+  assert.match(releaseWorkflow, /--latest="\$RELEASE_MAKE_LATEST"/)
   assert.match(releaseWorkflow, /Select signing mode/)
   assert.match(releaseWorkflow, /WINDOWS_CERTIFICATE/)
   assert.match(releaseWorkflow, /Windows signing is partially configured/)
+  assert.match(releaseWorkflow, /RELEASE_CHANNEL -eq 'staging'/)
   assert.match(releaseWorkflow, /DESIGN_EDITOR_UPDATABLE=\$enabled/)
   assert.match(releaseWorkflow, /Smoke packaged main process[\s\S]*test:packaged-launch-smoke/)
+  assert.match(releaseWorkflow, /channel == 'staging' && 'nightly\.yml' \|\| 'latest\.yml'/)
+  assert.match(releaseWorkflow, /\[\[ -f release\/nightly\.yml \]\] && manifests\+=\(release\/nightly\.yml\)/)
+  assert.match(releaseWorkflow, /\[\[ -f release\/latest\.yml \]\] && manifests\+=\(release\/latest\.yml\)/)
+  assert.match(releaseWorkflow, /Unsigned Nightly automatic update release/)
   assert.match(releaseWorkflow, /Unsigned manual-download build\. Automatic updates are intentionally disabled/)
   assert.match(releaseWorkflow, /Require update publishing credentials/)
+  assert.match(releaseWorkflow, /Deploy staging update service[\s\S]*pnpm updates:deploy:staging/)
+  assert.match(releaseWorkflow, /--file "\$GITHUB_WORKSPACE\/\$file" --remote/)
+  assert.match(releaseWorkflow, /--file "\$GITHUB_WORKSPACE\/\$manifest" --content-type/)
   assert.match(releaseWorkflow, /if: needs\.build\.outputs\.updatable == 'true'/)
   assert.ok(releaseWorkflow.indexOf('Publish GitHub release') < releaseWorkflow.indexOf('Advance update channel'))
 
   const production = evaluateReleasePolicy({
     ...releaseInput,
+    event: 'pull_request',
     branch: 'main',
     pulls: [{ number: 75, merged_at: '2026-10-11T14:00:00Z', base: { ref: 'main' }, head: { ref: 'staging' } }],
   })
   assert.equal(production.channel, 'production')
+  assert.equal(production.release_channel, 'stable')
+  assert.equal(production.prerelease, 'false')
+  assert.equal(production.make_latest, 'true')
   assert.equal(production.tag, 'v0.1.0')
   assert.equal(production.version, '0.1.0')
+})
+
+test('UPDATE-FEED-001 promotes occupied tags to one monotonic release version', () => {
+  const tags = ['v0.1.0', 'v0.1.1', 'v0.1.2-nightly.41', 'not-a-release']
+  assert.equal(nextReleaseVersion('0.1.1', tags), '0.1.2')
+  assert.equal(nextReleaseVersion('0.2.0', tags), '0.2.0')
+
+  const nightly = evaluateReleasePolicy({ ...releaseInput, rootVersion: '0.1.1', desktopVersion: '0.1.1', existingTags: tags })
+  assert.equal(nightly.tag, 'v0.1.2-nightly.20261011.41')
+  assert.equal(nightly.version, '0.1.2-nightly.20261011.41')
+  assert.equal(nightly.title, `Comp Canvas Nightly 0.1.2-nightly.20261011.41 (${'a'.repeat(7)})`)
+
+  const production = evaluateReleasePolicy({
+    ...releaseInput,
+    event: 'pull_request',
+    branch: 'main',
+    rootVersion: '0.1.1',
+    desktopVersion: '0.1.1',
+    existingTags: tags,
+    pulls: [{ number: 75, merged_at: '2026-10-11T14:00:00Z', base: { ref: 'main' }, head: { ref: 'staging' } }],
+  })
+  assert.equal(production.tag, 'v0.1.2')
+  assert.equal(production.version, '0.1.2')
 })
 
 test('RELEASE-PIPELINE-002 builds migration workspace dependencies on a clean runner', () => {
@@ -122,9 +172,32 @@ test('RELEASE-DESKTOP-002 keeps previews out of update feeds and isolates nightl
   assert.ok(unsignedNightly.includes('--config.appId=com.comp-canvas.desktop.nightly'))
   assert.equal(unsignedNightly.some(value => value.includes('publish.provider')), false)
 
-  const nightly = createBuilderArguments('staging', { DESIGN_EDITOR_UPDATABLE: '1', DESIGN_EDITOR_RELEASE_VERSION: '0.1.0-nightly.41', DESIGN_EDITOR_UPDATE_URL: 'https://updates.test', DESIGN_EDITOR_WINDOWS_PUBLISHER: 'Comp Canvas, LLC' })
+  const nightly = createBuilderArguments('staging', { DESIGN_EDITOR_UPDATABLE: '1', DESIGN_EDITOR_RELEASE_VERSION: '0.1.0-nightly.41', DESIGN_EDITOR_UPDATE_URL: 'https://updates.test' })
   assert.ok(nightly.includes('--config.extraMetadata.version=0.1.0-nightly.41'))
   assert.ok(nightly.includes('--config.publish.channel=nightly'))
   assert.ok(nightly.includes('--config.appId=com.comp-canvas.desktop.nightly'))
-  assert.ok(nightly.includes('--config.win.publisherName=Comp Canvas, LLC'))
+  assert.ok(nightly.includes('--config.win.verifyUpdateCodeSignature=false'))
+
+  const signedNightly = createBuilderArguments('staging', {
+    CSC_LINK: 'certificate',
+    CSC_KEY_PASSWORD: 'password',
+    DESIGN_EDITOR_UPDATABLE: '1',
+    DESIGN_EDITOR_RELEASE_VERSION: '0.1.0-nightly.41',
+    DESIGN_EDITOR_UPDATE_URL: 'https://updates.test',
+    DESIGN_EDITOR_WINDOWS_PUBLISHER: 'Comp Canvas, LLC',
+  })
+  assert.ok(signedNightly.includes('--config.win.publisherName=Comp Canvas, LLC'))
+  assert.equal(signedNightly.includes('--config.win.verifyUpdateCodeSignature=false'), false)
+  assert.throws(() => createBuilderArguments('production', {
+    DESIGN_EDITOR_UPDATABLE: '1',
+    DESIGN_EDITOR_RELEASE_VERSION: '0.1.0',
+    DESIGN_EDITOR_UPDATE_URL: 'https://updates.test',
+  }), /Production automatic updates require Windows signing/)
+  assert.throws(() => createBuilderArguments('staging', {
+    CSC_LINK: 'certificate',
+    DESIGN_EDITOR_UPDATABLE: '1',
+    DESIGN_EDITOR_RELEASE_VERSION: '0.1.0-nightly.41',
+    DESIGN_EDITOR_UPDATE_URL: 'https://updates.test',
+  }), /Windows signing is partially configured/)
+  assert.match(packagedLaunchSmoke, /mode === 'staging' \? 'Comp Canvas Nightly\.exe' : 'Comp Canvas\.exe'/)
 })

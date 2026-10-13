@@ -1,8 +1,11 @@
+import { useSyncExternalStore } from 'react'
 import type { FileDocument, PrimitiveNode } from '@canvas/repo-engine/file-document'
 import { InspectorGroup, InspectorNumberField, InspectorPopover, InspectorRadioGroup, InspectorRow, InspectorSection, InspectorSelectField, InspectorTextField, InspectorToggle } from '../../design-system/inspector-atoms'
 import { Icon } from '../../design-system/atoms'
 import { SizingField } from '../../design-system/sizing-field'
 import { documentStore } from './document-store'
+import { localPoint, parentContentPx } from './layout-measure'
+import { sceneGeometry } from './scene-geometry'
 import { inspectorCopy as copy } from './inspector-copy'
 
 type TextStyle = NonNullable<PrimitiveNode['textStyle']>
@@ -112,6 +115,7 @@ const fontVariantLabel = (weight: number, style: TextStyle['fontStyle']) => {
 const fontVariants = fontStyles.flatMap(style => fontWeights.map(weight => ({ value: fontVariantValue(weight, style), label: fontVariantLabel(weight, style) })))
 
 function TextAxisField({ file, nodes, axis, disabled }: { file: FileDocument; nodes: readonly TextNode[]; axis: TextAxis; disabled: boolean }) {
+  const geometry = useSyncExternalStore(sceneGeometry.subscribe, sceneGeometry.getSnapshot, sceneGeometry.getSnapshot)
   const mode = same(nodes.map(node => node.textSizing[axis].mode))
   const available = textSizingModes(file, nodes)
   const label = axis === 'width' ? copy.width : copy.height
@@ -126,7 +130,22 @@ function TextAxisField({ file, nodes, axis, disabled }: { file: FileDocument; no
     if (relative) writeTextProperties(nodes, (_style, sizing) => { sizing[axis] = { mode: 'relative', value } })
     else if (fixed) documentStore.commands.setStylesMany(Object.fromEntries(nodes.map(node => [node.id, { [axis]: value }])))
   }} />
-  return <SizingField label={copy.textAxisSizing(label)} currentLabel={currentLabel} options={options} disabled={disabled} field={field} onChoose={value => { setTextSizingMode(nodes, axis, value as TextAxisSizing['mode']) }} />
+  return <SizingField label={copy.textAxisSizing(label)} currentLabel={currentLabel} options={options} disabled={disabled} field={field} onChoose={value => {
+    const next = value as TextAxisSizing['mode']
+    documentStore.commands.text.setSizingModes(nodes.map(node => {
+      const measured = geometry.nodes[node.id]?.rect[axis]
+      const parent = parentContentPx(file, geometry, node.id, axis)
+      const local = localPoint(file, geometry, node.id)
+      return {
+        nodeId: node.id,
+        axes: [axis === 'width' ? 'x' as const : 'y' as const],
+        mode: next,
+        ...(measured === undefined ? {} : { measured: axis === 'width' ? { width: measured } : { height: measured } }),
+        ...(parent === undefined ? {} : { parent: axis === 'width' ? { width: parent } : { height: parent } }),
+        ...(local ? { local } : {}),
+      }
+    }))
+  }} />
 }
 
 function TextFormatting({ nodes, disabled }: { nodes: readonly TextNode[]; disabled: boolean }) {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { childrenOf as fileChildren } from '@canvas/repo-engine/file-document'
+import { childrenOf as fileChildren, nodeAppearance } from '@canvas/repo-engine/file-document'
+import { expandedCornerRadii } from '@canvas/repo-engine/appearance'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { createCanvasGestures } from './canvas-gestures'
 import type { CanvasInteractionController } from './canvas-gestures'
@@ -9,6 +10,7 @@ import type { sceneGeometry } from './scene-geometry'
 import type { SceneGeometry } from './scene-geometry'
 import type { PreviewResizeSample } from './preview-service'
 import { cancelActiveGestureAfterCaptureLoss } from './SelectionHud'
+import { cornerRadiusHandlePoses } from './corner-radius-handles'
 
 const solid = (id: string, hex: string) => ({ id, type: 'solid' as const, color: { kind: 'literal' as const, color: { kind: 'hex' as const, hex } } })
 const textStyle = { fontFamily: 'Inter', fontStyle: 'normal' as const, fontWeight: 400, fontSize: 16, lineHeight: { kind: 'normal' as const }, letterSpacing: 0, horizontalAlign: 'left' as const, verticalAlign: 'top' as const, case: 'none' as const, wrap: 'normal' as const, keepWords: false }
@@ -97,6 +99,44 @@ const setup = (
   gestures.attach({ getBoundingClientRect: () => viewportOrigin } as HTMLElement)
   return { store, geometry, projections, gestures, preview, resizeSamples }
 }
+
+describe('AT-CAN-003 canvas corner radius gesture', () => {
+  it('previews from the renderer-owned quad and commits one uniform radius history step', () => {
+    const { store, projections, gestures } = setup()
+    const frame = projections.getSnapshot().frame!
+    const entry = frame.byNodeId.frame!
+    const pose = cornerRadiusHandlePoses(entry, expandedCornerRadii(nodeAppearance(store.getSnapshot().file!.nodes.frame)?.cornerRadii))[0]!
+    const start = pointer(pose.center.x, pose.center.y)
+    const end = pointer(start.clientX + pose.inward.x * pose.screenScale * 18, start.clientY + pose.inward.y * pose.screenScale * 18)
+    const revision = store.getSnapshot().file!.revision
+
+    expect(gestures.radiusPointerDown(start, 'frame', pose.corner)).toBe(true)
+    gestures.pointerMove(end)
+    expect((store.getSnapshot().appearanceOverrides?.frame?.cornerRadii as { all: number }).all).toBeCloseTo(18)
+    gestures.pointerUp(end)
+
+    expect((nodeAppearance(store.getSnapshot().file!.nodes.frame)?.cornerRadii as { all: number }).all).toBeCloseTo(18)
+    expect(store.getSnapshot().file!.revision).toBe(revision + 1)
+    expect(store.getSnapshot().appearanceOverrides).toBeNull()
+    expect(store.getSnapshot().canUndo).toBe(true)
+  })
+
+  it('Alt edits one corner, Shift snaps to five, and cancellation restores the snapshot', () => {
+    const { store, projections, gestures } = setup()
+    const entry = projections.getSnapshot().frame!.byNodeId.frame!
+    const pose = cornerRadiusHandlePoses(entry, expandedCornerRadii(undefined))[0]!
+    const start = pointer(pose.center.x, pose.center.y)
+    const end = { ...pointer(start.clientX + pose.inward.x * pose.screenScale * 13, start.clientY + pose.inward.y * pose.screenScale * 13), altKey: true, shiftKey: true }
+
+    expect(gestures.radiusPointerDown(start, 'frame', pose.corner)).toBe(true)
+    gestures.pointerMove(end)
+    expect(store.getSnapshot().appearanceOverrides?.frame?.cornerRadii).toEqual({ topLeft: 15, topRight: 0, bottomLeft: 0, bottomRight: 0 })
+    gestures.pointerCancel(end)
+
+    expect(nodeAppearance(store.getSnapshot().file!.nodes.frame)?.cornerRadii).toBeUndefined()
+    expect(store.getSnapshot().appearanceOverrides).toBeNull()
+  })
+})
 
 describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
   it('streams each pointer sample and releases one semantic commit at pointer up', () => {
@@ -377,6 +417,41 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
     expect(interactions.endInteraction).toHaveBeenCalledTimes(2)
   })
 
+  it('AT-CAN-006 commits a released second resize after fresh renderer geometry arrives', () => {
+    let publishGeometry: (() => void) | undefined
+    let refreshGeometry: (() => void) | undefined
+    const { store, gestures, preview } = setup(undefined, { left: 0, top: 0 }, currentStore => {
+      let current = measuredGeometry(currentStore)
+      const listeners = new Set<() => void>()
+      publishGeometry = () => { for (const listener of listeners) listener() }
+      refreshGeometry = () => { current = measuredGeometry(currentStore) }
+      return {
+        getSnapshot: () => current,
+        subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) },
+        update: () => undefined,
+        clear: () => undefined,
+      } as typeof sceneGeometry
+    })
+
+    expect(gestures.handlePointerDown(pointer(740, 490), 'frame', 'right')).toBe(true)
+    gestures.pointerMove(pointer(760, 490))
+    gestures.pointerUp(pointer(760, 490))
+    expect(primitiveRect(store, 'frame').width).toBe(260)
+
+    expect(gestures.handlePointerDown(pointer(760, 490), 'frame', 'right')).toBe(true)
+    gestures.pointerMove(pointer(780, 490))
+    gestures.pointerUp(pointer(780, 490))
+    expect(primitiveRect(store, 'frame').width).toBe(260)
+    expect(gestures.active).toBe(false)
+
+    refreshGeometry!()
+    publishGeometry!()
+
+    expect(preview.publishResizePresentation.mock.calls.at(-1)?.[0].presentation.byNodeId.frame?.rect.width).toBe(280)
+    expect(primitiveRect(store, 'frame').width).toBe(280)
+    expect(gestures.active).toBe(false)
+  })
+
   it('AT-CAN-005 cancels a moved pending resize when a remote lock arrives before fresh geometry', () => {
     let locked = false
     const listeners = new Set<() => void>()
@@ -408,7 +483,7 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
     expect(store.getHistory().past).toHaveLength(historyBefore)
   })
 
-  it('AT-CAN-005 cancels pending resize on pointer-up and later geometry cannot resurrect it', () => {
+  it('AT-CAN-006 holds a released pending resize until fresh geometry can commit its terminal sample', async () => {
     const interactions: CanvasInteractionController = {
       beginInteraction: vi.fn(() => 'pending-up-claim'),
       updateInteraction: vi.fn(() => true),
@@ -431,7 +506,7 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
     })
     expect(store.commands.setStyles('frame', { width: 260 })).toBe(true)
     const historyBefore = store.getHistory().past.length
-    const persist = vi.fn()
+    const persist = vi.fn(async (next: FileDocument) => ({ ...next, revision: next.revision + 1 }))
     store.configure({ persist })
     const commitGesture = vi.spyOn(store.commands, 'commitGesture')
 
@@ -442,16 +517,23 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
 
     expect(gestures.active).toBe(false)
     expect(store.getSnapshot().transient).toBeNull()
-    expect(preview.clearResizePresentation).toHaveBeenCalledOnce()
-    expect(interactions.endInteraction).toHaveBeenCalledWith('pending-up-claim')
+    expect(preview.clearResizePresentation).not.toHaveBeenCalled()
+    expect(interactions.endInteraction).not.toHaveBeenCalled()
     expect(commitGesture).not.toHaveBeenCalled()
     expect(store.getHistory().past).toHaveLength(historyBefore)
     expect(persist).not.toHaveBeenCalled()
 
     refreshGeometry!()
     publishGeometry!()
-    expect(preview.publishResizePresentation).not.toHaveBeenCalled()
-    expect(commitGesture).not.toHaveBeenCalled()
+    expect(preview.publishResizePresentation.mock.calls.at(-1)?.[0].presentation.byNodeId.frame?.rect.width).toBe(280)
+    expect(commitGesture).toHaveBeenCalledOnce()
+    expect(primitiveRect(store, 'frame').width).toBe(280)
+    await store.waitForPersistence()
+    await Promise.resolve()
+    expect(interactions.endInteraction).toHaveBeenCalledWith('pending-up-claim')
+    expect(store.getHistory().past).toHaveLength(historyBefore + 1)
+    expect(persist).toHaveBeenCalled()
+    expect((persist.mock.calls.at(-1)?.[0] as FileDocument).nodes.frame).toMatchObject({ styles: { width: 280 } })
   })
 
   it('AT-CAN-005 cancels active and pending resize synchronously when the local claim disappears', () => {
@@ -807,27 +889,43 @@ describe('PAPER-FLEX-006 production flow drag controller', () => {
     store.select('child')
 
     expect(gestures.stagePointerDown({ ...pointer(550, 450), timeStamp: 1_000 })).toBe(true)
-    gestures.pointerMove({ ...pointer(550, 580), timeStamp: 1_100 })
+    gestures.pointerMove({ ...pointer(550, 570), timeStamp: 1_100 })
     expect(gestures.active).toBe(true)
-    gestures.pointerUp({ ...pointer(550, 590), timeStamp: 1_120 })
+    gestures.pointerUp({ ...pointer(550, 575), timeStamp: 1_120 })
 
     await vi.waitFor(() => expect(fileChildren(store.getSnapshot().file!, 'frame')).toEqual(['nested-text', 'child']))
     expect(store.getSnapshot().selection).toEqual(['child'])
     expect(store.getSnapshot().transient).toBeNull()
   })
 
-  it('Alt-drag leaves one inert-source clone and keeps the original selected', async () => {
+  it('Alt-drag keeps the source fixed and selects the moved duplicate', async () => {
     const { store, gestures } = setup(undefined, { left: 0, top: 0 }, undefined, flowFixture())
     store.select('child')
 
     expect(gestures.stagePointerDown({ ...pointer(550, 450), timeStamp: 2_000 })).toBe(true)
-    gestures.pointerMove({ ...pointer(550, 580), altKey: true, timeStamp: 2_100 })
+    gestures.pointerMove({ ...pointer(550, 570), altKey: true, timeStamp: 2_100 })
     expect(gestures.active).toBe(true)
-    gestures.pointerUp({ ...pointer(550, 590), altKey: true, timeStamp: 2_120 })
+    gestures.pointerUp({ ...pointer(550, 575), altKey: true, timeStamp: 2_120 })
 
     await vi.waitFor(() => expect(fileChildren(store.getSnapshot().file!, 'frame')).toHaveLength(3))
-    expect(store.getSnapshot().selection).toEqual(['child'])
+    expect(store.getSnapshot().selection).toEqual(['unused'])
     expect(store.getSnapshot().file!.nodes.unused).toBeDefined()
+  })
+
+  it('drags a flow child out of its parent onto the page as an absolute node', async () => {
+    const { store, gestures } = setup(undefined, { left: 0, top: 0 }, undefined, flowFixture())
+    store.select('child')
+
+    expect(gestures.stagePointerDown({ ...pointer(550, 450), timeStamp: 2_500 })).toBe(true)
+    gestures.pointerMove({ ...pointer(800, 700), timeStamp: 2_600 })
+    gestures.pointerUp({ ...pointer(800, 700), timeStamp: 2_620 })
+
+    await vi.waitFor(() => expect(store.getSnapshot().file!.relationships.child!.parentId).toBe('root-1'))
+    expect(store.getSnapshot().file!.nodes.child).toMatchObject({
+      layout: { item: { position: { mode: 'freeform' } } },
+      styles: { left: 270, top: 270, width: 160, height: 100 },
+    })
+    expect(store.getSnapshot().selection).toEqual(['child'])
   })
 
   it('Escape after threshold commits the last accepted Paper sample', async () => {
@@ -835,7 +933,7 @@ describe('PAPER-FLEX-006 production flow drag controller', () => {
     store.select('child')
 
     gestures.stagePointerDown({ ...pointer(550, 450), timeStamp: 3_000 })
-    gestures.pointerMove({ ...pointer(550, 590), timeStamp: 3_100 })
+    gestures.pointerMove({ ...pointer(550, 575), timeStamp: 3_100 })
     gestures.cancel()
 
     await vi.waitFor(() => expect(fileChildren(store.getSnapshot().file!, 'frame')).toEqual(['nested-text', 'child']))
@@ -974,6 +1072,21 @@ describe('AT-CAN-005 selected container pointer precedence', () => {
     gestures.pointerUp(pointer(562, 450))
     expect(primitivePosition(store, 'frame')).toEqual({ left: 0, top: 0 })
     expect(primitivePosition(store, 'child')).toEqual({ left: 32, top: 20 })
+  })
+
+  it('Alt-drags a live duplicate while leaving the original at its source', () => {
+    const { store, gestures } = setup()
+    store.select('child')
+    const start = { ...pointer(550, 450), altKey: true }
+
+    gestures.stagePointerDown(start)
+    gestures.pointerMove({ ...pointer(560, 450), altKey: true })
+    gestures.pointerMove({ ...pointer(562, 450), altKey: true })
+    gestures.pointerUp({ ...pointer(562, 450), altKey: true })
+
+    expect(primitivePosition(store, 'child')).toEqual({ left: 20, top: 20 })
+    expect(store.getSnapshot().file!.nodes.unused).toMatchObject({ id: 'unused', type: 'rectangle', styles: { left: 32, top: 20, width: 160, height: 100 } })
+    expect(store.getSnapshot().selection).toEqual(['unused'])
   })
 
   it('lets the deep-selection modifier bypass selected-container drag precedence', () => {

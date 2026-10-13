@@ -6,7 +6,7 @@ import { sourceBindingPlugin } from '@canvas/preview-runtime/source-binding-plug
 import { loadVerifiedRegistryManifest } from '@canvas/preview-runtime/verified-registry'
 import { verifiedModuleBoundaryPlugin, verifiedRegistryPlugin } from '@canvas/preview-runtime/verified-registry-plugin'
 import { defineConfig } from 'vite'
-import { previewResponseHeaders } from './preview/csp'
+import { createPreviewResponseHeaders } from './preview/csp'
 
 const requireFromPreview = createRequire(import.meta.url)
 const previewRoot = fileURLToPath(new URL('./preview/', import.meta.url))
@@ -20,10 +20,11 @@ const manifestPath = process.env.CANVAS_VERIFIED_COMPONENT_REGISTRY?.trim()
 if (!manifestPath) throw new Error('CANVAS_VERIFIED_COMPONENT_REGISTRY is required. Run the preview through pnpm dev:preview.')
 const registry = await loadVerifiedRegistryManifest(manifestPath)
 if (!registry) throw new Error('The verified component registry could not be loaded.')
+const previewResponseHeaders = createPreviewResponseHeaders(process.env.CANVAS_PREVIEW_EDITOR_ORIGIN?.trim() || undefined)
 
 export default defineConfig({
     root: 'preview',
-    cacheDir: 'preview/.vite-preview',
+    cacheDir: process.env.CANVAS_PREVIEW_CACHE_DIR?.trim() || 'preview/.vite-preview',
     resolve: { dedupe: ['react', 'react-dom'] },
     define: { __CANVAS_VERIFIED_REGISTRY_FINGERPRINT__: JSON.stringify(registry.fingerprint) },
     plugins: [

@@ -19,6 +19,7 @@ export type DesktopFileSummary = Readonly<{
 }>
 
 export type DesignEditorApi = Readonly<{
+  allowUnauthenticatedWorkspace: boolean
   listFiles(): Promise<readonly DesktopFileSummary[]>
   createFile(): Promise<DesktopFileSummary>
   openFile(fileId: string): Promise<DesktopProjectSnapshot>

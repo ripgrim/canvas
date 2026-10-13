@@ -133,7 +133,7 @@ try {
   assert.equal(boundary.url, 'design-editor://app/')
   assert.equal(boundary.node, 'undefined')
   assert.equal(boundary.process, 'undefined')
-  assert.deepEqual(boundary.bridge, ['cloneGitHubRepository', 'createFile', 'getAuthSession', 'getCollaborationSnapshot', 'getConnectedRepository', 'inspectFixture', 'leaveCollaboration', 'listFiles', 'onAuthSessionChanged', 'onCollaborationChanged', 'onFileChanged', 'openFile', 'pickLocalRepository', 'prepareLabelPadding', 'preparePromotion', 'prepareRedo', 'prepareToken', 'prepareUndo', 'refresh', 'rescanConnectedRepository', 'retryCollaboration', 'saveFile', 'savePrepared', 'scanShadcn', 'signInWithGitHub', 'signOut', 'updateCollaborationAwareness'])
+  assert.deepEqual(boundary.bridge, ['allowUnauthenticatedWorkspace', 'checkForUpdate', 'cloneGitHubRepository', 'createFile', 'downloadUpdate', 'getAuthSession', 'getCollaborationSnapshot', 'getConnectedRepository', 'getUpdateSnapshot', 'inspectFixture', 'installUpdate', 'leaveCollaboration', 'listFiles', 'onAuthSessionChanged', 'onCollaborationChanged', 'onFileChanged', 'onUpdateChanged', 'openFile', 'pickLocalRepository', 'prepareLabelPadding', 'preparePromotion', 'prepareRedo', 'prepareToken', 'prepareUndo', 'refresh', 'rescanConnectedRepository', 'retryCollaboration', 'saveFile', 'savePrepared', 'scanShadcn', 'signInWithGitHub', 'signOut', 'updateCollaborationAwareness'])
   assert.deepEqual(await first.call('listFiles'), [{ id: 'fixture-project', name: 'Fixture', location: 'Local' }])
   assert.equal((await first.call('openFile', 'fixture-project')).projectId !== undefined, true)
   assert.equal(await first.call('getConnectedRepository'), null)

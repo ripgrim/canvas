@@ -12,7 +12,7 @@ interface UpdateBucket {
 
 interface Env { UPDATES: UpdateBucket }
 
-const immutableArtifact = /^Comp Canvas(?: Nightly)? Setup \d+\.\d+\.\d+(?:-nightly\.\d+)?\.exe(?:\.blockmap)?$/
+const immutableArtifact = /^Comp Canvas(?: Nightly)? Setup \d+\.\d+\.\d+(?:-nightly\.\d{8}\.\d+)?\.exe(?:\.blockmap)?$/
 const channelManifest = /^(?:latest|nightly)\.yml$/
 
 export function updateObjectKey(pathname: string): string | null {

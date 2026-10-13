@@ -198,13 +198,20 @@ export function canvasElementStyle(element, assets = undefined, offset = { x: 0,
       ? authoredLeft + element.width
       : authoredLeft
   const textTransforms = [...(anchorOffset ? [anchorOffset] : []), ...transforms]
+  const semanticTextSize = (property, axis, fallback) => {
+    if (axis.mode !== 'fill') return freeformTextAxisSize(axis, fallback)
+    const projected = declarations[property]
+    if (projected !== undefined) return projected
+    if (declarations['align-self'] === 'stretch' || declarations['justify-self'] === 'stretch' || declarations['flex-grow'] !== undefined) return undefined
+    return '100%'
+  }
   return {
     ...style,
     ...appearance,
     ...(anchoredLeft === null ? {} : { left: `${number(anchoredLeft)}px` }),
     transform: textTransforms.length ? textTransforms.join(' ') : undefined,
-    width: freeformTextAxisSize(sizing.width, element.width),
-    height: freeformTextAxisSize(sizing.height, element.height),
+    width: semanticTextSize('width', sizing.width, element.width),
+    height: semanticTextSize('height', sizing.height, element.height),
     fontFamily: text.fontFamily,
     fontStyle: text.fontStyle,
     fontWeight: text.fontWeight,

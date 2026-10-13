@@ -14,7 +14,68 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deploy-staging-infrastructure:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Require Cloudflare credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "The CLOUDFLARE_API_TOKEN secret is missing."
+            exit 1
+          fi
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "The CLOUDFLARE_ACCOUNT_ID secret is missing."
+            exit 1
+          fi
+
+      - name: Wait for matching staging applications
+        env:
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          for attempt in $(seq 1 60); do
+            api_revision="$(curl --fail --silent --show-error https://api-staging.canvas.ripgrim.com/healthz/deployment | jq -r '.revision // empty' || true)"
+            web_revision="$(curl --fail --silent --show-error https://staging.canvas.ripgrim.com/version.json | jq -r '.commit // empty' || true)"
+            if [ "$api_revision" = "$EXPECTED_REVISION" ] && [ "$web_revision" = "$EXPECTED_REVISION" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Staging applications did not reach revision $EXPECTED_REVISION."
+          exit 1
+
+      - name: Deploy staging infrastructure
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          pnpm cloudflare:deploy:staging
+          pnpm thumbnails:deploy:staging
+          pnpm sync:deploy:staging
+
+      - name: Probe staging sync protocol
+        run: pnpm sync:probe:staging
+
   open-release-pull-request:
+    needs: deploy-staging-infrastructure
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

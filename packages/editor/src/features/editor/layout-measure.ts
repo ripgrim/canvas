@@ -137,7 +137,10 @@ export function sizingTargets(file: FileDocument, geometry: LayoutGeometry, ids:
   return ids.filter(id => file.nodes[id]?.type === 'component').map(id => {
     const measured = measuredPx(geometry, id, axis)
     const parent = parentContentPx(file, geometry, id, axis)
-    return { id, layout: layoutOf(file, id), measurement: { ...(measured !== undefined ? { measuredPx: measured } : {}), ...(parent !== undefined ? { parentPx: parent } : {}) }, parentDirection: parentDirection(file, id) }
+    const parentId = parentIdOf(file, id)
+    const parentDisplay = parentId ? file.nodes[parentId]?.type === 'root' ? null : file.nodes[parentId]?.layout?.container?.display ?? 'freeform' : null
+    const local = localPoint(file, geometry, id)
+    return { id, layout: layoutOf(file, id), measurement: { ...(measured !== undefined ? { measuredPx: measured } : {}), ...(parent !== undefined ? { parentPx: parent } : {}) }, parentDisplay, parentDirection: parentDirection(file, id), ...(local ? { local } : {}) }
   })
 }
 
@@ -277,7 +280,13 @@ function worldToParentPadding(file: FileDocument, geometry: LayoutGeometry, pare
 
 const finitePoint = (point: Readonly<Point>): boolean => finite(point.x) && finite(point.y)
 const finiteRect = (rect: Readonly<Rect>): boolean => finite(rect.x) && finite(rect.y) && positive(rect.width) && positive(rect.height)
-const sameRect = (left: Readonly<Rect>, right: Readonly<Rect>): boolean => left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height
+const sceneRectTolerance = resizeGeometryAabbTolerance
+const sameRect = (left: Readonly<Rect>, right: Readonly<Rect>): boolean => (
+  close(left.x, right.x, sceneRectTolerance)
+  && close(left.y, right.y, sceneRectTolerance)
+  && close(left.width, right.width, sceneRectTolerance)
+  && close(left.height, right.height, sceneRectTolerance)
+)
 
 function exactSceneMeasurement(file: FileDocument, scene: Scene, geometry: SceneGeometry, nodeId: string): boolean {
   const node = file.nodes[nodeId]
@@ -511,8 +520,8 @@ function deriveResizeGeometryAuthority(snapshot: GestureAuthoritySnapshot, nodeI
   if (
     origin.x <= 0
     || origin.y <= 0
-    || !close(origin.x, measurement.offset.width / 2)
-    || !close(origin.y, measurement.offset.height / 2)
+    || !close(origin.x, measurement.offset.width / 2, sceneRectTolerance)
+    || !close(origin.y, measurement.offset.height / 2, sceneRectTolerance)
   ) return null
   const rotationDegrees = unitRotation(file, nodeId, measurement)
   if (rotationDegrees === null) return null
@@ -646,29 +655,34 @@ export function paperFlowCrossParentAbsoluteDropGeometry(input: PaperFlowCrossPa
   const childMeasurement = geometry.nodes[childId]
   const sourceParentMeasurement = sourceRelationship ? geometry.nodes[sourceRelationship.parentId] : undefined
   const targetParentMeasurement = geometry.nodes[targetParentId]
-  if (!child || child.type === 'root' || !sourceRelationship || !sourceParent || (sourceParent.type !== 'frame' && sourceParent.type !== 'component') || !targetParent || (targetParent.type !== 'frame' && targetParent.type !== 'component')) return null
+  const openRoot = pageRoot(file, snapshot.pageId)
+  const targetIsRoot = targetParentId === openRoot
+  if (!child || child.type === 'root' || !sourceRelationship || !sourceParent || (sourceParent.type !== 'frame' && sourceParent.type !== 'component') || !targetParent || (!targetIsRoot && targetParent.type !== 'frame' && targetParent.type !== 'component')) return null
   if (sourceRelationship.parentId === targetParentId || targetParentId === childId || descendantsOf(file, childId).includes(targetParentId)) return null
   if (!acceptsChild(sourceParent, child, sourceRelationship.slot, [...snapshot.atoms])) return null
   if (!acceptsChild(targetParent, child, targetSlot, [...snapshot.atoms])) return null
-  if (nodeChildDisplay(sourceParent) !== 'flex' || !sourceParent.layout?.container?.flex || nodeChildDisplay(targetParent) !== 'flex' || !targetParent.layout?.container?.flex) return null
+  if (nodeChildDisplay(sourceParent) !== 'flex' || !sourceParent.layout?.container?.flex) return null
+  if (!targetIsRoot) {
+    if (targetParent.type !== 'frame' && targetParent.type !== 'component') return null
+    if (nodeChildDisplay(targetParent) !== 'flex' || !targetParent.layout?.container?.flex) return null
+  }
   if (nodePositionMode(child) !== 'flow' || child.layout?.spacing?.margin !== undefined || nodeIsLocked(file, childId) || nodeIsLocked(file, sourceRelationship.parentId) || nodeIsLocked(file, targetParentId)) return null
   if (!exactProjection(childMeasurement, file, geometry, start.layoutGeneration) || !positiveOffset(childMeasurement)) return null
   if (!exactProjection(sourceParentMeasurement, file, geometry, start.layoutGeneration) || !positiveOffset(sourceParentMeasurement)) return null
-  if (!exactProjection(targetParentMeasurement, file, geometry, start.layoutGeneration) || !positiveOffset(targetParentMeasurement)) return null
-  if (!exactSceneMeasurement(file, scene, geometry, childId) || !exactSceneMeasurement(file, scene, geometry, sourceRelationship.parentId) || !exactSceneMeasurement(file, scene, geometry, targetParentId)) return null
+  if (!targetIsRoot && (!exactProjection(targetParentMeasurement, file, geometry, start.layoutGeneration) || !positiveOffset(targetParentMeasurement))) return null
+  if (!exactSceneMeasurement(file, scene, geometry, childId) || !exactSceneMeasurement(file, scene, geometry, sourceRelationship.parentId) || !targetIsRoot && !exactSceneMeasurement(file, scene, geometry, targetParentId)) return null
   const childScene = scene.byId.get(childId)
   if (!childScene?.flow || childScene.locked) return null
-  const openRoot = pageRoot(file, snapshot.pageId)
-  if (!openRoot || !belongsToPageRoot(file, childId, openRoot) || !belongsToPageRoot(file, targetParentId, openRoot)) return null
+  if (!openRoot || !belongsToPageRoot(file, childId, openRoot) || !targetIsRoot && !belongsToPageRoot(file, targetParentId, openRoot)) return null
 
   const sourceParentToRoot = strictBorderToRoot(file, scene, geometry, sourceRelationship.parentId, start)
-  const targetParentToRoot = strictBorderToRoot(file, scene, geometry, targetParentId, start)
+  const targetParentToRoot = targetIsRoot ? identity : strictBorderToRoot(file, scene, geometry, targetParentId, start)
   const sourceBorder = sourceParentMeasurement.box?.border
-  const targetBorder = targetParentMeasurement.box?.border
+  const targetBorder = targetIsRoot ? { top: 0, right: 0, bottom: 0, left: 0 } : targetParentMeasurement?.box?.border
   if (!sourceParentToRoot || !targetParentToRoot || !sourceBorder || !targetBorder) return null
   if (![sourceBorder.top, sourceBorder.right, sourceBorder.bottom, sourceBorder.left, targetBorder.top, targetBorder.right, targetBorder.bottom, targetBorder.left].every(value => finite(value) && value >= 0)) return null
   const sourcePaddingToRoot = multiply(sourceParentToRoot, paddingEdge(sourceParentMeasurement))
-  const targetPaddingToRoot = multiply(targetParentToRoot, paddingEdge(targetParentMeasurement))
+  const targetPaddingToRoot = targetIsRoot ? targetParentToRoot : multiply(targetParentToRoot, paddingEdge(targetParentMeasurement!))
   const rootToSourcePadding = invert(sourcePaddingToRoot)
   const worldToTargetPadding = invert(targetPaddingToRoot)
   if (!isFiniteMatrix(sourcePaddingToRoot) || !rootToSourcePadding || !isFiniteMatrix(rootToSourcePadding)

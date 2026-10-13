@@ -26,6 +26,60 @@ Verify MIME precedence, versioned internal payloads, editable-target bypass, SVG
 - Keep screenshots, recordings, diffs, and diagnostics with the test result.
 - Label unsupported adapters as unsupported. Do not rerun against a different adapter and claim the requested case passed.
 
+## Pull request interaction evidence
+
+### PR-EVIDENCE-001: Deterministic planning
+
+Map both sides of every changed path through the trusted capability registry. The same changes in any order produce identical canonical plans. Unmapped paths and visual capabilities without scenarios fail.
+
+### PR-EVIDENCE-002: Strict manifest
+
+Accept only the versioned manifest schema, safe relative paths, unique scenarios, unique assets, content hashes, exact run identity, and explicit nonvisual reasons. Reject unknown keys and unsafe paths.
+
+### PR-EVIDENCE-003: Browser capture
+
+Run the transient-move pilot through public automation actions and real pointer input. Capture before, held, and after screenshots plus a recording. Verify preview geometry, HUD geometry, committed state, and viewport stability independently.
+
+### PR-EVIDENCE-004: Electron capture
+
+Deferred until the browser pilot is stable. Do not report Electron evidence from a browser adapter.
+
+### PR-EVIDENCE-005: Deterministic media
+
+Verify the pinned FFmpeg tools by size and SHA-256. Normalize the browser recording to VP9 WebM, preserve observed cadence, decode the full result, reject blank or static output, enforce 30 seconds and 9 MiB, and extract a PNG poster.
+
+### PR-EVIDENCE-006: Relevance gate
+
+Run only scenarios selected by the deterministic plan. Nonvisual changes require a concrete registry reason. New observable behavior cannot bypass capture.
+
+### PR-EVIDENCE-007: Idempotent publication
+
+Replace only the managed PR evidence block. Preserve unrelated PR prose. Repeating the same publication performs no PR body write.
+
+### PR-EVIDENCE-008: Rendered PR verification
+
+Publish content-addressed media through the read-only evidence service. Re-read the PR and verify its raw body, rendered HTML, managed key, and every media URL.
+
+### PR-EVIDENCE-009: Adoption boundary
+
+When the evidence system is introduced on an existing pull request, diff from the trusted adoption commit until the target branch contains it. Reject a head that does not contain that commit. Once adopted, use the pull request base normally.
+
+### PR-EVIDENCE-SEC-001: Untrusted capture boundary
+
+The pull-request workflow has read-only contents, no secrets, no environment, no persisted credentials, and no write permission.
+
+### PR-EVIDENCE-SEC-002: Trusted publisher boundary
+
+The workflow-run publisher checks out only the default branch, never executes pull-request code, downloads the exact upstream artifact, rejects extra archive entries and symlinks, and validates repository, PR, base, head, run, attempt, registry, files, scenarios, assertions, bytes, and hashes before writing.
+
+### PR-EVIDENCE-PERF-001: Bounded evidence cost
+
+Use one browser worker, one scenario per selected capability set, bounded process output, bounded media, no fixed waits, and no FFmpeg binary in the application package.
+
+### PR-EVIDENCE-NEG-001: Evidence mutation controls
+
+Mutate one tool hash, media hash, manifest identity, scenario assertion, archive path, and media origin. Each mutation must fail before publication.
+
 ## P0 end-to-end
 
 ### AT-P0-001: Local login composition and promotion
@@ -341,7 +395,7 @@ Run `pnpm test:vercel-config`, `pnpm test:vercel-builds`, then `pnpm vercel:chec
 
 ### DEPLOY-STAGING-001: Persistent staging promotion
 
-Run `pnpm test:deployment-config` and `pnpm test:vercel-env`. Verify production and staging have disjoint origins for editor, login, API, preview, thumbnail rendering, assets, and sync. The preview iframe must remain cross-origin. Validate `.env.staging` without printing its values, then upload each Vercel variable only to the Preview environment scoped to the `staging` branch. Push a test commit to `staging`; confirm its staging surfaces update and exactly one open pull request targets `main`. Push another test commit and confirm the existing pull request updates instead of creating a duplicate. Merge that pull request and confirm only the `main` revision reaches production.
+Run `pnpm test:deployment-config` and `pnpm test:vercel-env`. Verify production and staging have disjoint origins for editor, login, API, preview, thumbnail rendering, assets, and sync. The preview iframe must remain cross-origin. Validate `.env.staging` without printing its values, then upload each Vercel variable only to the Preview environment scoped to the `staging` branch. Push a test commit to `staging`; wait until the web and API deployment endpoints report that exact revision, deploy assets, the private thumbnail queue, the sync coordinator, and the sync Worker with scoped Cloudflare credentials, then probe the live WebSocket protocol before exactly one open pull request targets `main`. Push another test commit and confirm the existing pull request updates instead of creating a duplicate. Merge that pull request and confirm only the `main` revision reaches production.
 
 Negative controls: point any staging service at its production origin, reuse the production auth cookie prefix, scope the staging cookie so it cannot reach the sync host, omit a required staging secret, add a direct workflow push to `main`, or remove the existing-pull-request check. Each mutation must fail its staging configuration test.
 
@@ -369,7 +423,7 @@ Negative controls: forge client dimensions or digest, lose the upload response a
 
 ### AT-THUMB-001: Revision-bound thumbnails
 
-Load the dedicated `/thumbnail-renderer` surface with an injected, revision-bound source. Verify it hides editor chrome, fits the content, settles for three animation frames, and publishes the Paper readiness markers before headless capture. Decode the captured AVIF, upload it to an immutable revision-and-nonce key, and commit its exact key and ETag through the file metadata compare-and-swap. Serve only that committed generation through `/file-assets/thumbnails/:fileId/thumbnail.avif`. A stale revision, failed capture, corrupt output, failed upload, failed metadata commit, replay, or uploaded-but-uncommitted object must not replace or expose the current thumbnail.
+Load the dedicated `/thumbnail-renderer` surface with an injected, revision-bound source. Verify it hides editor chrome, fits the content, settles for three animation frames, and publishes the Paper readiness markers before headless capture. Wake one private Playwright queue container from the scheduled Worker with only the staging service origins and dedicated secrets, and keep its public Worker route closed. Decode the captured AVIF, upload it to an immutable revision-and-nonce key, and commit its exact key and ETag through the file metadata compare-and-swap. Serve only that committed generation through `/file-assets/thumbnails/:fileId/thumbnail.avif`. A stale revision, failed capture, corrupt output, failed upload, failed metadata commit, replay, uploaded-but-uncommitted object, missing secret, or non-HTTPS hosted origin must not replace or expose the current thumbnail.
 
 ### CLOUD-SYNC-CLIENT-001: Browser revision sync
 

@@ -21,7 +21,7 @@ import { documentStore } from './document-store'
 import { editorStore } from './store'
 import { inspectorCopy as copy } from './inspector-copy'
 import { sizingModeOf } from './layout-commands'
-import { parentDirection } from './layout-measure'
+import { localPoint, parentContentPx } from './layout-measure'
 import { sceneGeometry } from './scene-geometry'
 
 type Mode = 'light' | 'dark'
@@ -79,24 +79,34 @@ function PrimitiveInspector({ nodes, file, overrides, mode, disabled }: Appearan
   const textNodes = inspectableTextNodes(nodes)
   const frames = nodes.filter(isFrame)
   const frameSizing = frames.length === nodes.length
-  const flexContainer = frameSizing && frames.every(node => node.layout?.container?.display === 'flex')
-  const flexItem = frameSizing && frames.every(node => parentDirection(file, node.id) !== null)
+  const semanticSizing = nodes.every(node => node.type !== 'text')
+  const hasParent = semanticSizing && nodes.every(node => {
+    const parentId = file.relationships[node.id]?.parentId
+    return Boolean(parentId && file.nodes[parentId]?.type !== 'root')
+  })
   const sizingField = (axis: 'width' | 'height') => {
     const label = axis === 'width' ? copy.width : copy.height
     const prefix = axis === 'width' ? 'W' : 'H'
-    if (!frameSizing) return <InspectorNumberField id={`layout-${axis}`} label={label} prefix={prefix} value={value(axis)} placeholder={copy.mixed} min={1} max={1000000} disabled={disabled} onCommit={next => apply({ [axis]: next })} />
-    const sizing = same(frames.map(node => node.layout?.item[axis] ? sizingModeOf(node.layout, axis) : 'fixed'))
-    const available = sizingModesForContext(flexContainer, flexItem)
+    if (!semanticSizing) return <InspectorNumberField id={`layout-${axis}`} label={label} prefix={prefix} value={value(axis)} placeholder={copy.mixed} min={1} max={1000000} disabled={disabled} onCommit={next => apply({ [axis]: next })} />
+    const sizing = same(nodes.map(node => node.layout?.item[axis] ? sizingModeOf(node.layout, axis) : 'fixed'))
+    const available = sizingModesForContext(frameSizing, hasParent)
     const state = sizingFieldState(available, sizing ?? undefined, sizing === null)
     const fixed = sizing === 'fixed'
-    const field = <InspectorNumberField id={`layout-${axis}`} label={label} prefix={prefix} value={fixed ? value(axis) : null} placeholder={state.currentLabel} min={1} max={1000000} disabled={disabled || !fixed} onCommit={next => apply({ [axis]: next })} />
-    if (!flexContainer && !flexItem) return field
+    const field = <InspectorNumberField id={`layout-${axis}`} label={label} prefix={prefix} value={fixed ? value(axis) : null} placeholder={state.currentLabel} min={1} max={1000000} disabled={disabled || sizing === null} onCommit={next => {
+      if (fixed) { apply({ [axis]: next }); return }
+      documentStore.commands.layout.primitiveSizing(axis, 'fixed', nodes.map(node => ({ id: node.id, measuredPx: next })))
+    }} />
+    if (available.length === 1) return field
     return <SizingField label={copy.sizingMode(label)} currentLabel={state.currentLabel} options={state.options} disabled={disabled} field={field} onChoose={next => {
       const sizingMode = next === 'fit' ? 'hug' : next
       if (sizingMode !== 'fixed' && sizingMode !== 'hug' && sizingMode !== 'fill') return
-      documentStore.commands.layout.primitiveSizing(axis, sizingMode, frames.map(node => {
+      documentStore.commands.layout.primitiveSizing(axis, sizingMode, nodes.map(node => {
         const measuredPx = geometry.nodes[node.id]?.rect[axis]
-        return { id: node.id, ...(measuredPx === undefined ? {} : { measuredPx }) }
+        const parentPx = parentContentPx(file, geometry, node.id, axis)
+        const parentId = file.relationships[node.id]?.parentId
+        const parentMeasuredPx = parentId ? geometry.nodes[parentId]?.rect[axis] : undefined
+        const local = localPoint(file, geometry, node.id)
+        return { id: node.id, ...(measuredPx === undefined ? {} : { measuredPx }), ...(parentPx === undefined ? {} : { parentPx }), ...(parentMeasuredPx === undefined ? {} : { parentMeasuredPx }), ...(local ? { local } : {}) }
       }))
     }} />
   }
@@ -116,9 +126,9 @@ function PrimitiveInspector({ nodes, file, overrides, mode, disabled }: Appearan
         {sizingField('height')}
         <InspectorTransformActions actionsLabel={copy.transformActions} rotateLabel={copy.rotate90} flipXLabel={copy.flipHorizontal} flipYLabel={copy.flipVertical} flipXPressed={flipX} flipYPressed={flipY} disabled={disabled} onRotate={() => transform(rotated)} onFlipX={() => transform(node => ({ flipX: node.styles.flipX ? null : true }))} onFlipY={() => transform(node => ({ flipY: node.styles.flipY ? null : true }))} />
       </InspectorRow>
+      {frames.length === nodes.length && <FrameContainerSections nodes={frames} file={file} disabled={disabled} />}
+      {clipControl}
     </InspectorSection>
-    {frames.length === nodes.length && <FrameContainerSections nodes={frames} file={file} disabled={disabled} />}
-    {clipControl}
     <RadiusSection nodes={nodes} overrides={overrides} disabled={disabled} />
     <NodeThemeSection nodes={nodes} disabled={disabled} />
     <AppearanceSections file={file} nodes={nodes} overrides={overrides} mode={mode} disabled={disabled} afterFill={textNodes.length ? <TextInspector file={file} nodes={textNodes} disabled={disabled} /> : null} />

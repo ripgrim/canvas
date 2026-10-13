@@ -62,8 +62,8 @@ function geometry(): SceneGeometry {
     themeUnsupported: {},
     unownedPortals: 0,
     nodes: {
-      'source-parent': { canvasKind: 'frame', documentRevision: 7, layoutGeneration: 11, rect: { x: 0, y: 0, width: 180, height: 100 }, offset: { x: 0, y: 0, width: 180, height: 100, origin: { x: 90, y: 50 } }, offsetParentNodeId: null, directChild: true },
-      node: { canvasKind: 'rectangle', documentRevision: 7, layoutGeneration: 11, rect: { x: 10, y: 20, width: 40, height: 30 }, worldAabb: { x: 10, y: 20, width: 40, height: 30 }, offset: { x: 10, y: 20, width: 40, height: 30, origin: { x: 20, y: 15 } }, offsetParentNodeId: 'source-parent', offsetParentToRoot: [1, 0, 0, 1, 0, 0], directChild: true, transform: [1, 0, 0, 1, 0, 0] },
+      'source-parent': { canvasKind: 'frame', documentRevision: 7, layoutGeneration: 11, rect: { x: 0, y: 0, width: 180, height: 100 }, worldAabb: { x: 0, y: 0, width: 180, height: 100 }, offset: { x: 0, y: 0, width: 180, height: 100, origin: { x: 90, y: 50 } }, offsetParentNodeId: null, offsetParentToRoot: [1, 0, 0, 1, 0, 0], directChild: true, box: { padding: { top: 0, right: 0, bottom: 0, left: 0 }, border: { top: 0, right: 0, bottom: 0, left: 0 } } },
+      node: { canvasKind: 'rectangle', documentRevision: 7, layoutGeneration: 11, rect: { x: 10, y: 20, width: 40, height: 30 }, worldAabb: { x: 10, y: 20, width: 40, height: 30 }, offset: { x: 10, y: 20, width: 40, height: 30, origin: { x: 20, y: 15 } }, offsetParentNodeId: 'source-parent', directChild: true, transform: [1, 0, 0, 1, 0, 0] },
       'target-parent': { canvasKind: 'frame', documentRevision: 7, layoutGeneration: 11, rect: { x: 200, y: 100, width: 200, height: 150 }, worldAabb: { x: 200, y: 100, width: 200, height: 150 }, offset: { x: 200, y: 100, width: 200, height: 150, origin: { x: 100, y: 75 } }, offsetParentNodeId: null, offsetParentToRoot: [1, 0, 0, 1, 0, 0], directChild: true },
       'target-child': { canvasKind: 'rectangle', documentRevision: 7, layoutGeneration: 11, rect: { x: 100, y: 60, width: 40, height: 30 }, worldAabb: { x: 100, y: 60, width: 40, height: 30 }, offset: { x: 100, y: 60, width: 40, height: 30, origin: { x: 20, y: 15 } }, offsetParentNodeId: 'target-parent', directChild: true },
     },
@@ -229,6 +229,30 @@ describe('PAPER-FLEX-006-C5-AUTHORITY, AT-CAN-005-C5-AUTHORITY, and CLOUD-SYNC-G
     expect(captured).toStrictEqual(measurement(state))
     expect(captured).not.toBeNull()
     expectDeepFrozen(captured)
+    expect(buildFlowDragPresentationAuthority({
+      snapshot: authority,
+      state,
+      interactionId: 'interaction-9',
+      retention: { kind: 'active', gestureGeneration: state.gestureGeneration, sampleSequence: state.sampleSequence },
+      reducedMotion: false,
+      measurement: captured!,
+    })).not.toBeNull()
+  })
+
+  it('accepts nested flex geometry inherited from the parent and normalizes sub-pixel DOM rounding', () => {
+    const measured = geometry()
+    measured.nodes['source-parent']!.box!.padding = { top: 16, right: 16, bottom: 16, left: 16 }
+    measured.nodes.node = {
+      ...measured.nodes.node!,
+      rect: { x: 10.00002, y: 19.99998, width: 39.99997, height: 30.00003 },
+      worldAabb: { x: 10.00002, y: 19.99998, width: 39.99997, height: 30.00003 },
+    }
+    const authority = snapshot(file(), measured)
+    const state = flowState(authority)
+    const captured = captureFlowDragAuthorityMeasurement(authority, state)
+
+    expect(captured).not.toBeNull()
+    expect(captured?.source).toStrictEqual(sourceGeometry)
     expect(buildFlowDragPresentationAuthority({
       snapshot: authority,
       state,
@@ -407,9 +431,7 @@ describe('PAPER-FLEX-006-C5-AUTHORITY, AT-CAN-005-C5-AUTHORITY, and CLOUD-SYNC-G
     ['source topology', (source: any) => { source.snapshot.file.relationships.node.orderKey = 'W' }],
     ['target topology', (source: any) => { source.snapshot.file.relationships['target-parent'].parentId = 'source-parent' }],
     ['current quad proof', (source: any) => { source.measurement.current.quad[0].x = 111 }],
-    ['sub-tolerance current quad proof', (source: any) => { source.measurement.current.quad[0].x += 1e-9 }],
     ['source matrix proof', (source: any) => { source.measurement.sourceOffsetParent.sourceParentLocal[4] = 11 }],
-    ['sub-tolerance source matrix proof', (source: any) => { source.measurement.sourceOffsetParent.sourceParentLocal[4] += 1e-9 }],
     ['singular parent matrix', (source: any) => { source.measurement.sourceOffsetParent.paddingToWorld[3] = 0 }],
     ['nonfinite matrix', (source: any) => { source.measurement.sourceOffsetParent.paddingToWorld[4] = Number.NaN }],
     ['stale guide', (source: any) => { source.measurement.target.insertionGuide = { axis: 'x', position: 221, start: 110, end: 210 } }],
@@ -421,7 +443,7 @@ describe('PAPER-FLEX-006-C5-AUTHORITY, AT-CAN-005-C5-AUTHORITY, and CLOUD-SYNC-G
 
   it('rejects one-field and same-AABB forged target quads', () => {
     const oneField: any = input()
-    oneField.measurement.target.outline.quad[0].x += 1e-9
+    oneField.measurement.target.outline.quad[0].x += 1
     expect(buildFlowDragPresentationAuthority(oneField)).toBeNull()
 
     const sameAabb: any = input()
@@ -590,7 +612,7 @@ describe('PAPER-FLEX-006-C5-AUTHORITY, AT-CAN-005-C5-AUTHORITY, and CLOUD-SYNC-G
 
   it('does not mutate frozen state or proof descriptors when a proof fails', () => {
     const source: any = input()
-    source.measurement.current.quad[0].x += 1e-9
+    source.measurement.current.quad[0].x += 1
     const stateDescriptors = descriptorFingerprint(source.state)
     const measurementDescriptors = descriptorFingerprint(source.measurement)
     const fileDescriptors = descriptorFingerprint(source.snapshot.file)

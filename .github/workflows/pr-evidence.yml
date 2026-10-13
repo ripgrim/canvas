@@ -1,0 +1,92 @@
+name: PR evidence
+
+on:
+  pull_request:
+    branches:
+      - staging
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    name: Capture interaction evidence
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.6.2
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build evidence packages
+        run: pnpm --filter @canvas/editor-automation build && pnpm --filter @canvas/pr-evidence build
+
+      - name: Plan evidence
+        id: plan
+        run: >-
+          node scripts/pr-evidence.mjs plan
+          --base "${{ github.event.pull_request.base.sha }}"
+          --head "${{ github.event.pull_request.head.sha }}"
+
+      - name: Install Chromium
+        if: steps.plan.outputs.visual == 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install verified FFmpeg
+        if: steps.plan.outputs.visual == 'true'
+        id: tools
+        run: node scripts/pr-evidence.mjs toolchain
+
+      - name: Capture browser evidence
+        if: steps.plan.outputs.visual == 'true'
+        env:
+          PR_EVIDENCE_SCENARIOS: ${{ steps.plan.outputs.scenarios }}
+        run: pnpm test:pr-evidence
+
+      - name: Build evidence artifact
+        run: >-
+          node scripts/pr-evidence.mjs collect
+          --repository-id "${{ github.repository_id }}"
+          --repository "${{ github.repository }}"
+          --pull-request "${{ github.event.pull_request.number }}"
+          --base "${{ github.event.pull_request.base.sha }}"
+          --head "${{ github.event.pull_request.head.sha }}"
+          --run-id "${{ github.run_id }}"
+          --run-attempt "${{ github.run_attempt }}"
+          --ffmpeg "${{ steps.tools.outputs.ffmpeg || 'ffmpeg' }}"
+          --ffprobe "${{ steps.tools.outputs.ffprobe || 'ffprobe' }}"
+
+      - name: Retain evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pr-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/pr-evidence/artifact
+          if-no-files-found: error
+          retention-days: 14

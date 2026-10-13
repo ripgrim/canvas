@@ -161,6 +161,8 @@ export type EditorRepositoryConnection = Readonly<{ repository: ConnectedReposit
 export type EditorAuthApi = Readonly<{
   /** Hosted public-file routes may keep the read-only workspace mounted while the account is signed out. */
   allowSignedOutWorkspace?: boolean
+  /** Development and smoke fixtures may mount without a configured hosted auth service. */
+  allowUnauthenticatedWorkspace?: boolean
   getSession(): Promise<AuthSessionView>
   signInWithGitHub(): Promise<AuthSessionView>
   signOut(): Promise<AuthSessionView>

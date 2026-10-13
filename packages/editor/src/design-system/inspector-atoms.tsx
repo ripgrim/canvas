@@ -20,8 +20,50 @@ export function InspectorGroup({ label, children }: { label?: string; children: 
   return <div className="inspector-group">{label && <span className="inspector-group-label">{label}</span>}{children}</div>
 }
 
+type InspectorFlexGlyphKind = 'direction' | 'wrap' | 'gap' | 'distribution' | 'padding-horizontal' | 'padding-vertical' | 'padding-split' | 'remove'
+
+/** Paper's compact Flex glyphs use deliberately tiny, pixel-aligned geometry. */
+export function InspectorFlexGlyph({ kind, column = false }: { kind: InspectorFlexGlyphKind; column?: boolean }) {
+  if (kind === 'direction') return <svg className="inspector-flex-glyph" data-column={column || undefined} width="9" height="9" viewBox="0 0 9 9" fill="none" aria-hidden="true"><path d="M.5 4.5h7.9M8.4 4.5 5.3 1.17M8.4 4.5 5.3 7.83" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" /></svg>
+  if (kind === 'wrap') return <svg className="inspector-flex-glyph" width="13" height="11" viewBox="0 0 13 11" fill="none" stroke="currentColor" aria-hidden="true"><path d="m4.5 10.5-3-3 3-3m-3 3H8" /><path d="M8 7.5A3.5 3.5 0 0 0 8 .5M5 .5h3" /></svg>
+  if (kind === 'gap') return <svg className="inspector-flex-glyph" data-column={column || undefined} width="13" height="12" viewBox="0 0 13 12" fill="none" stroke="currentColor" aria-hidden="true"><rect x=".5" y="1.5" width="3" height="9" rx=".5" /><rect x="9.5" y="1.5" width="3" height="9" rx=".5" /><path d="M6.5 0v12" /></svg>
+  if (kind === 'distribution') return <svg className="inspector-flex-glyph" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M2 9.5h1V12H2zm7-3h1V12H9zM9 0h1v2.5H9zM2 0h1v5.5H2z" /><circle cx="2.5" cy="7.5" r="2" fill="none" stroke="currentColor" /><circle cx="9.5" cy="4.5" r="2" fill="none" stroke="currentColor" /></svg>
+  if (kind === 'padding-horizontal') return <svg className="inspector-flex-glyph" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" aria-hidden="true"><rect x=".5" y=".5" width="11" height="11" rx="1.5" /><path d="M3.5 3v6m5-6v6" /></svg>
+  if (kind === 'padding-vertical') return <svg className="inspector-flex-glyph" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" aria-hidden="true"><rect x=".5" y=".5" width="11" height="11" rx="1.5" /><path d="M3 3.5h6m-6 5h6" /></svg>
+  if (kind === 'padding-split') return <svg className="inspector-flex-glyph" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" aria-hidden="true"><rect x=".5" y=".5" width="11" height="11" rx="1.5" /><path d="M2.5 4v4m7-4v4M4 2.5h4m-4 7h4" /></svg>
+  return <svg className="inspector-flex-glyph" width="10" height="2" viewBox="0 0 10 2" fill="none" stroke="currentColor" aria-hidden="true"><path d="M10 1H0" vectorEffect="non-scaling-stroke" /></svg>
+}
+
+export function InspectorFlexBlock({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+  return <div className="inspector-flex-block" role="group" aria-label={title}>
+    <div className="inspector-flex-header"><span>{title}</span>{action}</div>
+    {children}
+  </div>
+}
+
+export function InspectorFlexRemoveButton({ label, title, disabled = false, onClick }: { label: string; title: string; disabled?: boolean; onClick: () => void }) {
+  return <button type="button" className="inspector-flex-small-action" aria-label={label} title={title} disabled={disabled} onClick={onClick}><InspectorFlexGlyph kind="remove" /></button>
+}
+
+export function nextInspectorInputIndex(current: number, count: number, reverse: boolean): number | null {
+  const next = current + (reverse ? -1 : 1)
+  return current >= 0 && next >= 0 && next < count ? next : null
+}
+
 export function InspectorFlexPanel({ alignment, direction, wrap, gap, overflow, crossGap, padding }: { alignment: ReactNode; direction: ReactNode; wrap: ReactNode; gap: ReactNode; overflow: ReactNode; crossGap?: ReactNode; padding: ReactNode }) {
-  return <div className="inspector-flex-panel">
+  const numericTab = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) return
+    const target = event.target
+    if (!(target instanceof HTMLInputElement) || !target.matches('.inspector-input')) return
+    const root = event.currentTarget.closest<HTMLElement>('.editor-root') ?? event.currentTarget
+    const inputs = Array.from(root.querySelectorAll<HTMLInputElement>('input.inspector-input:not(:disabled)'))
+    const next = nextInspectorInputIndex(inputs.indexOf(target), inputs.length, event.shiftKey)
+    if (next === null) return
+    event.preventDefault()
+    inputs[next]!.focus()
+    inputs[next]!.select()
+  }
+  return <div className="inspector-flex-panel" onKeyDown={numericTab}>
     <div className="inspector-flex-alignment">{alignment}</div>
     <div className="inspector-flex-controls">
       <div className="inspector-flex-control-row"><span>{direction}</span>{wrap}</div>
@@ -179,16 +221,16 @@ export function InspectorTransformActions({ actionsLabel, rotateLabel, flipXLabe
 
 /** Paper exposes Column before Row and uses one source glyph rotated between the two choices. */
 export function InspectorFlexDirection({ label, rowLabel, columnLabel, axis, disabled = false, onAxis }: { label: string; rowLabel: string; columnLabel: string; axis: 'row' | 'column' | null; disabled?: boolean; onAxis: (axis: 'row' | 'column') => void }) {
-  const direction = (value: 'column' | 'row', text: string) => <button key={value} type="button" className="inspector-flex-direction-button" data-axis={value} aria-label={text} title={text} aria-pressed={axis === value} disabled={disabled} onClick={() => onAxis(value)}><Icon name="back" /></button>
+  const direction = (value: 'column' | 'row', text: string) => <button key={value} type="button" className="inspector-flex-direction-button" data-axis={value} aria-label={text} title={text} aria-pressed={axis === value} disabled={disabled} onClick={() => onAxis(value)}><InspectorFlexGlyph kind="direction" column={value === 'column'} /></button>
   return <div className="inspector-flex-direction" role="group" aria-label={label}>{direction('column', columnLabel)}{direction('row', rowLabel)}</div>
 }
 
 export function InspectorFlexWrap({ label, wrapped, disabled = false, onChange }: { label: string; wrapped: boolean; disabled?: boolean; onChange: (wrapped: boolean) => void }) {
-  return <button type="button" className="inspector-flex-small-action" aria-label={label} title={label} aria-pressed={wrapped} disabled={disabled} onClick={() => onChange(!wrapped)}><Icon name="redo" /></button>
+  return <button type="button" className="inspector-flex-small-action" aria-label={label} title={label} aria-pressed={wrapped} disabled={disabled} onClick={() => onChange(!wrapped)}><InspectorFlexGlyph kind="wrap" /></button>
 }
 
 export function InspectorFlexPaddingToggle({ label, individual, disabled = false, onChange }: { label: string; individual: boolean; disabled?: boolean; onChange: (individual: boolean) => void }) {
-  return <button type="button" className="inspector-flex-small-action inspector-flex-padding-toggle" aria-label={label} title={label} aria-pressed={individual} disabled={disabled} onClick={() => onChange(!individual)}><Icon name="frame" /></button>
+  return <button type="button" className="inspector-flex-small-action inspector-flex-padding-toggle" aria-label={label} title={label} aria-pressed={individual} disabled={disabled} onClick={() => onChange(!individual)}><InspectorFlexGlyph kind="padding-split" /></button>
 }
 
 export type InspectorFlexOverflowAction = 'main-space-between' | 'cross-space-between' | 'first-baseline' | 'last-baseline'
@@ -210,7 +252,7 @@ export function InspectorFlexOverflow({ label, mainLabel, crossLabel, showCross,
   const items = inspectorFlexOverflowItems(mainLabel, crossLabel, showCross)
   const checked = (action: InspectorFlexOverflowAction) => action === 'main-space-between' ? mainChecked : action === 'cross-space-between' ? crossChecked : action === 'first-baseline' ? firstBaselineChecked : lastBaselineChecked
   return <Popover.Root onOpenChange={open => { if (open) setContainer(trigger.current?.closest<HTMLElement>('.editor-root') ?? null) }}>
-    <Popover.Trigger ref={trigger} className="inspector-flex-small-action" aria-label={label} title={label} disabled={disabled}><Icon name="list" /></Popover.Trigger>
+    <Popover.Trigger ref={trigger} className="inspector-flex-small-action" aria-label={label} title={label} disabled={disabled}><InspectorFlexGlyph kind="distribution" /></Popover.Trigger>
     <Popover.Portal container={container}><Popover.Positioner className="inspector-popover-positioner" side="left" align="start" sideOffset={4}><Popover.Popup className="inspector-popover-popup inspector-flex-menu" aria-label={label} role="menu">
       <div className="inspector-flex-menu-group" role="group" aria-label="Space between"><span className="inspector-flex-menu-label">Space between</span>{items.filter(entry => entry.group === 'space').map(entry => item(entry.action, entry.label, checked(entry.action)))}</div>
       <div className="inspector-flex-menu-divider" />

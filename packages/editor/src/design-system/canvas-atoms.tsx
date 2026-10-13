@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from 'react'
+import type { CornerRadiusKey } from '@canvas/repo-engine/appearance'
 import { Icon } from './atoms'
 import type { IconName } from './atoms'
 import { AppearanceVisibilityButton } from './appearance-atoms'
@@ -55,6 +56,7 @@ export type HandleName = 'top-left' | 'top' | 'top-right' | 'right' | 'bottom-ri
 export type RotationHandleName = 'top-left' | 'top-right' | 'bottom-right' | 'bottom-left'
 export type ResizeHandlePose = Readonly<{ handle: HandleName; center: Readonly<{ x: number; y: number }>; angle: number; cursor: CSSProperties['cursor']; active: boolean }>
 export type RotationHandlePose = Readonly<{ handle: RotationHandleName; center: Readonly<{ x: number; y: number }> }>
+export type CornerRadiusHandlePose = Readonly<{ corner: CornerRadiusKey; center: Readonly<{ x: number; y: number }>; angle: number; active: boolean }>
 /** Literal projected point/edge targets. Visible squares remain on Canvas2D; DOM supplies screen-sized interaction zones. */
 export function ResizeHandles({ id, generation, labelFor, poses, onHandlePointerDown, onHandleDoubleClick, onPointerMove, onPointerUp, onPointerCancel }: { id: string; generation: number; labelFor: (handle: HandleName) => string; poses: readonly ResizeHandlePose[]; onHandlePointerDown: (event: PointerEvent<HTMLButtonElement>, handle: HandleName) => void; onHandleDoubleClick?: (event: MouseEvent<HTMLButtonElement>, handle: HandleName) => void; onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void; onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void; onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void }) {
   return <div className="resize-handles" data-handles-for={id} data-hud-generation={generation}>
@@ -66,6 +68,13 @@ export function ResizeHandles({ id, generation, labelFor, poses, onHandlePointer
 export function RotationHandles({ id, generation, labelFor, poses, onHandlePointerDown, onPointerMove, onPointerUp, onPointerCancel }: { id: string; generation: number; labelFor: (handle: RotationHandleName) => string; poses: readonly RotationHandlePose[]; onHandlePointerDown: (event: PointerEvent<HTMLButtonElement>, handle: RotationHandleName) => void; onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void; onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void; onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void }) {
   return <div className="rotation-handles" data-rotation-handles-for={id} data-hud-generation={generation}>
     {poses.map(pose => <button key={pose.handle} type="button" className="rotation-handle" data-rotation-handle={pose.handle} aria-label={labelFor(pose.handle)} tabIndex={-1} style={{ left: pose.center.x, top: pose.center.y }} onPointerDown={event => onHandlePointerDown(event, pose.handle)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} />)}
+  </div>
+}
+
+/** Brilliant-style radius dots. The button is the generous screen-space hit target; its pseudo-element is the small visible marker. */
+export function CornerRadiusHandles({ id, generation, labelFor, poses, onHandlePointerDown, onPointerMove, onPointerUp, onPointerCancel }: { id: string; generation: number; labelFor: (corner: CornerRadiusKey) => string; poses: readonly CornerRadiusHandlePose[]; onHandlePointerDown: (event: PointerEvent<HTMLButtonElement>, corner: CornerRadiusKey) => void; onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void; onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void; onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void }) {
+  return <div className="corner-radius-handles" data-radius-handles-for={id} data-hud-generation={generation}>
+    {poses.map(pose => <button key={pose.corner} type="button" className="corner-radius-handle" data-radius-handle={pose.corner} data-active={pose.active || undefined} aria-label={labelFor(pose.corner)} tabIndex={-1} style={{ left: pose.center.x, top: pose.center.y, transform: `translate(-50%, -50%) rotate(${pose.angle}rad)` }} onPointerDown={event => onHandlePointerDown(event, pose.corner)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} />)}
   </div>
 }
 
@@ -96,7 +105,7 @@ export function NodeNameEditor({ id, pose, value, label, onCommit, onCancel }: {
 export type CanvasTextKeyAction = 'continue' | 'newline' | 'commit' | 'cancel' | 'next' | 'previous'
 export function canvasTextKeyAction(event: Pick<KeyboardEvent<HTMLElement>, 'key' | 'ctrlKey' | 'metaKey'> & Partial<Pick<KeyboardEvent<HTMLElement>, 'shiftKey'> & { isComposing: boolean }>): CanvasTextKeyAction {
   if (event.isComposing) return 'continue'
-  if (event.key === 'Escape') return 'cancel'
+  if (event.key === 'Escape') return 'commit'
   if (event.key === 'Tab') return event.shiftKey ? 'previous' : 'next'
   if (event.key === 'Enter') return event.ctrlKey || event.metaKey ? 'commit' : 'newline'
   return 'continue'
@@ -169,8 +178,10 @@ export function DimensionBadge({ rect, children }: { rect: ScreenRect; children:
 }
 
 
-export function DocumentTree({ children, label }: { children: ReactNode; label: string }) {
+export function DocumentTree({ children, label, indicator, copying = false, attach, onPointerMove, onPointerUp, onPointerCancel, onKeyDown }: { children: ReactNode; label: string; indicator?: { top: number; left: number } | null; copying?: boolean; attach?: (element: HTMLDivElement | null) => void; onPointerMove?: (event: PointerEvent<HTMLDivElement>) => void; onPointerUp?: (event: PointerEvent<HTMLDivElement>) => void; onPointerCancel?: (event: PointerEvent<HTMLDivElement>) => void; onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void }) {
   const navigate = (event: KeyboardEvent<HTMLDivElement>) => {
+    onKeyDown?.(event)
+    if (event.defaultPrevented) return
     if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) || event.altKey || event.ctrlKey || event.metaKey) return
     const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="treeitem"]'))
     const current = items.indexOf(event.target as HTMLElement)
@@ -178,27 +189,24 @@ export function DocumentTree({ children, label }: { children: ReactNode; label: 
     event.preventDefault()
     items[next]?.focus()
   }
-  return <div role="tree" aria-label={label} aria-multiselectable="true" className="document-tree" onKeyDown={navigate}>{children}</div>
+  return <div ref={attach} role="tree" tabIndex={-1} aria-label={label} aria-multiselectable="true" className="document-tree" data-copying={copying || undefined} onKeyDown={navigate} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>{children}{indicator && <span className="document-layer-drop-indicator" aria-hidden="true" style={{ top: indicator.top, left: indicator.left }} />}</div>
 }
 
-export function DocumentLayerItem({ name, toggleLabel, id, depth, selected, childrenCount, expanded, visible, locked, directlyLocked, showLabel, hideLabel, lockLabel, lockDisabled = false, visibilityDisabled = false, renaming = false, renameLabel, icon = 'component', onSelect, onToggle, onVisibilityChange, onLockChange, onDrop, onRename, onRenameCommit, onRenameCancel, onContextMenu, children }: { name: string; toggleLabel: string; id: string; depth: number; selected: boolean; childrenCount: number; expanded: boolean; visible: boolean; locked: boolean; directlyLocked: boolean; showLabel: string; hideLabel: string; lockLabel: string; lockDisabled?: boolean; visibilityDisabled?: boolean; renaming?: boolean; renameLabel?: string; icon?: IconName; onSelect: (modifiers: { additive: boolean; range: boolean }) => void; onToggle: () => void; onVisibilityChange: (visible: boolean) => void; onLockChange: (locked: boolean) => void; onDrop?: (nodeId: string) => void; onRename?: () => void; onRenameCommit?: (name: string) => void; onRenameCancel?: () => void; onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void; children: ReactNode }) {
+export function DocumentLayerItem({ name, toggleLabel, id, kind, depth, selected, childrenCount, expanded, visible, locked, directlyLocked, showLabel, hideLabel, lockLabel, lockDisabled = false, visibilityDisabled = false, renaming = false, renameLabel, icon = 'component', dragging = false, dropTarget = false, onSelect, onToggle, onVisibilityChange, onLockChange, onPointerDown, onIconDoubleClick, onRename, onRenameCommit, onRenameCancel, onRenameTraverse, onContextMenu }: { name: string; toggleLabel: string; id: string; kind: string; depth: number; selected: boolean; childrenCount: number; expanded: boolean; visible: boolean; locked: boolean; directlyLocked: boolean; showLabel: string; hideLabel: string; lockLabel: string; lockDisabled?: boolean; visibilityDisabled?: boolean; renaming?: boolean; renameLabel?: string; icon?: IconName; dragging?: boolean; dropTarget?: boolean; onSelect: (modifiers: { additive: boolean; range: boolean }) => void; onToggle: (recursive: boolean) => void; onVisibilityChange: (visible: boolean) => void; onLockChange: (locked: boolean) => void; onPointerDown?: (event: PointerEvent<HTMLDivElement>) => void; onIconDoubleClick?: () => void; onRename?: () => void; onRenameCommit?: (name: string) => void; onRenameCancel?: () => void; onRenameTraverse?: (direction: 'next' | 'previous', value: string) => void; onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void }) {
   const cancelled = useRef(false)
-  return <div className="document-layer-branch">
-    <div className="document-layer-item" role="treeitem" tabIndex={renaming ? -1 : 0} aria-label={name} aria-level={depth + 1} aria-selected={selected} aria-expanded={childrenCount ? expanded : undefined} data-selected={selected || undefined} data-active={selected ? 'true' : undefined} data-hidden={!visible || undefined} data-locked={locked || undefined} data-instance-id={id} data-layer-node-id={id} style={{ '--layer-depth': depth } as CSSProperties} draggable={Boolean(onDrop) && !renaming && !locked} onDragStart={onDrop ? event => { event.dataTransfer.setData('application/x-design-editor-node', id); event.dataTransfer.effectAllowed = 'move' } : undefined} onDragOver={onDrop ? event => { if (event.dataTransfer.types.includes('application/x-design-editor-node')) { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } } : undefined} onDrop={onDrop ? event => { event.preventDefault(); const nodeId = event.dataTransfer.getData('application/x-design-editor-node'); if (nodeId) onDrop(nodeId) } : undefined} onClick={event => onSelect({ additive: event.ctrlKey || event.metaKey, range: event.shiftKey })} onContextMenu={onContextMenu} onDoubleClick={event => { event.stopPropagation(); onRename?.() }} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect({ additive: event.ctrlKey || event.metaKey, range: event.shiftKey }) } if (event.key === 'F2' && onRename) { event.preventDefault(); onRename() } if (childrenCount && (event.key === 'ArrowRight' && !expanded || event.key === 'ArrowLeft' && expanded)) { event.preventDefault(); onToggle() } }}>
-      {childrenCount ? <button type="button" className="layer-toggle" data-expanded={expanded || undefined} aria-label={toggleLabel} tabIndex={-1} onClick={event => { event.stopPropagation(); onToggle() }}><Icon name="chevron" /></button> : <span className="layer-toggle" aria-hidden="true" />}
-      <span className="document-layer-icon" aria-hidden="true"><Icon name={icon} /></span>
-      {renaming ? <input className="sidebar-inline-name" aria-label={renameLabel} defaultValue={name} autoFocus maxLength={128} onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); onRenameCommit?.(event.currentTarget.value) } if (event.key === 'Escape') { event.preventDefault(); cancelled.current = true; onRenameCancel?.() } }} onBlur={event => { if (cancelled.current) { cancelled.current = false; return }; onRenameCommit?.(event.currentTarget.value) }} /> : <span className="document-layer-name">{name}</span>}
+  return <div className="document-layer-item" role="treeitem" tabIndex={renaming ? -1 : 0} aria-label={name} aria-level={depth + 1} aria-selected={selected} aria-expanded={childrenCount ? expanded : undefined} data-selected={selected || undefined} data-active={selected ? 'true' : undefined} data-hidden={!visible || undefined} data-locked={locked || undefined} data-dragging={dragging || undefined} data-drop-target={dropTarget || undefined} data-instance-id={id} data-node-kind={kind} data-layer-node-id={id} data-layer-row-id={id} style={{ '--layer-depth': depth } as CSSProperties} onPointerDown={onPointerDown} onClick={event => { if (!event.defaultPrevented) onSelect({ additive: event.ctrlKey || event.metaKey, range: event.shiftKey }) }} onContextMenu={onContextMenu} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect({ additive: event.ctrlKey || event.metaKey, range: event.shiftKey }) } if (event.key === 'F2' && onRename) { event.preventDefault(); onRename() } if (childrenCount && (event.key === 'ArrowRight' && !expanded || event.key === 'ArrowLeft' && expanded)) { event.preventDefault(); onToggle(false) } }}>
+      {childrenCount ? <button type="button" className="layer-toggle" data-expanded={expanded || undefined} aria-label={toggleLabel} tabIndex={-1} onPointerDownCapture={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onToggle(event.altKey) }}><Icon name="chevron" /></button> : <span className="layer-toggle" aria-hidden="true" />}
+      <span className="document-layer-icon" aria-hidden="true" onDoubleClick={event => { event.stopPropagation(); onIconDoubleClick?.() }}><Icon name={icon} /></span>
+      {renaming ? <input className="sidebar-inline-name" aria-label={renameLabel} defaultValue={name} autoFocus maxLength={200} onFocus={event => { event.currentTarget.select(); event.currentTarget.scrollIntoView({ block: 'nearest' }) }} onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); onRenameCommit?.(event.currentTarget.value) } if (event.key === 'Escape') { event.preventDefault(); cancelled.current = true; onRenameCancel?.() } if (event.key === 'Tab') { event.preventDefault(); cancelled.current = true; onRenameTraverse?.(event.shiftKey ? 'previous' : 'next', event.currentTarget.value) } }} onBlur={event => { if (cancelled.current) { cancelled.current = false; return }; onRenameCommit?.(event.currentTarget.value) }} /> : <span className="document-layer-name" onDoubleClick={event => { event.stopPropagation(); onRename?.() }}>{name}</span>}
       <span className="document-layer-actions" onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}>
         <button type="button" className="document-layer-lock" data-locked={locked || undefined} aria-label={lockLabel} title={lockLabel} aria-pressed={directlyLocked} disabled={lockDisabled} onClick={() => onLockChange(!directlyLocked)}><Icon name="lock" /></button>
         <span className="document-layer-visibility"><AppearanceVisibilityButton visible={visible} showLabel={showLabel} hideLabel={hideLabel} disabled={visibilityDisabled} onChange={onVisibilityChange} /></span>
       </span>
-    </div>
-    {expanded && children}
   </div>
 }
 
-export function DocumentSlotTarget({ label, depth, onDrop, children }: { label: string; depth: number; onDrop?: (nodeId: string) => void; children: ReactNode }) {
-  return <div className="document-slot" role="group" aria-label={label} style={{ '--layer-depth': depth } as CSSProperties} onDragOver={onDrop ? event => { if (event.dataTransfer.types.includes('application/x-design-editor-node')) event.preventDefault() } : undefined} onDrop={onDrop ? event => { event.stopPropagation(); event.preventDefault(); const id = event.dataTransfer.getData('application/x-design-editor-node'); if (id) onDrop(id) } : undefined}><span className="document-slot-label">{label}</span>{children}</div>
+export function DocumentSlotTarget({ rowId, label, depth, dropTarget = false }: { rowId: string; label: string; depth: number; dropTarget?: boolean }) {
+  return <div className="document-slot" role="group" aria-label={label} data-layer-row-id={rowId} data-drop-target={dropTarget || undefined} style={{ '--layer-depth': depth } as CSSProperties}><span className="document-slot-label">{label}</span></div>
 }
 
 export function CanvasChoice({ label, value, options, onChange, disabled }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void; disabled?: boolean }) {

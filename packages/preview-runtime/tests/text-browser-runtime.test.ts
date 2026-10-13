@@ -69,6 +69,7 @@ const previewDocument = {
       textNode('fit-anchor-left', 'ANCHOR', 0, 210, 180, 30, { width: { mode: 'fit' }, height: { mode: 'fit' } }),
       textNode('fit-anchor-center', 'ANCHOR', 0, 245, 180, 30, { width: { mode: 'fit' }, height: { mode: 'fit' } }, { ...textStyle, horizontalAlign: 'center' }),
       textNode('fit-anchor-right', 'ANCHOR', 0, 280, 180, 30, { width: { mode: 'fit' }, height: { mode: 'fit' } }, { ...textStyle, horizontalAlign: 'right' }),
+      textNode('empty-creation', '', 280, 280, 1, 1, { width: { mode: 'fit' }, height: { mode: 'fit' } }),
       { id: 'fill-parent', kind: 'frame', name: 'Fill parent', x: -360, y: 210, width: 240, height: 90, rotation: 0, parentId: null, clip: false },
       textNode('nested-fill', 'FILL / FILL', 0, 0, 1, 1, { width: { mode: 'fill' }, height: { mode: 'fill' } }, { ...textStyle, fontSize: 16, lineHeight: { kind: 'px', value: 20 } }, 'fill-parent'),
       textNode('nested-fixed-negative', 'X', 230, 80, 1, 1, { width: { mode: 'fixed' }, height: { mode: 'fixed' } }, { ...textStyle, fontSize: 16, lineHeight: { kind: 'px', value: 20 } }, 'fill-parent'),
@@ -183,6 +184,22 @@ beforeAll(async () => {
 afterAll(async () => { await dispose?.() }, 30_000)
 
 describe('PAPER-TEXT-002 and PAPER-TEXT-003 text sizing in a real preview iframe', () => {
+  it('keeps a new empty Fit/Fit text node measurable for the editor overlay without drawing visible copy', async () => {
+    const empty = await observe('empty-creation')
+    const content = await frame.evaluate(() => document.querySelector('[data-preview-canvas="empty-creation"]')?.textContent)
+    expect(content).toBe('\u00a0')
+    expect(empty.rect.width).toBeGreaterThan(0)
+    expect(empty.rect.height).toBe(24)
+    const item = await waitFor(
+      () => page.evaluate(() => {
+        const messages = (window as unknown as { __geometry: { items: Record<string, unknown>[] }[] }).__geometry
+        return messages.flatMap(message => message.items).find(candidate => candidate.instanceId === 'empty-creation') ?? null
+      }),
+      value => value,
+    )
+    expect(item).toMatchObject({ source: 'canvas', canvasKind: 'text', offset: { width: expect.any(Number), height: 24 } })
+  })
+
   it('publishes native text geometry with the DOM used size for editor HUD reconciliation', async () => {
     const item = await waitFor(
       () => page.evaluate(() => {
