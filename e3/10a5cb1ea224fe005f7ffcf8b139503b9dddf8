@@ -1,0 +1,25 @@
+scripts/release-policy.mjs
+  s_012c57818fbf95::t_8889b928eb2fe7 54,67-68,71,89,102
+packages/editor/src/features/editor/layout-grid-store.test.ts
+  s_012c57818fbf95::t_8889b928eb2fe7 40,231-232,244,247,250,253,256
+scripts/release-workflows.test.mjs
+  s_012c57818fbf95::t_5c62ebbe23b722 27,38-40,55,59,61-62,66,95,119
+.github/workflows/release.yml
+  s_012c57818fbf95::t_8889b928eb2fe7 4,7-8,18,24,35,41,43,48-49,51,248,264
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e310a5cb1ea224fe005f7ffcf8b139503b9dddf8",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
