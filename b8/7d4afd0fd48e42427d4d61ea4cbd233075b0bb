@@ -1,0 +1,80 @@
+packages/editor/src/design-system/inspector-atoms.tsx
+  s_012c57818fbf95::t_6d06bd52b68f15 23-43,207,212,216,238
+  s_012c57818fbf95::t_25757835c2086b 44-47
+packages/editor/src/features/editor/mobile-editor.test.ts
+  s_012c57818fbf95::t_34513cff9e85da 133-135
+packages/editor/src/features/editor/resize-projection.ts
+  s_012c57818fbf95::t_8bfa32301d5b9f 77,81,187,267,291,318
+packages/editor/src/features/editor/gesture-command-planner.ts
+  s_012c57818fbf95::t_deacf05e5d1e14 644-652
+  s_012c57818fbf95::t_9c7a9b39e2ca3a 94,502-506,508,642-643
+  s_012c57818fbf95::t_607054bfaa871d 640
+  s_012c57818fbf95::t_62539c155a317f 214-223,250-252,256,259
+  s_012c57818fbf95::t_8bfa32301d5b9f 9,316-342,354-358,363,366-377
+  s_012c57818fbf95::t_252ece73c99df0 641,653-666
+packages/editor/src/design-system/inspector.css
+  s_012c57818fbf95::t_e074add517395d 131
+  s_012c57818fbf95::t_6d06bd52b68f15 85,120-125,141,146
+packages/editor/src/features/editor/gesture-resize-command-planner.test.ts
+  s_012c57818fbf95::t_f9414b28a0bdfa 406-423,430,435,437
+  s_012c57818fbf95::t_b1f1d20ff27c80 405,424-429,431-434,436,438-443
+packages/editor/src/features/editor/InspectorPanels.tsx
+  s_012c57818fbf95::t_25757835c2086b 119-120
+packages/editor/src/features/editor/document-store.ts
+  s_012c57818fbf95::t_3d07a7ec5f53cc 1
+  s_012c57818fbf95::t_d295c958c38a45 1347,1351-1359,1375
+packages/editor/src/features/editor/canvas-gestures.test.ts
+  s_012c57818fbf95::t_ca35823c5d9317 833-842,845-848,995-1008
+  s_012c57818fbf95::t_87022418b6dd5d 810,812,824,826,854
+  s_012c57818fbf95::t_aed9bdcc2721f6 843-844
+  s_012c57818fbf95::t_af75ae52b54e51 1009
+packages/editor/src/features/collaboration/flow-drag-relay.ts
+  s_012c57818fbf95::t_d0b279e28f22ce 103,107-108,112-116
+packages/editor/src/features/collaboration/flow-drag-relay.test.ts
+  s_012c57818fbf95::t_d0b279e28f22ce 62-64
+packages/editor/src/features/editor/flow-drag-authority.ts
+  s_012c57818fbf95::t_cc4d41a4946e13 350-359
+packages/editor/src/features/editor/resize-projection.test.ts
+  s_012c57818fbf95::t_b1f1d20ff27c80 246-264
+  s_012c57818fbf95::t_241a363063ace6 244-245
+packages/editor/src/design-system/canvas.css
+  s_012c57818fbf95::t_34513cff9e85da 23-26
+packages/editor/src/features/editor/flow-drag-target.ts
+  s_012c57818fbf95::t_cc4d41a4946e13 1,124-139
+  s_012c57818fbf95::t_b158ac5557a406 140
+packages/editor/src/features/editor/layout-panels-flex.test.ts
+  s_012c57818fbf95::t_8bb6c4a9156fee 93,111,113-114,131,135,139-161
+  s_012c57818fbf95::t_e074add517395d 163-165
+  s_012c57818fbf95::t_7fab895eba69ec 162
+packages/editor/src/features/editor/gesture-paper-flow-terminal.test.ts
+  s_012c57818fbf95::t_aed9bdcc2721f6 147
+  s_012c57818fbf95::t_6f27da18fa18f9 131-146,148-149
+packages/editor/src/features/editor/canvas-gestures.ts
+  s_012c57818fbf95::t_d295c958c38a45 772-773
+  s_012c57818fbf95::t_cc4d41a4946e13 515,519-520,530,534,537
+packages/editor/src/features/editor/document-store.test.ts
+  s_012c57818fbf95::t_87022418b6dd5d 286-297
+packages/editor/src/features/editor/LayoutPanels.tsx
+  s_012c57818fbf95::t_25757835c2086b 8,127,139,221,267,284-285,289-290,293-295,297,399-400,423
+  s_012c57818fbf95::t_78d89ac37e8a36 292,296
+packages/editor/src/features/editor/layout-measure.ts
+  s_012c57818fbf95::t_fb60a842208764 655-659,670
+  s_012c57818fbf95::t_8a84427c8787cb 667
+  s_012c57818fbf95::t_85e417596dd93a 649-651,663-664,672,676
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b87d4afd0fd48e42427d4d61ea4cbd233075b0bb",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
