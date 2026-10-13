@@ -183,7 +183,8 @@ function ComponentLayoutSection({ context }: { context: ComponentContext }) {
     const sizing = agree(nodes.map(node => sizingModeOf(node.layout, axis)))
     const available = sizingModesForContext(flexContainer, flexItem)
     const relative = !sizing.mixed && sizing.value === 'relative'
-    const editableSize = !sizing.mixed && (!flexSizing || sizing.value === 'fixed' || relative)
+    const showsValue = !sizing.mixed && (!flexSizing || sizing.value === 'fixed' || relative)
+    const numericOverride = !sizing.mixed && flexSizing && (sizing.value === 'hug' || sizing.value === 'fill' || sizing.value === 'auto')
     const value = agree(nodes.map(node => { const length = node.layout?.item[axis]?.value; return length?.kind === 'px' || length?.kind === 'percent' ? length.value : undefined }))
     const measured = agree(nodes.map(node => geometry.nodes[node.id]?.rect[axis]))
     const label = axis === 'width' ? copy.width : copy.height
@@ -195,7 +196,7 @@ function ComponentLayoutSection({ context }: { context: ComponentContext }) {
       const mode: SizingMode = next === 'fit' ? 'hug' : next as SizingMode
       layout().sizing(axis, mode, sizingTargets(file, geometry, ids, axis))
     }
-    const field = <InspectorScrubField id={`sizing-${axis}`} label={label} prefix={prefix} value={editableSize ? shown(value) ?? shown(measured) : null} placeholder={flexSizing ? sizingField.currentLabel : mixedPlaceholder(measured)} min={0} max={relative ? 99 : limit} {...(!relative && context.numericTokens.length ? { tokens: context.numericTokens, tokenLabel: copy.numericToken(label) } : {})} {...(relative ? { suffix: copy.percentSuffix } : {})} disabled={disabled || !editableSize} onCommit={next => { layout().length(axis, toLength(next), ids) }} onScrubStart={() => scrubSession(nodes, (before, next) => setAxisLength(before, axis, toLength(next)))} />
+    const field = <InspectorScrubField id={`sizing-${axis}`} label={label} prefix={prefix} value={showsValue ? shown(value) ?? shown(measured) : null} placeholder={flexSizing ? sizingField.currentLabel : mixedPlaceholder(measured)} min={0} max={relative ? 99 : limit} {...(!relative && context.numericTokens.length ? { tokens: context.numericTokens, tokenLabel: copy.numericToken(label) } : {})} {...(relative ? { suffix: copy.percentSuffix } : {})} disabled={disabled || !showsValue && !numericOverride} onCommit={next => { layout().length(axis, toLength(next), ids) }} onScrubStart={() => scrubSession(nodes, (before, next) => setAxisLength(before, axis, toLength(next)))} />
     return flexSizing ? <SizingField label={copy.sizingMode(label)} currentLabel={sizingField.currentLabel} options={sizingField.options} disabled={disabled} onChoose={choose} field={field} /> : field
   }
   return <InspectorSection id="layout" title={copy.layout}>

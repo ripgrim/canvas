@@ -35,6 +35,19 @@ test('opens one staging-to-main pull request and never pushes main directly', ()
   assert.doesNotMatch(workflow, /git push[^\n]*main/)
 })
 
+test('DEPLOY-STAGING-001 deploys and probes matching staging infrastructure before promotion', () => {
+  assert.match(workflow, /deploy-staging-infrastructure:/)
+  assert.match(workflow, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/)
+  assert.match(workflow, /CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/)
+  assert.match(workflow, /api-staging\.canvas\.ripgrim\.com\/healthz\/deployment/)
+  assert.match(workflow, /staging\.canvas\.ripgrim\.com\/version\.json/)
+  assert.match(workflow, /pnpm cloudflare:deploy:staging/)
+  assert.match(workflow, /pnpm thumbnails:deploy:staging/)
+  assert.match(workflow, /pnpm sync:deploy:staging/)
+  assert.match(workflow, /run: pnpm sync:probe:staging/)
+  assert.match(workflow, /open-release-pull-request:\s*\n\s*needs: deploy-staging-infrastructure/)
+})
+
 test('CLOUD-SYNC-AUTH-001 shares staging auth and build identity with the sync host', () => {
   assert.match(stagingTemplate, /^BETTER_AUTH_URL="https:\/\/staging\.canvas\.ripgrim\.com"$/m)
   assert.match(stagingTemplate, /^AUTH_COOKIE_DOMAIN="canvas\.ripgrim\.com"$/m)

@@ -77,7 +77,8 @@ const STATE_TARGET_FENCE_KEYS = [...STATE_FENCE_KEYS, 'gestureGeneration', 'samp
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const generation = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0
-const equal = (left: number, right: number): boolean => Object.is(left, right) || left === right
+const geometryTolerance = 1e-3
+const equal = (left: number, right: number): boolean => Object.is(left, right) || Math.abs(left - right) <= geometryTolerance
 
 function exactOwnKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
@@ -194,9 +195,34 @@ function matrixGeometry(matrix: Matrix, semanticSize: Readonly<{ width: number; 
   return { coordinateSpace: 'world', quad, aabb: geometryAabb(quad), semanticSize: { ...semanticSize } }
 }
 
-function measuredGeometry(measurement: MeasuredNode): Readonly<{ geometry: FlowDragWorldGeometry; parentToWorld: Matrix; parentLocal: Matrix }> | null {
+function offsetParentPaddingToWorld(snapshot: GestureAuthoritySnapshot, nodeId: string, visiting = new Set<string>()): Matrix | null {
+  if (visiting.has(nodeId)) return null
+  const measurement = snapshot.geometry.nodes[nodeId]
+  if (!measurement) return null
+  if (measurement.offsetParentToRoot && validMatrix(measurement.offsetParentToRoot)) return measurement.offsetParentToRoot
+  const relationship = snapshot.file.relationships[nodeId]
+  if (!relationship) return null
+  const parent = snapshot.file.nodes[relationship.parentId]
+  const parentMeasurement = snapshot.geometry.nodes[relationship.parentId]
+  if (!parent || parent.type === 'root' || !parentMeasurement?.offset) return null
+  visiting.add(nodeId)
+  const parentPaddingToWorld = offsetParentPaddingToWorld(snapshot, relationship.parentId, visiting)
+  visiting.delete(nodeId)
+  if (!parentPaddingToWorld) return null
+  const parentTransform = parentMeasurement.transform ?? identity
+  if (!validPoint(parentMeasurement.offset.origin) || !validMatrix(parentTransform)) return null
+  const parentLocal = localMatrix({ x: parentMeasurement.offset.x, y: parentMeasurement.offset.y }, parentTransform, parentMeasurement.offset.origin)
+  if (!validMatrix(parentLocal)) return null
+  const border = parentMeasurement.box?.border
+  if (!border || ![border.top, border.right, border.bottom, border.left].every((value) => finite(value) && value >= 0)) return null
+  return multiply(multiply(parentPaddingToWorld, parentLocal), translation(border.left, border.top))
+}
+
+function measuredGeometry(snapshot: GestureAuthoritySnapshot, nodeId: string): Readonly<{ geometry: FlowDragWorldGeometry; parentToWorld: Matrix; parentLocal: Matrix }> | null {
+  const measurement = snapshot.geometry.nodes[nodeId]
+  if (!measurement) return null
   const offset = measurement.offset
-  const parentToWorld = measurement.offsetParentToRoot
+  const parentToWorld = offsetParentPaddingToWorld(snapshot, nodeId)
   const transform = measurement.transform ?? identity
   if (!offset || !exactOwnKeys(offset, ['x', 'y', 'width', 'height', 'origin']) || !validPoint(offset.origin)
     || !finite(offset.x) || !finite(offset.y) || !finite(offset.width) || !finite(offset.height) || offset.width <= 0 || offset.height <= 0
@@ -325,7 +351,7 @@ export function captureFlowDragAuthorityMeasurement(snapshot: GestureAuthoritySn
   const sourceMeasurement = snapshot.geometry.nodes[state.nodeId]
   const sourceScene = snapshot.scene.byId.get(state.nodeId)
   if (!rootId || !sourceMeasurement || !sourceScene || !validMeasuredTopology(snapshot, state.nodeId, sourceMeasurement, sourceScene, rootId)) return null
-  const source = measuredGeometry(sourceMeasurement)
+  const source = measuredGeometry(snapshot, state.nodeId)
   if (!source) return null
   const delta = { x: state.currentWorld.x - state.pointerDownWorld.x, y: state.currentWorld.y - state.pointerDownWorld.y }
   const current = translatedGeometry(source.geometry, delta.x, delta.y)
@@ -353,7 +379,7 @@ export function captureFlowDragAuthorityMeasurement(snapshot: GestureAuthoritySn
       const targetMeasurement = snapshot.geometry.nodes[state.target.parentId]
       const targetScene = snapshot.scene.byId.get(state.target.parentId)
       if (!targetMeasurement || !targetScene || !validMeasuredTopology(snapshot, state.target.parentId, targetMeasurement, targetScene, rootId)) return null
-      const target = measuredGeometry(targetMeasurement)
+      const target = measuredGeometry(snapshot, state.target.parentId)
       if (!target) return null
       targetProof = { parentId: state.target.parentId, outline: target.geometry, insertionGuide: state.target.guideWorld ? { ...state.target.guideWorld } : null }
     }
@@ -406,7 +432,7 @@ export function buildFlowDragPresentationAuthority(input: BuildFlowDragPresentat
   if (sourceSiblings[state.sourceIndex] !== state.nodeId) return null
 
   const expectedOffsetParent = relationship.parentId === rootId ? null : relationship.parentId
-  const canonicalSource = measuredGeometry(nodeMeasurement)
+  const canonicalSource = measuredGeometry(snapshot, state.nodeId)
   if (!canonicalSource) return null
   if (measurement.sourceOffsetParent.offsetParentNodeId !== expectedOffsetParent
     || nodeMeasurement.offsetParentNodeId !== expectedOffsetParent
@@ -468,7 +494,7 @@ export function buildFlowDragPresentationAuthority(input: BuildFlowDragPresentat
       const targetTopologyValid = targetMeasurement && targetScene
         ? validMeasuredTopology(snapshot, state.target.parentId, targetMeasurement, targetScene, rootId)
         : false
-      const canonicalTarget = targetTopologyValid ? measuredGeometry(targetMeasurement!) : null
+      const canonicalTarget = targetTopologyValid ? measuredGeometry(snapshot, state.target.parentId) : null
       if (!measurement.target.outline || !targetScene || !targetMeasurement || targetScene.locked
         || !targetRelationship || !targetTopologyValid
         || !canonicalTarget || !sameGeometry(measurement.target.outline, canonicalTarget.geometry)

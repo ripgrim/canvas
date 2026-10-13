@@ -59,7 +59,7 @@ test('keeps stateful and privileged services off the static Vercel plan', () => 
     [
       ['assets', 'cloudflare-workers'],
       ['sync', 'cloudflare-containers'],
-      ['thumbnail-jobs', 'private-container'],
+      ['thumbnail-jobs', 'cloudflare-containers'],
       ['desktop', 'desktop-release'],
     ],
   )

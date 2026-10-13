@@ -340,6 +340,20 @@ function resizeFlowLayout(snapshot: GestureCommandSnapshot, node: Exclude<FileNo
   return next
 }
 
+function resizeFreeformPrimitiveLayout(node: Exclude<FileNode, { type: 'root' | 'component' }>, widthChanged: boolean, heightChanged: boolean): NodeLayout | null {
+  const source = node.layout
+  if (!source) return null
+  if (source.item.position.mode !== 'freeform' || source.item.aspectRatio !== undefined || source.item.flex !== undefined || source.item.grid !== undefined) return null
+  const item = structuredClone(source.item)
+  if (widthChanged) delete item.width
+  if (heightChanged) delete item.height
+  return {
+    item,
+    ...(source.container !== undefined ? { container: structuredClone(source.container) } : {}),
+    ...(source.spacing !== undefined ? { spacing: structuredClone(source.spacing) } : {}),
+  }
+}
+
 function resizeEntry(snapshot: GestureCommandSnapshot, presentation: ResizePresentation, item: ResizePresentationItem): NodeResizePresentationEntry | 'unchanged' | null {
   const node = snapshot.file.nodes[item.nodeId]
   const relationship = snapshot.file.relationships[item.nodeId]
@@ -361,7 +375,6 @@ function resizeEntry(snapshot: GestureCommandSnapshot, presentation: ResizePrese
     source.layout = layout
   } else {
     if (mode !== 'flow' && mode !== 'freeform' && mode !== 'absolute') return null
-    if (mode === 'freeform' && (node.layout?.item.width !== undefined || node.layout?.item.height !== undefined || node.layout?.item.aspectRatio !== undefined || node.layout?.item.flex !== undefined || node.layout?.item.grid !== undefined)) return null
     expected.primitiveGeometry = { left: node.styles.left, top: node.styles.top, width: node.styles.width, height: node.styles.height }
     source.primitiveGeometry = {
       left: mode === 'flow' ? node.styles.left : item.rect.x,
@@ -376,7 +389,8 @@ function resizeEntry(snapshot: GestureCommandSnapshot, presentation: ResizePrese
       source.layout = layout
     } else if (mode === 'freeform') {
       expected.layout = node.layout === undefined ? null : structuredClone(node.layout)
-      source.layout = node.layout === undefined ? null : structuredClone(node.layout)
+      source.layout = node.layout === undefined ? null : resizeFreeformPrimitiveLayout(node, widthChanged, heightChanged)
+      if (source.layout === null && node.layout !== undefined) return null
     } else {
       const layout = resizeAbsoluteLayout(node, item, widthChanged, heightChanged)
       if (!layout || !node.layout) return null

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { childrenOf as fileChildren } from '@canvas/repo-engine/file-document'
+import { childrenOf as fileChildren, nodeAppearance } from '@canvas/repo-engine/file-document'
+import { expandedCornerRadii } from '@canvas/repo-engine/appearance'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { createCanvasGestures } from './canvas-gestures'
 import type { CanvasInteractionController } from './canvas-gestures'
@@ -9,6 +10,7 @@ import type { sceneGeometry } from './scene-geometry'
 import type { SceneGeometry } from './scene-geometry'
 import type { PreviewResizeSample } from './preview-service'
 import { cancelActiveGestureAfterCaptureLoss } from './SelectionHud'
+import { cornerRadiusHandlePoses } from './corner-radius-handles'
 
 const solid = (id: string, hex: string) => ({ id, type: 'solid' as const, color: { kind: 'literal' as const, color: { kind: 'hex' as const, hex } } })
 const textStyle = { fontFamily: 'Inter', fontStyle: 'normal' as const, fontWeight: 400, fontSize: 16, lineHeight: { kind: 'normal' as const }, letterSpacing: 0, horizontalAlign: 'left' as const, verticalAlign: 'top' as const, case: 'none' as const, wrap: 'normal' as const, keepWords: false }
@@ -97,6 +99,44 @@ const setup = (
   gestures.attach({ getBoundingClientRect: () => viewportOrigin } as HTMLElement)
   return { store, geometry, projections, gestures, preview, resizeSamples }
 }
+
+describe('AT-CAN-003 canvas corner radius gesture', () => {
+  it('previews from the renderer-owned quad and commits one uniform radius history step', () => {
+    const { store, projections, gestures } = setup()
+    const frame = projections.getSnapshot().frame!
+    const entry = frame.byNodeId.frame!
+    const pose = cornerRadiusHandlePoses(entry, expandedCornerRadii(nodeAppearance(store.getSnapshot().file!.nodes.frame)?.cornerRadii))[0]!
+    const start = pointer(pose.center.x, pose.center.y)
+    const end = pointer(start.clientX + pose.inward.x * pose.screenScale * 18, start.clientY + pose.inward.y * pose.screenScale * 18)
+    const revision = store.getSnapshot().file!.revision
+
+    expect(gestures.radiusPointerDown(start, 'frame', pose.corner)).toBe(true)
+    gestures.pointerMove(end)
+    expect((store.getSnapshot().appearanceOverrides?.frame?.cornerRadii as { all: number }).all).toBeCloseTo(18)
+    gestures.pointerUp(end)
+
+    expect((nodeAppearance(store.getSnapshot().file!.nodes.frame)?.cornerRadii as { all: number }).all).toBeCloseTo(18)
+    expect(store.getSnapshot().file!.revision).toBe(revision + 1)
+    expect(store.getSnapshot().appearanceOverrides).toBeNull()
+    expect(store.getSnapshot().canUndo).toBe(true)
+  })
+
+  it('Alt edits one corner, Shift snaps to five, and cancellation restores the snapshot', () => {
+    const { store, projections, gestures } = setup()
+    const entry = projections.getSnapshot().frame!.byNodeId.frame!
+    const pose = cornerRadiusHandlePoses(entry, expandedCornerRadii(undefined))[0]!
+    const start = pointer(pose.center.x, pose.center.y)
+    const end = { ...pointer(start.clientX + pose.inward.x * pose.screenScale * 13, start.clientY + pose.inward.y * pose.screenScale * 13), altKey: true, shiftKey: true }
+
+    expect(gestures.radiusPointerDown(start, 'frame', pose.corner)).toBe(true)
+    gestures.pointerMove(end)
+    expect(store.getSnapshot().appearanceOverrides?.frame?.cornerRadii).toEqual({ topLeft: 15, topRight: 0, bottomLeft: 0, bottomRight: 0 })
+    gestures.pointerCancel(end)
+
+    expect(nodeAppearance(store.getSnapshot().file!.nodes.frame)?.cornerRadii).toBeUndefined()
+    expect(store.getSnapshot().appearanceOverrides).toBeNull()
+  })
+})
 
 describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
   it('streams each pointer sample and releases one semantic commit at pointer up', () => {

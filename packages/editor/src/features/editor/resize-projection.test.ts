@@ -69,6 +69,24 @@ const sample = (rect: { x: number; y: number; width: number; height: number }, c
 })
 
 describe('immutable resize projection', () => {
+  it('accepts subpixel preview noise while rejecting meaningful scene drift', () => {
+    const file = baseFile()
+    const noisy = measured(
+      'rectangle',
+      { x: 0.00004, y: -0.00003, width: 100.00005, height: 49.99996 },
+      { x: 0, y: 0, width: 100, height: 50 },
+      null,
+      { x: 0.00004, y: -0.00003, width: 100.00005, height: 49.99996 },
+    )
+    noisy.offset = { x: 0, y: 0, width: 100.203, height: 50.203, origin: { x: 50.102, y: 25.102 } }
+    noisy.offsetParentToRoot = [1, 0, 0, 1, 0, 0]
+    expect(resizeGeometryAuthority(snapshot(file, baseGeometry(noisy)), 'selected')).not.toBeNull()
+
+    const drifted = structuredClone(noisy)
+    drifted.rect.x = 0.51
+    expect(resizeGeometryAuthority(snapshot(file, baseGeometry(drifted)), 'selected')).toBeNull()
+  })
+
   it('keeps the selected rectangle parent-local and projects the literal rotated/scaled group exactly once', () => {
     const file = baseFile()
     ;(file.nodes.selected as PrimitiveNode).layout = { item: { position: { mode: 'absolute', left: { kind: 'px', value: 0 }, top: { kind: 'px', value: 0 } } } }

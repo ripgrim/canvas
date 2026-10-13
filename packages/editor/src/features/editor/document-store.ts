@@ -1280,8 +1280,12 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         if (!state.file || !state.pageId) return false
         const id = makeId()
         const size = canvasElementSizes[kind]
-        const item: FileNode = { id, type: kind, name: elementNames[kind], styles: { left: Math.round(bounds.x), top: Math.round(bounds.y), width: bounds.width === undefined ? size.width : Math.max(1, Math.round(bounds.width)), height: bounds.height === undefined ? size.height : Math.max(1, Math.round(bounds.height)), ...(kind === 'frame' ? { overflow: 'clip' as const } : {}) }, appearance: defaultAppearance(kind, makeId), ...(kind === 'text' ? { text: 'Text', ...legacyTextProperties() } : {}) }
-        return execute({ type: 'node.insert', node: item, placement: { parentId: bounds.parentId ?? root(state)! } }, [id])
+        const parentId = bounds.parentId ?? root(state)!
+        const parent = state.file.nodes[parentId]
+        const parentDisplay = parent && parent.type !== 'root' ? parent.layout?.container?.display : undefined
+        const layout: NodeLayout | undefined = parentDisplay && parentDisplay !== 'freeform' ? { item: { position: { mode: 'flow' } } } : undefined
+        const item: FileNode = { id, type: kind, name: elementNames[kind], styles: { left: Math.round(bounds.x), top: Math.round(bounds.y), width: bounds.width === undefined ? size.width : Math.max(1, Math.round(bounds.width)), height: bounds.height === undefined ? size.height : Math.max(1, Math.round(bounds.height)), ...(kind === 'frame' ? { overflow: 'clip' as const } : {}) }, appearance: defaultAppearance(kind, makeId), ...(kind === 'text' ? { text: 'Text', ...legacyTextProperties() } : {}), ...(layout ? { layout } : {}) }
+        return execute({ type: 'node.insert', node: item, placement: { parentId } }, [id])
       },
       /** Creates Paper-style empty text and starts one grouped creation/edit transaction. */
       insertCanvasText: (intent: CanvasCreationIntent, bounds: { x: number; y: number; parentId?: string | null } & Partial<Pick<CanvasBounds, 'width' | 'height'>>) => {
@@ -1289,6 +1293,10 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         if (!state.file || !state.pageId || textSession) return false
         if (intent === 'drag' && (bounds.width === undefined || bounds.height === undefined)) return false
         const id = makeId()
+        const parentId = bounds.parentId ?? root(state)!
+        const parent = state.file.nodes[parentId]
+        const parentDisplay = parent && parent.type !== 'root' ? parent.layout?.container?.display : undefined
+        const layout: NodeLayout | undefined = parentDisplay && parentDisplay !== 'freeform' ? { item: { position: { mode: 'flow' } } } : undefined
         const textSizing: TextSizing = intent === 'point'
           ? { width: { mode: 'fit' }, height: { mode: 'fit' } }
           : { width: { mode: 'fixed' }, height: { mode: 'fixed' } }
@@ -1307,8 +1315,9 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
             height: intent === 'point' ? 1 : Math.max(1, Math.round(bounds.height!)),
           },
           appearance: defaultAppearance('text', makeId),
+          ...(layout ? { layout } : {}),
         }
-        const placement = { parentId: bounds.parentId ?? root(state)! }
+        const placement = { parentId }
         const insert: Extract<FileCommand, { type: 'node.insert' }> = { type: 'node.insert', node: item, placement }
         const creation = { before: currentView(), pastBefore: [...past], futureBefore: [...future], insert }
         if (!execute(insert, [id])) return false

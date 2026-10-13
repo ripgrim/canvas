@@ -39,6 +39,8 @@
     "updates:deploy:staging": "pnpm --filter @canvas/update-service exec wrangler deploy --env preview",
     "updates:deploy:production": "pnpm --filter @canvas/update-service exec wrangler deploy --env production",
     "sync:deploy:staging": "pnpm --filter @canvas/sync-coordinator exec wrangler deploy --env preview --containers-rollout=immediate && pnpm --filter @canvas/sync-worker exec wrangler deploy --env preview",
+    "thumbnails:deploy:staging": "pnpm --filter @canvas/thumbnail-jobs exec wrangler deploy --containers-rollout=immediate",
+    "sync:probe:staging": "pnpm --filter @canvas/sync-protocol build && node scripts/probe-staging-sync.mjs",
     "test:cloudflare-config": "node --test scripts/cloudflare-r2.test.mjs",
     "test:home-auth-parity": "node scripts/test-home-auth-parity.mjs",
     "test:stateful-shadcn": "pnpm --filter @design-editor/stateful-shadcn-fixture typecheck && node tests/stateful-shadcn-runtime.mjs",

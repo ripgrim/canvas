@@ -73,7 +73,7 @@
   "externalServices": [
     { "service": "assets", "platform": "cloudflare-workers", "reason": "Private R2 binding and scheduled Worker cleanup" },
     { "service": "sync", "platform": "cloudflare-containers", "reason": "A public admission Worker routes each file generation through a private coordinator to an idle-scaled room Container" },
-    { "service": "thumbnail-jobs", "platform": "private-container", "reason": "Playwright capture worker requires a provisioned browser and queue lease loop" },
+    { "service": "thumbnail-jobs", "platform": "cloudflare-containers", "reason": "A scheduled private container runs the Playwright queue lease loop with dedicated service credentials" },
     { "service": "desktop", "platform": "desktop-release", "reason": "Electron application" }
   ]
 }

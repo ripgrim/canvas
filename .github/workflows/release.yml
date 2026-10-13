@@ -23,7 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       channel: ${{ steps.release.outputs.channel }}
+      release_channel: ${{ steps.release.outputs.release_channel }}
       environment: ${{ steps.release.outputs.environment }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      make_latest: ${{ steps.release.outputs.make_latest }}
       sha: ${{ steps.release.outputs.sha }}
       tag: ${{ steps.release.outputs.tag }}
       title: ${{ steps.release.outputs.title }}
@@ -42,6 +45,7 @@ jobs:
           GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           GITHUB_REF_NAME: ${{ github.event.pull_request.base.ref }}
           GITHUB_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          RELEASE_STARTED_AT: ${{ github.run_started_at }}
           PULL_REQUEST_JSON: ${{ toJson(github.event.pull_request) }}
         shell: bash
         run: |
@@ -166,7 +170,7 @@ jobs:
         run: pnpm --filter @canvas/database migrate
 
   publish:
-    name: Publish ${{ needs.authorize.outputs.channel }} GitHub release
+    name: Publish ${{ needs.authorize.outputs.release_channel }} GitHub release
     needs:
       - authorize
       - build
@@ -236,7 +240,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.authorize.outputs.tag }}
           RELEASE_TITLE: ${{ needs.authorize.outputs.title }}
-          RELEASE_CHANNEL: ${{ needs.authorize.outputs.channel }}
+          RELEASE_CHANNEL: ${{ needs.authorize.outputs.release_channel }}
+          RELEASE_PRERELEASE: ${{ needs.authorize.outputs.prerelease }}
+          RELEASE_MAKE_LATEST: ${{ needs.authorize.outputs.make_latest }}
           RELEASE_PULL_REQUEST: ${{ needs.authorize.outputs.pull_request }}
           UPDATABLE_RELEASE: ${{ needs.build.outputs.updatable }}
         shell: bash
@@ -253,8 +259,8 @@ jobs:
 
           signing_note="Signed automatic update release."
           if [[ "$UPDATABLE_RELEASE" != "true" ]]; then signing_note="Unsigned manual-download build. Automatic updates are intentionally disabled for this release."; fi
-          arguments=("$RELEASE_TAG" release/* --target "${{ needs.authorize.outputs.sha }}" --title "$RELEASE_TITLE" --notes "Built from ${{ needs.authorize.outputs.sha }} after pull request #$RELEASE_PULL_REQUEST merged into $GITHUB_REF_NAME. Database migrations completed before publication. $signing_note")
-          if [[ "$RELEASE_CHANNEL" == "staging" ]]; then arguments+=(--prerelease); fi
+          arguments=("$RELEASE_TAG" release/* --target "${{ needs.authorize.outputs.sha }}" --title "$RELEASE_TITLE" --latest="$RELEASE_MAKE_LATEST" --notes "Built from ${{ needs.authorize.outputs.sha }} after pull request #$RELEASE_PULL_REQUEST merged into $GITHUB_REF_NAME as a $RELEASE_CHANNEL release. Database migrations completed before publication. $signing_note")
+          if [[ "$RELEASE_PRERELEASE" == "true" ]]; then arguments+=(--prerelease); fi
           gh release create "${arguments[@]}"
 
       - name: Advance update channel

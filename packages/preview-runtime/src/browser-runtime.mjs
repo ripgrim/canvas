@@ -59,7 +59,7 @@ export function createSelectionDecorations(ownerDocument) {
 
 function renderCanvasTree(elements, parentId, offset, assets) {
   return elements.filter(element => element.parentId === parentId).map(element => {
-    const children = element.kind === 'frame' ? renderCanvasTree(elements, element.id, { x: 0, y: 0 }, assets) : element.kind === 'text' ? element.text : null
+    const children = element.kind === 'frame' ? renderCanvasTree(elements, element.id, { x: 0, y: 0 }, assets) : element.kind === 'text' ? element.text || '\u00a0' : null
     return React.createElement('div', { key: element.id, 'data-preview-canvas': element.id, 'data-preview-kind': element.kind, 'aria-hidden': 'true', style: canvasElementStyle(element, assets, offset) }, children)
   })
 }

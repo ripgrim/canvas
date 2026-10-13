@@ -216,6 +216,28 @@ describe('AT-CAN primitive canvas commands', () => {
     expect(Object.keys(file(store).theme.tokens)).toEqual([])
   })
 
+  it('makes new nodes flow children when they are drawn inside a Flex frame', () => {
+    const source = fixture()
+    source.nodes.outer = { ...source.nodes.outer!, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'center', align: 'center' } } } } as FileDocument['nodes'][string]
+    source.nodes.inner = { ...source.nodes.inner!, layout: { item: { position: { mode: 'flow' } } } } as FileDocument['nodes'][string]
+    let id = 0
+    const store = createDocumentStore(() => `new-${++id}`)
+    store.load(source, atoms)
+
+    expect(store.commands.insertCanvas('frame', { x: 40, y: 30, width: 80, height: 60, parentId: 'outer' })).toBe(true)
+    expect(file(store).nodes['new-1']).toMatchObject({
+      type: 'frame',
+      layout: { item: { position: { mode: 'flow' } } },
+    })
+
+    expect(store.commands.insertCanvasText('point', { x: 60, y: 50, parentId: 'outer' })).toBe(true)
+    expect(file(store).nodes['new-3']).toMatchObject({
+      type: 'text',
+      layout: { item: { position: { mode: 'flow' } } },
+      textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } },
+    })
+  })
+
   it('seeds a click-created rectangle at 500 x 500 white while a frame keeps 320 x 240', () => {
     const store = loaded()
     expect(store.commands.insertCanvas('rectangle', { x: 40, y: 60 })).toBe(true)

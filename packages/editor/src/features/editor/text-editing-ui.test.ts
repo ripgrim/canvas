@@ -4,7 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { TextSizing, TextStyle } from '@canvas/repo-engine/file-document'
 import { CanvasTextEditor, canvasTextKeyAction, createTextEditorFinisher, normalizeEditablePlainText } from '../../design-system/canvas-atoms'
-import { canvasTextEditorStyle } from './SelectionHud'
+import { canvasTextEditorPose, canvasTextEditorStyle } from './SelectionHud'
+import type { HudProjectionEntry } from './canvas-hud-projection'
 
 const textStyle: TextStyle = {
   fontFamily: 'Inter, sans-serif',
@@ -22,11 +23,23 @@ const textStyle: TextStyle = {
 const textSizing: TextSizing = { width: { mode: 'fixed' }, height: { mode: 'fixed' } }
 
 describe('PAPER-TEXT-004 canvas text editor surface', () => {
-  it('fails closed instead of reconstructing a transformed editor from transient rectangles', () => {
+  it('mounts the editor from projector-owned geometry instead of transient rectangles', () => {
     const source = readFileSync(new URL('./SelectionHud.tsx', import.meta.url), 'utf8')
     expect(source).not.toContain('selectionHudRect')
     expect(source).not.toContain('transient.rects')
-    expect(source).not.toContain('<CanvasTextEditor')
+    expect(source).toContain('<CanvasTextEditor')
+    expect(source).toContain('canvasTextEditorPose(textEditing)')
+  })
+
+  it('derives the editor face and rotation from the exact projected quad', () => {
+    const entry = { screenQuad: [{ x: 100, y: 50 }, { x: 220, y: 120 }, { x: 180, y: 188 }, { x: 60, y: 118 }] } as unknown as HudProjectionEntry
+    const pose = canvasTextEditorPose(entry)
+
+    expect(pose.base.x).toBeCloseTo(70.538, 3)
+    expect(pose.base.y).toBeCloseTo(79.554, 3)
+    expect(pose.base.width).toBeCloseTo(138.924, 3)
+    expect(pose.base.height).toBeCloseTo(78.892, 3)
+    expect(pose.rotation).toBeCloseTo(30.256, 3)
   })
   it('renders one plaintext contenteditable with an accessible multiline name instead of a textarea', () => {
     const html = renderToStaticMarkup(createElement(CanvasTextEditor, {

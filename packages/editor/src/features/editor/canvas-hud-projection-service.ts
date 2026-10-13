@@ -219,6 +219,24 @@ export function createCanvasHudProjectionService(
       authority = captureGestureAuthority(documents.getSnapshot, geometry.getSnapshot)
     }
     if (activeFlowDrag) authority = activeFlowDrag.authority
+    const editingNodeId = state.textEditing?.nodeId
+    const heldTextFrame = snapshot.frame
+    const canHoldTextEditor = Boolean(
+      !authority
+      && editingNodeId
+      && heldTextFrame
+      && state.file
+      && heldTextFrame.key.fileId === state.file.fileId
+      && heldTextFrame.key.pageId === state.pageId
+      && heldTextFrame.key.fileRevision < state.file.revision
+      && heldTextFrame.key.layoutGeneration === state.layoutGeneration
+      && heldTextFrame.key.selection.length === state.selection.length
+      && heldTextFrame.key.selection.every((id, index) => state.selection[index] === id)
+      && heldTextFrame.byNodeId[editingNodeId]?.kind === 'text'
+      && measured.documentRevision !== null
+      && measured.documentRevision < state.file.revision,
+    )
+    if (canHoldTextEditor) return
     const resizeActive = state.transient?.kind === 'resize'
     const activeMove = state.transient?.kind === 'move' ? state.transient : null
     if (!resizeActive) activeResize = null

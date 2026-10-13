@@ -210,22 +210,68 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
     }
   })
 
-  it('AT-DOC-003 rejects freeform semantic sizing authority and an unchanged projection without creating history', () => {
+  it('AT-DOC-003 converts resized freeform semantic axes to fixed geometry and preserves the untouched axis', () => {
     const selected = measured('rectangle', { x: 0, y: 0, width: 100, height: 50 }, { x: 0, y: 0, width: 100, height: 50 }, null)
     selected.offsetParentToRoot = [1, 0, 0, 1, 0, 0]
 
-    const sized = rectangle()
-    sized.layout = {
+    const sized: PrimitiveNode = {
+      id: 'selected', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 100, height: 50 },
+      layout: {
       item: {
         position: { mode: 'freeform' },
-        width: { value: { kind: 'px', value: 100 } },
+          width: { value: { kind: 'intrinsic', value: 'fit-content' } },
+          height: { value: { kind: 'intrinsic', value: 'fit-content' } },
       },
-      spacing: { margin: 6 },
+        container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'center' } },
+        spacing: { padding: 16 },
+      },
     }
     const sizedFile = fileWith(sized)
-    const sizedSnapshot = snapshot(sizedFile, geometry(structuredClone(selected)))
+    const sizedMeasurement = measured('frame', { x: 0, y: 0, width: 100, height: 50 }, { x: 0, y: 0, width: 100, height: 50 }, null)
+    sizedMeasurement.offsetParentToRoot = [1, 0, 0, 1, 0, 0]
+    const sizedSnapshot = snapshot(sizedFile, geometry(sizedMeasurement))
     const allocate = vi.fn(() => 'never')
-    expect(planGestureCommand(sizedSnapshot, [intent(sizedSnapshot, sample({ x: 0, y: 0, width: 140, height: 50 }, ['x']))], allocate)).toBeNull()
+    const sizedPlan = planGestureCommand(sizedSnapshot, [intent(sizedSnapshot, sample({ x: 0, y: 0, width: 140, height: 50 }, ['x']))], allocate)
+    expect(sizedPlan?.command).toStrictEqual({
+      type: 'node.resizePresentation',
+      entries: [{
+        expected: {
+          nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' },
+          primitiveGeometry: { left: 0, top: 0, width: 100, height: 50 }, layout: sized.layout,
+        },
+        source: {
+          nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' },
+          primitiveGeometry: { left: 0, top: 0, width: 140, height: 50 },
+          layout: {
+            item: { position: { mode: 'freeform' }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } },
+            container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'center' } },
+            spacing: { padding: 16 },
+          },
+        },
+      }],
+    })
+    const resized = applyFileCommand(sizedFile, sizedPlan!.command, [])
+    expect(resized.nodes.selected).toMatchObject({
+      styles: { width: 140, height: 50 },
+      layout: {
+        item: { position: { mode: 'freeform' }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } },
+        container: { display: 'flex' },
+      },
+    })
+
+    const ambiguous = structuredClone(sized)
+    ambiguous.layout!.item.aspectRatio = 2
+    const ambiguousFile = fileWith(ambiguous)
+    const ambiguousSnapshot = snapshot(ambiguousFile, geometry(structuredClone(sizedMeasurement)))
+    expect(planGestureCommand(ambiguousSnapshot, [intent(ambiguousSnapshot, sample({ x: 0, y: 0, width: 140, height: 50 }, ['x']))], allocate)).toBeNull()
+
+    expect(allocate).not.toHaveBeenCalled()
+  })
+
+  it('AT-DOC-003 rejects an unchanged projection without creating history', () => {
+    const selected = measured('rectangle', { x: 0, y: 0, width: 100, height: 50 }, { x: 0, y: 0, width: 100, height: 50 }, null)
+    selected.offsetParentToRoot = [1, 0, 0, 1, 0, 0]
+    const allocate = vi.fn(() => 'never')
 
     const absentLayout = rectangle()
     delete absentLayout.layout

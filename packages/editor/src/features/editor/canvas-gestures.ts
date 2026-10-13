@@ -1,5 +1,7 @@
 import type { PrimitiveKind } from '@canvas/repo-engine/file-document'
-import { childrenOf as fileChildrenOf, descendantsOf as fileDescendantsOf, nodeIsLocked, pageRoot } from '@canvas/repo-engine/file-document'
+import { childrenOf as fileChildrenOf, descendantsOf as fileDescendantsOf, nodeAppearance, nodeIsLocked, pageRoot } from '@canvas/repo-engine/file-document'
+import { canonicalAppearance, expandedCornerRadii, supportsCornerRadii } from '@canvas/repo-engine/appearance'
+import type { Appearance, CornerRadiusKey } from '@canvas/repo-engine/appearance'
 import { documentStore } from './document-store'
 import type { CanvasTransient, DocumentState, MoveCommit, PersistenceCommit } from './document-store'
 import { sceneGeometry } from './scene-geometry'
@@ -37,6 +39,8 @@ import type { LocalFlowClaimToken } from '../collaboration/collaboration-service
 import { projectRotationPresentation, rotationDegreesFromPointer } from './rotation-projection'
 import type { RotationCorner } from './rotation-projection'
 import { setTransformRotation } from './layout-commands'
+import { cornerRadiusHandlePoses, radiusFromPointer, resolveAmbiguousCorner } from './corner-radius-handles'
+import type { CornerRadiusHandlePose } from './corner-radius-handles'
 
 export type { ResizeHandle } from './canvas-math'
 export const resizeHandles: readonly ResizeHandle[] = ['top-left', 'top', 'top-right', 'right', 'bottom-right', 'bottom', 'bottom-left', 'left']
@@ -103,6 +107,16 @@ type RotationBase = Base & {
   presentationId: string
   phaseActive: boolean
 }
+type RadiusBase = Base & {
+  kind: 'radius'
+  id: string
+  pressedCorner: CornerRadiusKey
+  activeCorner: CornerRadiusKey
+  startAppearance: Appearance | undefined
+  startRadii: ReturnType<typeof expandedCornerRadii>
+  poses: readonly CornerRadiusHandlePose[]
+  fileRevision: number
+}
 type Gesture =
   | (Base & { kind: 'pan'; startCamera: Camera })
   | (Base & { kind: 'marquee' })
@@ -113,6 +127,7 @@ type Gesture =
   | ResizeBase
   | PendingResize
   | RotationBase
+  | RadiusBase
 
 type ResizeHudTarget = CanvasHudProjectionSource & Readonly<{
   publishResizePresentation?: (presentation: ResizePresentation, fence: GestureAuthoritySnapshot['start']) => boolean
@@ -198,6 +213,27 @@ export function createCanvasGestures(
       camera: state.viewport, size: state.viewportSize, selection: state.selection, tool: state.tool, readOnly: state.readOnly,
     })
     return frame && projectedFrameMatchesScene(scene, frame) ? { state, scene, frame } : null
+  }
+  const radiusStateCurrent = (current: RadiusBase) => {
+    const state = store.getSnapshot()
+    const node = state.file?.nodes[current.id]
+    return Boolean(node && node.type !== 'root'
+      && state.file?.revision === current.fileRevision
+      && state.selection.length === 1 && state.selection[0] === current.id
+      && !state.readOnly && !state.blocked && !state.textEditing
+      && state.appearanceOverrides !== null)
+  }
+  const previewRadius = (current: RadiusBase, event: PointerLike): boolean => {
+    if (!radiusStateCurrent(current)) return false
+    const delta = { x: event.clientX - current.startClient.x, y: event.clientY - current.startClient.y }
+    current.activeCorner = resolveAmbiguousCorner(current.poses, current.pressedCorner, delta)
+    const pose = current.poses.find(candidate => candidate.corner === current.activeCorner)
+    if (!pose) return false
+    const value = radiusFromPointer(current.startRadii[current.activeCorner], delta, pose, event.shiftKey)
+    const cornerRadii = event.altKey ? { ...current.startRadii, [current.activeCorner]: value } : { all: value } as const
+    const appearance = canonicalAppearance({ ...(current.startAppearance ?? {}), cornerRadii })
+    store.commands.appearance.gesture.preview({ [current.id]: appearance ?? null })
+    return true
   }
   const worldAt = (base: Base, event: Pick<PointerLike, 'clientX' | 'clientY'>) => screenToWorld(viewportPoint(event), base.camera, base.size)
   const distance = (base: Base, event: Pick<PointerLike, 'clientX' | 'clientY'>) => Math.hypot(event.clientX - base.startClient.x, event.clientY - base.startClient.y)
@@ -828,6 +864,10 @@ export function createCanvasGestures(
       return
     }
     gesture = null
+    if (current.kind === 'radius') {
+      store.commands.appearance.gesture.cancel()
+      return
+    }
     const activeInteractionId = current.kind === 'resize' || current.kind === 'pending-resize' || current.kind === 'rotation' ? current.claimId : interactionId
     interactionId = null
     stopResizeObservers()
@@ -907,6 +947,28 @@ export function createCanvasGestures(
   return {
     attach: (next: HTMLElement | null) => { element = next },
     get active() { return gesture !== null && !(gesture.kind === 'pending-resize' && gesture.released) },
+    radiusActiveCorner: (id: string): CornerRadiusKey | null => gesture?.kind === 'radius' && gesture.id === id ? gesture.activeCorner : null,
+    radiusPointerDown: (event: PointerLike, id: string, corner: CornerRadiusKey): boolean => {
+      const context = currentHitContext()
+      const state = context?.state
+      const node = state?.file?.nodes[id]
+      const entry = context?.frame.byNodeId[id]
+      if (gesture || !context || !state?.file || !node || node.type === 'root' || !entry
+        || event.button !== 0 || state.readOnly || state.blocked || state.textEditing || state.transient
+        || state.selection.length !== 1 || state.selection[0] !== id || nodeIsLocked(state.file, id)
+        || !supportsCornerRadii(node.type)) return false
+      const startAppearance = nodeAppearance(node)
+      const startRadii = expandedCornerRadii(startAppearance?.cornerRadii)
+      const poses = cornerRadiusHandlePoses(entry, startRadii)
+      if (!poses.some(pose => pose.corner === corner)) return false
+      store.commands.appearance.gesture.begin()
+      gesture = {
+        ...snapshot(event, state, context.scene),
+        kind: 'radius', id, pressedCorner: corner, activeCorner: corner,
+        startAppearance, startRadii, poses, fileRevision: state.file.revision,
+      }
+      return true
+    },
     cancel,
     /** Pointer down on the empty stage or over scene nodes. */
     stagePointerDown: (event: PointerLike): boolean => {
@@ -1018,6 +1080,12 @@ export function createCanvasGestures(
         resolvePendingResize()
         return
       }
+      if (current.kind === 'radius') {
+        if (!current.moved && distance(current, event) <= handleDragThresholdCss) return
+        current.moved = true
+        if (!previewRadius(current, event)) cancel()
+        return
+      }
       if (current.kind === 'pan') { store.setViewport({ ...current.startCamera, x: current.startCamera.x + event.clientX - current.startClient.x, y: current.startCamera.y + event.clientY - current.startClient.y }); return }
       if (current.kind === 'press') {
         if (current.paperFlow) {
@@ -1118,6 +1186,14 @@ export function createCanvasGestures(
         if (Math.hypot(current.latest.clientX - current.start.clientX, current.latest.clientY - current.start.clientY) < handleDragThresholdCss) { cancel(); return }
         current.released = true
         resolvePendingResize()
+        return
+      }
+      if (current.kind === 'radius') {
+        if (!current.moved && distance(current, event) > handleDragThresholdCss) current.moved = true
+        if (current.moved && !previewRadius(current, event)) { cancel(); return }
+        gesture = null
+        if (current.moved) store.commands.appearance.gesture.commit()
+        else store.commands.appearance.gesture.cancel()
         return
       }
       if (current.kind === 'resize' && !current.moved && distance(current, event) >= handleDragThresholdCss) current.moved = true

@@ -27,6 +27,7 @@ const releaseInput = {
   branch: 'staging',
   sha: 'a'.repeat(40),
   runNumber: '41',
+  startedAt: '2026-10-11T12:34:56Z',
   rootVersion: '0.1.0',
   desktopVersion: '0.1.0',
   existingTags: [],
@@ -41,11 +42,14 @@ test('RELEASE-SECURITY-002 accepts only an owner-triggered merged pull request',
 
   assert.deepEqual(evaluateReleasePolicy(releaseInput), {
     channel: 'staging',
+    release_channel: 'nightly',
     environment: 'staging',
+    prerelease: 'true',
+    make_latest: 'false',
     sha: 'a'.repeat(40),
-    tag: 'v0.1.0-nightly.41',
-    version: '0.1.0-nightly.41',
-    title: `Comp Canvas Nightly 0.1.0 (${'a'.repeat(7)})`,
+    tag: 'v0.1.0-nightly.20261011.41',
+    version: '0.1.0-nightly.20261011.41',
+    title: `Comp Canvas Nightly 0.1.0-nightly.20261011.41 (${'a'.repeat(7)})`,
     pull_request: '73',
   })
 })
@@ -53,6 +57,7 @@ test('RELEASE-SECURITY-002 accepts only an owner-triggered merged pull request',
 test('RELEASE-SECURITY-003 rejects unauthorized, direct, and wrong-source releases', () => {
   assert.throws(() => evaluateReleasePolicy({ ...releaseInput, actor: 'collaborator' }), /Only ripgrim/)
   assert.throws(() => evaluateReleasePolicy({ ...releaseInput, pulls: [] }), /not associated with a merged pull request/)
+  assert.throws(() => evaluateReleasePolicy({ ...releaseInput, startedAt: 'not-a-date' }), /workflow start time is invalid/)
   assert.throws(() => evaluateReleasePolicy({
     ...releaseInput,
     branch: 'main',
@@ -69,6 +74,8 @@ test('RELEASE-PIPELINE-001 gates publication on channel migration and the merged
   assert.match(releaseWorkflow, /name: Apply database migrations[\s\S]*pnpm --filter @canvas\/database migrate/)
   assert.match(releaseWorkflow, /name: Publish[\s\S]*needs:[\s\S]*- build[\s\S]*- migrate/)
   assert.match(releaseWorkflow, /--prerelease/)
+  assert.match(releaseWorkflow, /release_channel: \$\{\{ steps\.release\.outputs\.release_channel \}\}/)
+  assert.match(releaseWorkflow, /--latest="\$RELEASE_MAKE_LATEST"/)
   assert.match(releaseWorkflow, /Select signing mode/)
   assert.match(releaseWorkflow, /WINDOWS_CERTIFICATE/)
   assert.match(releaseWorkflow, /Windows signing is partially configured/)
@@ -85,6 +92,9 @@ test('RELEASE-PIPELINE-001 gates publication on channel migration and the merged
     pulls: [{ number: 75, merged_at: '2026-10-11T14:00:00Z', base: { ref: 'main' }, head: { ref: 'staging' } }],
   })
   assert.equal(production.channel, 'production')
+  assert.equal(production.release_channel, 'stable')
+  assert.equal(production.prerelease, 'false')
+  assert.equal(production.make_latest, 'true')
   assert.equal(production.tag, 'v0.1.0')
   assert.equal(production.version, '0.1.0')
 })
@@ -95,9 +105,9 @@ test('UPDATE-FEED-001 promotes occupied tags to one monotonic release version', 
   assert.equal(nextReleaseVersion('0.2.0', tags), '0.2.0')
 
   const nightly = evaluateReleasePolicy({ ...releaseInput, rootVersion: '0.1.1', desktopVersion: '0.1.1', existingTags: tags })
-  assert.equal(nightly.tag, 'v0.1.2-nightly.42')
-  assert.equal(nightly.version, '0.1.2-nightly.42')
-  assert.equal(nightly.title, `Comp Canvas Nightly 0.1.2 (${'a'.repeat(7)})`)
+  assert.equal(nightly.tag, 'v0.1.2-nightly.20261011.41')
+  assert.equal(nightly.version, '0.1.2-nightly.20261011.41')
+  assert.equal(nightly.title, `Comp Canvas Nightly 0.1.2-nightly.20261011.41 (${'a'.repeat(7)})`)
 
   const production = evaluateReleasePolicy({
     ...releaseInput,

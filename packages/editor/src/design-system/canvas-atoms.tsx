@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from 'react'
+import type { CornerRadiusKey } from '@canvas/repo-engine/appearance'
 import { Icon } from './atoms'
 import type { IconName } from './atoms'
 import { AppearanceVisibilityButton } from './appearance-atoms'
@@ -55,6 +56,7 @@ export type HandleName = 'top-left' | 'top' | 'top-right' | 'right' | 'bottom-ri
 export type RotationHandleName = 'top-left' | 'top-right' | 'bottom-right' | 'bottom-left'
 export type ResizeHandlePose = Readonly<{ handle: HandleName; center: Readonly<{ x: number; y: number }>; angle: number; cursor: CSSProperties['cursor']; active: boolean }>
 export type RotationHandlePose = Readonly<{ handle: RotationHandleName; center: Readonly<{ x: number; y: number }> }>
+export type CornerRadiusHandlePose = Readonly<{ corner: CornerRadiusKey; center: Readonly<{ x: number; y: number }>; angle: number; active: boolean }>
 /** Literal projected point/edge targets. Visible squares remain on Canvas2D; DOM supplies screen-sized interaction zones. */
 export function ResizeHandles({ id, generation, labelFor, poses, onHandlePointerDown, onHandleDoubleClick, onPointerMove, onPointerUp, onPointerCancel }: { id: string; generation: number; labelFor: (handle: HandleName) => string; poses: readonly ResizeHandlePose[]; onHandlePointerDown: (event: PointerEvent<HTMLButtonElement>, handle: HandleName) => void; onHandleDoubleClick?: (event: MouseEvent<HTMLButtonElement>, handle: HandleName) => void; onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void; onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void; onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void }) {
   return <div className="resize-handles" data-handles-for={id} data-hud-generation={generation}>
@@ -66,6 +68,13 @@ export function ResizeHandles({ id, generation, labelFor, poses, onHandlePointer
 export function RotationHandles({ id, generation, labelFor, poses, onHandlePointerDown, onPointerMove, onPointerUp, onPointerCancel }: { id: string; generation: number; labelFor: (handle: RotationHandleName) => string; poses: readonly RotationHandlePose[]; onHandlePointerDown: (event: PointerEvent<HTMLButtonElement>, handle: RotationHandleName) => void; onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void; onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void; onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void }) {
   return <div className="rotation-handles" data-rotation-handles-for={id} data-hud-generation={generation}>
     {poses.map(pose => <button key={pose.handle} type="button" className="rotation-handle" data-rotation-handle={pose.handle} aria-label={labelFor(pose.handle)} tabIndex={-1} style={{ left: pose.center.x, top: pose.center.y }} onPointerDown={event => onHandlePointerDown(event, pose.handle)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} />)}
+  </div>
+}
+
+/** Brilliant-style radius dots. The button is the generous screen-space hit target; its pseudo-element is the small visible marker. */
+export function CornerRadiusHandles({ id, generation, labelFor, poses, onHandlePointerDown, onPointerMove, onPointerUp, onPointerCancel }: { id: string; generation: number; labelFor: (corner: CornerRadiusKey) => string; poses: readonly CornerRadiusHandlePose[]; onHandlePointerDown: (event: PointerEvent<HTMLButtonElement>, corner: CornerRadiusKey) => void; onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void; onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void; onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void }) {
+  return <div className="corner-radius-handles" data-radius-handles-for={id} data-hud-generation={generation}>
+    {poses.map(pose => <button key={pose.corner} type="button" className="corner-radius-handle" data-radius-handle={pose.corner} data-active={pose.active || undefined} aria-label={labelFor(pose.corner)} tabIndex={-1} style={{ left: pose.center.x, top: pose.center.y, transform: `translate(-50%, -50%) rotate(${pose.angle}rad)` }} onPointerDown={event => onHandlePointerDown(event, pose.corner)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} />)}
   </div>
 }
 

@@ -42,17 +42,10 @@ export function nextReleaseVersion(baseVersion, existingTags) {
   return formatVersion(stable && compareVersions(base, stable) <= 0 ? nextPatch(stable) : base)
 }
 
-function nextNightlyNumber(version, runNumber, existingTags) {
-  const floor = Number(runNumber)
-  requireValue(Number.isSafeInteger(floor) && floor > 0, 'The workflow run number is invalid.')
-  const prefix = `v${version}-nightly.`
-  const latest = existingTags.reduce((maximum, tag) => {
-    if (!tag.startsWith(prefix)) return maximum
-    const value = tag.slice(prefix.length)
-    return /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Math.max(maximum, Number(value)) : maximum
-  }, 0)
-  requireValue(latest < Number.MAX_SAFE_INTEGER, 'The nightly release number cannot be incremented safely.')
-  return Math.max(floor, latest + 1)
+function releaseDate(startedAt) {
+  const date = new Date(startedAt)
+  requireValue(!Number.isNaN(date.valueOf()), 'The workflow start time is invalid.')
+  return date.toISOString().slice(0, 10).replaceAll('-', '')
 }
 
 export function evaluateReleasePolicy(input) {
@@ -78,14 +71,19 @@ export function evaluateReleasePolicy(input) {
   const shortSha = input.sha.slice(0, 7)
   const staging = input.branch === 'staging'
   const releaseVersion = nextReleaseVersion(input.rootVersion, input.existingTags)
-  const version = staging ? `${releaseVersion}-nightly.${nextNightlyNumber(releaseVersion, input.runNumber, input.existingTags)}` : releaseVersion
+  const runNumber = Number(input.runNumber)
+  requireValue(Number.isSafeInteger(runNumber) && runNumber > 0, 'The workflow run number is invalid.')
+  const version = staging ? `${releaseVersion}-nightly.${releaseDate(input.startedAt)}.${runNumber}` : releaseVersion
   return {
     channel: staging ? 'staging' : 'production',
+    release_channel: staging ? 'nightly' : 'stable',
     environment: staging ? 'staging' : 'production',
+    prerelease: String(staging),
+    make_latest: String(!staging),
     sha: input.sha,
     tag: `v${version}`,
     version,
-    title: staging ? `Comp Canvas Nightly ${releaseVersion} (${shortSha})` : `Comp Canvas ${releaseVersion}`,
+    title: staging ? `Comp Canvas Nightly ${version} (${shortSha})` : `Comp Canvas ${releaseVersion}`,
     pull_request: String(pull.number),
   }
 }
@@ -102,6 +100,7 @@ function main() {
     branch: process.env.GITHUB_REF_NAME ?? '',
     sha: process.env.GITHUB_SHA ?? '',
     runNumber: process.env.GITHUB_RUN_NUMBER ?? '',
+    startedAt: process.env.RELEASE_STARTED_AT ?? '',
     rootVersion: readPackageVersion(resolve(root, 'package.json')),
     desktopVersion: readPackageVersion(resolve(root, 'apps/desktop/package.json')),
     existingTags: (process.env.EXISTING_RELEASE_TAGS ?? '').split(/\r?\n/).filter(Boolean),

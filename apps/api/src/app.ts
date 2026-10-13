@@ -26,6 +26,7 @@ export type ApiAppOptions = Readonly<{
   collaborationAuthority?: CollaborationAdmissionAuthority
   legacyDocumentExternalizer?: LegacyDocumentExternalizer
   reportError?: (report: ApiErrorReport) => void
+  deploymentRevision?: string
 }>
 
 export type ApiErrorReport = Readonly<{
@@ -100,6 +101,8 @@ export function createApiApp(options: ApiAppOptions): ApiApp {
       const url = new URL(request.url)
       response = url.pathname === '/healthz' && request.method === 'GET'
         ? json({ ok: true })
+        : url.pathname === '/healthz/deployment' && request.method === 'GET'
+          ? json({ revision: options.deploymentRevision ?? null })
         : url.pathname === '/api/auth' || url.pathname.startsWith('/api/auth/')
           ? await options.auth.handler(request)
           : await routeApi(request, url, options, reference, collaborationOrigins)

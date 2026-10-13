@@ -148,6 +148,20 @@ describe('PAPER-FLEX-001 inspector entry and active block', () => {
     expect(freeLayoutEnd).toBeGreaterThan(add)
   })
 
+  it('keeps a Fit flex frame size field editable so typing a number can override it', () => {
+    const file = fixture()
+    const node = file.nodes.flex
+    if (!node || node.type !== 'frame' || node.layout?.container?.display !== 'flex') throw new Error('Expected the Flex fixture')
+    node.layout.item.width = { value: { kind: 'intrinsic', value: 'fit-content' } }
+    documentStore.load(file, [], { replace: true })
+    documentStore.select('flex')
+
+    const html = renderToStaticMarkup(h(SelectionInspector))
+    const width = /<input id="layout-width"[^>]*>/.exec(html)?.[0]
+    expect(width).toContain('placeholder="Fit"')
+    expect(width).not.toContain('disabled')
+  })
+
   it('uses Paper flex glyph geometry instead of generic editor icons', () => {
     const html = renderSelection('flex')
     expect(html).toContain('class="inspector-flex-glyph" width="10" height="2" viewBox="0 0 10 2"')

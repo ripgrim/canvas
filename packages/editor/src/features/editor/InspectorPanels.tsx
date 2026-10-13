@@ -89,7 +89,10 @@ function PrimitiveInspector({ nodes, file, overrides, mode, disabled }: Appearan
     const available = sizingModesForContext(flexContainer, flexItem)
     const state = sizingFieldState(available, sizing ?? undefined, sizing === null)
     const fixed = sizing === 'fixed'
-    const field = <InspectorNumberField id={`layout-${axis}`} label={label} prefix={prefix} value={fixed ? value(axis) : null} placeholder={state.currentLabel} min={1} max={1000000} disabled={disabled || !fixed} onCommit={next => apply({ [axis]: next })} />
+    const field = <InspectorNumberField id={`layout-${axis}`} label={label} prefix={prefix} value={fixed ? value(axis) : null} placeholder={state.currentLabel} min={1} max={1000000} disabled={disabled || sizing === null} onCommit={next => {
+      if (fixed) { apply({ [axis]: next }); return }
+      documentStore.commands.layout.primitiveSizing(axis, 'fixed', frames.map(node => ({ id: node.id, measuredPx: next })))
+    }} />
     if (!flexContainer && !flexItem) return field
     return <SizingField label={copy.sizingMode(label)} currentLabel={state.currentLabel} options={state.options} disabled={disabled} field={field} onChoose={next => {
       const sizingMode = next === 'fit' ? 'hug' : next
