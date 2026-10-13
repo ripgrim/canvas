@@ -128,7 +128,7 @@ jobs:
           path: |
             apps/desktop/release/${{ needs.authorize.outputs.channel }}/*.exe
             apps/desktop/release/${{ needs.authorize.outputs.channel }}/*.blockmap
-            apps/desktop/release/${{ needs.authorize.outputs.channel }}/*.yml
+            apps/desktop/release/${{ needs.authorize.outputs.channel }}/${{ needs.authorize.outputs.channel == 'staging' && 'nightly.yml' || 'latest.yml' }}
           if-no-files-found: error
           retention-days: 30
 
@@ -242,7 +242,9 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           installers=(release/*.exe)
-          manifests=(release/*.yml)
+          manifests=()
+          [[ -f release/nightly.yml ]] && manifests+=(release/nightly.yml)
+          [[ -f release/latest.yml ]] && manifests+=(release/latest.yml)
           if (( ${#installers[@]} != 1 || ${#manifests[@]} != 1 )); then
             echo "Expected exactly one installer and one update manifest." >&2
             exit 1
@@ -294,7 +296,9 @@ jobs:
           fi
           shopt -s nullglob
           payloads=(release/*.exe release/*.blockmap)
-          manifests=(release/*.yml)
+          manifests=()
+          [[ -f release/nightly.yml ]] && manifests+=(release/nightly.yml)
+          [[ -f release/latest.yml ]] && manifests+=(release/latest.yml)
           if (( ${#payloads[@]} == 0 || ${#manifests[@]} != 1 )); then
             echo "The updater payload must contain installers, blockmaps, and exactly one channel manifest." >&2
             exit 1
