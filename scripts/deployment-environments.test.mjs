@@ -9,6 +9,7 @@ const environments = JSON.parse(await readFile(resolve(root, 'deploy/environment
 const workflow = await readFile(resolve(root, '.github/workflows/promote-staging.yml'), 'utf8')
 const stagingTemplate = await readFile(resolve(root, '.env.staging.example'), 'utf8')
 const webVercel = JSON.parse(await readFile(resolve(root, 'apps/web/vercel.json'), 'utf8'))
+const apiVercel = JSON.parse(await readFile(resolve(root, 'apps/api/vercel.json'), 'utf8'))
 const serviceNames = ['web', 'login', 'api', 'preview', 'thumbnailRenderer', 'assets', 'sync']
 
 test('keeps production on main and staging on its persistent branch', () => {
@@ -37,6 +38,7 @@ test('opens one staging-to-main pull request and never pushes main directly', ()
 
 test('DEPLOY-STAGING-001 deploys and probes matching staging infrastructure before promotion', () => {
   assert.match(workflow, /deploy-staging-infrastructure:/)
+  assert.match(workflow, /deploy-staging-infrastructure:\s*\n\s*runs-on: ubuntu-latest\s*\n\s*environment: staging/)
   assert.match(workflow, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/)
   assert.match(workflow, /CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/)
   assert.match(workflow, /api-staging\.canvas\.ripgrim\.com\/healthz\/deployment/)
@@ -46,6 +48,10 @@ test('DEPLOY-STAGING-001 deploys and probes matching staging infrastructure befo
   assert.match(workflow, /pnpm sync:deploy:staging/)
   assert.match(workflow, /run: pnpm sync:probe:staging/)
   assert.match(workflow, /open-release-pull-request:\s*\n\s*needs: deploy-staging-infrastructure/)
+  assert.deepEqual(apiVercel.rewrites.slice(0, 2), [
+    { source: '/healthz', destination: '/api/handler?__canvas_path=healthz' },
+    { source: '/healthz/deployment', destination: '/api/handler?__canvas_path=healthz/deployment' },
+  ])
 })
 
 test('CLOUD-SYNC-AUTH-001 shares staging auth and build identity with the sync host', () => {
