@@ -1,0 +1,21 @@
+scripts/release-workflows.test.mjs
+  s_012c57818fbf95::t_718e3f2b622e9d 42
+.github/workflows/release.yml
+  s_012c57818fbf95::t_718e3f2b622e9d 50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "460c2dac764c07bf1285b1dc31634645d1b57933",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
