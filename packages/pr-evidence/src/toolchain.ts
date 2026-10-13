@@ -12,31 +12,37 @@ export type ToolchainManifest = Readonly<{
   version: 1
   ffmpegVersion: string
   source: string
-  license: ToolArtifact
-  readme: ToolArtifact
-  platforms: Readonly<Record<string, Readonly<{ ffmpeg: ToolArtifact; ffprobe: ToolArtifact }>>>
+  platforms: Readonly<Record<string, Readonly<{
+    ffmpeg: ToolArtifact
+    ffprobe: ToolArtifact
+    license: ToolArtifact
+    readme: ToolArtifact
+  }>>>
 }>
 
 export type DownloadPort = (url: string) => Promise<Uint8Array>
 
 export function parseToolchainManifest(value: unknown): ToolchainManifest {
-  const root = exactObject(value, ["version", "ffmpegVersion", "source", "license", "readme", "platforms"], "toolchain")
+  const root = exactObject(value, ["version", "ffmpegVersion", "source", "platforms"], "toolchain")
   if (root.version !== 1) throw new Error("Unsupported toolchain version.")
   if (typeof root.ffmpegVersion !== "string" || !/^\d+\.\d+\.\d+$/u.test(root.ffmpegVersion)) throw new Error("Invalid FFmpeg version.")
   if (typeof root.source !== "string" || new URL(root.source).protocol !== "https:") throw new Error("Invalid FFmpeg source URL.")
   const platforms = recordObject(root.platforms, "platforms")
   const parsedPlatforms = Object.fromEntries(Object.entries(platforms).map(([key, entry]) => {
     if (!/^(linux|darwin|win32)-(x64|arm64)$/u.test(key)) throw new Error(`Invalid toolchain platform: ${key}`)
-    const tools = exactObject(entry, ["ffmpeg", "ffprobe"], `platform ${key}`)
-    return [key, Object.freeze({ ffmpeg: artifact(tools.ffmpeg), ffprobe: artifact(tools.ffprobe) })]
+    const tools = exactObject(entry, ["ffmpeg", "ffprobe", "license", "readme"], `platform ${key}`)
+    return [key, Object.freeze({
+      ffmpeg: artifact(tools.ffmpeg),
+      ffprobe: artifact(tools.ffprobe),
+      license: artifact(tools.license),
+      readme: artifact(tools.readme),
+    })]
   }))
   if (!Object.keys(parsedPlatforms).length) throw new Error("The toolchain has no platforms.")
   return Object.freeze({
     version: 1,
     ffmpegVersion: root.ffmpegVersion,
     source: root.source,
-    license: artifact(root.license),
-    readme: artifact(root.readme),
     platforms: Object.freeze(parsedPlatforms),
   })
 }
@@ -61,8 +67,8 @@ export async function installToolchain(input: Readonly<{
   await Promise.all([
     installArtifact(selected.ffmpeg, targets.ffmpeg, input.download, true),
     installArtifact(selected.ffprobe, targets.ffprobe, input.download, true),
-    installArtifact(input.manifest.license, targets.license, input.download, false),
-    installArtifact(input.manifest.readme, targets.readme, input.download, false),
+    installArtifact(selected.license, targets.license, input.download, false),
+    installArtifact(selected.readme, targets.readme, input.download, false),
   ])
   return Object.freeze(targets)
 }

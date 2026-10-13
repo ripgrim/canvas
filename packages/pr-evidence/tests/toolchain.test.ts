@@ -11,9 +11,20 @@ const manifest = {
   version: 1,
   ffmpegVersion: "6.1.1",
   source: "https://github.com/FFmpeg/FFmpeg/tree/n6.1.1",
-  license: artifact("license"),
-  readme: artifact("readme"),
-  platforms: { "linux-x64": { ffmpeg: artifact("ffmpeg"), ffprobe: artifact("ffprobe") } },
+  platforms: {
+    "linux-x64": {
+      ffmpeg: artifact("ffmpeg"),
+      ffprobe: artifact("ffprobe"),
+      license: artifact("license"),
+      readme: artifact("readme"),
+    },
+    "win32-x64": {
+      ffmpeg: artifact("ffmpeg-win32"),
+      ffprobe: artifact("ffprobe-win32"),
+      license: artifact("license-win32"),
+      readme: artifact("readme-win32"),
+    },
+  },
 } as const
 
 describe("evidence toolchain", () => {
@@ -29,6 +40,16 @@ describe("evidence toolchain", () => {
     expect(downloads).toHaveLength(4)
     expect(await readFile(installed.ffmpeg, "utf8")).toBe("ffmpeg")
     await installToolchain({ manifest: parseToolchainManifest(manifest), platform: "linux-x64", directory, download: async () => { throw new Error("unexpected download") } })
+
+    const windowsDirectory = await mkdtemp(join(tmpdir(), "pr-evidence-tools-"))
+    const windows = await installToolchain({
+      manifest: parseToolchainManifest(manifest),
+      platform: "win32-x64",
+      directory: windowsDirectory,
+      download: async url => bytes(url.split("/").at(-1) ?? ""),
+    })
+    expect(windows.ffmpeg).toMatch(/ffmpeg\.exe$/u)
+    expect(await readFile(windows.readme, "utf8")).toBe("readme-win32")
   })
 
   it("PR-EVIDENCE-NEG-001 rejects corrupt tools and unknown platforms", async () => {

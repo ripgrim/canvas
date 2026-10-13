@@ -5,6 +5,9 @@ if (selected !== null && (!Array.isArray(selected) || selected.some(value => typ
 const grep = selected && selected.length
   ? new RegExp(`\\[(${selected.map(value => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|")})\\]`, "u")
   : undefined
+const headed = process.env.PR_EVIDENCE_HEADED === "1"
+const slowMo = process.env.PR_EVIDENCE_SLOW_MO ? Number(process.env.PR_EVIDENCE_SLOW_MO) : 0
+if (!Number.isSafeInteger(slowMo) || slowMo < 0 || slowMo > 500) throw new Error("Invalid PR evidence slow motion value.")
 
 export default defineConfig({
   testDir: "./scenarios",
@@ -16,7 +19,8 @@ export default defineConfig({
   ...(grep ? { grep } : {}),
   use: {
     browserName: "chromium",
-    headless: true,
+    headless: !headed,
+    launchOptions: { slowMo },
     viewport: { width: 1500, height: 940 },
     trace: "retain-on-failure",
   },
