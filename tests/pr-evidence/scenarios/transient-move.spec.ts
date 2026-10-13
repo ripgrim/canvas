@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
-import { createPlaywrightAutomation } from "@canvas/editor-automation/playwright"
+import { createPlaywrightAutomation } from "../../../packages/editor-automation/dist/playwright.js"
 import { expect, test, type Page } from "@playwright/test"
 
 const editorUrl = "http://127.0.0.1:4327/"

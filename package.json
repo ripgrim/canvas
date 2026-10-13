@@ -61,7 +61,7 @@
     "db:logs": "docker compose --env-file .env.local logs -f postgres",
     "db:status": "docker compose --env-file .env.local ps postgres",
     "test": "vitest run",
-    "test:pr-evidence": "pnpm --filter @canvas/editor-automation build && pnpm --filter @canvas/pr-evidence build && playwright test --config tests/pr-evidence/playwright.config.ts",
+    "test:pr-evidence": "pnpm --filter \"@canvas/web^...\" build && pnpm --filter @canvas/editor-automation build && pnpm --filter @canvas/pr-evidence build && playwright test --config tests/pr-evidence/playwright.config.ts",
     "test:pr-evidence-workflows": "node --test scripts/pr-evidence-workflows.test.mjs",
     "test:pr-evidence-cloudflare": "node --test scripts/pr-evidence-cloudflare.test.mjs",
     "test:pr-evidence-artifact": "node --test scripts/pr-evidence-artifact.test.mjs",

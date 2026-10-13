@@ -1,5 +1,5 @@
 import definitions from "./registry.json"
-import { parseEvidenceRegistry } from "@canvas/pr-evidence"
+import { parseEvidenceRegistry } from "../../packages/pr-evidence/dist/index.js"
 
 const registry = parseEvidenceRegistry(definitions)
 
