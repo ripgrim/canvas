@@ -1,0 +1,26 @@
+tests/pr-evidence/playwright.config.ts
+  s_012c57818fbf95::t_33644c028fc996 8-10,22-23
+tools/pr-evidence/ffmpeg.json
+  s_012c57818fbf95::t_19ab865cfd2c33 16-47
+packages/pr-evidence/tests/toolchain.test.ts
+  s_012c57818fbf95::t_19ab865cfd2c33 14-20,27
+  s_012c57818fbf95::t_487c178557678a 21-26,43-52
+packages/pr-evidence/src/toolchain.ts
+  s_012c57818fbf95::t_19ab865cfd2c33 15-20,26,33-39,70-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4a0865139116845e6f78effa43ee95c303d9a778",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
