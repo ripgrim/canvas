@@ -1,4 +1,10 @@
 {
+  "name": "@canvas/pr-evidence-tests",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "@canvas/editor-automation": "workspace:*",
+    "@canvas/pr-evidence": "workspace:*",
+    "@playwright/test": "1.63.0"
+  }
 }

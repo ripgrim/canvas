@@ -78,8 +78,6 @@
     "dev:preview": "node scripts/with-local-registry.mjs --filter @canvas/web dev:preview"
   },
   "devDependencies": {
-    "@canvas/editor-automation": "workspace:*",
-    "@canvas/pr-evidence": "workspace:*",
     "@playwright/test": "1.63.0",
     "@types/node": "^24.0.0",
     "auth": "1.7.7",
