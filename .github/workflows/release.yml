@@ -47,7 +47,7 @@ jobs:
           GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           GITHUB_REF_NAME: ${{ github.event_name == 'push' && github.ref_name || github.base_ref }}
           GITHUB_SHA: ${{ github.event_name == 'push' && github.sha || github.event.pull_request.merge_commit_sha }}
-          RELEASE_STARTED_AT: ${{ github.run_started_at }}
+          RELEASE_STARTED_AT: ${{ github.event_name == 'push' && github.event.head_commit.timestamp || github.event.pull_request.merged_at }}
           PULL_REQUEST_JSON: ${{ github.event_name == 'pull_request' && toJson(github.event.pull_request) || '' }}
         shell: bash
         run: |

@@ -39,6 +39,7 @@ test('RELEASE-SECURITY-002 accepts owner staging pushes and merged staging-to-ma
   assert.match(releaseWorkflow, /push:[\s\S]*- staging/)
   assert.match(releaseWorkflow, /pull_request:[\s\S]*- main[\s\S]*- closed/)
   assert.match(releaseWorkflow, /github\.event\.pull_request\.merged == true/)
+  assert.match(releaseWorkflow, /github\.event\.head_commit\.timestamp[\s\S]*github\.event\.pull_request\.merged_at/)
   assert.match(releaseWorkflow, /node scripts\/release-policy\.mjs/)
   assert.match(releaseWorkflow, /EXISTING_RELEASE_TAGS="\$tags"/)
 
