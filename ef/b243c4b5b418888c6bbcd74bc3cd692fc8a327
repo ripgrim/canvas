@@ -1,0 +1,25 @@
+package.json
+  s_012c57818fbf95::t_5a497a83e9752e 64
+tests/pr-evidence/package.json
+  s_012c57818fbf95::t_5edea80c151181 3
+tests/pr-evidence/registry.ts
+  s_012c57818fbf95::t_5edea80c151181 2
+tests/pr-evidence/scenarios/transient-move.spec.ts
+  s_012c57818fbf95::t_5edea80c151181 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "efb243c4b5b418888c6bbcd74bc3cd692fc8a327",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
