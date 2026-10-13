@@ -51,6 +51,7 @@ function releaseDate(startedAt) {
 export function evaluateReleasePolicy(input) {
   requireValue(input.actor === owner && input.triggeringActor === owner, 'Only ripgrim may trigger or rerun database migrations and releases.')
   requireValue(releaseBranches.has(input.branch), `Unsupported release branch: ${input.branch}.`)
+  requireValue(input.event === (input.branch === 'staging' ? 'push' : 'pull_request'), `The ${input.branch} release event is not allowed.`)
   requireValue(shaPattern.test(input.sha), 'The release commit SHA is invalid.')
   requireValue(/^\d+$/.test(input.runNumber), 'The workflow run number is invalid.')
   requireValue(versionPattern.test(input.rootVersion) && input.rootVersion === input.desktopVersion, 'Root and desktop versions must match and use semantic versioning before release.')
@@ -62,11 +63,12 @@ export function evaluateReleasePolicy(input) {
     .sort((left, right) => Date.parse(left.merged_at) - Date.parse(right.merged_at))
     .at(-1)
 
-  requireValue(pull, `The branch update is not associated with a merged pull request into ${input.branch}.`)
-  requireValue(Number.isSafeInteger(pull.number) && pull.number > 0, 'The associated pull request number is invalid.')
   if (input.branch === 'main') {
+    requireValue(pull, 'The production update is not associated with a merged pull request into main.')
+    requireValue(Number.isSafeInteger(pull.number) && pull.number > 0, 'The associated pull request number is invalid.')
     requireValue(pull.head?.ref === 'staging', 'Production releases must come from the staging branch.')
   }
+  if (pull) requireValue(Number.isSafeInteger(pull.number) && pull.number > 0, 'The associated pull request number is invalid.')
 
   const shortSha = input.sha.slice(0, 7)
   const staging = input.branch === 'staging'
@@ -84,7 +86,7 @@ export function evaluateReleasePolicy(input) {
     tag: `v${version}`,
     version,
     title: staging ? `Comp Canvas Nightly ${version} (${shortSha})` : `Comp Canvas ${releaseVersion}`,
-    pull_request: String(pull.number),
+    source: pull ? `pull request #${pull.number}` : 'an owner-authored staging branch update',
   }
 }
 
@@ -97,6 +99,7 @@ function main() {
   const release = evaluateReleasePolicy({
     actor: process.env.GITHUB_ACTOR ?? '',
     triggeringActor: process.env.GITHUB_TRIGGERING_ACTOR ?? '',
+    event: process.env.GITHUB_EVENT_NAME ?? '',
     branch: process.env.GITHUB_REF_NAME ?? '',
     sha: process.env.GITHUB_SHA ?? '',
     runNumber: process.env.GITHUB_RUN_NUMBER ?? '',
