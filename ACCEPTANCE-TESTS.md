@@ -30,7 +30,7 @@ Verify MIME precedence, versioned internal payloads, editable-target bypass, SVG
 
 ### PR-EVIDENCE-001: Deterministic planning
 
-Map both sides of every changed path through the trusted capability registry. The same changes in any order produce identical canonical plans. Unmapped paths and visual capabilities without scenarios fail.
+Map both sides of every changed path through the trusted capability registry. The same changes in any order produce identical canonical plans. Unmapped paths fail once with the complete sorted set. Visual capabilities without scenarios fail.
 
 ### PR-EVIDENCE-002: Strict manifest
 
@@ -71,6 +71,14 @@ Draw a 500 by 500 frame through real pointer input, move it around a closed path
 ### PR-EVIDENCE-011: Typed overlay and evidence crops
 
 Create a frame through public automation actions. Verify typed overlay bounds, eight resize handles, four rotation handles, and stale-overlay rejection after deselection. Capture a two-times compositor screenshot and an independent poster with node-relative padding and the current theme background. Record the moving node from real compositor frames at two-times scale. Verify motion remains the default, compositor capture requires a bounded crop, and normalization preserves the already-composited dimensions.
+
+### PR-EVIDENCE-012: Hosted login surface
+
+Render the hosted login application in a real browser. Verify the exact brand and heading, disabled email and Google actions, enabled GitHub action, equal provider-button heights, and one ready-state screenshot.
+
+### PR-EVIDENCE-013: Typography controls
+
+Wait for the isolated preview handshake, create and commit text through real pointer and keyboard input, then open the font-family dialog. Verify the text inspector, focused search field, populated catalog list, screenshot, and recording.
 
 ### PR-EVIDENCE-SEC-001: Untrusted capture boundary
 

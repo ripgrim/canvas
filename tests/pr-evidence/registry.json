@@ -2,11 +2,73 @@
   "adoptionSha": "81a71dad990c86eebeec2b1afce59b947f93628e",
   "capabilities": [
     {
+      "id": "application.login",
+      "paths": [
+        "apps/login/**",
+        "packages/editor/src/bootstrap.tsx",
+        "packages/editor/src/design-system/auth-atoms.tsx",
+        "packages/editor/src/design-system/auth.css",
+        "packages/editor/src/features/application/DesktopAuthBoundary.tsx"
+      ],
+      "evidence": "visual"
+    },
+    {
+      "id": "application.auth-routing",
+      "paths": [
+        "apps/web/src/adapter-mode*.ts",
+        "apps/web/src/adapters/cloud.test.ts",
+        "packages/auth/**"
+      ],
+      "evidence": "nonvisual",
+      "reason": "Auth routing and transport have no independently rendered surface."
+    },
+    {
+      "id": "desktop.font-permission",
+      "paths": [
+        "apps/desktop/src/main/**",
+        "apps/desktop/tests/**"
+      ],
+      "evidence": "nonvisual",
+      "reason": "Main-process permission policy is verified at the Electron boundary."
+    },
+    {
+      "id": "editor.typography",
+      "paths": [
+        "packages/editor/package.json",
+        "packages/editor/src/design-system/appearance-atoms.tsx",
+        "packages/editor/src/design-system/appearance.css",
+        "packages/editor/src/design-system/atoms.tsx",
+        "packages/editor/src/design-system/font-family-picker*",
+        "packages/editor/src/design-system/inspector-atoms.tsx",
+        "packages/editor/src/design-system/inspector.css",
+        "packages/editor/src/design-system/theme.css",
+        "packages/editor/src/design-system/typography*",
+        "packages/editor/src/features/editor/CanvasWorkspace.tsx",
+        "packages/editor/src/features/editor/Editor.tsx",
+        "packages/editor/src/features/editor/InspectorPanels.tsx",
+        "packages/editor/src/features/editor/TextInspector.tsx",
+        "packages/editor/src/features/editor/copy.ts",
+        "packages/editor/src/features/editor/document-store*.ts",
+        "packages/editor/src/features/editor/inspector-copy.ts",
+        "packages/editor/src/features/editor/preview-service.ts",
+        "packages/editor/src/features/editor/scene-geometry.ts",
+        "packages/editor/src/features/editor/text-*.ts",
+        "packages/editor/src/features/fonts/**",
+        "packages/editor/src/features/home/home-auth-parity.test.mjs",
+        "packages/preview-runtime/tests/appearance-styles.test.ts",
+        "packages/preview-runtime/tests/protocol.test.ts",
+        "packages/repo-engine/src/text.ts",
+        "scripts/sync-google-font*.mjs"
+      ],
+      "evidence": "visual"
+    },
+    {
       "id": "editor.canvas.transient-move",
       "paths": [
         "packages/editor/src/features/editor/canvas-*.ts",
         "packages/editor/src/features/editor/CanvasStage.tsx",
         "packages/preview-runtime/src/**",
+        "packages/preview-runtime/tests/layout-grid.test.ts",
         "tests/pr-evidence/scenarios/transient-move.spec.ts"
       ],
       "evidence": "visual"
@@ -39,7 +101,7 @@
       "id": "editor.canvas.selection-overlay",
       "paths": [
         "packages/editor/src/features/editor/canvas-hud-*.ts",
-        "packages/editor/src/features/editor/SelectionHud.tsx",
+        "packages/editor/src/features/editor/SelectionHud*.ts*",
         "tests/pr-evidence/scenarios/node-overlay.spec.ts"
       ],
       "evidence": "visual"
@@ -52,6 +114,24 @@
     }
   ],
   "scenarios": [
+    {
+      "id": "application.login",
+      "title": "The hosted login surface renders its ready state",
+      "capabilities": ["application.login"],
+      "adapters": ["browser"],
+      "assertions": ["login.actions-consistent", "login.brand-visible", "login.disabled-providers-honest"],
+      "screenshots": ["ready"],
+      "video": false
+    },
+    {
+      "id": "editor.typography",
+      "title": "Text controls expose the font catalog",
+      "capabilities": ["editor.typography"],
+      "adapters": ["browser"],
+      "assertions": ["font-picker.catalog-ready", "font-picker.search-focused", "text.inspector-visible"],
+      "screenshots": ["font-picker"],
+      "video": true
+    },
     {
       "id": "editor.transient-move",
       "title": "Selection follows a transient move",
