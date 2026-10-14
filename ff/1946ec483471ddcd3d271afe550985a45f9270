@@ -1,0 +1,26 @@
+packages/editor-automation/tests/automation.test.ts
+  s_012c57818fbf95::t_b415872ae2a8cf 98-102,105,114
+  s_012c57818fbf95::t_f74d160195043a 4,95-97,103-104,106-113,115-118
+  s_012c57818fbf95::t_5527a65d2f773a 119-120
+packages/editor-automation/src/playwright.ts
+  s_012c57818fbf95::t_b415872ae2a8cf 35
+  s_012c57818fbf95::t_f74d160195043a 31-34,36-49,57,68
+tests/pr-evidence/evidence-capture.ts
+  s_012c57818fbf95::t_f74d160195043a 7,139-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ff1946ec483471ddcd3d271afe550985a45f9270",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
