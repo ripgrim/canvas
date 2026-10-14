@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { Page } from "@playwright/test"
 import { boundsTarget, defineScenario, geometryTarget, nodeId, scenarioId, sourcePath, type NodeRef } from "../src/index.js"
-import { resolveRecordingOptions, resolveScreenshotOptions } from "../src/playwright.js"
+import { resolveRecordingOptions, resolveScreenshotOptions, withPlaywrightCaptureLock } from "../src/playwright.js"
 
 describe("editor automation contracts", () => {
   it("resolves geometry lazily", async () => {
@@ -90,6 +90,32 @@ describe("editor automation contracts", () => {
     await expect(resolveRecordingOptions(fakePage(900, 600), {
       quality: { mode: "compositor" },
     })).rejects.toMatchObject({ code: "capture-failed" })
+  })
+
+  it("PR-EVIDENCE-011 serializes capture and node reads", async () => {
+    const page = fakePage(900, 600)
+    const order: string[] = []
+    let signalStarted: () => void = () => {}
+    let releaseFirst: () => void = () => {}
+    const started = new Promise<void>(resolve => {
+      signalStarted = resolve
+    })
+    const first = withPlaywrightCaptureLock(page, async () => {
+      order.push("first-start")
+      signalStarted()
+      await new Promise<void>(resolve => {
+        releaseFirst = resolve
+      })
+      order.push("first-end")
+    })
+    const second = withPlaywrightCaptureLock(page, async () => {
+      order.push("second")
+    })
+    await started
+    expect(order).toEqual(["first-start"])
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(order).toEqual(["first-start", "first-end", "second"])
   })
 
   it("resolves a two-times compositor screenshot crop", async () => {

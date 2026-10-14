@@ -28,6 +28,25 @@ export type PlaywrightEvidencePort<CheckpointName extends string> = Readonly<{
   record<Result>(page: Page, options: ResolvedRecordingOptions, run: () => Promise<Result>): Promise<Result>
 }>
 
+const captureLocks = new WeakMap<Page, Promise<void>>()
+
+export async function withPlaywrightCaptureLock<Result>(page: Page, run: () => Promise<Result>): Promise<Result> {
+  const previous = captureLocks.get(page) ?? Promise.resolve()
+  let release: () => void = () => {}
+  const current = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const tail = previous.catch(() => undefined).then(() => current)
+  captureLocks.set(page, tail)
+  await previous.catch(() => undefined)
+  try {
+    return await run()
+  } finally {
+    release()
+    if (captureLocks.get(page) === tail) captureLocks.delete(page)
+  }
+}
+
 export function createPlaywrightAutomation<CheckpointName extends string>(options: Readonly<{
   page: Page
   evidence: PlaywrightEvidencePort<CheckpointName>
@@ -35,7 +54,7 @@ export function createPlaywrightAutomation<CheckpointName extends string>(option
   const { page } = options
 
   const ref = <Kind extends NodeKind = NodeKind>(id: NodeId): NodeRef<Kind> => {
-    const resolve = async (): Promise<NodeSnapshot<Kind>> => {
+    const resolve = async (): Promise<NodeSnapshot<Kind>> => withPlaywrightCaptureLock(page, async () => {
       const layer = page.locator(`[data-instance-id="${escapeAttribute(id)}"]`)
       if (await layer.count() !== 1) throw new AutomationError("target-not-found", `Node ${id} is unavailable.`)
       const preview = page.frameLocator('iframe[title="Canvas"]').locator(`[data-preview-instance="${escapeAttribute(id)}"], [data-preview-canvas="${escapeAttribute(id)}"]`)
@@ -46,7 +65,7 @@ export function createPlaywrightAutomation<CheckpointName extends string>(option
       const name = (await layer.getAttribute("aria-label")) ?? (await layer.textContent())?.trim() ?? ""
       if (!isNodeKind(kind)) throw new AutomationError("unsupported-capability", `Node ${id} has no supported kind.`)
       return Object.freeze({ id, kind: kind as Kind, name, bounds: Object.freeze(box) })
-    }
+    })
     const bounds = () => boundsTarget(async () => (await resolve()).bounds)
     const overlay = async (): Promise<NodeOverlaySnapshot> => {
       const canvas = page.locator(".canvas-hud-canvas")

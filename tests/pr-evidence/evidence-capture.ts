@@ -4,7 +4,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { CDPSession, Page } from "@playwright/test"
 import type { ResolvedCaptureCrop, ResolvedRecordingOptions, ResolvedScreenshotOptions } from "../../packages/editor-automation/dist/index.js"
-import type { PlaywrightEvidencePort } from "../../packages/editor-automation/dist/playwright.js"
+import { withPlaywrightCaptureLock, type PlaywrightEvidencePort } from "../../packages/editor-automation/dist/playwright.js"
 
 export function evidencePort<CheckpointName extends string>(root: string, frameTimes: number[]): PlaywrightEvidencePort<CheckpointName> {
   return Object.freeze({
@@ -136,6 +136,10 @@ async function runProcess(command: string, args: readonly string[]): Promise<voi
 }
 
 async function captureCompositorScreenshot(page: Page, options: ResolvedScreenshotOptions, existingSession?: CDPSession): Promise<Buffer> {
+  return withPlaywrightCaptureLock(page, () => captureCompositorScreenshotUnlocked(page, options, existingSession))
+}
+
+async function captureCompositorScreenshotUnlocked(page: Page, options: ResolvedScreenshotOptions, existingSession?: CDPSession): Promise<Buffer> {
   const viewport = options.crop?.viewport ?? page.viewportSize() ?? await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }))
   const crop = options.crop ?? fullViewportCrop(viewport)
   const session = existingSession ?? await page.context().newCDPSession(page)
