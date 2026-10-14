@@ -1,0 +1,49 @@
+packages/pr-evidence/src/media.ts
+  s_012c57818fbf95::t_82aaf819c9276c 31,41,59-60
+  s_012c57818fbf95::t_df31685e9cfd1d 61-62
+packages/editor-automation/src/index.ts
+  s_012c57818fbf95::t_1e24248e0addf7 144-148,158-161
+packages/editor-automation/src/playwright.ts
+  s_012c57818fbf95::t_1e24248e0addf7 141,157-166
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_1a9d6c24d0cfad 73
+packages/pr-evidence/src/capture.ts
+  s_012c57818fbf95::t_a8598f913ffcd0 6,43,69,74-76,84-86,100,106-117
+  s_012c57818fbf95::t_82aaf819c9276c 45
+  s_012c57818fbf95::t_867850ebc89beb 44,70-73
+.agents/skills/pr-evidence/SKILL.md
+  s_012c57818fbf95::t_a8598f913ffcd0 25-41
+packages/editor-automation/tests/automation.test.ts
+  s_012c57818fbf95::t_1a9d6c24d0cfad 73,89
+  s_012c57818fbf95::t_1e24248e0addf7 42,63,74-88,90-93
+  s_012c57818fbf95::t_a380213eace7a5 94
+tests/pr-evidence/evidence-capture.ts
+  s_012c57818fbf95::t_8d758707e8fc3d 58-59
+  s_012c57818fbf95::t_4e843025b8a6a6 2-3,5-6,21,36-57,60-138,141,152
+packages/pr-evidence/tests/media.test.ts
+  s_012c57818fbf95::t_82aaf819c9276c 2,34-37
+  s_012c57818fbf95::t_179069dce45ea1 38
+packages/pr-evidence/tests/capture.test.ts
+  s_012c57818fbf95::t_a8598f913ffcd0 36-41
+  s_012c57818fbf95::t_867850ebc89beb 5,42-44
+tests/pr-evidence/scenarios/node-overlay.spec.ts
+  s_012c57818fbf95::t_4e843025b8a6a6 48-51
+.github/workflows/pr-evidence.yml
+  s_012c57818fbf95::t_4e843025b8a6a6 70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bc343418e91e46e80f378594dc4cd77914ea2407",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
