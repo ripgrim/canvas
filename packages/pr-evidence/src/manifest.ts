@@ -46,7 +46,7 @@ export function parseEvidenceManifest(value: unknown): EvidenceManifest {
   const files = array(root.files, "files").map((item, index) => file(item, index))
   const scenarios = array(root.scenarios, "scenarios").map((item, index) => scenario(item, index))
   unique(scenarios.map(item => `${item.id}:${item.adapter}`), "scenario")
-  unique(scenarios.flatMap(item => item.assets.map(asset => asset.path)), "asset path")
+  consistentAssets(scenarios.flatMap(item => item.assets))
   return Object.freeze({
     schemaVersion: EVIDENCE_SCHEMA_VERSION,
     repository: Object.freeze({ id: positive(repository.id, "repository id"), fullName: match(repository.fullName, REPOSITORY, "repository full name") }),
@@ -88,11 +88,13 @@ function evidenceAsset(value: unknown, index: number): EvidenceAsset {
   const path = safePath(string(item.path, "asset path"), true)
   const extension = path.endsWith(".png") ? "screenshot" : path.endsWith(".webm") ? "video" : null
   if (extension !== item.kind) throw new Error("Asset kind does not match its extension.")
+  const sha256 = match(item.sha256, SHA, "asset SHA")
+  if (path !== `media/${sha256}.${item.kind === "video" ? "webm" : "png"}`) throw new Error("Asset path does not match its SHA.")
   const durationMs = item.durationMs === undefined ? undefined : finite(item.durationMs, "durationMs")
   const sourceFrames = item.sourceFrames === undefined ? undefined : finite(item.sourceFrames, "sourceFrames")
   const observedFps = item.observedFps === undefined ? undefined : finite(item.observedFps, "observedFps")
   return Object.freeze({
-    path: path as EvidenceAsset["path"], kind: item.kind, role: match(item.role, ID, "asset role"), sha256: match(item.sha256, SHA, "asset SHA"),
+    path: path as EvidenceAsset["path"], kind: item.kind, role: match(item.role, ID, "asset role"), sha256,
     bytes: positive(item.bytes, "asset bytes"), width: positive(item.width, "asset width"), height: positive(item.height, "asset height"),
     ...(durationMs !== undefined ? { durationMs } : {}),
     ...(sourceFrames !== undefined ? { sourceFrames } : {}),
@@ -143,4 +145,18 @@ function safePath(value: string, media: boolean): string {
 
 function unique(values: readonly string[], label: string): void {
   if (new Set(values).size !== values.length) throw new Error(`Duplicate ${label}.`)
+}
+
+function consistentAssets(assets: readonly EvidenceAsset[]): void {
+  const found = new Map<string, EvidenceAsset>()
+  for (const asset of assets) {
+    const existing = found.get(asset.path)
+    if (!existing) {
+      found.set(asset.path, asset)
+      continue
+    }
+    if (existing.kind !== asset.kind || existing.sha256 !== asset.sha256 || existing.bytes !== asset.bytes || existing.width !== asset.width || existing.height !== asset.height || existing.durationMs !== asset.durationMs || existing.sourceFrames !== asset.sourceFrames || existing.observedFps !== asset.observedFps) {
+      throw new Error("Conflicting asset metadata.")
+    }
+  }
 }

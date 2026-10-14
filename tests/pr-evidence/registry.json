@@ -36,6 +36,15 @@
       "evidence": "visual"
     },
     {
+      "id": "editor.canvas.selection-overlay",
+      "paths": [
+        "packages/editor/src/features/editor/canvas-hud-*.ts",
+        "packages/editor/src/features/editor/SelectionHud.tsx",
+        "tests/pr-evidence/scenarios/text-overlay.spec.ts"
+      ],
+      "evidence": "visual"
+    },
+    {
       "id": "documentation.research",
       "paths": ["docs/research/**"],
       "evidence": "nonvisual",
@@ -50,6 +59,24 @@
       "adapters": ["browser"],
       "assertions": ["hud.follows", "model.commits-on-release", "preview.moves-while-held", "viewport.stable"],
       "screenshots": ["before", "held", "after"],
+      "video": true
+    },
+    {
+      "id": "editor.frame-wiggle-flex",
+      "title": "A red flex frame stays synchronized while moving",
+      "capabilities": ["editor.canvas.transient-move", "evidence.infrastructure"],
+      "adapters": ["browser"],
+      "assertions": ["frame.500x500", "hud.follows-wiggle", "fill.red", "layout.flex", "model.commits"],
+      "screenshots": ["created", "wiggled", "red", "flex"],
+      "video": true
+    },
+    {
+      "id": "editor.text-overlay",
+      "title": "Centered fit text keeps its complete overlay",
+      "capabilities": ["editor.canvas.selection-overlay", "evidence.infrastructure"],
+      "adapters": ["browser"],
+      "assertions": ["overlay.matches-node", "overlay.resize-handles", "overlay.rotation-handles", "overlay.clears-on-deselect", "recording.node-crop"],
+      "screenshots": ["overlay"],
       "video": true
     }
   ]

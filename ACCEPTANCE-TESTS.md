@@ -64,6 +64,14 @@ Publish content-addressed media through the read-only evidence service. Re-read 
 
 When the evidence system is introduced on an existing pull request, diff from the trusted adoption commit until the target branch contains it. Reject a head that does not contain that commit. Once adopted, use the pull request base normally.
 
+### PR-EVIDENCE-010: Frame wiggle and flex
+
+Draw a 500 by 500 frame through real pointer input, move it around a closed path, set its fill to red through the inspector, and add flex through the keyboard command. During every held move, verify that preview and HUD geometry agree while stored geometry remains unchanged. After release, independently verify the stored size, fill, flex layout, screenshots, and recording.
+
+### PR-EVIDENCE-011: Typed overlay and evidence crops
+
+Create centered fit text inside a frame through public automation actions. Verify typed overlay bounds, eight resize handles, four rotation handles, and stale-overlay rejection after deselection. Capture a two-times compositor screenshot and an independent poster with node-relative padding and the current theme background. Record the moving node and normalize Playwright's scaled screencast back to CSS-pixel dimensions. Verify node and exact-dimension crops independently.
+
 ### PR-EVIDENCE-SEC-001: Untrusted capture boundary
 
 The pull-request workflow has read-only contents, no secrets, no environment, no persisted credentials, and no write permission.

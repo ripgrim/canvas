@@ -23,6 +23,31 @@ describe("evidence manifests", () => {
     expect(parseEvidenceManifest(manifest)).toEqual(manifest)
   })
 
+  it("allows one content-addressed image to serve two roles", () => {
+    const first = manifest.scenarios[0].assets[0]
+    const parsed = parseEvidenceManifest({
+      ...manifest,
+      scenarios: [{ ...manifest.scenarios[0], assets: [first, { ...first, role: "poster" }] }],
+    })
+    expect(parsed.scenarios[0].assets.map(asset => asset.role)).toEqual(["held", "poster"])
+  })
+
+  it("rejects conflicting metadata for one asset path", () => {
+    const first = manifest.scenarios[0].assets[0]
+    expect(() => parseEvidenceManifest({
+      ...manifest,
+      scenarios: [{ ...manifest.scenarios[0], assets: [first, { ...first, role: "poster", width: first.width + 1 }] }],
+    })).toThrow("Conflicting asset metadata")
+  })
+
+  it("rejects a media path that does not match its hash", () => {
+    const first = manifest.scenarios[0].assets[0]
+    expect(() => parseEvidenceManifest({
+      ...manifest,
+      scenarios: [{ ...manifest.scenarios[0], assets: [{ ...first, sha256: "b".repeat(64) }] }],
+    })).toThrow("Asset path does not match its SHA")
+  })
+
   it("rejects unknown keys and unsafe paths", () => {
     expect(() => parseEvidenceManifest({ ...manifest, extra: true })).toThrow("keys")
     const asset = { ...manifest.scenarios[0].assets[0], path: "media/../secret.png" }

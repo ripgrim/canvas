@@ -36,7 +36,7 @@ export default defineConfig({
     {
       command: "pnpm --filter @canvas/web exec vite --host 127.0.0.1 --port 4327 --strictPort",
       cwd: "../..",
-      env: { VITE_API_ORIGIN: "", VITE_LOGIN_ORIGIN: "", VITE_PREVIEW_ORIGIN: "http://127.0.0.1:4328" },
+      env: { VITE_API_ORIGIN: "", VITE_LOGIN_ORIGIN: "", VITE_PREVIEW_ORIGIN: "http://127.0.0.1:4328", VITE_BROWSER_TEST_STORAGE: "1" },
       url: "http://127.0.0.1:4327/",
       reuseExistingServer: false,
       timeout: 120_000,
