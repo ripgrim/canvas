@@ -1,0 +1,40 @@
+packages/pr-evidence/src/registry.ts
+  s_012c57818fbf95::t_5d56ce9af9d71f 133,138-141,151
+tests/pr-evidence/registry.json
+  s_012c57818fbf95::t_6df99d783ba698 131
+  s_012c57818fbf95::t_5d56ce9af9d71f 4-40,42-44,46-64,71,104,117-130,132-134
+  s_012c57818fbf95::t_3f8fef98417499 41,45
+tests/pr-evidence/scenarios/typography.spec.ts
+  s_012c57818fbf95::t_6df99d783ba698 24,28
+  s_012c57818fbf95::t_60a3548e7663f0 17,25,33
+  s_012c57818fbf95::t_5d56ce9af9d71f 1-16,19-23,26-27,29-30,34-38
+  s_012c57818fbf95::t_1416f42b6fcb99 32
+  s_012c57818fbf95::t_95fca14b02cb7d 31
+  s_012c57818fbf95::t_bf2b8de8f08082 18
+tests/pr-evidence/scenarios/login.spec.ts
+  s_012c57818fbf95::t_5d56ce9af9d71f 1-12,15-22
+  s_012c57818fbf95::t_60a3548e7663f0 13-14
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_b5d8ba90143e89 33,75-81
+  s_012c57818fbf95::t_5b1f68b97f05ab 82
+packages/pr-evidence/tests/registry.test.ts
+  s_012c57818fbf95::t_5d56ce9af9d71f 45-49
+tests/pr-evidence/playwright.config.ts
+  s_012c57818fbf95::t_5d56ce9af9d71f 44-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0f653a53bbc93caae8784426f87ab21ef23af65b",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
