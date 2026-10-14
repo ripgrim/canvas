@@ -39,6 +39,7 @@ describe("editor automation contracts", () => {
     await expect(resolveRecordingOptions(page, {
       crop: { kind: "dimensions", width: 320, height: 180, center: geometryTarget(async () => ({ x: 200, y: 100 })) },
     })).resolves.toEqual({
+      quality: { mode: "motion" },
       crop: {
         viewport: { width: 900, height: 600 },
         source: { x: 40, y: 10, width: 320, height: 180 },
@@ -59,6 +60,7 @@ describe("editor automation contracts", () => {
       expectKind: async () => node,
     } as unknown as NodeRef
     await expect(resolveRecordingOptions(page, { crop: { kind: "node", node, padding: 16 } })).resolves.toEqual({
+      quality: { mode: "motion" },
       crop: {
         viewport: { width: 900, height: 600 },
         source: { x: 0, y: 0, width: 101, height: 44 },
@@ -66,6 +68,28 @@ describe("editor automation contracts", () => {
         background: "#181818",
       },
     })
+  })
+
+  it("PR-EVIDENCE-011 resolves a bounded compositor recording", async () => {
+    const page = fakePage(900, 600)
+    await expect(resolveRecordingOptions(page, {
+      crop: { kind: "dimensions", width: 320, height: 180 },
+      quality: { mode: "compositor" },
+    })).resolves.toEqual({
+      quality: { mode: "compositor", scale: 2, fps: 24 },
+      crop: {
+        viewport: { width: 900, height: 600 },
+        source: { x: 290, y: 210, width: 320, height: 180 },
+        output: { width: 320, height: 180, offsetX: 0, offsetY: 0 },
+        background: "#181818",
+      },
+    })
+  })
+
+  it("PR-EVIDENCE-011 rejects an unbounded compositor recording", async () => {
+    await expect(resolveRecordingOptions(fakePage(900, 600), {
+      quality: { mode: "compositor" },
+    })).rejects.toMatchObject({ code: "capture-failed" })
   })
 
   it("resolves a two-times compositor screenshot crop", async () => {

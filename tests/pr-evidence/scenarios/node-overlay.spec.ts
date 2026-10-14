@@ -45,7 +45,10 @@ test("PR-EVIDENCE-011 [editor.node-overlay]", async ({ page }) => {
   const expectedHeight = (Math.ceil(snapshot.bounds.y + snapshot.bounds.height + 32) - Math.floor(snapshot.bounds.y - 32)) * 2
   expect(pngDimensions(await readFile(join(evidenceRoot, "overlay.png")))).toEqual({ width: expectedWidth, height: expectedHeight })
 
-  await automation.evidence.record({ crop: { kind: "node", node: frame, padding: 32 } }, async () => {
+  await automation.evidence.record({
+    crop: { kind: "node", node: frame, padding: 32 },
+    quality: { mode: "compositor" },
+  }, async () => {
     await automation.mouse.drag(frame.center(), frame.center().offset(18, 0), { steps: 8 })
     await automation.mouse.drag(frame.center(), frame.center().offset(-18, 0), { steps: 8 })
   })

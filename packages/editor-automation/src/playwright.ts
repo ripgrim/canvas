@@ -138,7 +138,7 @@ export function createPlaywrightAutomation<CheckpointName extends string>(option
   const evidence: EvidenceApi<CheckpointName> = Object.freeze({
     screenshot: async (name: CheckpointName, input: ScreenshotOptions = {}) => options.evidence.screenshot(name, page, await resolveScreenshotOptions(page, input)),
     async record<Result>(input: RecordingOptions | (() => Promise<Result>), next?: () => Promise<Result>): Promise<Result> {
-      const recordingOptions = typeof input === "function" ? Object.freeze({}) : await resolveRecordingOptions(page, input)
+      const recordingOptions = await resolveRecordingOptions(page, typeof input === "function" ? {} : input)
       const run = typeof input === "function" ? input : next
       if (!run) throw new AutomationError("capture-failed", "Recording callback is required.")
       return options.evidence.record(page, recordingOptions, run)
@@ -154,8 +154,16 @@ export async function resolveScreenshotOptions(page: Page, options: ScreenshotOp
 }
 
 export async function resolveRecordingOptions(page: Page, options: RecordingOptions): Promise<ResolvedRecordingOptions> {
-  if (!options.crop) return Object.freeze({})
-  return Object.freeze({ crop: await resolveCaptureCrop(page, options.crop) })
+  const crop = options.crop ? await resolveCaptureCrop(page, options.crop) : undefined
+  const quality = options.quality ?? { mode: "motion" as const }
+  if (quality.mode === "motion") return Object.freeze({ quality: Object.freeze({ mode: "motion" }), ...(crop ? { crop } : {}) })
+  if (!crop) throw new AutomationError("capture-failed", "Compositor recordings require a bounded crop.")
+  const scale = quality.scale ?? 2
+  const fps = quality.fps ?? 24
+  if (crop.output.width * scale * crop.output.height * scale > 4_194_304) {
+    throw new AutomationError("capture-failed", "Compositor recording crop is too large.")
+  }
+  return Object.freeze({ crop, quality: Object.freeze({ mode: "compositor", scale, fps }) })
 }
 
 async function resolveCaptureCrop(page: Page, crop: CaptureCrop) {

@@ -28,6 +28,7 @@ export async function normalizeEvidenceVideo(input: Readonly<{
   maxBytes?: number
   crop?: ResolvedCaptureCrop
   posterSource?: string
+  quality?: "motion" | "compositor"
 }>): Promise<Readonly<{ video: EvidenceAsset; poster: EvidenceAsset; inspection: VideoInspection }>> {
   const source = resolve(input.source)
   const destination = resolve(input.destination)
@@ -37,7 +38,7 @@ export async function normalizeEvidenceVideo(input: Readonly<{
   await successful(input.run(input.ffmpeg, [
     "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", source,
     "-map", "0:v:0", "-an", "-map_metadata", "-1", ...filters, "-c:v", "libvpx-vp9",
-    "-deadline", "good", "-cpu-used", "2", "-crf", "35", "-b:v", "0",
+    "-deadline", "good", "-cpu-used", "2", "-crf", videoCrf(input.quality ?? "motion"), "-b:v", "0",
     "-pix_fmt", "yuv420p", "-fps_mode", "vfr", destination,
   ]), "FFmpeg normalization")
   const inspection = await inspectEvidenceVideo({ ffmpeg: input.ffmpeg, ffprobe: input.ffprobe, path: destination, run: input.run })
@@ -53,6 +54,10 @@ export async function normalizeEvidenceVideo(input: Readonly<{
   const posterSize = pngSize(await readFile(poster))
   const posterAsset = await evidenceAsset(poster, "screenshot", "poster", { ...inspection, ...posterSize })
   return Object.freeze({ video, poster: posterAsset, inspection })
+}
+
+export function videoCrf(quality: "motion" | "compositor"): string {
+  return quality === "compositor" ? "18" : "35"
 }
 
 export function videoCropFilter(crop: ResolvedCaptureCrop, frame: Readonly<{ width: number; height: number }>): string {

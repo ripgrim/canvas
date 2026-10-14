@@ -141,7 +141,11 @@ export type CaptureCrop =
 
 export type ScreenshotScale = 1 | 2
 export type ScreenshotOptions = Readonly<{ crop?: CaptureCrop; scale?: ScreenshotScale }>
-export type RecordingOptions = Readonly<{ crop?: CaptureCrop }>
+export type RecordingFrameRate = 12 | 24 | 30
+export type RecordingQuality =
+  | Readonly<{ mode: "motion" }>
+  | Readonly<{ mode: "compositor"; scale?: ScreenshotScale; fps?: RecordingFrameRate }>
+export type RecordingOptions = Readonly<{ crop?: CaptureCrop; quality?: RecordingQuality }>
 
 export type ResolvedCaptureCrop = Readonly<{
   viewport: Readonly<{ width: number; height: number }>
@@ -151,7 +155,10 @@ export type ResolvedCaptureCrop = Readonly<{
 }>
 
 export type ResolvedScreenshotOptions = Readonly<{ crop?: ResolvedCaptureCrop; scale: ScreenshotScale }>
-export type ResolvedRecordingOptions = Readonly<{ crop?: ResolvedCaptureCrop }>
+export type ResolvedRecordingQuality =
+  | Readonly<{ mode: "motion" }>
+  | Readonly<{ mode: "compositor"; scale: ScreenshotScale; fps: RecordingFrameRate }>
+export type ResolvedRecordingOptions = Readonly<{ crop?: ResolvedCaptureCrop; quality: ResolvedRecordingQuality }>
 
 export interface MouseApi {
   click(target: GeometryTarget): Promise<void>

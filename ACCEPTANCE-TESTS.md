@@ -70,7 +70,7 @@ Draw a 500 by 500 frame through real pointer input, move it around a closed path
 
 ### PR-EVIDENCE-011: Typed overlay and evidence crops
 
-Create a frame through public automation actions. Verify typed overlay bounds, eight resize handles, four rotation handles, and stale-overlay rejection after deselection. Capture a two-times compositor screenshot and an independent poster with node-relative padding and the current theme background. Record the moving node and normalize Playwright's scaled screencast back to CSS-pixel dimensions. Verify node and exact-dimension crops independently.
+Create a frame through public automation actions. Verify typed overlay bounds, eight resize handles, four rotation handles, and stale-overlay rejection after deselection. Capture a two-times compositor screenshot and an independent poster with node-relative padding and the current theme background. Record the moving node from real compositor frames at two-times scale. Verify motion remains the default, compositor capture requires a bounded crop, and normalization preserves the already-composited dimensions.
 
 ### PR-EVIDENCE-SEC-001: Untrusted capture boundary
 
