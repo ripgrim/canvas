@@ -1,6 +1,6 @@
 import { memo, useSyncExternalStore } from 'react'
 import type { CSSProperties, PointerEvent } from 'react'
-import { nodeAppearance, nodeIsLocked } from '@canvas/repo-engine/file-document'
+import { nodeAppearance, nodeIsLocked, worldRect } from '@canvas/repo-engine/file-document'
 import { expandedCornerRadii, supportsCornerRadii } from '@canvas/repo-engine/appearance'
 import type { TextLineHeight, TextSizing, TextStyle } from '@canvas/repo-engine/file-document'
 import { CanvasHud, CanvasTextEditor, CornerRadiusHandles, MobileSelectionActions, NodeLabel, NodeNameEditor, ResizeHandles, RotationHandles } from '../../design-system/canvas-atoms'
@@ -17,6 +17,7 @@ import { createStableMobileQuickActionsStore, mobileQuickActionsPhase, mobileQui
 import type { MobileQuickActionsPhase } from './mobile-editor'
 import { rotateTransformQuarter } from './layout-commands'
 import { cornerRadiusHandlePoses } from './corner-radius-handles'
+import { worldRectToScreen } from './canvas-math'
 
 const lineHeightCss = (value: TextLineHeight): string | number => {
   if (value.kind === 'normal') return 'normal'
@@ -25,6 +26,11 @@ const lineHeightCss = (value: TextLineHeight): string | number => {
   if (value.kind === 'px') return `${value.value}px`
   if (value.kind === 'em') return `${value.value}em`
   return value.value
+}
+
+const fontFeaturesCss = (features: TextStyle['fontFeatures']): string | undefined => {
+  const entries = Object.entries(features ?? {}).sort(([left], [right]) => left.localeCompare(right))
+  return entries.length ? entries.map(([tag, enabled]) => `'${tag}' ${enabled ? 'on' : 'off'}`).join(', ') : undefined
 }
 
 export function canvasTextEditorStyle(base: { x: number; y: number; width: number; height: number }, rotation: number, zoom: number, text: TextStyle, sizing: TextSizing): CSSProperties {
@@ -41,6 +47,7 @@ export function canvasTextEditorStyle(base: { x: number; y: number; width: numbe
     fontFamily: text.fontFamily,
     fontStyle: text.fontStyle,
     fontWeight: text.fontWeight,
+    fontFeatureSettings: fontFeaturesCss(text.fontFeatures),
     fontSize: `${text.fontSize}px`,
     lineHeight: lineHeightCss(text.lineHeight),
     letterSpacing: `${text.fontSize * text.letterSpacing / 100}px`,
@@ -54,6 +61,25 @@ export function canvasTextEditorStyle(base: { x: number; y: number; width: numbe
     overflow: sizing.height.mode === 'fit' ? 'visible' : 'hidden',
     ...(text.maxLines !== undefined ? { display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: String(text.maxLines), overflow: 'hidden' } : {}),
   }
+}
+
+const textLineHeight = (text: TextStyle): number => {
+  const lineHeight = text.lineHeight
+  if (lineHeight.kind === 'px') return lineHeight.value
+  if (lineHeight.kind === 'unitless' || lineHeight.kind === 'em') return text.fontSize * lineHeight.value
+  if (lineHeight.kind === 'percent') return text.fontSize * lineHeight.value / 100
+  if (lineHeight.kind === 'source') return textLineHeight({ ...text, lineHeight: lineHeight.fallback })
+  return text.fontSize * 1.2
+}
+
+export function canvasTextFallbackPose(node: { rect: { x: number; y: number; width: number; height: number }; rotation: number; textStyle: TextStyle }, camera: { x: number; y: number; zoom: number }, size: { width: number; height: number }): Readonly<{ base: { x: number; y: number; width: number; height: number }; rotation: number }> {
+  const base = worldRectToScreen({
+    x: node.rect.x,
+    y: node.rect.y,
+    width: Math.max(1, node.rect.width),
+    height: Math.max(node.rect.height, textLineHeight(node.textStyle)),
+  }, camera, size)
+  return { base, rotation: node.rotation }
 }
 
 /** Places the editor on the projector-owned node face, including ancestor transforms. */
@@ -164,14 +190,14 @@ export function SelectionHud({ projections = canvasHudProjectionService, documen
   const frame = currentHudProjectionFrame(projection, projections.getSnapshot())
   const quickNodeId = state.selection.length === 1 ? state.selection[0] : undefined
   const quickNode = quickNodeId ? state.file?.nodes[quickNodeId] : undefined
-  const holdsTextEditorPose = Boolean(state.textEditing && frame?.byNodeId[state.textEditing.nodeId]?.kind === 'text' && frame.key.fileRevision < (state.file?.revision ?? 0))
+  const holdsTextEditorPose = Boolean(state.textEditing && frame && frame.key.fileRevision < (state.file?.revision ?? 0))
   if (!frame || !state.file || !state.pageId
     || frame.key.fileId !== state.file.fileId
     || frame.key.pageId !== state.pageId
     || frame.key.fileRevision !== state.file.revision && !holdsTextEditorPose
     || frame.key.layoutGeneration !== state.layoutGeneration
-    || frame.key.selection.length !== state.selection.length
-    || !frame.key.selection.every((id, index) => state.selection[index] === id)) return null
+    || !holdsTextEditorPose && (frame.key.selection.length !== state.selection.length
+      || !frame.key.selection.every((id, index) => state.selection[index] === id))) return null
   const mobileQuickActionsEligible = projections === canvasHudProjectionService && documents === documentStore
     && quickNodeId && quickNode && quickNode.type !== 'root'
     && !state.readOnly && !nodeIsLocked(state.file, quickNodeId)
@@ -198,20 +224,25 @@ export function SelectionHud({ projections = canvasHudProjectionService, documen
   const editingText = editingTextNode?.type === 'text' && typeof editingTextNode.text === 'string' && editingTextNode.textStyle && editingTextNode.textSizing
     ? { id: editingTextNode.id, name: editingTextNode.name, text: editingTextNode.text, textStyle: editingTextNode.textStyle, textSizing: editingTextNode.textSizing }
     : null
-  const textEditorPose = textEditing?.kind === 'text' ? canvasTextEditorPose(textEditing) : null
+  const editingTextWorldRect = editingTextNode && state.textEditing ? worldRect(state.file, state.textEditing.nodeId) : null
+  const textEditorPose = textEditing?.kind === 'text'
+    ? canvasTextEditorPose(textEditing)
+    : editingTextNode?.type === 'text' && editingTextNode.textStyle && editingTextWorldRect
+      ? canvasTextFallbackPose({ rect: editingTextWorldRect, rotation: editingTextNode.styles.rotation ?? 0, textStyle: editingTextNode.textStyle }, frame.key.camera, frame.key.size)
+      : null
   const editableLabels = frame.entries.filter(entry => entry.policy.showLabel && !entry.policy.readOnly && !entry.policy.locked && renaming?.nodeId !== entry.nodeId)
   const namePose = renaming && renaming.kind !== 'text' && !renaming.policy.readOnly && !renaming.policy.locked
     ? { x: renaming.label.origin.x, y: renaming.label.origin.y, width: renaming.label.maxWidth, angle: renaming.label.angle }
     : null
-  const controls = selected?.policy.showHandles && state.renaming === null ? resizeHandlePoses(selected) : []
-  const rotationControls = selected?.policy.showHandles && state.renaming === null && !frame.key.mobile ? rotationHandlePoses(selected) : []
+  const controls = selected?.policy.showHandles && state.renaming === null && !state.textEditing ? resizeHandlePoses(selected) : []
+  const rotationControls = selected?.policy.showHandles && state.renaming === null && !state.textEditing && !frame.key.mobile ? rotationHandlePoses(selected) : []
   const activeRadiusCorner = selected ? canvasGestures.radiusActiveCorner(selected.nodeId) : null
   const selectedNode = selected ? state.file.nodes[selected.nodeId] : undefined
   const selectedAppearance = selected && state.appearanceOverrides && Object.hasOwn(state.appearanceOverrides, selected.nodeId)
     ? state.appearanceOverrides[selected.nodeId] ?? undefined
     : nodeAppearance(selectedNode)
   const radiusControls = selected && selectedNode && selectedNode.type !== 'root'
-    && selected.policy.showHandles && state.renaming === null && !frame.key.mobile
+    && selected.policy.showHandles && state.renaming === null && !state.textEditing && !frame.key.mobile
     && supportsCornerRadii(selectedNode.type) && (state.hover === selected.nodeId || activeRadiusCorner !== null)
     ? cornerRadiusHandlePoses(selected, expandedCornerRadii(selectedAppearance?.cornerRadii)).map(pose => ({ ...pose, active: pose.corner === activeRadiusCorner }))
     : []
@@ -222,6 +253,6 @@ export function SelectionHud({ projections = canvasHudProjectionService, documen
     {selected && controls.length > 0 && <ResizeHandles id={selected.nodeId} generation={projection.generation} poses={controls} labelFor={handle => copy.resizeHandle(selected.name, handle)} onHandlePointerDown={(event, handle) => { if (canvasGestures.handlePointerDown(event, selected.nodeId, handle)) capture(event) }} onHandleDoubleClick={(event, handle) => { event.preventDefault(); event.stopPropagation(); canvasGestures.handleDoubleClick(selected.nodeId, handle, event.altKey) }} {...handlers} />}
     {selected && rotationControls.length > 0 && <RotationHandles id={selected.nodeId} generation={projection.generation} poses={rotationControls} labelFor={handle => copy.rotationHandle(selected.name, handle)} onHandlePointerDown={(event, handle) => { if (canvasGestures.rotationPointerDown(event, selected.nodeId, handle)) capture(event) }} {...handlers} />}
     {renaming && namePose && <NodeNameEditor id={renaming.nodeId} pose={namePose} value={renaming.name} label={copy.renameLabel(renaming.name)} onCommit={value => { documentStore.commands.rename(renaming.nodeId, value); documentStore.setRenaming(null) }} onCancel={() => documentStore.setRenaming(null)} />}
-    {state.textEditing && textEditing && textEditorPose && editingText && <CanvasTextEditor id={editingText.id} value={editingText.text} label={copy.editText(editingText.name)} style={canvasTextEditorStyle(textEditorPose.base, textEditorPose.rotation, frame.key.camera.zoom, editingText.textStyle, editingText.textSizing)} onUpdate={value => documentStore.commands.text.update(state.textEditing!.sessionId, value)} onCommit={() => { documentStore.commands.text.commit(state.textEditing!.sessionId) }} onCancel={() => { documentStore.commands.text.cancel(state.textEditing!.sessionId) }} onTraverse={direction => { const editing = state.textEditing!; if (documentStore.commands.text.commit(editing.sessionId)) documentStore.commands.text.focusAdjacent(editing.nodeId, direction) }} />}
+    {state.textEditing && textEditorPose && editingText && <CanvasTextEditor id={editingText.id} value={editingText.text} label={copy.editText(editingText.name)} style={canvasTextEditorStyle(textEditorPose.base, textEditorPose.rotation, frame.key.camera.zoom, editingText.textStyle, editingText.textSizing)} onUpdate={value => documentStore.commands.text.update(state.textEditing!.sessionId, value)} onCommit={() => { documentStore.commands.text.commit(state.textEditing!.sessionId) }} onCancel={() => { documentStore.commands.text.cancel(state.textEditing!.sessionId) }} onTraverse={direction => { const editing = state.textEditing!; if (documentStore.commands.text.commit(editing.sessionId)) documentStore.commands.text.focusAdjacent(editing.nodeId, direction) }} />}
   </CanvasHud>{mobileQuickActions}</>
 }

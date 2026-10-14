@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { HudFlowDragProjection, HudHandlePose, HudProjectionFrame, HudQuad } from './canvas-hud-projection'
 import type { CanvasHudProjectionSnapshot } from './canvas-hud-projection-service'
-import { canvasHudChrome, canvasHudChromeForViewport, canvasHudPaintProjection, formatHudDimensions, paintProjectedHud, selectionBadgeRect } from './canvas-hud-painter'
+import { canvasHudChrome, canvasHudChromeForViewport, canvasHudPaintProjection, formatHudDimensions, paintProjectedHud, releaseCanvasHudBitmap, selectionBadgeRect } from './canvas-hud-painter'
 
 const screenQuad: HudQuad = [{ x: 470, y: 300 }, { x: 470, y: 440 }, { x: 270, y: 440 }, { x: 270, y: 300 }]
 const names = ['top-left', 'top', 'top-right', 'right', 'bottom-right', 'bottom', 'bottom-left', 'left'] as const
@@ -141,5 +141,22 @@ describe('PAPER-FLEX-006-HUD shared Canvas2D HUD consumer', () => {
   it('uses Paper multiplication typography and preserves useful precision', () => {
     expect(formatHudDimensions(480, 320)).toBe('480\u2004\u00d7\u2004320')
     expect(formatHudDimensions(31.125, 8.004)).toBe('31.13\u2004\u00d7\u20048')
+  })
+
+  it('AT-PERF-001 clears the retired bitmap before Chromium can retain its desktop compositor surface', () => {
+    const clearRect = vi.fn()
+    const canvas = {
+      width: 2400,
+      height: 1600,
+      dataset: { hud: '{"selected":{}}' },
+      getContext: vi.fn(() => ({ clearRect })),
+    } as unknown as HTMLCanvasElement
+
+    releaseCanvasHudBitmap(canvas)
+
+    expect(clearRect).toHaveBeenCalledWith(0, 0, 2400, 1600)
+    expect(canvas.width).toBe(0)
+    expect(canvas.height).toBe(0)
+    expect(canvas.dataset.hud).toBeUndefined()
   })
 })

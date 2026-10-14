@@ -337,7 +337,21 @@ describe('AT-CAN primitive canvas commands', () => {
     // Fill id first, then the two stops in order.
     expect(fillsOf(store, 'new-3')).toEqual([{ id: 'new-4', type: 'gradient', shape: 'linear', angle: 135, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'srgb', stops: [{ id: 'new-5', position: 0, color: hex('#685fff') }, { id: 'new-6', position: 1, color: hex('#202124') }] }])
     store.commands.insertCanvas('text', { x: 0, y: 0 })
-    expect(file(store).nodes['new-7']).toMatchObject({ type: 'text', text: 'Text', ...legacyTextProperties(), appearance: { fills: [{ id: 'new-8', type: 'solid', color: hex('#202124') }] } })
+    expect(file(store).nodes['new-7']).toMatchObject({ type: 'text', text: 'Text', ...legacyTextProperties(), appearance: { fills: [{ id: 'new-8', type: 'solid', color: hex('#000000') }] } })
+  })
+
+  it('uses the editor appearance for new text color', () => {
+    const textColorIn = (mode: 'light' | 'dark') => {
+      let id = 0
+      const store = createDocumentStore(() => `new-${++id}`)
+      store.configure({ editorMode: () => mode })
+      store.load(fixture(), atoms)
+      expect(store.commands.insertCanvasText('point', { x: 0, y: 0 })).toBe(true)
+      return fillsOf(store, 'new-1')
+    }
+
+    expect(textColorIn('dark')).toEqual([{ id: 'new-2', type: 'solid', color: hex('#ffffff') }])
+    expect(textColorIn('light')).toEqual([{ id: 'new-2', type: 'solid', color: hex('#000000') }])
   })
 
   it('commits a move into a nested frame keeping the world position, and back out to the page', () => {

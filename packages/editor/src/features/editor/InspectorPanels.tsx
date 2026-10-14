@@ -14,7 +14,7 @@ import type { FrameNode } from './LayoutPanels'
 import { NodeThemeSection } from './NodeThemePanel'
 import { RadiusSection } from './RadiusSection'
 import { SelectionColorsPanel } from './SelectionColorsPanel'
-import { inspectableTextNodes, TextInspector } from './TextInspector'
+import { inspectableTextNodes, textAxisFieldPresentation, TextInspector, writeTextProperties } from './TextInspector'
 import type { StyledNode } from './appearance-adapters'
 import { colorTokenOptions } from './appearance-adapters'
 import { documentStore } from './document-store'
@@ -87,7 +87,14 @@ function PrimitiveInspector({ nodes, file, overrides, mode, disabled }: Appearan
   const sizingField = (axis: 'width' | 'height') => {
     const label = axis === 'width' ? copy.width : copy.height
     const prefix = axis === 'width' ? 'W' : 'H'
-    if (!semanticSizing) return <InspectorNumberField id={`layout-${axis}`} label={label} prefix={prefix} value={value(axis)} placeholder={copy.mixed} min={1} max={1000000} disabled={disabled} onCommit={next => apply({ [axis]: next })} />
+    if (!semanticSizing) {
+      if (textNodes.length !== nodes.length) return <InspectorNumberField id={`layout-${axis}`} label={label} prefix={prefix} value={value(axis)} placeholder={copy.mixed} min={1} max={1000000} disabled={disabled} onCommit={next => apply({ [axis]: next })} />
+      const presentation = textAxisFieldPresentation(textNodes, axis)
+      return <InspectorNumberField id={`layout-${axis}`} label={copy.textAxisSize(label, presentation.currentLabel)} prefix={prefix} value={presentation.amount} placeholder={presentation.currentLabel} min={1} max={presentation.relative ? 1000 : 1000000} {...(presentation.relative ? { suffix: '%' } : {})} disabled={disabled || !presentation.relative && !presentation.fixed} onCommit={next => {
+        if (presentation.relative) { writeTextProperties(textNodes, (_style, sizing) => { sizing[axis] = { mode: 'relative', value: next } }); return }
+        if (presentation.fixed) apply({ [axis]: next })
+      }} />
+    }
     const sizing = same(nodes.map(node => node.layout?.item[axis] ? sizingModeOf(node.layout, axis) : 'fixed'))
     const available = sizingModesForContext(frameSizing, hasParent)
     const state = sizingFieldState(available, sizing ?? undefined, sizing === null)

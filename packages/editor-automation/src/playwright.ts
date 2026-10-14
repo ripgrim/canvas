@@ -36,9 +36,9 @@ export async function withPlaywrightCaptureLock<Result>(page: Page, run: () => P
   const current = new Promise<void>(resolve => {
     release = resolve
   })
-  const tail = previous.catch(() => undefined).then(() => current)
+  const tail = previous.then(() => current)
   captureLocks.set(page, tail)
-  await previous.catch(() => undefined)
+  await previous
   try {
     return await run()
   } finally {
@@ -126,8 +126,11 @@ export function createPlaywrightAutomation<CheckpointName extends string>(option
         await page.mouse.move(end.x, end.y, { steps: input.steps ?? 8 })
         await input.whileHeld?.()
       } finally {
-        if (pressed) await page.mouse.up().catch(() => undefined)
-        for (const modifier of [...modifiers].reverse()) await page.keyboard.up(modifier).catch(() => undefined)
+        try {
+          if (pressed) await page.mouse.up()
+        } finally {
+          for (const modifier of [...modifiers].reverse()) await page.keyboard.up(modifier)
+        }
       }
     },
   })

@@ -98,6 +98,7 @@ type StoreOptions = {
   sources?: () => SourcePalette
   /** Design themes, the file's preview choice and per-theme palettes, for resolving each node in its own effective theme. */
   themeContext?: () => ThemeProjectionContext
+  editorMode?: () => 'light' | 'dark'
 }
 /** One history step owns the semantic inverse plus both sides of its page and selection view. */
 export type HistoryEntry = {
@@ -274,10 +275,10 @@ export const duplicateGap = 20
 const defaultCamera: Viewport = { x: 0, y: 0, zoom: 1 }
 const elementNames: Record<PrimitiveKind, string> = { frame: 'Frame', rectangle: 'Rectangle', shape: 'Shape', shader: 'Shader', text: 'Text' }
 const literalColor = (hex: string) => ({ kind: 'literal' as const, color: { kind: 'hex' as const, hex } })
-/** New nodes carry literal colors; the file theme never seeds tokens from editor chrome. Rectangle white is a product default. */
-const defaultAppearance = (kind: PrimitiveKind, makeId: () => string): Appearance => {
+/** New text contrasts with editor chrome. */
+const defaultAppearance = (kind: PrimitiveKind, makeId: () => string, textMode: NodeThemeMode = 'light'): Appearance => {
   if (kind === 'shader') return { fills: [{ id: makeId(), type: 'gradient', shape: 'linear', angle: 135, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'srgb', stops: [{ id: makeId(), position: 0, color: literalColor('#685fff') }, { id: makeId(), position: 1, color: literalColor('#202124') }] }] }
-  const hex = kind === 'frame' || kind === 'rectangle' ? '#ffffff' : kind === 'text' ? '#202124' : '#d9d9d9'
+  const hex = kind === 'frame' || kind === 'rectangle' ? '#ffffff' : kind === 'text' ? textMode === 'dark' ? '#ffffff' : '#000000' : '#d9d9d9'
   return { fills: [{ id: makeId(), type: 'solid', color: literalColor(hex) }] }
 }
 
@@ -452,7 +453,10 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     pendingPersistenceChanges.push({ file, intent, receipt })
     const state = backing.getState()
     const pageChanged = pageId !== state.pageId
-    emit({ file, pageId, selection, dirty: true, error: null, canUndo: past.length > 0, canRedo: future.length > 0 })
+    emit({
+      file, pageId, selection, dirty: true, error: null, canUndo: past.length > 0, canRedo: future.length > 0,
+      ...(textSession ? { renaming: textSession.nodeId, textEditing: { sessionId: textSession.sessionId, nodeId: textSession.nodeId } } : {}),
+    })
     if (pageChanged) options.onPageChange?.(pageId)
     options.onSelection?.(selection)
     options.onChange?.(file)
@@ -1376,10 +1380,11 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         const id = makeId()
         const size = canvasElementSizes[kind]
         const parentId = bounds.parentId ?? root(state)!
+        const textMode = options.editorMode?.() ?? 'light'
         const parent = state.file.nodes[parentId]
         const parentDisplay = parent && parent.type !== 'root' ? parent.layout?.container?.display : undefined
         const layout: NodeLayout | undefined = parentDisplay && parentDisplay !== 'freeform' ? { item: { position: { mode: 'flow' } } } : undefined
-        const item: FileNode = { id, type: kind, name: elementNames[kind], styles: { left: Math.round(bounds.x), top: Math.round(bounds.y), width: bounds.width === undefined ? size.width : Math.max(1, Math.round(bounds.width)), height: bounds.height === undefined ? size.height : Math.max(1, Math.round(bounds.height)), ...(kind === 'frame' ? { overflow: 'clip' as const } : {}) }, appearance: defaultAppearance(kind, makeId), ...(kind === 'text' ? { text: 'Text', ...legacyTextProperties() } : {}), ...(layout ? { layout } : {}) }
+        const item: FileNode = { id, type: kind, name: elementNames[kind], styles: { left: Math.round(bounds.x), top: Math.round(bounds.y), width: bounds.width === undefined ? size.width : Math.max(1, Math.round(bounds.width)), height: bounds.height === undefined ? size.height : Math.max(1, Math.round(bounds.height)), ...(kind === 'frame' ? { overflow: 'clip' as const } : {}) }, appearance: defaultAppearance(kind, makeId, textMode), ...(kind === 'text' ? { text: 'Text', ...legacyTextProperties() } : {}), ...(layout ? { layout } : {}) }
         return execute({ type: 'node.insert', node: item, placement: { parentId } }, [id])
       },
       /** Creates Paper-style empty text and starts one grouped creation/edit transaction. */
@@ -1389,6 +1394,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         if (intent === 'drag' && (bounds.width === undefined || bounds.height === undefined)) return false
         const id = makeId()
         const parentId = bounds.parentId ?? root(state)!
+        const textMode = options.editorMode?.() ?? 'light'
         const parent = state.file.nodes[parentId]
         const parentDisplay = parent && parent.type !== 'root' ? parent.layout?.container?.display : undefined
         const layout: NodeLayout | undefined = parentDisplay && parentDisplay !== 'freeform' ? { item: { position: { mode: 'flow' } } } : undefined
@@ -1409,14 +1415,30 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
             width: intent === 'point' ? 1 : Math.max(1, Math.round(bounds.width!)),
             height: intent === 'point' ? 1 : Math.max(1, Math.round(bounds.height!)),
           },
-          appearance: defaultAppearance('text', makeId),
+          appearance: defaultAppearance('text', makeId, textMode),
           ...(layout ? { layout } : {}),
         }
         const placement = { parentId }
         const insert: Extract<FileCommand, { type: 'node.insert' }> = { type: 'node.insert', node: item, placement }
         const creation = { before: currentView(), pastBefore: [...past], futureBefore: [...future], insert }
-        if (!execute(insert, [id])) return false
-        return beginTextEditing(id, creation) !== null
+        const sessionId = makeId()
+        textSession = {
+          sessionId,
+          nodeId: id,
+          before: creation.before,
+          beforeText: '',
+          pastBefore: creation.pastBefore,
+          futureBefore: creation.futureBefore,
+          visibleCanUndo: creation.pastBefore.length > 0,
+          visibleCanRedo: creation.futureBefore.length > 0,
+          creation,
+        }
+        try {
+          const projection = applyFileCommandWithHistory(state.file, insert, state.atoms, { allowUnavailableBindings: true })
+          if (!commitWithPersistence(projection, [id]).committed) { textSession = null; return false }
+          selectionAnchor = id
+          return true
+        } catch (error) { textSession = null; return fail(error) }
       },
       /** Reparents a primitive (null parent means the page root) keeping its world position. */
       reparent: (nodeId: string, parentId: string | null) => {

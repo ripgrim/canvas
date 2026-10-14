@@ -1,4 +1,5 @@
 import { createStore } from 'zustand/vanilla'
+import type { StoreApi } from 'zustand/vanilla'
 import type { PrimitiveKind } from '@canvas/repo-engine/file-document'
 import type { Rect } from './canvas-math'
 import type { LayoutStatus, PreviewBoxMeasure, PreviewGridMeasure, PreviewLayoutReport, PreviewMatrix, PreviewOffsetMeasure, PreviewTextMeasure, PreviewThemeStatus } from '@canvas/preview-runtime/protocol'
@@ -10,7 +11,10 @@ import type { LayoutStatus, PreviewBoxMeasure, PreviewGridMeasure, PreviewLayout
 export type MeasuredNode = { componentId?: string; canvasKind?: PrimitiveKind; documentRevision?: number; layoutGeneration?: number; rect: Rect; worldAabb?: Rect; box?: PreviewBoxMeasure; offset?: PreviewOffsetMeasure; offsetParentNodeId?: string | null; offsetParentToRoot?: PreviewMatrix; offsetParentInstanceId?: string | null; parentInstanceId?: string | null; directChild?: boolean; transform?: PreviewMatrix; layout?: PreviewLayoutReport; grid?: PreviewGridMeasure; text?: PreviewTextMeasure; theme?: PreviewThemeStatus }
 export type SceneGeometry = { nodes: Record<string, MeasuredNode>; revision: number; documentRevision: number | null; layoutGeneration: number | null; /** Nodes whose authored layout could not be applied and that have no measurable root. */ unsupported: Record<string, LayoutStatus>; /** Theme statuses of nodes without a measurable root, and portal roots that appeared without an owner. */ themeUnsupported: Record<string, PreviewThemeStatus>; unownedPortals: number }
 const empty: SceneGeometry = { nodes: {}, revision: 0, documentRevision: null, layoutGeneration: null, unsupported: {}, themeUnsupported: {}, unownedPortals: 0 }
-const backing = createStore<SceneGeometry>(() => empty)
+// Keep renderer authority stable across HMR.
+const hotData = import.meta.hot?.data
+const backing = (hotData?.sceneGeometry as StoreApi<SceneGeometry> | undefined) ?? createStore<SceneGeometry>(() => empty)
+if (hotData) hotData.sceneGeometry = backing
 export const sceneGeometry = {
   getSnapshot: backing.getState,
   subscribe: (listener: () => void) => backing.subscribe(listener),

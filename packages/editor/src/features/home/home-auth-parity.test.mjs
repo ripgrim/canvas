@@ -73,8 +73,10 @@ try {
 
   const login = await context.newPage()
   await login.goto(loginUrl, { waitUntil: 'domcontentloaded' })
-  await login.getByRole('heading', { name: 'Sign in' }).waitFor()
+  await login.getByRole('heading', { name: 'Canvas' }).waitFor()
+  assert.equal(await login.getByLabel('Work email').isEnabled(), false)
   assert.equal(await login.getByRole('button', { name: 'Continue with Google' }).isEnabled(), false)
+  assert.equal(await login.getByText('Google sign-in is not configured.', { exact: true }).count(), 0)
   assert.equal(await login.getByRole('button', { name: 'Continue with GitHub' }).isEnabled(), true)
   await login.setViewportSize({ width: 1500, height: 922 })
   await shot(login, '06-sign-in')

@@ -53,6 +53,11 @@
   --font-brand: "GT Standard M", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-data: "Sidebar Geist Mono", monospace;
   --font-editorial: "GT Standard M", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-picker-active: #e5e5e5;
+  --font-picker-header: #dddddd;
+  --font-picker-panel: #f2f2f2;
+  --font-picker-preview-filter: none;
+  --font-picker-shadow: 0 4px 20px rgb(0 0 0 / 0.25);
   --font-ui: "GT Standard M", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --icon-bold-display: none;
   --icon-light-display: inline;
@@ -217,6 +222,11 @@
   --font-brand: "GT Standard M", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-data: "Sidebar Geist Mono", monospace;
   --font-editorial: "GT Standard M", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-picker-active: #383838;
+  --font-picker-header: #222222;
+  --font-picker-panel: #2a2a2a;
+  --font-picker-preview-filter: invert(1);
+  --font-picker-shadow: 0 4px 20px rgb(0 0 0 / 0.4);
   --font-ui: "GT Standard M", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --icon-bold-display: none;
   --icon-light-display: inline;

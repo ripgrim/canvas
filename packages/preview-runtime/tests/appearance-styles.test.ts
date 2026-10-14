@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appearanceStyle, canvasElementStyle, fillLayers } from '../src/scene-styles.mjs'
+import { appearanceStyle, canvasElementStyle, fillLayers, fontFeaturesCss } from '../src/scene-styles.mjs'
 
 const assets = { photo: { mime: 'image/png', data: 'AAAA' }, tile: { mime: 'image/webp', data: 'QUJD' } }
 const legacyTextProperties = {
@@ -10,6 +10,11 @@ const linear = (interpolation: string, extra: Record<string, unknown> = {}) => (
 const box = (appearance: unknown) => appearanceStyle(appearance, assets, 'rectangle')
 
 describe('AT-APP-003 appearance styles', () => {
+  it('emits stable OpenType feature overrides for the canvas renderer', () => {
+    expect(fontFeaturesCss({ ss01: true, liga: false })).toBe("'liga' off, 'ss01' on")
+    expect(fontFeaturesCss(undefined)).toBeUndefined()
+  })
+
   it('paints a plain bottom solid as the background color and lists the fills above it topmost first', () => {
     expect(box({ fills: [{ type: 'solid', color: '#111111' }, { type: 'solid', color: 'oklch(0.5 0.1 120 / 0.5)' }] })).toEqual({
       backgroundColor: '#111111',

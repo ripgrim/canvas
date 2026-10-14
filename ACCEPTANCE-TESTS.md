@@ -742,3 +742,41 @@ The picker accepts image inputs up to 25 MB. AVIF, PNG, JPEG, GIF, and WebP at o
 ### AT-APP-005: Component preservation and editor chrome
 
 Imported components stay real React components with working props, slots, and Interact mode; appearance overrides apply to the existing root without wrappers and component-owned inline styles are restored when an override is removed; Canvas2D selection chrome stays visible with a document outline, follows transient move and resize geometry while the pointer remains held, and the preview keeps `renderChrome: false`. A collaborator selection on the same locally manipulated node uses that live geometry instead of leaving a stale outline at the saved position. Evidence: `packages/preview-runtime/tests/selection-electron.mjs`, `apps/web/tests/appearance.mjs`, `apps/web/tests/transient-move.mjs`, `packages/editor/src/features/collaboration/CollaborationPresence.test.ts`.
+
+## Font family picker
+
+### FONT-CATALOG-001: Background catalog
+
+The editor starts with system and already loaded families, then adds a catalog generated from official Google metadata asynchronously without blocking workspace startup. The catalog contains family, style, weight, and variable-axis metadata and is emitted as a separate production chunk. Choosing a Google family fetches and verifies the requested face in the background, caches it for the workspace session, and transfers bounded font data through the isolated preview protocol. Evidence: `packages/editor/src/features/fonts/font-catalog-service.test.ts`, `packages/preview-runtime/tests/protocol.test.ts`, `pnpm sync:fonts`, `pnpm --filter @canvas/web build`.
+
+### FONT-LOCAL-001: Local font discovery
+
+Workspace startup checks permission without prompting. A granted permission enumerates in the background. Prompt state requests access only from the picker gesture. The five-second loading deadline changes the UI state but does not discard a late successful result. Disposal cancels ownership and visibility retries. Electron grants only `local-fonts` from the trusted editor main frame and denies every other permission. Evidence: `packages/editor/src/features/fonts/font-catalog-service.test.ts`, `apps/desktop/tests/font-permission.test.ts`.
+
+### FONT-CACHE-001: Session catalog ownership
+
+Closing and reopening the picker does not rebuild the catalog. Favorites and discovered families remain in the workspace service until disposal, and normalized favorites persist for the browser profile. Evidence: `packages/editor/src/features/fonts/font-catalog-service.test.ts`.
+
+### FONT-PREVIEW-001: Resolved family previews
+
+Visible Google families render in their own typeface without waiting for selection. Previews come from generated compressed atlases, never request font files while scrolling, and render only inside the virtualized row window. Atlas images preload at low priority and remain cached by the browser session. Evidence: `packages/editor/src/features/fonts/google-font-preview.test.ts`, `pnpm sync:font-previews`.
+
+### FONT-PICKER-E2E-001: Popup interaction
+
+Open the font family field. A 300 by 444 popup opens 12 pixels left of the inspector and focuses search. Fonts is always present; Favorites and Tokens appear only when populated. Search is fuzzy, rows are virtualized at 36 pixels, arrow keys and Home or End keep the active row visible, Enter chooses and closes, the first Escape clears a query, and the second Escape closes. The favorite target is 34 pixels and does not move selection. Verify light and dark portal theming.
+
+### TEXT-FORMATTING-DROPDOWNS-001: Nested shared selects
+
+Open Formatting and then open Wrap or Line height unit. Both controls use the shared appearance select, remain above the formatting panel, support keyboard selection, and keep the parent panel open while choosing a value.
+
+### FONT-MATCH-001: Per-node style preservation
+
+Choose a family for a mixed text selection. Every node keeps its own closest compatible italic state and weight instead of receiving one shared style. A missing document family remains listed and marked unavailable. Evidence: `packages/editor/src/features/editor/text-inspector.test.ts`.
+
+### FONT-FEATURES-001: OpenType feature controls
+
+Open Features for a font with GSUB or GPOS features. The panel shows only supported features in Paper's category order, uses the font's names for stylistic sets and character variants, previews each Off or On state on hover, and commits one sparse override per change. Standard defaults such as ligatures and kerning begin On. Overrides survive undo, redo, save, reload, text editing, and isolated preview rendering. Evidence: `packages/editor/src/features/fonts/font-feature-worker.ts`, `packages/editor/src/features/editor/text-inspector.test.ts`, `packages/preview-runtime/tests/appearance-styles.test.ts`.
+
+### TEXT-FORMATTING-001: Formatting panel
+
+Open Formatting for one or more text nodes. The popup matches the Paper control order and preview treatment for alignment, case, wrap, keep words, and truncation. Hover previews do not write the document. Selecting a value commits through the text-properties command, preserves mixed state honestly, and produces one undo entry. Evidence: `packages/editor/src/features/editor/text-inspector.test.ts`, `packages/editor/src/design-system/typography-atoms.tsx`.

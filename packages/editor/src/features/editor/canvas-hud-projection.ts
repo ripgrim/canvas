@@ -236,10 +236,7 @@ function measurementMatchesNode(snapshot: GestureAuthoritySnapshot, nodeId: stri
     if (measurement.offsetParentInstanceId === undefined || measurement.offsetParentInstanceId !== expectedInstanceParent) return false
   }
   if (!finiteRect(sceneNode.rect) || !finiteRect(measurement.rect)) return false
-  return sceneNode.rect.x === measurement.rect.x
-    && sceneNode.rect.y === measurement.rect.y
-    && sceneNode.rect.width === measurement.rect.width
-    && sceneNode.rect.height === measurement.rect.height
+  return sameAabb(sceneNode.rect, measurement.rect)
 }
 
 function identityTransform(matrix: Matrix | undefined): boolean {

@@ -331,6 +331,20 @@ describe('PAPER-FLEX-006-HUD / PAPER-FLEX-007-HUD / AT-DOC-003-HUD shared HUD pr
     expect(frame?.byNodeId.selected?.dimensions).toStrictEqual({ width: 20, height: 10 })
   })
 
+  it('PAPER-TEXT-004 accepts subpixel rounding but rejects meaningful geometry drift', () => {
+    const rounded = authority()
+    rounded.scene.byId.get('selected')!.rect.x += 0.00001
+
+    const roundedFrame = projectHudFrame({ authority: rounded, view: view(rounded) })
+
+    expect(roundedFrame?.byNodeId.selected?.worldAabb).toStrictEqual(worldAabb)
+
+    const drifted = authority()
+    drifted.scene.byId.get('selected')!.rect.x += 0.51
+
+    expect(projectHudFrame({ authority: drifted, view: view(drifted) })).toBeNull()
+  })
+
   it('rejects the whole nested frame for missing ancestors, identity drift, topology drift, and cycles', () => {
     const missingAncestor = nestedAuthority()
     delete missingAncestor.geometry.nodes.parent

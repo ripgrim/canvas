@@ -120,7 +120,7 @@ class ScriptedSocket implements CollaborationWebSocket {
   removeEventListener<K extends keyof CollaborationSocketEventMap>(type: K, listener: (event: CollaborationSocketEventMap[K]) => void) { this.listeners.get(type)?.delete(listener as (event: never) => void) }
   send(data: string) { const message = JSON.parse(data) as Record<string, unknown>; this.sent.push(message); this.onSend(message) }
   close() { this.readyState = 3 }
-  disconnect() { this.readyState = 3; this.emit('close', new CloseEvent('close', { code: 1006, reason: 'network lost' })) }
+  disconnect() { this.readyState = 3; this.emit('close', { type: 'close', code: 1006, reason: 'network lost', wasClean: false } as CloseEvent) }
   server(value: CollaborationServerMessage) { this.emit('message', new MessageEvent('message', { data: JSON.stringify(value) })) }
   private emit<K extends keyof CollaborationSocketEventMap>(type: K, event: CollaborationSocketEventMap[K]) { for (const listener of this.listeners.get(type) ?? []) listener(event as never) }
 }

@@ -29,7 +29,7 @@ describe("evidence manifests", () => {
       ...manifest,
       scenarios: [{ ...manifest.scenarios[0], assets: [first, { ...first, role: "poster" }] }],
     })
-    expect(parsed.scenarios[0].assets.map(asset => asset.role)).toEqual(["held", "poster"])
+    expect(parsed.scenarios[0]?.assets.map(asset => asset.role)).toEqual(["held", "poster"])
   })
 
   it("rejects conflicting metadata for one asset path", () => {

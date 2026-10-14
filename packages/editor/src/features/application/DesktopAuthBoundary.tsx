@@ -1,11 +1,11 @@
 import { useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
-import { AuthActions, AuthBody, AuthBrand, AuthCard, AuthCenter, AuthErrorReference, AuthPrimaryAction, AuthRoot, AuthStatus, AuthTitle } from '../../design-system/auth-atoms'
+import { AuthActions, AuthBody, AuthBrand, AuthCenter, AuthErrorReference, AuthPrimaryAction, AuthPrompt, AuthRoot, AuthStatus, AuthTitle } from '../../design-system/auth-atoms'
 import { authCopy } from './auth-copy'
 import { authSessionService } from './auth-service'
 
 function SignInPrompt({ message, reference, retry }: { message?: string | null; reference?: string | undefined; retry?: boolean }) {
-  return <AuthRoot label={authCopy.desktopTitle}><AuthCenter><AuthBrand label="Canvas" /><AuthTitle>{authCopy.desktopTitle}</AuthTitle><AuthCard><AuthBody>{message ?? authCopy.desktopBody}</AuthBody>{reference && <AuthErrorReference>{authCopy.errorReference(reference)}</AuthErrorReference>}<AuthActions><AuthPrimaryAction onClick={authSessionService.signIn}>{retry ? authCopy.signInAgain : authCopy.signIn}</AuthPrimaryAction></AuthActions></AuthCard></AuthCenter></AuthRoot>
+  return <AuthRoot label={authCopy.desktopTitle}><AuthCenter><AuthBrand label="Canvas" /><AuthTitle>{authCopy.desktopTitle}</AuthTitle><AuthPrompt><AuthBody>{message ?? authCopy.desktopBody}</AuthBody>{reference && <AuthErrorReference>{authCopy.errorReference(reference)}</AuthErrorReference>}<AuthActions><AuthPrimaryAction onClick={authSessionService.signIn}>{retry ? authCopy.signInAgain : authCopy.signIn}</AuthPrimaryAction></AuthActions></AuthPrompt></AuthCenter></AuthRoot>
 }
 
 export function DesktopAuthBoundary({ children, allowSignedOut = false }: { children: ReactNode; allowSignedOut?: boolean }) {

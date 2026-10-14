@@ -26,7 +26,7 @@ export type PreviewTextAxisSizing = { mode: 'fixed' | 'fit' | 'fill' } | { mode:
 export type PreviewTextSizing = { width: PreviewTextAxisSizing; height: PreviewTextAxisSizing }
 export type PreviewTextLineHeightLiteral = { kind: 'normal' } | { kind: 'unitless' | 'percent' | 'px' | 'em'; value: number }
 export type PreviewTextLineHeight = PreviewTextLineHeightLiteral | { kind: 'source'; property: string; fallback: PreviewTextLineHeightLiteral }
-export type PreviewTextStyle = { fontFamily: string; fontStyle: 'normal' | 'italic' | 'oblique'; fontWeight: number; fontSize: number; lineHeight: PreviewTextLineHeight; letterSpacing: number; horizontalAlign: 'left' | 'center' | 'right' | 'justify'; verticalAlign: 'top' | 'middle' | 'bottom'; case: 'none' | 'uppercase' | 'lowercase' | 'capitalize'; wrap: 'normal' | 'pretty' | 'balance'; keepWords: boolean; maxLines?: number }
+export type PreviewTextStyle = { fontFamily: string; fontStyle: 'normal' | 'italic' | 'oblique'; fontWeight: number; fontSize: number; lineHeight: PreviewTextLineHeight; letterSpacing: number; horizontalAlign: 'left' | 'center' | 'right' | 'justify'; verticalAlign: 'top' | 'middle' | 'bottom'; case: 'none' | 'uppercase' | 'lowercase' | 'capitalize'; wrap: 'normal' | 'pretty' | 'balance'; keepWords: boolean; fontFeatures?: Readonly<Record<string, boolean>>; maxLines?: number }
 /** `theme` is absent only for source-binding baselines built from the legacy page view; the projection always sends it. */
 export type PreviewDocumentNode = { id: string; componentId: string; exportName: string; name?: string; props: Record<string, string | number | boolean>; children: Record<string, string[]>; appearance?: PreviewAppearance; theme?: PreviewNodeTheme }
 const themeIdPattern = /^[A-Za-z0-9_-]{1,40}$/
@@ -44,6 +44,7 @@ export type PreviewPropRule = { kind: 'string' | 'number' | 'boolean' } | { kind
 export type PreviewRegistryBinding = { componentId: string; exportName: string; entryPath: string; props?: Readonly<Record<string, PreviewPropRule>>; slots?: readonly string[] }
 /** The design theme applied to the preview document root. `attribute` becomes `data-theme`; null clears it for the base theme. */
 export type PreviewTheme = { attribute: string | null; colorScheme: 'light' | 'dark' }
+export type PreviewFontFace = { key: string; family: string; style: 'italic' | 'normal' | 'oblique'; weight: number; unicodeRange?: string; data: string }
 /** Placement for one mounted node: the five-field host placement plus optional layout longhands projected by the editor. */
 export type PreviewLayoutItem = { nodeId: string; mode: 'flow' | 'absolute'; x: number; y: number; order: number; width?: number; height?: number; declarations?: LayoutDeclarations }
 /** Pointer-only visual bounds. Optional dimensions make resize gestures live without changing the document. */
@@ -101,6 +102,7 @@ export type PreviewCommand =
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-props'; props: Record<string, JsonValue> }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-document'; document: PreviewDocument; flowDragTerminalPolicy: 'preserve-matching-committed-handoff'; theme?: PreviewTheme }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-theme'; theme: PreviewTheme }
+  | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-fonts'; fonts: PreviewFontFace[] }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-interaction-mode'; mode: 'select' | 'pan' | 'interact' }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-layout'; items: PreviewLayoutItem[]; layoutGeneration: number; flowDragTerminalPolicy: 'preserve-matching-committed-handoff' }
   | { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number; type: 'set-transient-move'; items: PreviewTransientMove[] }
@@ -328,11 +330,12 @@ function isPreviewTextLineHeight(value: unknown): value is PreviewTextLineHeight
 }
 
 function isPreviewTextStyle(value: unknown): value is PreviewTextStyle {
-  if (!record(value) || !shape(value, ['fontFamily', 'fontStyle', 'fontWeight', 'fontSize', 'lineHeight', 'letterSpacing', 'horizontalAlign', 'verticalAlign', 'case', 'wrap', 'keepWords'], ['maxLines'])) return false
+  if (!record(value) || !shape(value, ['fontFamily', 'fontStyle', 'fontWeight', 'fontSize', 'lineHeight', 'letterSpacing', 'horizontalAlign', 'verticalAlign', 'case', 'wrap', 'keepWords'], ['fontFeatures', 'maxLines'])) return false
   if (typeof value.fontFamily !== 'string' || value.fontFamily.trim() !== value.fontFamily || value.fontFamily.length < 1 || value.fontFamily.length > 256 || /[\u0000-\u001f\u007f]/.test(value.fontFamily)) return false
   if (!oneOf(value.fontStyle, ['normal', 'italic', 'oblique']) || !Number.isInteger(value.fontWeight) || !numberWithin(value.fontWeight, 1, 1000)) return false
   if (!numberWithin(value.fontSize, 1, 10_000) || !isPreviewTextLineHeight(value.lineHeight) || !numberWithin(value.letterSpacing, -10_000, 10_000)) return false
   if (!oneOf(value.horizontalAlign, ['left', 'center', 'right', 'justify']) || !oneOf(value.verticalAlign, ['top', 'middle', 'bottom']) || !oneOf(value.case, ['none', 'uppercase', 'lowercase', 'capitalize']) || !oneOf(value.wrap, ['normal', 'pretty', 'balance']) || typeof value.keepWords !== 'boolean') return false
+  if (Object.hasOwn(value, 'fontFeatures') && (!record(value.fontFeatures) || Object.keys(value.fontFeatures).length > 256 || !Object.entries(value.fontFeatures).every(([tag, enabled]) => /^[A-Za-z0-9]{4}$/.test(tag) && typeof enabled === 'boolean'))) return false
   return !Object.hasOwn(value, 'maxLines') || Number.isInteger(value.maxLines) && numberWithin(value.maxLines, 1, 10_000)
 }
 
@@ -613,6 +616,23 @@ export function acceptPreviewCommand(event: Pick<MessageEvent, 'origin' | 'sourc
   if (data.channel !== 'design-editor-preview' || data.version !== protocolVersion || data.generation !== generation) return null
   if ((data.type === 'dispose' || data.type === 'ping') && Object.keys(data).length === 4) return data as PreviewCommand
   if (data.type === 'set-theme') return exactFields(data, ['channel', 'version', 'generation', 'type', 'theme']) && isPreviewTheme(data.theme) ? data as PreviewCommand : null
+  if (data.type === 'set-fonts') {
+    if (!exactFields(data, ['channel', 'version', 'generation', 'type', 'fonts']) || !Array.isArray(data.fonts) || data.fonts.length > 64) return null
+    let size = 0
+    const keys = new Set<string>()
+    for (const font of data.fonts) {
+      if (!record(font)) return null
+      const fields = ['key', 'family', 'style', 'weight', 'data', ...(Object.hasOwn(font, 'unicodeRange') ? ['unicodeRange'] : [])]
+      if (!exactFields(font, fields) || !validId(font.key) || keys.has(font.key) || typeof font.family !== 'string' || font.family.length < 1 || font.family.length > 200 || /[\u0000-\u001f]/.test(font.family)) return null
+      if (!['italic', 'normal', 'oblique'].includes(font.style as string) || !Number.isInteger(font.weight) || (font.weight as number) < 1 || (font.weight as number) > 1000) return null
+      if (Object.hasOwn(font, 'unicodeRange') && (typeof font.unicodeRange !== 'string' || font.unicodeRange.length > 500 || !/^[uU+0-9a-fA-F?,\s-]+$/.test(font.unicodeRange))) return null
+      if (typeof font.data !== 'string' || font.data.length > 2_000_000 || !/^data:font\/(?:woff2?|ttf|otf);base64,[A-Za-z0-9+/]+={0,2}$/.test(font.data)) return null
+      size += font.data.length
+      if (size > 8_000_000) return null
+      keys.add(font.key as string)
+    }
+    return data as PreviewCommand
+  }
   if (data.type === 'set-interaction-mode') return exactFields(data, ['channel', 'version', 'generation', 'type', 'mode']) && ['select', 'pan', 'interact'].includes(data.mode as string) ? data as PreviewCommand : null
   if (data.type === 'set-camera') return exactFields(data, ['channel', 'version', 'generation', 'type', 'sequence', 'camera'])
     && Number.isSafeInteger(data.sequence) && (data.sequence as number) >= 0 && isPreviewCamera(data.camera) ? data as PreviewCommand : null

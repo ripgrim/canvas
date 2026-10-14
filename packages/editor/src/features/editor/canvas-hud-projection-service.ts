@@ -247,9 +247,6 @@ export function createCanvasHudProjectionService(
       && heldTextFrame.key.pageId === state.pageId
       && heldTextFrame.key.fileRevision < state.file.revision
       && heldTextFrame.key.layoutGeneration === state.layoutGeneration
-      && heldTextFrame.key.selection.length === state.selection.length
-      && heldTextFrame.key.selection.every((id, index) => state.selection[index] === id)
-      && heldTextFrame.byNodeId[editingNodeId]?.kind === 'text'
       && measured.documentRevision !== null
       && measured.documentRevision < state.file.revision,
     )

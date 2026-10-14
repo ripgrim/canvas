@@ -162,6 +162,43 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
     store.dispose()
   })
 
+  it('keeps the prior overlay frame while a newly created text node awaits measurement', () => {
+    const { store, service, setGeometry } = setup()
+    const before = service.getSnapshot()
+
+    expect(store.commands.insertCanvasText('point', { x: 120, y: 80 })).toBe(true)
+    const nodeId = store.getSnapshot().selection[0]!
+
+    expect(store.getSnapshot().textEditing?.nodeId).toBe(nodeId)
+    expect(service.getSnapshot()).toBe(before)
+    expect(service.getSnapshot().frame?.byNodeId.selected).toBeDefined()
+
+    const documentRevision = store.getSnapshot().file!.revision
+    setGeometry({
+      revision: measurementRevision + 1,
+      documentRevision,
+      layoutGeneration,
+      nodes: {
+        selected: { ...geometry.nodes.selected!, documentRevision },
+        [nodeId]: {
+          canvasKind: 'text', documentRevision, layoutGeneration,
+          rect: { x: 120, y: 80, width: 1, height: 20 },
+          worldAabb: { x: 120, y: 80, width: 1, height: 20 },
+          offset: { x: 120, y: 80, width: 1, height: 20, origin: { x: 0.5, y: 10 } },
+          offsetParentNodeId: null, directChild: true,
+          transform: [1, 0, 0, 1, 0, 0], offsetParentToRoot: [1, 0, 0, 1, 0, 0],
+          text: { resolvedLineHeight: 20 },
+        },
+      },
+      unsupported: {}, themeUnsupported: {}, unownedPortals: 0,
+    })
+
+    expect(service.getSnapshot().frame?.key.fileRevision).toBe(documentRevision)
+    expect(service.getSnapshot().frame?.byNodeId[nodeId]?.kind).toBe('text')
+    service.dispose()
+    store.dispose()
+  })
+
   it('keeps every selection overlay when a freeform frame has browser-owned Hug sizing', () => {
     const store = createDocumentStore(() => 'id')
     const source: FileDocument = {

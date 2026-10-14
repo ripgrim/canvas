@@ -9,15 +9,16 @@ import '@canvas/editor/theme.css'
 import '@canvas/editor/styles.css'
 import { hostedAuthService } from './features/auth/hosted-auth-service'
 import { applicationUpdateService } from './features/updates/application-update-service'
+import { resolveWebAdapterMode } from './adapter-mode'
 
 declare const __DESIGN_EDITOR_WEB_BUILD_ID__: string
 declare const __DESIGN_EDITOR_APP_VERSION__: string
 
 const bridge = (window as Window & { designEditor?: DesktopBridge }).designEditor
 const previewOrigin = import.meta.env.VITE_PREVIEW_ORIGIN || (import.meta.env.DEV ? 'http://127.0.0.1:4318' : undefined)
-const apiOrigin = import.meta.env.VITE_API_ORIGIN
-const cloudAdapter = !bridge && apiOrigin
-  ? createCloudAdapter({ apiOrigin, previewOrigin, editorOrigin: window.location.origin, assetsOrigin: import.meta.env.VITE_ASSETS_ORIGIN, loginOrigin: import.meta.env.VITE_LOGIN_ORIGIN, syncBuildId: import.meta.env.VITE_COLLABORATION_BUILD_ID })
+const adapterMode = resolveWebAdapterMode({ desktop: Boolean(bridge), apiOrigin: import.meta.env.VITE_API_ORIGIN, development: import.meta.env.DEV, browserTestStorage: import.meta.env.VITE_BROWSER_TEST_STORAGE === '1' })
+const cloudAdapter = adapterMode.kind === 'cloud'
+  ? createCloudAdapter({ apiOrigin: adapterMode.apiOrigin, previewOrigin, editorOrigin: window.location.origin, assetsOrigin: import.meta.env.VITE_ASSETS_ORIGIN, loginOrigin: import.meta.env.VITE_LOGIN_ORIGIN, syncBuildId: import.meta.env.VITE_COLLABORATION_BUILD_ID })
   : null
 const api = bridge
   ? createDesktopAdapter(bridge)

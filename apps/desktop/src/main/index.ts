@@ -24,6 +24,7 @@ import { ConnectedPreviewService } from './connected-preview'
 import { shadcnPreviewPropRule } from '@canvas/scanner/preview-registry'
 import { createDesktopCollaborationStore, desktopCollaborationClientId } from './collaboration-store'
 import { DesktopUpdateService } from './update-service'
+import { canAccessLocalFonts } from './font-permission'
 
 const { autoUpdater } = electronUpdater
 
@@ -222,8 +223,8 @@ async function createEditor(): Promise<void> {
   const csp = target.localCapabilities ? contentSecurityPolicy(target.development, previewOrigins, target.development ? [] : await bundledScriptHashes(resolve(directory, '../renderer'))) : hostedContentSecurityPolicy()
   const editorSession = session.fromPartition(target.localCapabilities ? 'persist:design-editor-shell' : 'design-editor-hosted')
   if (target.localCapabilities) editorSession.protocol.handle('design-editor', (request) => bundledAssetResponse(request, resolve(directory, '../renderer'), csp))
-  editorSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
-  editorSession.setPermissionCheckHandler(() => false)
+  editorSession.setPermissionRequestHandler((_contents, permission, callback, details) => callback(canAccessLocalFonts(permission, details, editorUrl)))
+  editorSession.setPermissionCheckHandler((_contents, permission, requestingOrigin, details) => canAccessLocalFonts(permission, { ...details, requestingUrl: details.requestingUrl ?? requestingOrigin }, editorUrl))
   editorSession.on('will-download', (event) => event.preventDefault())
   editorSession.webRequest.onHeadersReceived((details, callback) => {
     if (details.resourceType === 'mainFrame') {

@@ -1,11 +1,11 @@
 export const editorCopy = {
   title: 'Comp Canvas', file: 'Login', files: 'Files', tabs: ['Pages', 'Layers', 'Components'],
-  sourceUnavailable: 'Source editing needs a connected repository. This draft stays in this browser.', reloadDraft: 'Reload local draft',
+  sourceUnavailable: 'Source editing needs a connected repository.', reloadDraft: 'Reload file',
   open: 'Open fixture', refresh: 'Sync with source', review: 'Review changes', save: 'Save', discard: 'Discard review',
   themeLight: 'Switch editor appearance to light', themeDark: 'Switch editor appearance to dark', previewThemeUnsaved: 'The connected project cannot store a preview theme. This choice lasts for this session.', share: 'Share', panelActions: 'File actions',
   shareUnavailable: 'Sharing is available for cloud files.', shareLoading: 'Loading access', sharePrivate: 'Only you', sharePrivateHint: 'Only people with file access can open it.', sharePublic: 'Anyone with the link', sharePublicHint: 'Anyone with the link can view.', shareUpdate: 'Update', shareUpdating: 'Updating', shareReload: 'Reload', shareUnconfirmed: 'Access could not be confirmed.', shareCopy: 'Copy link', shareCopied: 'Copied', shareCopyFailed: 'Link could not be copied.',
   initial: 'Connect the fixture to begin.', opening: 'Reading source', preparing: 'Preparing source changes', saving: 'Saving reviewed changes', syncing: 'Checking source',
-  preview: 'Live component preview', previewUnavailable: 'Preview is not connected.', previewHint: 'Start the isolated preview server to run the repository components.',
+  preview: 'Live component preview', previewUnavailable: 'Canvas is unavailable.', previewHint: 'Open a file with an available canvas runtime.', previewConnecting: 'Connecting canvas',
   previewError: 'Preview could not update', previewRetained: 'The last working preview is still available.',
   selectionCount: (count: number) => count + ' selected',
   inspector: 'Design', page: 'Page',

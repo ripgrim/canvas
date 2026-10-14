@@ -119,6 +119,7 @@ type RadioGroupProps<T extends string> = {
   /** A secondary line under the group, also announced as the group's description. */
   description?: string
   onChange: (value: T) => void
+  onPreview?: (value: T | null) => void
 }
 
 const backward = new Set(['ArrowLeft', 'ArrowUp'])
@@ -129,7 +130,7 @@ const forward = new Set(['ArrowRight', 'ArrowDown'])
  * and End select the first and last enabled option, Space selects the focused one. Unavailable options are skipped and
  * describe their reason; the checked option (or the first enabled one) is the only tab stop.
  */
-export function InspectorRadioGroup<T extends string>({ label, value, options, disabled = false, showLabels = false, mixedLabel, description, onChange }: RadioGroupProps<T>) {
+export function InspectorRadioGroup<T extends string>({ label, value, options, disabled = false, showLabels = false, mixedLabel, description, onChange, onPreview }: RadioGroupProps<T>) {
   const id = useId()
   const available = (option: InspectorOption<T>) => !disabled && !option.disabled
   const checked = options.find(option => option.value === value)
@@ -158,11 +159,11 @@ export function InspectorRadioGroup<T extends string>({ label, value, options, d
     radios[target]?.focus()
     select(options[target])
   }
-  const group = <div className="inspector-segments" role="radiogroup" aria-label={label} aria-describedby={notes.length ? notes.map((_, index) => noteId(index)).join(' ') : undefined} aria-disabled={disabled || undefined} onKeyDown={onKeyDown}>
+  const group = <div className="inspector-segments" role="radiogroup" aria-label={label} aria-describedby={notes.length ? notes.map((_, index) => noteId(index)).join(' ') : undefined} aria-disabled={disabled || undefined} onKeyDown={onKeyDown} onPointerLeave={() => onPreview?.(null)} onBlur={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) onPreview?.(null) }}>
     {options.map((option, index) => {
       const unavailable = !available(option)
       const reasonId = `${id}-reason-${index}`
-      return <button key={option.value} type="button" role="radio" className="inspector-segment" aria-label={option.label} aria-checked={option === checked} aria-disabled={unavailable || undefined} aria-describedby={unavailable && option.reason ? reasonId : undefined} title={option.reason ? `${option.label}: ${option.reason}` : option.label} tabIndex={option === tabStop ? 0 : -1} data-checked={option === checked || undefined} data-labelled={showLabels && option.icon ? '' : undefined} onClick={() => select(option)}>
+      return <button key={option.value} type="button" role="radio" className="inspector-segment" aria-label={option.label} aria-checked={option === checked} aria-disabled={unavailable || undefined} aria-describedby={unavailable && option.reason ? reasonId : undefined} title={option.reason ? `${option.label}: ${option.reason}` : option.label} tabIndex={option === tabStop ? 0 : -1} data-checked={option === checked || undefined} data-labelled={showLabels && option.icon ? '' : undefined} onPointerEnter={() => onPreview?.(option.value)} onFocus={() => onPreview?.(option.value)} onClick={() => select(option)}>
         {option.icon && <Icon name={option.icon} />}
         {(!option.icon || showLabels) && <span className="inspector-segment-label">{option.label}</span>}
         {option.reason && <span id={reasonId} hidden>{option.reason}</span>}
@@ -186,8 +187,8 @@ export function InspectorCheck({ id, label, checked, disabled = false, onChange 
 }
 
 /** A tri-state checkbox for multi-selection controls. Mixed is visible and announced instead of being coerced to off. */
-export function InspectorToggle({ label, value, disabled = false, onChange }: { label: string; value: boolean | null; disabled?: boolean; onChange: (checked: boolean) => void }) {
-  return <button type="button" role="checkbox" className="inspector-check inspector-toggle" aria-checked={value === null ? 'mixed' : value} data-disabled={disabled || undefined} disabled={disabled} onClick={() => onChange(value !== true)}><span className="inspector-check-box" aria-hidden="true">{value === null ? <Icon name="minus" /> : value ? <Icon name="check" /> : null}</span><span>{label}</span></button>
+export function InspectorToggle({ label, value, disabled = false, onChange, onPreview }: { label: string; value: boolean | null; disabled?: boolean; onChange: (checked: boolean) => void; onPreview?: (checked: boolean | null) => void }) {
+  return <button type="button" role="checkbox" className="inspector-check inspector-toggle" aria-checked={value === null ? 'mixed' : value} data-disabled={disabled || undefined} disabled={disabled} onPointerEnter={() => onPreview?.(value !== true)} onPointerLeave={() => onPreview?.(null)} onFocus={() => onPreview?.(value !== true)} onBlur={() => onPreview?.(null)} onClick={() => onChange(value !== true)}><span className="inspector-check-box" aria-hidden="true">{value === null ? <Icon name="minus" /> : value ? <Icon name="check" /> : null}</span><span>{label}</span></button>
 }
 
 export function InspectorIconButton({ label, title = label, icon, disabled = false, onClick }: { label: string; title?: string; icon: IconName; disabled?: boolean; onClick: () => void }) {
@@ -195,14 +196,14 @@ export function InspectorIconButton({ label, title = label, icon, disabled = fal
 }
 
 /** A compact inspector popup that keeps Base UI focus, dismissal, and keyboard behavior inside the editor theme scope. */
-export function InspectorPopover({ label, icon, disabled = false, children }: { label: string; icon: IconName; disabled?: boolean; children: ReactNode }) {
+export function InspectorPopover({ label, title = label, icon, disabled = false, wide = false, contentClassName, onOpenChange, children }: { label: string; title?: string; icon: IconName; disabled?: boolean; wide?: boolean; contentClassName?: string; onOpenChange?: (open: boolean) => void; children: ReactNode }) {
   const [container, setContainer] = useState<HTMLElement | null>(null)
   const trigger = useRef<HTMLButtonElement>(null)
-  return <Popover.Root onOpenChange={open => { if (open) setContainer(trigger.current?.closest<HTMLElement>('.editor-root') ?? null) }}>
+  return <Popover.Root onOpenChange={open => { if (open) setContainer(trigger.current?.closest<HTMLElement>('.editor-root') ?? null); onOpenChange?.(open) }}>
     <Popover.Trigger ref={trigger} className="inspector-icon-button inspector-popover-trigger" aria-label={label} title={label} disabled={disabled}><Icon name={icon} /></Popover.Trigger>
-    <Popover.Portal container={container}><Popover.Positioner className="inspector-popover-positioner" side="left" align="start" sideOffset={4}><Popover.Popup className="inspector-popover-popup" aria-label={label}>
-      <Popover.Title className="inspector-popover-title">{label}</Popover.Title>
-      <div className="inspector-popover-content">{children}</div>
+    <Popover.Portal container={container}><Popover.Positioner className="inspector-popover-positioner" side="left" align="start" sideOffset={4}><Popover.Popup className="inspector-popover-popup" data-wide={wide || undefined} aria-label={label}>
+      <div className="inspector-popover-header"><Popover.Title className="inspector-popover-title">{title}</Popover.Title><Popover.Close className="inspector-popover-close" aria-label={`Close ${label}`}><Icon name="close" /></Popover.Close></div>
+      <div className={['inspector-popover-content', contentClassName].filter(Boolean).join(' ')}>{children}</div>
     </Popover.Popup></Popover.Positioner></Popover.Portal>
   </Popover.Root>
 }

@@ -38,6 +38,15 @@ export const canvasHudChromeForViewport = (width: number) => width <= editorMobi
 export const canvasHudPaintProjection = (observed: CanvasHudProjectionSnapshot, current: CanvasHudProjectionSnapshot): CanvasHudProjectionSnapshot => currentHudProjectionSnapshot(observed, current)
   ?? Object.freeze({ generation: current.generation, frame: null })
 
+/** Clears the retired HUD backing store before Chromium detaches or reuses its compositor surface. */
+export function releaseCanvasHudBitmap(canvas: HTMLCanvasElement): void {
+  const context = canvas.getContext('2d')
+  context?.clearRect(0, 0, canvas.width, canvas.height)
+  canvas.width = 0
+  canvas.height = 0
+  delete canvas.dataset.hud
+}
+
 const roundHudDimension = (value: number) => String(Math.round(value * 100) / 100)
 export const formatHudDimensions = (width: number, height: number) => `${roundHudDimension(width)}\u2004\u00d7\u2004${roundHudDimension(height)}`
 
@@ -331,6 +340,7 @@ export function createCanvasHudPainter(store = documentStore, projections = canv
     attach(next: HTMLCanvasElement | null) {
       if (canvas === next) return
       observer?.disconnect()
+      if (canvas) releaseCanvasHudBitmap(canvas)
       canvas = next
       if (canvas) {
         observer = new ResizeObserver(schedule)
@@ -354,6 +364,7 @@ export function createCanvasHudPainter(store = documentStore, projections = canv
       observer = null
       if (animationFrame !== null) cancelAnimationFrame(animationFrame)
       animationFrame = null
+      if (canvas) releaseCanvasHudBitmap(canvas)
       canvas = null
     },
     repaint: schedule,

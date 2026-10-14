@@ -114,7 +114,8 @@ function Library({ state, document, atoms, documentAtoms, header, mobile = false
 
 function Canvas({ state, saving, readOnly, following, mobile, panels, onHome }: { state: EditorState; saving: boolean; readOnly: boolean; following: boolean; mobile: boolean; panels: Readonly<{ left: boolean; right: boolean; onToggleLeft: () => void; onToggleRight: () => void }>; onHome?: (() => void) | undefined }) {
   const designTheme = activeDesignTheme(state.snapshot, state.previewThemeId)
-  const status = saving ? { label: copy.documentSaving } : state.compositionPreview ? { label: copy.compositionStatus, description: copy.compositionHint } : undefined
+  const previewConnecting = Boolean(state.snapshot?.preview.url && !state.previewReady)
+  const status = saving ? { label: copy.documentSaving } : previewConnecting ? { label: copy.previewConnecting } : state.compositionPreview ? { label: copy.compositionStatus, description: copy.compositionHint } : undefined
   return <CanvasWorkspace {...(state.snapshot?.preview.url ? { src: state.snapshot.preview.url } : {})} {...(designTheme ? { theme: { value: designTheme.id, options: designThemeOptions(state.snapshot), onChange: (themeId: string) => void store.setPreviewTheme(themeId) } } : {})} {...(status ? { status } : {})} readOnly={readOnly} mobile={mobile} panels={following ? undefined : panels} onHome={onHome} ready={state.previewReady} onReady={target => previewConnection.connect(target)} onError={() => previewConnection.disconnect()} onShortcuts={() => store.set({ shortcutOpen: true })} placeholder={<Layout roleName="preview-placeholder"><Message title={state.busy ?? copy.previewUnavailable} body={copy.previewHint} action={!state.snapshot ? <Button variant="outline" disabled={Boolean(state.busy)} onClick={() => void store.open()}>{state.capabilities.openLabel}</Button> : undefined} /></Layout>} />
 }
 

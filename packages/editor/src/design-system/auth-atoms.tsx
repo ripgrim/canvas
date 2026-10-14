@@ -9,9 +9,10 @@ export function AuthRoot({ label, children }: { label: string; children: ReactNo
 
 export function AuthCenter({ children }: { children: ReactNode }) { return <div className="auth-center">{children}</div> }
 
-export function AuthBrand({ label }: { label: string }) { return <span className="auth-brand"><CompLogo height={22} label={label} /></span> }
+export function AuthBrand({ label }: { label: string }) { return <span className="auth-brand"><CompLogo height={32} label={label} /></span> }
 
 export function AuthCard({ children }: { children: ReactNode }) { return <section className="auth-card">{children}</section> }
+export function AuthPrompt({ children }: { children: ReactNode }) { return <section className="auth-prompt">{children}</section> }
 
 export function AuthTitle({ children }: { children: ReactNode }) { return <h1 className="auth-title">{children}</h1> }
 

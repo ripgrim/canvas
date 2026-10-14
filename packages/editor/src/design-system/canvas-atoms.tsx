@@ -147,6 +147,7 @@ export function CanvasTextEditor({ id, value, label, style, onUpdate, onCommit, 
     if (!element || initialized.current) return
     initialized.current = true
     element.textContent = value
+    element.focus()
   }
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     event.stopPropagation()

@@ -29,12 +29,14 @@
     "@canvas/scanner": "workspace:*",
     "@canvas/sync-protocol": "workspace:*",
     "@canvas/tracking": "workspace:*",
+    "fontkit": "2.0.4",
     "heic-to": "1.6.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "zustand": "5.0.15"
   },
   "devDependencies": {
+    "@types/fontkit": "2.0.9",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "typescript": "^5.9.0",
