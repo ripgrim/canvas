@@ -1,0 +1,82 @@
+tests/pr-evidence/playwright.config.ts
+  s_012c57818fbf95::t_57859f49beb450 39
+packages/editor-automation/src/playwright.ts
+  s_012c57818fbf95::t_564fcd32f1cac7 208,213
+  s_012c57818fbf95::t_b3e6c0ee905cf7 14,18,20-22,28,51-69,75,140-144,156-157,162,164,168-169,171,176-185,187,192-194,199-207,209-212,214-218,220-232
+  s_012c57818fbf95::t_fa1279a346a631 170,186,219
+  s_012c57818fbf95::t_9222d0242b4e30 17,19,23,27,139,151-155,158-161,163,165-167,172-175,188-191
+  s_012c57818fbf95::t_083a70db880fc7 233
+packages/pr-evidence/tests/capture.test.ts
+  s_012c57818fbf95::t_7f2ae066f196d0 1-3,5,19-45
+  s_012c57818fbf95::t_043e09a08cedfb 46
+tests/pr-evidence/scenarios/text-overlay.spec.ts
+  s_012c57818fbf95::t_ac1284373d3ab3 1,54-57,65,75-79
+  s_012c57818fbf95::t_7420bc5d5d41d1 3-36,39,42-44,47-53,58-64,66-74,80
+  s_012c57818fbf95::t_c3ecd12663b067 2
+  s_012c57818fbf95::t_e6b724142ff07d 37-38,40-41,45-46
+tests/pr-evidence/scenarios/frame-wiggle-flex.spec.ts
+  s_012c57818fbf95::t_77747947155a0c 2-4,6-23,25-102,104-147
+  s_012c57818fbf95::t_7420bc5d5d41d1 1
+  s_012c57818fbf95::t_185973c2b60b1c 5,24,103
+packages/pr-evidence/src/media.ts
+  s_012c57818fbf95::t_a043cc82b979cc 35-36,59-65,76-81
+  s_012c57818fbf95::t_d4e54b33f25040 66
+  s_012c57818fbf95::t_f69a752783fb43 68
+  s_012c57818fbf95::t_7535214cd13861 39,67,82-83,142-145
+  s_012c57818fbf95::t_945818d6d60c7f 2,4,29-30,47-51,53-54,58,69-75
+  s_012c57818fbf95::t_2c45ea6b33a5fc 146
+tests/pr-evidence/evidence-capture.ts
+  s_012c57818fbf95::t_185973c2b60b1c 1-3,6-9,11,16-19,21-30,74-85
+  s_012c57818fbf95::t_aad09289702c58 4-5,10,12-15,20,31-73
+tests/pr-evidence/scenarios/transient-move.spec.ts
+  s_012c57818fbf95::t_564fcd32f1cac7 12,16,20
+  s_012c57818fbf95::t_185973c2b60b1c 1,4,17,87
+packages/editor-automation/tests/automation.test.ts
+  s_012c57818fbf95::t_ac1284373d3ab3 4,66-81
+  s_012c57818fbf95::t_1506c957565d0f 3,60
+  s_012c57818fbf95::t_4a15037f432363 2,36-42,44-59,61-62,64-65,82-85,87-94
+  s_012c57818fbf95::t_f887d6f037a9f1 43,63
+packages/editor-automation/src/index.ts
+  s_012c57818fbf95::t_f887d6f037a9f1 147
+  s_012c57818fbf95::t_b3e6c0ee905cf7 12,110-115,121,125-126,128-141,145,148-152,186
+  s_012c57818fbf95::t_9222d0242b4e30 127,142-144,146,153-155,184
+packages/pr-evidence/src/capture.ts
+  s_012c57818fbf95::t_a043cc82b979cc 81,84,91
+  s_012c57818fbf95::t_945818d6d60c7f 6,41-42,44,67,77-80,96-106
+  s_012c57818fbf95::t_7535214cd13861 43,68-76,82-83,85-86,90,92-95
+  s_012c57818fbf95::t_564fcd32f1cac7 87-89
+  s_012c57818fbf95::t_73bc2dbd35ea6b 107
+tests/pr-evidence/registry.json
+  s_012c57818fbf95::t_77747947155a0c 63-70,80
+  s_012c57818fbf95::t_7420bc5d5d41d1 38-46,71-79
+packages/pr-evidence/src/manifest.ts
+  s_012c57818fbf95::t_2faeeb945c7bfa 49,91-92,97,149-161
+  s_012c57818fbf95::t_ade84d3f3334a0 162
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_77747947155a0c 67-70
+  s_012c57818fbf95::t_564fcd32f1cac7 72,74
+  s_012c57818fbf95::t_fa1279a346a631 71,73
+packages/pr-evidence/tests/media.test.ts
+  s_012c57818fbf95::t_a043cc82b979cc 28
+  s_012c57818fbf95::t_4a15037f432363 2,25-27,29-31
+  s_012c57818fbf95::t_f69a752783fb43 32
+  s_012c57818fbf95::t_7b0d6f72cfdb61 33
+packages/pr-evidence/tests/manifest.test.ts
+  s_012c57818fbf95::t_2faeeb945c7bfa 26-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2a1b183bd33c21b46f9bd743924172f5ad42213d",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
