@@ -1,0 +1,25 @@
+tests/pr-evidence/scenarios/transient-move.spec.ts
+  s_012c57818fbf95::t_58c841593eb32a 38,44-45
+tests/pr-evidence/registry.json
+  s_012c57818fbf95::t_58c841593eb32a 43,74-75
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_58c841593eb32a 73
+tests/pr-evidence/scenarios/node-overlay.spec.ts
+  s_012c57818fbf95::t_58c841593eb32a 9,11,23,29,35-36,43,48-50,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6f4c135df783eae8541f8eb3518323fcf4588996",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
