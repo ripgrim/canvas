@@ -22,6 +22,7 @@ export type TextAxisSizing =
   | { mode: 'fixed' | 'fit' | 'fill' }
   | { mode: 'relative'; value: number }
 export type TextSizing = { width: TextAxisSizing; height: TextAxisSizing }
+export type TextFontFeatures = Readonly<Record<string, boolean>>
 export type TextStyle = {
   fontFamily: string
   fontStyle: TextFontStyle
@@ -34,6 +35,7 @@ export type TextStyle = {
   case: TextCase
   wrap: TextWrapMode
   keepWords: boolean
+  fontFeatures?: TextFontFeatures
   maxLines?: number
 }
 
@@ -58,6 +60,11 @@ const exactFields = (value: Record<string, unknown>, required: readonly string[]
 const finite = (value: unknown, min: number, max: number): value is number => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
 const oneOf = <T extends string>(value: unknown, options: readonly T[]): value is T => typeof value === 'string' && (options as readonly string[]).includes(value)
 const sourceProperty = (value: unknown): value is string => typeof value === 'string' && /^--[A-Za-z0-9_-]{1,64}$/.test(value)
+const fontFeatureTag = (value: string): boolean => /^[A-Za-z0-9]{4}$/.test(value)
+
+export function validateTextFontFeatures(value: unknown): value is TextFontFeatures {
+  return record(value) && Object.keys(value).length <= 256 && Object.entries(value).every(([tag, enabled]) => fontFeatureTag(tag) && typeof enabled === 'boolean')
+}
 
 export function validateTextLineHeightLiteral(value: unknown): value is TextLineHeightLiteral {
   if (!record(value) || !oneOf(value.kind, ['normal', 'unitless', 'percent', 'px', 'em'])) return false
@@ -85,12 +92,13 @@ export function validateTextSizing(value: unknown): value is TextSizing {
 }
 
 export function validateTextStyle(value: unknown): value is TextStyle {
-  if (!record(value) || !exactFields(value, ['fontFamily', 'fontStyle', 'fontWeight', 'fontSize', 'lineHeight', 'letterSpacing', 'horizontalAlign', 'verticalAlign', 'case', 'wrap', 'keepWords'], ['maxLines'])) return false
+  if (!record(value) || !exactFields(value, ['fontFamily', 'fontStyle', 'fontWeight', 'fontSize', 'lineHeight', 'letterSpacing', 'horizontalAlign', 'verticalAlign', 'case', 'wrap', 'keepWords'], ['fontFeatures', 'maxLines'])) return false
   if (typeof value.fontFamily !== 'string' || value.fontFamily.trim() !== value.fontFamily || value.fontFamily.length < 1 || value.fontFamily.length > 256 || /[\u0000-\u001f\u007f]/.test(value.fontFamily)) return false
   if (!oneOf(value.fontStyle, textFontStyles) || !Number.isInteger(value.fontWeight) || !finite(value.fontWeight, 1, 1000)) return false
   if (!finite(value.fontSize, 1, 10_000) || !validateTextLineHeight(value.lineHeight) || !finite(value.letterSpacing, -10_000, 10_000)) return false
   if (!oneOf(value.horizontalAlign, textHorizontalAlignments) || !oneOf(value.verticalAlign, textVerticalAlignments) || !oneOf(value.case, textCases) || !oneOf(value.wrap, textWrapModes)) return false
   if (typeof value.keepWords !== 'boolean') return false
+  if (Object.hasOwn(value, 'fontFeatures') && !validateTextFontFeatures(value.fontFeatures)) return false
   return !Object.hasOwn(value, 'maxLines') || Number.isInteger(value.maxLines) && finite(value.maxLines, 1, 10_000)
 }
 

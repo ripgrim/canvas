@@ -33,6 +33,8 @@ export type CanvasWorkspaceProps = {
   theme?: { value: string; options: { value: string; label: string }[]; onChange: (themeId: string) => void }
 }
 
+export const canvasPlaceholderVisible = (src: string | undefined) => !src
+
 const attachViewport = (element: HTMLDivElement | null) => { canvasViewportService.attach(element); canvasGestures.attach(element) }
 const attachHud = (element: HTMLCanvasElement | null) => canvasHudPainter.attach(element)
 export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcuts, onHome, placeholder, status, theme, readOnly = false, mobile = false, panels }: CanvasWorkspaceProps) {
@@ -57,7 +59,7 @@ export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcu
       {connected && <><CanvasHudCanvas attach={attachHud} /><SelectionHud /><CollaborationCanvasPresence /></>}
       <CollaborationFollowIndicator />
     </CanvasViewport>
-    {(!src || !ready) && placeholder}
+    {canvasPlaceholderVisible(src) && placeholder}
     {mobile ? <MobileCanvasToolbar>{panels && <MobileCanvasPanelToggle label={panels.left ? copy.hideLayers : copy.showLayers} active={panels.left} icon="layers" onClick={panels.onToggleLeft} />}{!readOnly && <EditorToolRail active={state.tool} availability={availability} compact shortcuts={{ move: 'V', scale: 'K', hand: 'H', frame: 'F', shader: 'S', text: 'T', rectangle: 'R', shape: 'O', interact: 'I' }} onSelect={selectTool} />}{panels && !readOnly && <MobileCanvasPanelToggle label={panels.right ? copy.hideProperties : copy.showProperties} active={panels.right} icon="selection" onClick={panels.onToggleRight} />}</MobileCanvasToolbar> : !readOnly && <EditorToolRail active={state.tool} availability={availability} compact={false} shortcuts={{ move: 'V', scale: 'K', hand: 'H', frame: 'F', shader: 'S', text: 'T', rectangle: 'R', shape: 'O', interact: 'I' }} onSelect={selectTool} />}
     {!readOnly && <CanvasFloatingActions label={copy.history}><Button label={copy.undo} title={copy.undoTip} disabled={!state.canUndo || state.blocked} onClick={() => store.undo()}><Icon name="undo" /></Button><Button label={copy.redo} title={copy.redoTip} disabled={!state.canRedo || state.blocked} onClick={() => store.redo()}><Icon name="redo" /></Button></CanvasFloatingActions>}
     {!readOnly && contextMenu && <NodeContextMenu position={contextMenu} onClose={() => setContextMenu(null)} />}

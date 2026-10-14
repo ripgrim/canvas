@@ -12,6 +12,7 @@
     "@canvas/auth": "workspace:*",
     "@canvas/editor": "workspace:*",
     "@canvas/tracking": "workspace:*",
+    "@paper-design/shaders-react": "0.0.81",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

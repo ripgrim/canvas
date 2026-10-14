@@ -1,34 +1,24 @@
-import { createHash } from "node:crypto"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { join, resolve } from "node:path"
+import { resolve } from "node:path"
 import { createPlaywrightAutomation } from "../../../packages/editor-automation/dist/playwright.js"
 import { expect, test, type Page } from "@playwright/test"
+import { evidencePort, writeCaptureReport } from "../evidence-capture.js"
 
 const editorUrl = "http://127.0.0.1:4327/"
 const evidenceRoot = resolve(import.meta.dirname, "../../../outputs/pr-evidence/local/editor.transient-move/browser")
 
 test("PR-EVIDENCE-003 [editor.transient-move]", async ({ page }) => {
-  await mkdir(evidenceRoot, { recursive: true })
   const frameTimes: number[] = []
   let recording = false
+  const port = evidencePort(evidenceRoot, frameTimes)
   const automation = createPlaywrightAutomation({
     page,
     evidence: {
-      async screenshot(name, target) {
-        await target.screenshot({ path: join(evidenceRoot, `${name}.png`), animations: "disabled", caret: "hide" })
-      },
-      async record(target, run) {
-        const path = join(evidenceRoot, "raw.webm")
+      ...port,
+      async record(target, options, run) {
         recording = true
-        await target.screencast.start({
-          path,
-          size: { width: 1500, height: 940 },
-          onFrame: frame => frameTimes.push(frame.timestamp),
-        })
         try {
-          return await run()
+          return await port.record(target, options, run)
         } finally {
-          await target.screencast.stop()
           recording = false
         }
       },
@@ -45,14 +35,14 @@ test("PR-EVIDENCE-003 [editor.transient-move]", async ({ page }) => {
   const screen = (point: { x: number; y: number }) => ({ x: stage.x + viewport.width / 2 + camera.x + point.x * camera.zoom, y: stage.y + viewport.height / 2 + camera.y + point.y * camera.zoom })
   const from = screen({ x: -120, y: -80 })
   const to = screen({ x: 120, y: 40 })
-  await page.keyboard.press("r")
+  await page.keyboard.press("f")
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
   await page.mouse.move(to.x, to.y, { steps: 8 })
   await page.mouse.up()
 
-  const node = await automation.layers.named("Rectangle")
-  await node.expectKind("rectangle")
+  const node = await automation.layers.named("Frame")
+  await node.expectKind("frame")
   const before = await node.resolve()
   const beforeFile = await storedFile(page)
   const beforeViewport = await requiredBox(page.locator(".canvas-viewport").boundingBox(), "canvas viewport")
@@ -94,13 +84,7 @@ test("PR-EVIDENCE-003 [editor.transient-move]", async ({ page }) => {
   expect(recording).toBe(false)
   expect(frameTimes.length).toBeGreaterThan(0)
   expect(frameTimes.every((value, index) => index === 0 || value >= frameTimes[index - 1]!)).toBe(true)
-  const raw = await readFile(join(evidenceRoot, "raw.webm"))
-  expect(raw.byteLength).toBeGreaterThan(0)
-  await writeFile(join(evidenceRoot, "capture.json"), `${JSON.stringify({
-    sourceFrames: frameTimes.length,
-    durationMs: frameTimes.length > 1 ? frameTimes.at(-1)! - frameTimes[0]! : 0,
-    sha256: createHash("sha256").update(raw).digest("hex"),
-  }, null, 2)}\n`)
+  await writeCaptureReport(evidenceRoot, frameTimes)
 })
 
 function previewNode(page: Page, id: string) {

@@ -158,6 +158,73 @@ describe('UI-MOBILE-004-C5-HUD-RETIRE mounted production quick-actions boundary'
 })
 
 describe('PAPER-TEXT-004 mounted canvas text editor boundary', () => {
+  it('focuses new text before measurement without removing the existing overlays', async () => {
+    window.matchMedia = (() => ({
+      matches: false,
+      media: '(max-width: 760px)',
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => true,
+    })) as typeof window.matchMedia
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+
+    const [{ SelectionHud }, { documentStore }, { sceneGeometry }, { canvasHudProjectionService }] = await Promise.all([
+      import('./SelectionHud'),
+      import('./document-store'),
+      import('./scene-geometry'),
+      import('./canvas-hud-projection-service'),
+    ])
+    documentStore.clear()
+    sceneGeometry.clear()
+    canvasHudProjectionService.stop()
+    const source = file()
+    source.nodes.selected = { id: 'selected', type: 'frame', name: 'Frame', styles: { left: -70, top: 10, width: 100, height: 70, overflow: 'clip' }, layout: { item: { position: { mode: 'freeform' } } } }
+    documentStore.load(source, [], { replace: true, pageId: 'page' })
+    documentStore.setViewport({ x: 10, y: -20, zoom: 2 })
+    documentStore.setViewportSize({ width: 800, height: 600 })
+    documentStore.select('selected')
+    sceneGeometry.update({
+      selected: {
+        canvasKind: 'frame', documentRevision: revision, layoutGeneration,
+        rect: { x: -70, y: 10, width: 100, height: 70 }, worldAabb: { x: -70, y: 10, width: 100, height: 70 },
+        offset: { x: -70, y: 10, width: 100, height: 70, origin: { x: 50, y: 35 } },
+        offsetParentNodeId: null, directChild: true,
+        transform: [1, 0, 0, 1, 0, 0], offsetParentToRoot: [1, 0, 0, 1, 0, 0],
+        box: { border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { top: 0, right: 0, bottom: 0, left: 0 } },
+      },
+    }, { documentRevision: revision, layoutGeneration, measurementRevision })
+    canvasHudProjectionService.start()
+
+    const host = document.createElement('div')
+    document.body.append(host)
+    mountedRoot = createRoot(host)
+    await act(async () => { mountedRoot?.render(createElement(SelectionHud)) })
+    expect(canvasHudProjectionService.getSnapshot().frame?.byNodeId.selected).toBeDefined()
+
+    await act(async () => { expect(documentStore.commands.insertCanvasText('point', { x: 20, y: 30, parentId: 'selected' })).toBe(true) })
+    const nodeId = documentStore.getSnapshot().selection[0]!
+    const editor = host.querySelector<HTMLElement>(`[data-editing="${nodeId}"]`)
+
+    expect(editor).not.toBeNull()
+    expect(document.activeElement).toBe(editor)
+    expect(editor?.style.left).toBe('310.5px')
+    expect(editor?.style.top).toBe('370px')
+    expect(canvasHudProjectionService.getSnapshot().frame?.byNodeId.selected).toBeDefined()
+    expect(documentStore.getSnapshot().textEditing?.nodeId).toBe(nodeId)
+
+    await act(async () => {
+      editor!.innerText = 'Typing works'
+      editor!.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 's' }))
+    })
+
+    expect(host.querySelector(`[data-editing="${nodeId}"]`)).toBe(editor)
+    expect(documentStore.getSnapshot().file?.nodes[nodeId]).toMatchObject({ text: 'Typing works' })
+    expect(documentStore.getSnapshot().textEditing?.nodeId).toBe(nodeId)
+  })
+
   it('mounts the plaintext editor from the measured text projection during a real edit session', async () => {
     window.matchMedia = (() => ({
       matches: false,

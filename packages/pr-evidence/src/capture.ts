@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { EVIDENCE_SCHEMA_VERSION, parseEvidenceManifest, type EvidenceAsset, type EvidenceManifest, type ScenarioEvidence } from "./manifest.js"
 import { normalizeEvidenceVideo, type ProcessPort } from "./media.js"
+import type { ResolvedCaptureCrop, ResolvedRecordingQuality } from "@canvas/editor-automation"
 import { canonicalJson, type EvidencePlan } from "./registry.js"
 
 export type EvidenceRunIdentity = Readonly<{
@@ -37,8 +38,11 @@ export async function collectEvidenceArtifact(input: Readonly<{
       for (const role of scenario.screenshots) assets.push(await storePng(join(source, `${role}.png`), role, media))
       if (scenario.video) {
         const normalized = join(source, "normalized.webm")
-        const poster = join(source, "poster.png")
-        const result = await normalizeEvidenceVideo({ ffmpeg: input.ffmpeg, ffprobe: input.ffprobe, source: join(source, "raw.webm"), destination: normalized, poster, run: input.run })
+        const poster = join(source, "normalized-poster.png")
+        const posterSource = await optionalFile(join(source, "poster.png"))
+        const recording = await readRecordingMetadata(join(source, "recording.json"))
+        const crop = recordingCropForNormalization(recording)
+        const result = await normalizeEvidenceVideo({ ffmpeg: input.ffmpeg, ffprobe: input.ffprobe, source: join(source, "raw.webm"), destination: normalized, poster, run: input.run, quality: recording?.quality.mode ?? "motion", ...(crop ? { crop } : {}), ...(posterSource ? { posterSource } : {}) })
         await copyFile(normalized, join(media, basename(result.video.path)))
         await copyFile(poster, join(media, basename(result.poster.path)))
         assets.push(result.poster, result.video)
@@ -59,6 +63,68 @@ export async function collectEvidenceArtifact(input: Readonly<{
   })
   await writeFile(join(artifact, "manifest.json"), canonicalJson(manifest))
   return manifest
+}
+
+export async function readRecordingCrop(path: string): Promise<ResolvedCaptureCrop | undefined> {
+  return (await readRecordingMetadata(path))?.crop
+}
+
+export function recordingCropForNormalization(recording: Readonly<{ crop?: ResolvedCaptureCrop; quality: ResolvedRecordingQuality }> | undefined): ResolvedCaptureCrop | undefined {
+  return recording?.quality.mode === "compositor" ? undefined : recording?.crop
+}
+
+export async function readRecordingMetadata(path: string): Promise<Readonly<{ crop?: ResolvedCaptureCrop; quality: ResolvedRecordingQuality }> | undefined> {
+  let raw: string
+  try {
+    raw = await readFile(path, "utf8")
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    throw error
+  }
+  const value = JSON.parse(raw) as { crop?: unknown; quality?: unknown }
+  const quality = parseRecordingQuality(value.quality)
+  if (value.crop === undefined) return Object.freeze({ quality })
+  const crop = value.crop as Partial<ResolvedCaptureCrop>
+  const viewport = crop.viewport as Partial<ResolvedCaptureCrop["viewport"]> | undefined
+  const source = crop.source as Partial<ResolvedCaptureCrop["source"]> | undefined
+  const output = crop.output as Partial<ResolvedCaptureCrop["output"]> | undefined
+  if (!viewport || !source || !output || ![viewport.width, viewport.height, source.x, source.y, source.width, source.height, output.width, output.height, output.offsetX, output.offsetY].every(Number.isSafeInteger)) {
+    throw new Error("Invalid recording crop metadata.")
+  }
+  if ((viewport.width ?? 0) <= 0 || (viewport.height ?? 0) <= 0 || (source.width ?? 0) <= 0 || (source.height ?? 0) <= 0 || (output.width ?? 0) <= 0 || (output.height ?? 0) <= 0 || (source.x ?? -1) < 0 || (source.y ?? -1) < 0 || (output.offsetX ?? -1) < 0 || (output.offsetY ?? -1) < 0 || typeof crop.background !== "string" || !/^#[\da-f]{6}$/iu.test(crop.background)) {
+    throw new Error("Invalid recording crop metadata.")
+  }
+  if (source.x! + source.width! > viewport.width! || source.y! + source.height! > viewport.height! || output.offsetX! + source.width! > output.width! || output.offsetY! + source.height! > output.height! || output.width! > 8192 || output.height! > 8192) {
+    throw new Error("Invalid recording crop metadata.")
+  }
+  const resolvedCrop = Object.freeze({
+    viewport: Object.freeze({ width: viewport.width!, height: viewport.height! }),
+    source: Object.freeze({ x: source.x!, y: source.y!, width: source.width!, height: source.height! }),
+    output: Object.freeze({ width: output.width!, height: output.height!, offsetX: output.offsetX!, offsetY: output.offsetY! }),
+    background: crop.background as `#${string}`,
+  })
+  return Object.freeze({ crop: resolvedCrop, quality })
+}
+
+function parseRecordingQuality(input: unknown): ResolvedRecordingQuality {
+  if (input === undefined) return Object.freeze({ mode: "motion" })
+  if (!input || typeof input !== "object") throw new Error("Invalid recording quality metadata.")
+  const value = input as { mode?: unknown; scale?: unknown; fps?: unknown }
+  if (value.mode === "motion" && value.scale === undefined && value.fps === undefined) return Object.freeze({ mode: "motion" })
+  if (value.mode === "compositor" && (value.scale === 1 || value.scale === 2) && (value.fps === 12 || value.fps === 24 || value.fps === 30)) {
+    return Object.freeze({ mode: "compositor", scale: value.scale, fps: value.fps })
+  }
+  throw new Error("Invalid recording quality metadata.")
+}
+
+async function optionalFile(path: string): Promise<string | undefined> {
+  try {
+    await readFile(path)
+    return path
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    throw error
+  }
 }
 
 async function storePng(path: string, role: string, directory: string): Promise<EvidenceAsset> {

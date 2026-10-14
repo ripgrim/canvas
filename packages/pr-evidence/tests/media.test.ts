@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { inspectEvidenceVideo, type ProcessPort } from "../src/media.js"
+import { inspectEvidenceVideo, type ProcessPort, videoCrf, videoCropFilter } from "../src/media.js"
 
 const probe = JSON.stringify({ streams: [{ width: 1500, height: 940, nb_read_frames: "42", avg_frame_rate: "25/1" }], format: { duration: "1.680000" } })
 
@@ -21,5 +21,19 @@ describe("evidence media", () => {
       return { code: 0, stdout: "lavfi.signalstats.YAVG=0\n", stderr: "" }
     }
     await expect(inspectEvidenceVideo({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", path: "capture.webm", run: staticRun })).rejects.toThrow("no visible motion")
+  })
+
+  it("PR-EVIDENCE-011 crops and pads recordings deterministically", () => {
+    expect(videoCropFilter({
+      viewport: { width: 1500, height: 940 },
+      source: { x: 0, y: 12, width: 240, height: 120 },
+      output: { width: 264, height: 144, offsetX: 12, offsetY: 12 },
+      background: "#181818",
+    }, { width: 800, height: 500 })).toBe("format=rgb24,crop=w=128:h=65:x=0:y=6:exact=1,scale=240:120:flags=lanczos,format=rgb24,pad=264:144:12:12:color=#181818,format=yuv420p")
+  })
+
+  it("PR-EVIDENCE-011 preserves compositor recording quality", () => {
+    expect(videoCrf("motion")).toBe("35")
+    expect(videoCrf("compositor")).toBe("18")
   })
 })

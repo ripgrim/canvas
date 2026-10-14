@@ -96,6 +96,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
   const flowDragLayer = createFlowDragLayer(document, container)
   const presentationSequences = new Map()
   const flowDragStates = new Map()
+  const fontFaces = new Map()
   let flowBarrierFrame = null
   let measurementRevision = 0
   let layoutGeneration = 0
@@ -282,6 +283,16 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
   }
   // The design theme is applied exactly as the design declares it: an attribute on the document root plus the matching color-scheme.
   const setTheme = theme => { if (theme.attribute === null) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme.attribute; document.documentElement.style.colorScheme = theme.colorScheme }
+  const setFonts = async fonts => {
+    const additions = fonts.filter(font => !fontFaces.has(font.key))
+    await Promise.all(additions.map(async font => {
+      const face = new FontFace(font.family, `url("${font.data}")`, { style: font.style, weight: String(font.weight), ...(font.unicodeRange ? { unicodeRange: font.unicodeRange } : {}) })
+      await face.load()
+      document.fonts.add(face)
+      fontFaces.set(font.key, face)
+    }))
+    if (!disposed && additions.length) geometry.refresh()
+  }
   const receive = event => {
     const candidate = event.origin === editorOrigin
       && event.source === window.parent
@@ -297,6 +308,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     else if (command.type === 'ping' && !failed) { if (sourceDocument) send('source-bindings', { instanceIds: Object.keys(sourceDocument.nodes) }); send('ready', { componentId }); geometry.refresh() }
     else if (command.type === 'ping') return
     else if (command.type === 'set-theme') { setTheme(command.theme); geometry.refresh() }
+    else if (command.type === 'set-fonts') void setFonts(command.fonts).catch(error => send('diagnostic', { message: String(error).slice(0, 4000) }))
     else if (command.type === 'set-interaction-mode') interactionMode = command.mode
     else if (command.type === 'set-camera' && command.sequence > cameraSequence) {
       cameraSequence = command.sequence
@@ -401,6 +413,8 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
       catch (error) { console.warn('A preview adapter could not dispose cleanly.', error) }
     }
     themeLayer.dispose()
+    for (const face of fontFaces.values()) document.fonts.delete(face)
+    fontFaces.clear()
     root.unmount()
     if (sourceDocument) disposeSourceBindings()
     window.removeEventListener('message', receive)

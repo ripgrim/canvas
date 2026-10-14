@@ -9,6 +9,7 @@ export type NodeKind = "component" | "frame" | "rectangle" | "shape" | "shader" 
 export type AdapterKind = "browser" | "electron"
 export type ModifierKey = "Alt" | "Control" | "Meta" | "Shift"
 export type ResizeHandle = "top-left" | "top" | "top-right" | "right" | "bottom-right" | "bottom" | "bottom-left" | "left"
+export type RotationHandle = "top-left" | "top-right" | "bottom-right" | "bottom-left"
 
 export type Point = Readonly<{ x: number; y: number }>
 export type Bounds = Readonly<{ x: number; y: number; width: number; height: number }>
@@ -106,13 +107,58 @@ export interface NodeSnapshot<Kind extends NodeKind = NodeKind> {
   readonly bounds: Bounds
 }
 
+export interface NodeOverlaySnapshot {
+  readonly bounds: Bounds
+  readonly resizeHandles: readonly ResizeHandle[]
+  readonly rotationHandles: readonly RotationHandle[]
+}
+
 export interface NodeRef<Kind extends NodeKind = NodeKind> {
   readonly id: NodeId
   resolve(): Promise<NodeSnapshot<Kind>>
   bounds(): BoundsTarget
   center(): GeometryTarget
+  overlay(): Promise<NodeOverlaySnapshot>
   expectKind<Next extends Kind>(kind: Next): Promise<NodeRef<Next>>
 }
+
+export type RecordingBackground = "theme" | `#${string}`
+
+export type CaptureCrop =
+  | Readonly<{
+      kind: "dimensions"
+      width: number
+      height: number
+      center?: GeometryTarget
+      background?: RecordingBackground
+    }>
+  | Readonly<{
+      kind: "node"
+      node: NodeRef
+      padding?: number
+      background?: RecordingBackground
+    }>
+
+export type ScreenshotScale = 1 | 2
+export type ScreenshotOptions = Readonly<{ crop?: CaptureCrop; scale?: ScreenshotScale }>
+export type RecordingFrameRate = 12 | 24 | 30
+export type RecordingQuality =
+  | Readonly<{ mode: "motion" }>
+  | Readonly<{ mode: "compositor"; scale?: ScreenshotScale; fps?: RecordingFrameRate }>
+export type RecordingOptions = Readonly<{ crop?: CaptureCrop; quality?: RecordingQuality }>
+
+export type ResolvedCaptureCrop = Readonly<{
+  viewport: Readonly<{ width: number; height: number }>
+  source: Bounds
+  output: Readonly<{ width: number; height: number; offsetX: number; offsetY: number }>
+  background: `#${string}`
+}>
+
+export type ResolvedScreenshotOptions = Readonly<{ crop?: ResolvedCaptureCrop; scale: ScreenshotScale }>
+export type ResolvedRecordingQuality =
+  | Readonly<{ mode: "motion" }>
+  | Readonly<{ mode: "compositor"; scale: ScreenshotScale; fps: RecordingFrameRate }>
+export type ResolvedRecordingOptions = Readonly<{ crop?: ResolvedCaptureCrop; quality: ResolvedRecordingQuality }>
 
 export interface MouseApi {
   click(target: GeometryTarget): Promise<void>
@@ -142,7 +188,9 @@ export interface LayersApi {
 
 export interface EvidenceApi<CheckpointName extends string> {
   screenshot(name: CheckpointName): Promise<void>
+  screenshot(name: CheckpointName, options: ScreenshotOptions): Promise<void>
   record<Result>(run: () => Promise<Result>): Promise<Result>
+  record<Result>(options: RecordingOptions, run: () => Promise<Result>): Promise<Result>
 }
 
 export interface EditorAutomation<CheckpointName extends string = string> {

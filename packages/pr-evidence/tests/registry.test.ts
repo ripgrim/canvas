@@ -42,7 +42,11 @@ describe("evidence planning", () => {
   })
 
   it("fails closed for unmapped and uncovered visual paths", () => {
-    expect(() => planEvidence({ changed: [{ path: "unknown.ts" }], capabilities, scenarios })).toThrow("Unmapped")
+    expect(() => planEvidence({ changed: [{ path: "z.ts" }, { path: "a.ts" }, { path: "z.ts" }], capabilities, scenarios })).toThrow([
+      "Unmapped changed paths:",
+      "- a.ts",
+      "- z.ts",
+    ].join("\n"))
     expect(() => planEvidence({ changed: [{ path: "packages/editor/src/features/editor/canvas-gestures.ts" }], capabilities, scenarios: [] })).toThrow("no scenario")
   })
 

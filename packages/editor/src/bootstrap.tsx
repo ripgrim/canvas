@@ -16,6 +16,7 @@ import { editorToast } from './design-system/toast-atoms'
 import { collaborationService } from './features/collaboration/collaboration-service'
 import { failureDetails } from './features/application/failure'
 import { canvasCopy } from './features/editor/canvas-copy'
+import { fontCatalogService } from './features/fonts/font-catalog-service'
 import './design-system/theme.css'
 import './design-system/styles.css'
 
@@ -113,12 +114,14 @@ export function startEditorServices(api: EditorProjectApi): () => void {
       // Source tokens resolve against the design stylesheet palette of the file's preview theme, never editor chrome.
       sources: () => { const state = editorStore.getSnapshot(); return designSourcePalette(state.snapshot, state.previewThemeId) },
       themeContext: () => { const state = editorStore.getSnapshot(); return themeProjectionContext(state.snapshot, state.previewThemeId) },
+      editorMode: () => editorStore.getSnapshot().mode,
     })
     previewConnection.start()
     const canvasInput = createCanvasInputService(window)
     canvasInput.start()
     canvasViewportService.start()
     canvasHudPainter.start()
+    fontCatalogService.start()
     collaborationService.start()
     const keyboard = createEditorKeyboardService(window)
     keyboard.start()
@@ -129,6 +132,7 @@ export function startEditorServices(api: EditorProjectApi): () => void {
       canvasInput.stop()
       canvasViewportService.stop()
       canvasHudPainter.stop()
+      fontCatalogService.dispose()
       stopShareAuthority?.()
       stopProjectFailures()
       collaborationService.stop()

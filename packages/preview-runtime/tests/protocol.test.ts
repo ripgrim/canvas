@@ -46,6 +46,13 @@ describe('AT-SEC-003 narrow preview protocol', () => {
       expect(acceptPreviewCommand({ origin: 'http://127.0.0.1:4319', source: parent, data: { ...command, props } }, 'http://127.0.0.1:4319', parent, 4)).toBeNull()
     }
   })
+  it('accepts bounded font faces and rejects CSS-capable payloads', () => {
+    const font = { key: 'google-abel-normal-400-0', family: 'Abel', style: 'normal', weight: 400, data: 'data:font/ttf;base64,QQ==' }
+    const data = { channel: command.channel, version: command.version, generation: command.generation, type: 'set-fonts', fonts: [font] }
+    expect(acceptPreviewCommand({ origin: 'http://127.0.0.1:4319', source: parent, data }, 'http://127.0.0.1:4319', parent, 4)).toEqual(data)
+    expect(acceptPreviewCommand({ origin: 'http://127.0.0.1:4319', source: parent, data: { ...data, fonts: [{ ...font, data: 'url(https://attacker.example/font.woff2)' }] } }, 'http://127.0.0.1:4319', parent, 4)).toBeNull()
+    expect(acceptPreviewCommand({ origin: 'http://127.0.0.1:4319', source: parent, data: { ...data, fonts: [{ ...font, unicodeRange: 'U+0-5; color:red' }] } }, 'http://127.0.0.1:4319', parent, 4)).toBeNull()
+  })
   it('validates preview event origin, source, generation and exact fields', () => {
     const data = { channel: 'design-editor-preview', version: 8, generation: 4, type: 'selected', componentId: 'fixture-login', bounds: { x: 1, y: 2, width: 340, height: 440 } }
     expect(acceptPreviewEvent({ origin: 'http://127.0.0.1:4400', source: parent, data }, 'http://127.0.0.1:4400', parent, 4)).toEqual(data)

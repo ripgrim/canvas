@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { InspectorPopover, InspectorToggle } from '../../design-system/inspector-atoms'
-import { hasTextSizingReference, setTextSizingMode, TextInspector, textSizingModes, writeTextMaxLines, writeTextProperties, writeTextTruncation } from './TextInspector'
+import { closestFontStyle, fontOptionsFromFile, hasTextSizingReference, setTextSizingMode, textAxisFieldPresentation, TextInspector, textSizingModes, writeTextFontFeature, writeTextMaxLines, writeTextProperties, writeTextTruncation } from './TextInspector'
 import type { TextNode } from './TextInspector'
 
 const style = (overrides: Partial<TextNode['textStyle']> = {}): TextNode['textStyle'] => ({
@@ -31,6 +31,36 @@ const file = (nodes: readonly TextNode[], parent = false): FileDocument => {
 }
 
 describe('PAPER-TEXT-006 complete inspector commands', () => {
+  it('stores only OpenType overrides that differ from their defaults', () => {
+    const node = text('text-a')
+    const write = vi.fn((_entries: readonly { nodeId: string; textStyle: TextNode['textStyle']; textSizing: TextNode['textSizing'] }[]) => true)
+    expect(writeTextFontFeature([node], 'liga', false, write)).toBe(1)
+    expect(write.mock.calls[0]![0][0]!.textStyle.fontFeatures).toEqual({ liga: false })
+    write.mockClear()
+    expect(writeTextFontFeature([node], 'ss01', true, write)).toBe(1)
+    expect(write.mock.calls[0]![0][0]!.textStyle.fontFeatures).toEqual({ ss01: true })
+    write.mockClear()
+    expect(writeTextFontFeature([text('text-b', { textStyle: style({ fontFeatures: { liga: false } }) })], 'liga', true, write)).toBe(1)
+    expect(write.mock.calls[0]![0][0]!.textStyle).not.toHaveProperty('fontFeatures')
+  })
+
+  it('builds one font catalog entry per stored family and matches the nearest available style', () => {
+    const document = file([
+      text('a', { textStyle: style({ fontFamily: 'Inter, sans-serif' }) }),
+      text('b', { textStyle: style({ fontFamily: 'Georgia, serif' }) }),
+      text('c', { textStyle: style({ fontFamily: 'Inter, sans-serif' }) }),
+    ])
+    expect(fontOptionsFromFile(document).map(option => [option.label, option.family])).toEqual([
+      ['Georgia', 'Georgia, serif'],
+      ['Inter', 'Inter, sans-serif'],
+    ])
+    expect(closestFontStyle({ style: 'italic', weight: 650 }, [
+      { style: 'normal', weight: 700 },
+      { style: 'italic', weight: 400 },
+      { style: 'italic', weight: 700 },
+    ])).toEqual({ style: 'italic', weight: 700 })
+  })
+
   it('maps a field edit to one complete style and sizing payload without mutating the selected node', () => {
     const node = text('text-a')
     const write = vi.fn((_entries: readonly { nodeId: string; textStyle: TextNode['textStyle']; textSizing: TextNode['textSizing'] }[]) => true)
@@ -73,6 +103,23 @@ describe('PAPER-TEXT-006 complete inspector commands', () => {
 })
 
 describe('PAPER-TEXT-007 Paper-order inspector presentation', () => {
+  it('hides the stored safety floor behind the intrinsic axis label', () => {
+    const node = text('text-a', { styles: { left: 0, top: 0, width: 1, height: 1 }, textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } } })
+    expect(textAxisFieldPresentation([node], 'width')).toMatchObject({ mode: 'fit', amount: null, currentLabel: 'Fit' })
+    expect(textAxisFieldPresentation([node], 'height')).toMatchObject({ mode: 'fit', amount: null, currentLabel: 'Fit' })
+  })
+
+  it('presents intrinsic text axes as Fit', () => {
+    const node = text('text-a', { textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } } })
+    const html = renderToStaticMarkup(h(TextInspector, { file: file([node]), nodes: [node], disabled: false }))
+
+    expect(html).toContain('aria-label="Width, Fit"')
+    expect(html).toContain('aria-label="Height, Fit"')
+    expect(html).toContain('aria-label="Width text sizing: Fit"')
+    expect(html).toContain('aria-label="Height text sizing: Fit"')
+    expect(html).not.toContain('Hug')
+  })
+
   it('omits Fill and Relative sizing at the root and exposes them only with a reference parent', () => {
     const node = text('text-a')
     const rootFile = file([node])
@@ -144,6 +191,9 @@ describe('PAPER-TEXT-007 Paper-order inspector presentation', () => {
     const height = html.indexOf('id="text-height"')
 
     expect([formatting, family, variant, size, lineHeight, tracking, horizontal, vertical, width, height].every(index => index >= 0)).toBe(true)
+    expect(html).toContain('class="inspector-field inspector-select appearance-select"')
+    expect(html).toContain('data-align="start"')
+    expect(html).not.toContain('<select id="text-variant"')
     expect(formatting).toBeLessThan(family)
     expect(family).toBeLessThan(variant)
     expect(variant).toBeLessThan(size)

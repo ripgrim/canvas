@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { boundsTarget, defineScenario, geometryTarget, scenarioId, sourcePath } from "../src/index.js"
+import type { Page } from "@playwright/test"
+import { boundsTarget, defineScenario, geometryTarget, nodeId, scenarioId, sourcePath, type NodeRef } from "../src/index.js"
+import { resolveRecordingOptions, resolveScreenshotOptions, withPlaywrightCaptureLock } from "../src/playwright.js"
 
 describe("editor automation contracts", () => {
   it("resolves geometry lazily", async () => {
@@ -31,4 +33,112 @@ describe("editor automation contracts", () => {
     expect(() => sourcePath("../secret")).toThrow("Invalid source path")
     expect(sourcePath("packages/editor/src/index.ts")).toBe("packages/editor/src/index.ts")
   })
+
+  it("resolves an exact dimension crop around a typed target", async () => {
+    const page = fakePage(900, 600)
+    await expect(resolveRecordingOptions(page, {
+      crop: { kind: "dimensions", width: 320, height: 180, center: geometryTarget(async () => ({ x: 200, y: 100 })) },
+    })).resolves.toEqual({
+      quality: { mode: "motion" },
+      crop: {
+        viewport: { width: 900, height: 600 },
+        source: { x: 40, y: 10, width: 320, height: 180 },
+        output: { width: 320, height: 180, offsetX: 0, offsetY: 0 },
+        background: "#181818",
+      },
+    })
+  })
+
+  it("pads a node crop beyond the viewport with the theme background", async () => {
+    const page = fakePage(900, 600)
+    const node = {
+      id: nodeId("text-1"),
+      resolve: async () => ({ id: nodeId("text-1"), kind: "text" as const, name: "Text", bounds: { x: 5, y: 8, width: 80, height: 20 } }),
+      bounds: () => boundsTarget(async () => ({ x: 5, y: 8, width: 80, height: 20 })),
+      center: () => geometryTarget(async () => ({ x: 45, y: 18 })),
+      overlay: async () => ({ bounds: { x: 5, y: 8, width: 80, height: 20 }, resizeHandles: [], rotationHandles: [] }),
+      expectKind: async () => node,
+    } as unknown as NodeRef
+    await expect(resolveRecordingOptions(page, { crop: { kind: "node", node, padding: 16 } })).resolves.toEqual({
+      quality: { mode: "motion" },
+      crop: {
+        viewport: { width: 900, height: 600 },
+        source: { x: 0, y: 0, width: 101, height: 44 },
+        output: { width: 112, height: 52, offsetX: 11, offsetY: 8 },
+        background: "#181818",
+      },
+    })
+  })
+
+  it("PR-EVIDENCE-011 resolves a bounded compositor recording", async () => {
+    const page = fakePage(900, 600)
+    await expect(resolveRecordingOptions(page, {
+      crop: { kind: "dimensions", width: 320, height: 180 },
+      quality: { mode: "compositor" },
+    })).resolves.toEqual({
+      quality: { mode: "compositor", scale: 2, fps: 24 },
+      crop: {
+        viewport: { width: 900, height: 600 },
+        source: { x: 290, y: 210, width: 320, height: 180 },
+        output: { width: 320, height: 180, offsetX: 0, offsetY: 0 },
+        background: "#181818",
+      },
+    })
+  })
+
+  it("PR-EVIDENCE-011 rejects an unbounded compositor recording", async () => {
+    await expect(resolveRecordingOptions(fakePage(900, 600), {
+      quality: { mode: "compositor" },
+    })).rejects.toMatchObject({ code: "capture-failed" })
+  })
+
+  it("PR-EVIDENCE-011 serializes capture and node reads", async () => {
+    const page = fakePage(900, 600)
+    const order: string[] = []
+    let signalStarted: () => void = () => {}
+    let releaseFirst: () => void = () => {}
+    const started = new Promise<void>(resolve => {
+      signalStarted = resolve
+    })
+    const first = withPlaywrightCaptureLock(page, async () => {
+      order.push("first-start")
+      signalStarted()
+      await new Promise<void>(resolve => {
+        releaseFirst = resolve
+      })
+      order.push("first-end")
+    })
+    const second = withPlaywrightCaptureLock(page, async () => {
+      order.push("second")
+    })
+    await started
+    expect(order).toEqual(["first-start"])
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(order).toEqual(["first-start", "first-end", "second"])
+  })
+
+  it("resolves a two-times compositor screenshot crop", async () => {
+    const page = fakePage(900, 600)
+    await expect(resolveScreenshotOptions(page, {
+      crop: { kind: "dimensions", width: 320, height: 180, center: geometryTarget(async () => ({ x: 450, y: 300 })) },
+      scale: 2,
+    })).resolves.toEqual({
+      scale: 2,
+      crop: {
+        viewport: { width: 900, height: 600 },
+        source: { x: 290, y: 210, width: 320, height: 180 },
+        output: { width: 320, height: 180, offsetX: 0, offsetY: 0 },
+        background: "#181818",
+      },
+    })
+  })
 })
+
+function fakePage(width: number, height: number): Page {
+  return {
+    viewportSize: () => ({ width, height }),
+    evaluate: async () => "#181818",
+    locator: () => ({ evaluate: async () => ({ x: width / 2, y: height / 2 }) }),
+  } as unknown as Page
+}

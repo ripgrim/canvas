@@ -1,7 +1,8 @@
 .auth-root { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: auto; padding: var(--space-xl); background: var(--cte-canvas); color: var(--cte-text); font-family: var(--font-ui); }
 .auth-center { width: min(360px, 100%); display: flex; flex-direction: column; align-items: center; gap: var(--space-l); text-align: center; }
-.auth-brand { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--radius-m); background: var(--color-1); color: var(--cte-accent-text); box-shadow: var(--border-shadow-s); }
+.auth-brand { display: inline-flex; align-items: center; justify-content: center; color: var(--neutral-10); }
 .auth-card { width: 100%; display: flex; flex-direction: column; gap: var(--space-m); padding: var(--space-xl); border-radius: var(--radius-l); background: var(--neutral-2); box-shadow: var(--border-shadow-s), var(--shadow-m); }
+.auth-prompt { width: 100%; display: flex; flex-direction: column; gap: var(--space-m); }
 .auth-title { margin: 0; color: var(--neutral-10); font-size: var(--size-xl); line-height: var(--line-xl); letter-spacing: var(--letter-spacing-xl); font-weight: var(--weight-ui-medium); }
 .auth-body { max-width: 360px; margin: 0; color: var(--cte-text-muted); font-size: var(--size-m); line-height: var(--line-m); letter-spacing: var(--letter-spacing-m); }
 .auth-actions { width: 100%; display: flex; flex-direction: column; gap: var(--space-s); padding-top: var(--space-xs); }

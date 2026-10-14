@@ -53,7 +53,7 @@ const childLayouts: Record<string, NodeLayout | undefined> = {
 const entries = (justifyContent: ContentDistribution, alignContent: ContentDistribution) => [
   // Px heights travel in the placement fields, not in the declarations (see `layoutDeclarations`).
   { nodeId: 'card-1', mode: 'flow', x: 0, y: 0, order: 0, height: 200, declarations: layoutDeclarations(cardLayout(justifyContent, alignContent), null) },
-  ...labels.map((nodeId, order) => { const declarations = layoutDeclarations(childLayouts[nodeId], 'grid'); return { nodeId, mode: 'flow', x: 0, y: 0, order, ...(declarations ? { declarations } : {}) } }),
+  ...labels.map((nodeId, order) => { const declarations = layoutDeclarations(childLayouts[nodeId], { display: 'grid' }); return { nodeId, mode: 'flow', x: 0, y: 0, order, ...(declarations ? { declarations } : {}) } }),
 ]
 
 type Box = { x: number; y: number; width: number; height: number }

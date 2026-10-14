@@ -11,6 +11,7 @@ import { documentStore } from './document-store'
 import { sceneGeometry } from './scene-geometry'
 import type { MeasuredNode } from './scene-geometry'
 import { collaborationService } from '../collaboration/collaboration-service'
+import { fontCatalogService } from '../fonts/font-catalog-service'
 import type { RemoteFlowPresentationKey, RemoteFlowPreviewBridge } from '../collaboration/flow-drag-relay'
 import { previewResizePresentation, previewTransientMoves } from './preview-transient'
 import type { PreviewTransientMove } from './preview-transient'
@@ -238,6 +239,7 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
   let target: Window | null = null
   let listening = false
   let signature = ''
+  let fontSignature = '[]'
   let cameraSignature = ''
   let cameraSequence = 0
   let appliedCameraSequence = -1
@@ -273,6 +275,7 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
   let stopEditor: (() => void) | undefined
   let stopDocument: (() => void) | undefined
   let stopCollaboration: (() => void) | undefined
+  let stopFonts: (() => void) | undefined
   /** Pointer input is already browser-coalesced. Forward every distinct sample without adding another frame of latency. */
   const publishTransient = (pending: { target: Window; origin: string; envelope: { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number }; items: PreviewTransientMove[]; signature: string }) => {
     if (target !== pending.target) return
@@ -576,6 +579,12 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
     }
     if (!state.previewReady || !target || !preview?.origin || preview.activeGeneration === null) { sceneGeometry.clear(); return }
     const envelope = { channel: 'design-editor-preview', version: protocolVersion, generation: preview.activeGeneration } as const
+    const fonts = fontCatalogService.getLoadedFonts()
+    const nextFonts = fonts.map(font => font.key).join('|')
+    if (fonts.length && nextFonts !== fontSignature) {
+      fontSignature = nextFonts
+      target.postMessage({ ...envelope, type: 'set-fonts', fonts }, preview.origin)
+    } else if (!fonts.length) fontSignature = '[]'
     const camera = { x: document.viewport.x, y: document.viewport.y, zoom: document.viewport.zoom, width: document.viewportSize.width, height: document.viewportSize.height }
     const nextCamera = JSON.stringify(camera)
     if (nextCamera !== cameraSignature) {
@@ -1035,9 +1044,10 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       stopEditor = editorStore.subscribe(syncFrames.request)
       stopDocument = documentStore.subscribe(syncDocument)
       stopCollaboration = collaborationService.subscribe(sync)
+      stopFonts = fontCatalogService.subscribeLoadedFonts(sync)
       collaborationService.bindRemoteFlowPreview(remoteFlowBridge)
     },
-    stop: () => { window.removeEventListener('message', handleMessage); stopEditor?.(); stopDocument?.(); stopCollaboration?.(); collaborationService.bindRemoteFlowPreview(null); stopEditor = undefined; stopDocument = undefined; stopCollaboration = undefined; listening = false; syncFrames.cancel(); retireFlowDragBeforeContextChange(); retireAllRemoteFlowDrags(); clearStrictPresentationBeforeContextChange(); committedProjectionRetry = null; target = null; signature = ''; cameraSignature = ''; cameraSequence = 0; appliedCameraSequence = -1; sentCameras.clear(); previewCameraStore.reset(); transientSignature = '[]'; projectedDocument = null; projectedAuthority = null; assetHydrationError = null; geometryGeneration = null; sceneGeometry.clear(); documentStore.setEditPolicy(undefined) },
+    stop: () => { window.removeEventListener('message', handleMessage); stopEditor?.(); stopDocument?.(); stopCollaboration?.(); stopFonts?.(); collaborationService.bindRemoteFlowPreview(null); stopEditor = undefined; stopDocument = undefined; stopCollaboration = undefined; stopFonts = undefined; listening = false; syncFrames.cancel(); retireFlowDragBeforeContextChange(); retireAllRemoteFlowDrags(); clearStrictPresentationBeforeContextChange(); committedProjectionRetry = null; target = null; signature = ''; fontSignature = '[]'; cameraSignature = ''; cameraSequence = 0; appliedCameraSequence = -1; sentCameras.clear(); previewCameraStore.reset(); transientSignature = '[]'; projectedDocument = null; projectedAuthority = null; assetHydrationError = null; geometryGeneration = null; sceneGeometry.clear(); documentStore.setEditPolicy(undefined) },
     sync,
     publishResizePresentation,
     clearResizePresentation,
@@ -1056,6 +1066,7 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       sceneGeometry.clear()
       documentStore.setEditPolicy(undefined)
       signature = ''
+      fontSignature = fontCatalogService.getLoadedFonts().length ? '' : '[]'
       cameraSignature = ''
       cameraSequence = 0
       appliedCameraSequence = -1
@@ -1074,6 +1085,7 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       sceneGeometry.clear()
       documentStore.setEditPolicy(undefined)
       signature = ''
+      fontSignature = fontCatalogService.getLoadedFonts().length ? '' : '[]'
       cameraSignature = ''
       cameraSequence = 0
       appliedCameraSequence = -1

@@ -30,6 +30,11 @@ function lineHeightCss(value) {
   return number(value.value)
 }
 
+export function fontFeaturesCss(features) {
+  const entries = Object.entries(features ?? {}).sort(([left], [right]) => left.localeCompare(right))
+  return entries.length ? entries.map(([tag, enabled]) => `'${tag}' ${enabled ? 'on' : 'off'}`).join(', ') : undefined
+}
+
 const declarationProperty = name => name.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase())
 export function primitiveLayoutStyle(layout) {
   if (!layout) return {}
@@ -215,6 +220,7 @@ export function canvasElementStyle(element, assets = undefined, offset = { x: 0,
     fontFamily: text.fontFamily,
     fontStyle: text.fontStyle,
     fontWeight: text.fontWeight,
+    fontFeatureSettings: fontFeaturesCss(text.fontFeatures),
     fontSize: `${number(text.fontSize)}px`,
     lineHeight: lineHeightCss(text.lineHeight),
     letterSpacing: `${number(text.fontSize) * number(text.letterSpacing) / 100}px`,

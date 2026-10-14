@@ -8,7 +8,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { authUserView } from './index.js'
 import type { AuthSessionView } from './index.js'
 import { decodeDesktopAuthorization } from './electron-callback.js'
-import { resolveAuthenticatedApiPath } from './api-target.js'
+import { requestAuthenticatedApi } from './api-target.js'
 import { createElectronSessionStorage, migrateLegacyEncryptedAuthStorage } from './electron-storage.js'
 import type { AuthStorageBackend } from './electron-storage.js'
 
@@ -143,14 +143,15 @@ export function createElectronAuthClient(options: ElectronAuthClientOptions): El
       if (result.error) throw new Error(result.error.message ?? result.error.statusText)
     },
     request: async (path, init = {}) => {
-      const target = resolveAuthenticatedApiPath(options.baseURL, path)
-      let response: Response | undefined
-      await client.$fetch(target, {
-        ...init,
-        onResponse: ({ response: received }: { response: Response }) => { response = received.clone() },
-      } as never)
-      if (!response) throw new Error('Authenticated API returned no response.')
-      return response
+      return requestAuthenticatedApi({
+        baseURL: options.baseURL,
+        path,
+        init,
+        cookie: client.getCookie(),
+        origin: `${options.scheme}:/`,
+        userAgent: app.userAgentFallback,
+        fetch,
+      })
     },
     createWebSocket: (url: string, protocol: string, origin: string) => {
       const target = new URL(url)

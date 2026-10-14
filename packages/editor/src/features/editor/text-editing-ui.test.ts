@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { TextSizing, TextStyle } from '@canvas/repo-engine/file-document'
 import { CanvasTextEditor, canvasTextKeyAction, createTextEditorFinisher, normalizeEditablePlainText } from '../../design-system/canvas-atoms'
-import { canvasTextEditorPose, canvasTextEditorStyle } from './SelectionHud'
+import { canvasTextEditorPose, canvasTextEditorStyle, canvasTextFallbackPose } from './SelectionHud'
 import type { HudProjectionEntry } from './canvas-hud-projection'
 
 const textStyle: TextStyle = {
@@ -41,6 +41,30 @@ describe('PAPER-TEXT-004 canvas text editor surface', () => {
     expect(pose.base.height).toBeCloseTo(78.892, 3)
     expect(pose.rotation).toBeCloseTo(30.256, 3)
   })
+
+  it('keeps a new unmeasured text editor usable at its authored canvas position', () => {
+    const pose = canvasTextFallbackPose({
+      rect: { x: -100, y: -50, width: 1, height: 1 },
+      rotation: 15,
+      textStyle,
+    }, { x: 20, y: 10, zoom: 2 }, { width: 800, height: 600 })
+
+    expect(pose).toStrictEqual({
+      base: { x: 220, y: 210, width: 2, height: 45 },
+      rotation: 15,
+    })
+  })
+
+  it('uses the nested text world position during measurement', () => {
+    const pose = canvasTextFallbackPose({
+      rect: { x: 140, y: 230, width: 1, height: 1 },
+      rotation: 0,
+      textStyle,
+    }, { x: 0, y: 0, zoom: 1 }, { width: 800, height: 600 })
+
+    expect(pose.base).toStrictEqual({ x: 540, y: 530, width: 1, height: 22.5 })
+  })
+
   it('renders one plaintext contenteditable with an accessible multiline name instead of a textarea', () => {
     const html = renderToStaticMarkup(createElement(CanvasTextEditor, {
       id: 'text-1',

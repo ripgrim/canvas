@@ -1,0 +1,26 @@
+.typography-preview { display: flex; min-height: 120px; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-s); margin: var(--space-s); overflow: hidden; border-radius: var(--radius-s); background: var(--neutral-3); color: var(--neutral-7); text-align: center; }
+.theme-light .typography-preview { background: var(--neutral-2); }
+.typography-preview-text { display: block; max-width: 232px; color: var(--neutral-9); font-size: 18px; line-height: 1.05; white-space: pre-line; }
+.typography-preview-caption { color: var(--neutral-6); font-family: var(--font-ui); font-size: var(--size-xxs); line-height: var(--line-xxs); font-weight: var(--weight-ui-medium); }
+.typography-status { padding: var(--space-l) var(--space-m); color: var(--neutral-7); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); text-align: center; }
+.typography-control-row { display: flex; min-height: 32px; align-items: center; justify-content: space-between; gap: var(--space-s); padding: 0 var(--space-m); }
+.typography-control-label { min-width: 0; color: var(--neutral-7); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); text-wrap: balance; }
+.typography-control-value { display: flex; width: 112px; flex: 0 0 112px; justify-content: flex-end; }
+.typography-control-value > * { width: 100%; }
+.typography-boolean { display: grid; width: 80px; height: 24px; grid-template-columns: repeat(2, 1fr); overflow: hidden; border-radius: var(--radius-s); background: var(--neutral-3); box-shadow: var(--border-shadow-s); }
+.theme-light .typography-boolean { background: var(--neutral-2); }
+.typography-boolean button { height: 24px; padding: 0; border: 0; background: transparent; color: var(--neutral-7); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); cursor: pointer; }
+.typography-boolean button[data-checked] { background: var(--neutral-5); color: var(--neutral-10); }
+.typography-boolean button:hover { color: var(--neutral-10); }
+.typography-boolean button:focus-visible { position: relative; outline: var(--focus-ring-outline); outline-offset: calc(-1 * var(--border-s)); }
+.typography-boolean button:disabled { opacity: .5; cursor: not-allowed; }
+.typography-feature-list { min-height: 0; flex: 1 1 auto; overflow: auto; padding-bottom: var(--space-xxs); scrollbar-color: var(--neutral-5) transparent; }
+.typography-feature-group { margin: 0 0 var(--space-xxs); }
+.typography-feature-group + .typography-feature-group { margin-top: var(--space-m); }
+.typography-feature-group h4 { min-height: 32px; margin: 0; padding: 0 var(--space-m); color: var(--neutral-9); font-family: var(--font-ui); font-size: var(--size-xs); line-height: 32px; font-weight: var(--weight-ui-medium); }
+.typography-formatting-controls { display: flex; flex-direction: column; gap: var(--space-xxs); padding: 0 0 var(--space-s); }
+.typography-formatting-controls .typography-control-value .inspector-radio-field { width: 100%; }
+.typography-formatting-controls .typography-control-value .inspector-segments { width: 100%; }
+.typography-formatting-controls .appearance-select { width: 100%; }
+.inspector-popover-content.typography-features-content { max-height: 408px; padding: 0; }
+.inspector-popover-content.typography-formatting-content { padding: 0; }

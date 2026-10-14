@@ -1,0 +1,18 @@
+export const googleFontPreviewAssets = [
+  new URL('./google-font-previews/font-chunk-0.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-1.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-2.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-3.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-4.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-5.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-6.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-7.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-8.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-9.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-10.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-11.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-12.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-13.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-14.webp', import.meta.url).href,
+  new URL('./google-font-previews/font-chunk-15.webp', import.meta.url).href,
+] as const

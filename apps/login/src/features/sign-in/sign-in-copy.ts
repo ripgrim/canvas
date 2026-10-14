@@ -1,0 +1,15 @@
+export const signInCopy = Object.freeze({
+  title: 'Canvas',
+  description: 'Enter your work email to receive a one-time password.',
+  emailLabel: 'Work email',
+  emailPlaceholder: 'name@trycomp.ai',
+  emailAction: 'Continue',
+  divider: 'Or continue with',
+  github: 'Continue with GitHub',
+  google: 'Continue with Google',
+  promoTitle: 'Compliance, without the busywork.',
+  promoBody: 'Keep evidence, policies, and controls moving in one place.',
+  promoAction: 'Learn more',
+  opening: 'Opening Canvas…',
+  openingBody: 'You can close this tab after Canvas opens.',
+})

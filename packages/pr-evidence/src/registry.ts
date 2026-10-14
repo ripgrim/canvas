@@ -130,11 +130,15 @@ export function planEvidence(input: Readonly<{
   const capabilities = validateCapabilities(input.capabilities)
   const scenarios = validateScenarios(input.scenarios, capabilities)
   const files = new Map<string, { capabilities: Set<string>; evidence: Set<EvidenceKind>; reasons: Set<string> }>()
+  const unmapped = new Set<string>()
   for (const change of input.changed) {
     for (const candidate of [change.path, change.previousPath].filter((value): value is string => value !== undefined)) {
       const path = repositoryPath(candidate)
       const matched = capabilities.filter(capability => capability.paths.some(candidatePattern => matches(candidatePattern, path)))
-      if (!matched.length) throw new Error(`Unmapped changed path: ${path}`)
+      if (!matched.length) {
+        unmapped.add(path)
+        continue
+      }
       const prior = files.get(path) ?? { capabilities: new Set(), evidence: new Set(), reasons: new Set() }
       for (const capability of matched) {
         prior.capabilities.add(capability.id)
@@ -144,6 +148,7 @@ export function planEvidence(input: Readonly<{
       files.set(path, prior)
     }
   }
+  if (unmapped.size) throw new Error(`Unmapped changed paths:\n${[...unmapped].sort().map(path => `- ${path}`).join("\n")}`)
   const visualCapabilities = new Set<string>()
   const plannedFiles = [...files.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([path, value]) => {
     const evidence = value.evidence.has("visual") ? "visual" : "nonvisual"

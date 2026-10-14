@@ -6,6 +6,8 @@
   "scripts": {
     "version": "node scripts/sync-app-version.mjs",
     "sync:version": "node scripts/sync-app-version.mjs",
+    "sync:fonts": "node scripts/sync-google-font-catalog.mjs",
+    "sync:font-previews": "node scripts/sync-google-font-previews.mjs",
     "prebuild": "node scripts/sync-app-version.mjs",
     "build": "node scripts/with-local-registry.mjs -r build",
     "build:thumbnail-renderer:vercel": "node scripts/with-local-registry.mjs --filter @canvas/thumbnail-renderer... build",

@@ -67,6 +67,7 @@ jobs:
       - name: Capture browser evidence
         if: steps.plan.outputs.visual == 'true'
         env:
+          PR_EVIDENCE_FFMPEG: ${{ steps.tools.outputs.ffmpeg || 'ffmpeg' }}
           PR_EVIDENCE_SCENARIOS: ${{ steps.plan.outputs.scenarios }}
         run: pnpm test:pr-evidence
 
