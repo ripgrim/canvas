@@ -40,7 +40,7 @@
       "paths": [
         "packages/editor/src/features/editor/canvas-hud-*.ts",
         "packages/editor/src/features/editor/SelectionHud.tsx",
-        "tests/pr-evidence/scenarios/text-overlay.spec.ts"
+        "tests/pr-evidence/scenarios/node-overlay.spec.ts"
       ],
       "evidence": "visual"
     },
@@ -71,8 +71,8 @@
       "video": true
     },
     {
-      "id": "editor.text-overlay",
-      "title": "Centered fit text keeps its complete overlay",
+      "id": "editor.node-overlay",
+      "title": "A selected frame keeps its complete overlay",
       "capabilities": ["editor.canvas.selection-overlay", "evidence.infrastructure"],
       "adapters": ["browser"],
       "assertions": ["overlay.matches-node", "overlay.resize-handles", "overlay.rotation-handles", "overlay.clears-on-deselect", "recording.node-crop"],
