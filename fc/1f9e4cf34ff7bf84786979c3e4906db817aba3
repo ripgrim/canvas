@@ -1,0 +1,107 @@
+packages/editor/src/features/fonts/font-catalog-service.test.ts
+  s_012c57818fbf95::t_23003501f983d5 45-69
+packages/editor/src/features/editor/properties-copy.ts
+  s_012c57818fbf95::t_8476d590f7ea17 3,8
+scripts/dev-cloud.mjs
+  s_012c57818fbf95::t_b6aca6ed53bd05 11,21-22,162-169
+packages/editor/src/features/editor/CanvasStage.tsx
+  s_012c57818fbf95::t_6e4f573f76f087 50
+packages/editor/src/features/editor/Editor.tsx
+  s_012c57818fbf95::t_525a2cbf27d63e 3,119,124
+  s_012c57818fbf95::t_4a52f399d16ed9 12
+  s_012c57818fbf95::t_592863e799fec0 37
+  s_012c57818fbf95::t_58067a8d731f1b 49
+  s_012c57818fbf95::t_fac7a64d70da1c 114-115
+  s_012c57818fbf95::t_112a5c7808d11b 183-184
+  s_012c57818fbf95::t_8e87585c9c5b44 24,35,40
+packages/editor/src/features/editor/store.test.ts
+  s_012c57818fbf95::t_28b7387cb382f8 59,64
+apps/web/vite.config.ts
+  s_012c57818fbf95::t_b6aca6ed53bd05 13,18
+packages/repo-engine/tests/component-model.test.ts
+  s_012c57818fbf95::t_525a2cbf27d63e 2-3,5-21,23-31,33-54,57-63,65-72
+scripts/test-service-topology.mjs
+  s_012c57818fbf95::t_b6aca6ed53bd05 2,4,7,14-15,17,51-74
+packages/editor/src/features/editor/ComponentProperties.tsx
+  s_012c57818fbf95::t_8476d590f7ea17 2,23
+packages/repo-engine/src/component-model.ts
+  s_012c57818fbf95::t_bbe63f55f0a0e5 149-150
+  s_012c57818fbf95::t_525a2cbf27d63e 1-148,151-187
+apps/web/tests/browser-interactions.mjs
+  s_012c57818fbf95::t_91366c21decefe 86,252-256
+apps/web/preview/editor-origin.test.ts
+  s_012c57818fbf95::t_b6aca6ed53bd05 58-63,65-66
+package.json
+  s_012c57818fbf95::t_b6aca6ed53bd05 21
+apps/web/vite.preview.config.ts
+  s_012c57818fbf95::t_b6aca6ed53bd05 24,43
+scripts/dev-remote.mjs
+  s_012c57818fbf95::t_b6aca6ed53bd05 1-12
+packages/repo-engine/src/index.ts
+  s_012c57818fbf95::t_525a2cbf27d63e 22
+apps/thumbnail-renderer/vite.config.ts
+  s_012c57818fbf95::t_b6aca6ed53bd05 34
+packages/editor/src/design-system/canvas.css
+  s_012c57818fbf95::t_def686976921db 1,22-24,101-102
+docs/architecture/components-v2.md
+  s_012c57818fbf95::t_8bd24990e6e889 48
+  s_012c57818fbf95::t_8cffa6442fa24e 66
+  s_012c57818fbf95::t_525a2cbf27d63e 1-47,49-65,67-71
+packages/editor/src/features/fonts/font-catalog-service.ts
+  s_012c57818fbf95::t_23003501f983d5 16-20,203,249-258,312-313
+apps/web/preview/csp.ts
+  s_012c57818fbf95::t_b6aca6ed53bd05 8,11-13,20
+scripts/local-services.mjs
+  s_012c57818fbf95::t_b6aca6ed53bd05 19-38,40-50,52,56-59,63,66-69,72
+packages/editor/src/features/editor/CanvasWorkspace.tsx
+  s_012c57818fbf95::t_3d3d95e5887fb0 4-5,61
+  s_012c57818fbf95::t_35b5e36053b8f4 38,68
+  s_012c57818fbf95::t_592863e799fec0 62-63
+packages/editor/src/design-system/font-family-picker.test.ts
+  s_012c57818fbf95::t_23003501f983d5 1-2,24-33
+packages/editor/src/design-system/tool-rail.css
+  s_012c57818fbf95::t_def686976921db 20-22
+packages/editor/src/features/editor/Editor.test.ts
+  s_012c57818fbf95::t_de5e79fcaec29e 127
+  s_012c57818fbf95::t_e564b9ecb7cf88 118
+  s_012c57818fbf95::t_79423013d70f25 117,124-125
+  s_012c57818fbf95::t_72dd02bb95c417 102
+  s_012c57818fbf95::t_452b807f8afd88 103,105-116,119-123,126,128-129
+  s_012c57818fbf95::t_000a00be7a08c7 104
+packages/editor/src/design-system/atoms.tsx
+  s_012c57818fbf95::t_592863e799fec0 20-21
+packages/editor/src/design-system/styles.css
+  s_012c57818fbf95::t_def686976921db 54,63
+  s_012c57818fbf95::t_35b5e36053b8f4 64
+packages/editor/src/features/editor/ComponentLibrary.tsx
+  s_012c57818fbf95::t_8476d590f7ea17 6,47-48,51
+apps/login/vite.config.ts
+  s_012c57818fbf95::t_b6aca6ed53bd05 5
+packages/editor/src/design-system/font-family-picker.tsx
+  s_012c57818fbf95::t_23003501f983d5 58-59,125
+apps/desktop/tests/ui-interactions.mjs
+  s_012c57818fbf95::t_91366c21decefe 378-381,383-385
+packages/repo-engine/package.json
+  s_012c57818fbf95::t_525a2cbf27d63e 82-85
+packages/editor/src/features/editor/store.ts
+  s_012c57818fbf95::t_28b7387cb382f8 28,30,75,254,398
+packages/editor/src/design-system/font-family-picker.client.test.ts
+  s_012c57818fbf95::t_27616ac994f04e 1-26,30-34,37-49
+  s_012c57818fbf95::t_f2914861fd53b4 27-29,35-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fc1f9e4cf34ff7bf84786979c3e4906db817aba3",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
