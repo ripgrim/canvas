@@ -31,5 +31,5 @@ export default defineConfig({
       verifiedModuleBoundaryPlugin(registry, [appRoot, previewRuntimeRoot, repoEngineRoot, syncProtocolRoot, viteRuntimeRoot, reactRefreshRuntimeRoot], ['/thumbnail-renderer', '/@vite/client', '/@react-refresh']),
       react(),
     ],
-    server: { host: '127.0.0.1', port: 4323, strictPort: true },
+    server: { host: '127.0.0.1', port: 4323, strictPort: true, allowedHosts: process.env.CANVAS_REMOTE_DEV_HOST ? [process.env.CANVAS_REMOTE_DEV_HOST] : [] },
 })

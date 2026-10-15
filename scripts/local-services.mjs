@@ -16,34 +16,60 @@ export const localOrigins = Object.freeze({
   syncCoordinator: 'http://127.0.0.1:4326',
 })
 
+export const remoteDevPorts = Object.freeze({
+  web: 9443,
+  preview: 9444,
+  login: 9445,
+  api: 9446,
+  sync: 9447,
+  assets: 9448,
+})
+
+const remoteDevHost = process.env.CANVAS_REMOTE_DEV_HOST?.trim().replace(/\.$/, '')
+if (remoteDevHost && (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(remoteDevHost) || !remoteDevHost.endsWith('.ts.net'))) {
+  throw new Error('CANVAS_REMOTE_DEV_HOST must be a Tailscale DNS hostname.')
+}
+
+export const browserOrigins = remoteDevHost
+  ? Object.freeze(Object.fromEntries(Object.entries(remoteDevPorts).map(([name, port]) => [name, `https://${remoteDevHost}:${port}`])))
+  : Object.freeze({ web: localOrigins.web, preview: localOrigins.preview, login: localOrigins.login, api: localOrigins.api, sync: localOrigins.sync, assets: localOrigins.assets })
+
+const browserSyncOrigin = remoteDevHost ? browserOrigins.sync.replace('https:', 'wss:') : localOrigins.sync.replace('http:', 'ws:')
+
 export const localEnvironment = Object.freeze({
-  BETTER_AUTH_URL: localOrigins.api,
-  LOGIN_URL: localOrigins.login,
-  APP_URL: localOrigins.web,
-  VITE_API_URL: localOrigins.api,
-  VITE_APP_URL: localOrigins.web,
-  VITE_API_ORIGIN: localOrigins.api,
-  VITE_LOGIN_ORIGIN: localOrigins.login,
-  VITE_PREVIEW_ORIGIN: localOrigins.preview,
-  VITE_ASSETS_ORIGIN: localOrigins.assets,
+  BETTER_AUTH_URL: browserOrigins.api,
+  LOGIN_URL: browserOrigins.login,
+  APP_URL: browserOrigins.web,
+  AUTH_TRUSTED_ORIGINS: `${browserOrigins.web},${browserOrigins.login}`,
+  VITE_API_URL: browserOrigins.api,
+  VITE_APP_URL: browserOrigins.web,
+  VITE_API_ORIGIN: browserOrigins.api,
+  VITE_LOGIN_ORIGIN: browserOrigins.login,
+  VITE_PREVIEW_ORIGIN: browserOrigins.preview,
+  VITE_ASSETS_ORIGIN: browserOrigins.assets,
+  CANVAS_PREVIEW_EDITOR_ORIGIN: browserOrigins.web,
   THUMBNAIL_RENDERER_ORIGIN: localOrigins.thumbnailRenderer,
-  VITE_SYNC_ORIGIN: 'ws://127.0.0.1:4321',
+  VITE_SYNC_ORIGIN: browserSyncOrigin,
   VITE_COLLABORATION_BUILD_ID: workspaceVersion,
   SYNC_ROOM_RUNTIME_ORIGIN: localOrigins.syncRoom,
   COLLABORATION_BUILD_ID: workspaceVersion,
-  DESIGN_EDITOR_AUTH_URL: localOrigins.api,
-  DESIGN_EDITOR_LOGIN_URL: localOrigins.login,
-  DESIGN_EDITOR_PREVIEW_URL: localOrigins.preview,
-  DESIGN_EDITOR_ASSETS_URL: localOrigins.assets,
+  DESIGN_EDITOR_AUTH_URL: browserOrigins.api,
+  DESIGN_EDITOR_LOGIN_URL: browserOrigins.login,
+  DESIGN_EDITOR_PREVIEW_URL: browserOrigins.preview,
+  DESIGN_EDITOR_ASSETS_URL: browserOrigins.assets,
   API_BASE_URL: localOrigins.api,
   API_ORIGIN: localOrigins.api,
   ASSETS_ORIGIN: localOrigins.assets,
-  ALLOWED_ORIGINS: `${localOrigins.web},${localOrigins.login}`,
+  ALLOWED_ORIGINS: `${browserOrigins.web},${browserOrigins.login}`,
 })
+
+export function githubAppAuthorizationCallbackURL(environment = process.env) {
+  return environment.GITHUB_APP_ID?.trim() ? `${browserOrigins.api}/api/github/authorization/callback` : undefined
+}
 
 export const localServices = Object.freeze([
   service('web', 'Web', '@canvas/web', 'dev', 4317, `${localOrigins.web}/`),
-  service('preview', 'Preview', '@canvas/web', 'dev:preview', 4318, `${localOrigins.preview}/`, ['CANVAS_VERIFIED_COMPONENT_REGISTRY']),
+  service('preview', 'Preview', '@canvas/web', 'dev:preview', 4318, `${localOrigins.preview}/`, ['CANVAS_VERIFIED_COMPONENT_REGISTRY', 'CANVAS_PREVIEW_EDITOR_ORIGIN']),
   service('login', 'Login', '@canvas/login', 'dev', 4319, `${localOrigins.login}/`),
   service('api', 'API', '@canvas/api', 'dev', 4320, `${localOrigins.api}/healthz`, [
     'DATABASE_URL', 'BETTER_AUTH_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET',

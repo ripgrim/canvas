@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import { Button, Check, CodeBlock, Disclosure, Icon, Layout, Popup, Surface, Text, ThemeRoot } from '../../design-system/atoms'
+import { Button, Check, CodeBlock, Icon, Layout, Popup, Surface, Text, ThemeRoot } from '../../design-system/atoms'
 import { Message, PanelHeader, ValuePair } from '../../design-system/molecules'
 import { editorCopy as copy } from './copy'
 import { editorStore as store } from './store'
@@ -9,11 +9,10 @@ import { previewConnection } from './preview-service'
 import { documentStore } from './document-store'
 import type { DocumentState } from './document-store'
 import { CanvasWorkspace } from './CanvasWorkspace'
-import { activeDesignTheme, designThemeOptions } from './design-theme'
+import { canvasCopy } from './canvas-copy'
 import { DocumentLayers } from './DocumentLayers'
 import { ComponentLibrary } from './ComponentLibrary'
 import { ComponentProperties } from './ComponentProperties'
-import { ComponentPromotion } from './ComponentPromotion'
 import { PageContextMenu } from './PageContextMenu'
 import { editorKeyDown, editorKeyUp } from './keyboard-service'
 import { PageInspector, SelectionInspector } from './InspectorPanels'
@@ -22,9 +21,7 @@ import { ThemePanel } from './ThemePanel'
 import { sidebarCopy } from './sidebar-copy'
 import { focusSequence, sidebarViewFor, themeFocus } from './theme-focus'
 import type { SidebarChoice } from './theme-focus'
-import { FileHomeButton, HeaderIconButton, MobileSheet, PanelHeaderBar, PanelHeaderTitle, PanelResizer, PanelToolbar, PanelToolbarActions } from '../../design-system/shell-atoms'
-import { RepositoryPanel } from './RepositoryPanel'
-import { repositoryCopy } from './repository-copy'
+import { FileHomeButton, HeaderIconButton, MobileSheet, PanelHeaderActions, PanelHeaderBar, PanelHeaderTitle, PanelResizer, PanelToolbar, PanelToolbarActions } from '../../design-system/shell-atoms'
 import { repositoryConnectionService } from './repository-service'
 import { connectedRegistryAtoms, documentRegistryAtoms } from './component-registry'
 import { authSessionService } from '../application/auth-service'
@@ -35,12 +32,12 @@ import { CollaborationPresence } from '../collaboration/CollaborationPresence'
 import { mobilePanelVisibility, mobileViewport, toggleMobilePanel } from './mobile-editor'
 import type { EditorMobilePanel } from './mobile-editor'
 
-function FileHeader({ state, onHome }: { state: EditorState; onHome?: (() => void) | undefined }) {
+function FileHeader({ state, onHome, onTogglePanel }: { state: EditorState; onHome?: (() => void) | undefined; onTogglePanel: () => void }) {
   const name = state.snapshot?.composition.name ?? copy.file
-  return <PanelHeaderBar><FileHomeButton label={copy.files} disabled={!onHome || Boolean(state.busy)} onClick={() => onHome?.()} /><PanelHeaderTitle title={name}>{name}</PanelHeaderTitle></PanelHeaderBar>
+  return <PanelHeaderBar><FileHomeButton label={copy.files} disabled={!onHome || Boolean(state.busy)} onClick={() => onHome?.()} /><PanelHeaderTitle title={name}>{name}</PanelHeaderTitle><PanelHeaderActions><HeaderIconButton label={canvasCopy.hideLayers} icon="panel-left" onClick={onTogglePanel} /></PanelHeaderActions></PanelHeaderBar>
 }
 
-function ActionsHeader({ state, readOnly = false }: { state: EditorState; readOnly?: boolean }) {
+function ActionsHeader({ state, readOnly = false, onTogglePanel }: { state: EditorState; readOnly?: boolean; onTogglePanel: () => void }) {
   const auth = useSyncExternalStore(authSessionService.subscribe, authSessionService.getSnapshot, authSessionService.getSnapshot)
   const [accountOpen, setAccountOpen] = useState(false)
   const reloadLabel = state.snapshot ? state.capabilities.runtime === 'browser' ? copy.reloadDraft : copy.refresh : state.capabilities.openLabel
@@ -49,7 +46,7 @@ function ActionsHeader({ state, readOnly = false }: { state: EditorState; readOn
     if (auth.status === 'signed-in' || auth.status === 'unavailable') setAccountOpen(true)
     else authSessionService.signIn()
   }
-  return <><PanelToolbar label={copy.panelActions}><CollaborationPresence /><PanelToolbarActions><HeaderIconButton compact label={reloadLabel} icon={state.snapshot ? 'refresh' : 'plus'} disabled={Boolean(state.busy)} onClick={() => void (state.snapshot ? store.refresh() : store.open())} /><HeaderIconButton compact label={state.mode === 'light' ? copy.themeDark : copy.themeLight} icon={state.mode === 'light' ? 'moon' : 'sun'} onClick={() => store.setAppearance(state.mode === 'light' ? 'dark' : 'light')} />{!readOnly && <HeaderIconButton compact label={copy.review} icon="code" pressed={state.reviewOpen} onClick={() => store.set({ reviewOpen: !state.reviewOpen })} />}<Button variant="secondary" disabled={auth.status === 'signing-in'} title={auth.message ?? undefined} onClick={accountAction}>{auth.status === 'signed-in' ? auth.user?.name : signInLabel}</Button>{!readOnly && <Button variant="secondary" disabled={!state.snapshot} onClick={() => void store.openShare()}>{copy.share}</Button>}</PanelToolbarActions></PanelToolbar><Popup mode={state.mode} closeLabel={copy.close} open={accountOpen} onOpenChange={setAccountOpen} title={authCopy.account}>{auth.status === 'signed-in' && auth.user ? <Layout roleName="stack"><Text roleName="strong">{auth.user.name}</Text><Text roleName="muted">{auth.user.email}</Text><Button variant="outline" onClick={() => { setAccountOpen(false); authSessionService.signOut() }}>{authCopy.signOut}</Button></Layout> : <Layout roleName="stack"><Text>{auth.message ?? authCopy.unavailable}</Text>{auth.status !== 'unavailable' && <Button variant="primary" onClick={() => { setAccountOpen(false); authSessionService.signIn() }}>{authCopy.github}</Button>}</Layout>}</Popup></>
+  return <><PanelToolbar label={copy.panelActions}><HeaderIconButton compact label={canvasCopy.hideProperties} icon="selection" onClick={onTogglePanel} /><CollaborationPresence /><PanelToolbarActions><HeaderIconButton compact label={reloadLabel} icon={state.snapshot ? 'refresh' : 'plus'} disabled={Boolean(state.busy)} onClick={() => void (state.snapshot ? store.refresh() : store.open())} /><HeaderIconButton compact label={state.mode === 'light' ? copy.themeDark : copy.themeLight} icon={state.mode === 'light' ? 'moon' : 'sun'} onClick={() => store.setAppearance(state.mode === 'light' ? 'dark' : 'light')} />{!readOnly && <HeaderIconButton compact label={copy.review} icon="code" pressed={state.reviewOpen} onClick={() => store.set({ reviewOpen: !state.reviewOpen })} />}<Button variant="secondary" disabled={auth.status === 'signing-in'} title={auth.message ?? undefined} onClick={accountAction}>{auth.status === 'signed-in' ? auth.user?.name : signInLabel}</Button>{!readOnly && <Button variant="secondary" disabled={!state.snapshot} onClick={() => void store.openShare()}>{copy.share}</Button>}</PanelToolbarActions></PanelToolbar><Popup mode={state.mode} closeLabel={copy.close} open={accountOpen} onOpenChange={setAccountOpen} title={authCopy.account}>{auth.status === 'signed-in' && auth.user ? <Layout roleName="stack"><Text roleName="strong">{auth.user.name}</Text><Text roleName="muted">{auth.user.email}</Text><Button variant="outline" onClick={() => { setAccountOpen(false); authSessionService.signOut() }}>{authCopy.signOut}</Button></Layout> : <Layout roleName="stack"><Text>{auth.message ?? authCopy.unavailable}</Text>{auth.status !== 'unavailable' && <Button variant="primary" onClick={() => { setAccountOpen(false); authSessionService.signIn() }}>{authCopy.github}</Button>}</Layout>}</Popup></>
 }
 
 function ShareDialog({ state }: { state: EditorState }) {
@@ -113,29 +110,20 @@ function Library({ state, document, atoms, documentAtoms, header, mobile = false
 }
 
 function Canvas({ state, saving, readOnly, following, mobile, panels, onHome }: { state: EditorState; saving: boolean; readOnly: boolean; following: boolean; mobile: boolean; panels: Readonly<{ left: boolean; right: boolean; onToggleLeft: () => void; onToggleRight: () => void }>; onHome?: (() => void) | undefined }) {
-  const designTheme = activeDesignTheme(state.snapshot, state.previewThemeId)
   const previewConnecting = Boolean(state.snapshot?.preview.url && !state.previewReady)
-  const status = saving ? { label: copy.documentSaving } : previewConnecting ? { label: copy.previewConnecting } : state.compositionPreview ? { label: copy.compositionStatus, description: copy.compositionHint } : undefined
-  return <CanvasWorkspace {...(state.snapshot?.preview.url ? { src: state.snapshot.preview.url } : {})} {...(designTheme ? { theme: { value: designTheme.id, options: designThemeOptions(state.snapshot), onChange: (themeId: string) => void store.setPreviewTheme(themeId) } } : {})} {...(status ? { status } : {})} readOnly={readOnly} mobile={mobile} panels={following ? undefined : panels} onHome={onHome} ready={state.previewReady} onReady={target => previewConnection.connect(target)} onError={() => previewConnection.disconnect()} onShortcuts={() => store.set({ shortcutOpen: true })} placeholder={<Layout roleName="preview-placeholder"><Message title={state.busy ?? copy.previewUnavailable} body={copy.previewHint} action={!state.snapshot ? <Button variant="outline" disabled={Boolean(state.busy)} onClick={() => void store.open()}>{state.capabilities.openLabel}</Button> : undefined} /></Layout>} />
+  const status = saving ? { label: copy.documentSaving } : previewConnecting ? { label: copy.previewConnecting } : undefined
+  return <CanvasWorkspace {...(state.snapshot?.preview.url ? { src: state.snapshot.preview.url } : {})} {...(status ? { status } : {})} readOnly={readOnly} mobile={mobile} panels={following ? undefined : panels} onHome={onHome} ready={state.previewReady} onReady={target => previewConnection.connect(target)} onError={() => previewConnection.disconnect()} onShortcuts={() => store.set({ shortcutOpen: true })} placeholder={<Layout roleName="preview-placeholder"><Message title={state.busy ?? copy.previewUnavailable} body={copy.previewHint} action={!state.snapshot ? <Button variant="outline" disabled={Boolean(state.busy)} onClick={() => void store.open()}>{state.capabilities.openLabel}</Button> : undefined} /></Layout>} />
 }
 
 function Inspector({ state, document, atoms, header, mobile = false }: { state: EditorState; document: DocumentState; atoms: ReturnType<typeof connectedRegistryAtoms>; header: ReactNode; mobile?: boolean }) {
-  const snapshot = state.snapshot
-  const selectedChild = snapshot?.composition.children.find(child => child.id === state.selected)
+  const selectedChild = state.snapshot?.composition.children.find(child => child.id === state.selected)
   const selectedNode = document.file?.nodes[state.selected ?? '']
   const selectedComponentId = selectedNode?.type === 'component' ? selectedNode.componentId : undefined
   const selected = atoms.find(atom => atom.componentId === (selectedComponentId ?? selectedChild?.componentId ?? state.selected))
   const title = document.selection.length > 1 ? copy.selectionCount(document.selection.length) : document.selection.length ? selected?.name ?? copy.inspector : document.file?.pages.find(page => page.id === document.pageId)?.name ?? copy.page
-  if (mobile) return <>{document.selection.length === 0 ? <PageInspector /> : <><SelectionInspector /><ComponentProperties atoms={atoms} /></>}
-    {state.capabilities.runtime === 'desktop' && (state.capabilities.localRepository.available || state.capabilities.git.available) && <Disclosure title={repositoryCopy.title} open={false}><RepositoryPanel local={state.capabilities.localRepository} git={state.capabilities.git} /></Disclosure>}
-    <Disclosure title={copy.promotion} open={false}><ComponentPromotion state={state} document={document} /></Disclosure>
-    <Disclosure title={copy.history} open={false}>{snapshot?.sourceHistory.slice(-1).map(entry => <Layout key={entry.transactionId} roleName="stack"><Text>{entry.summary}</Text><Button variant="outline" disabled={Boolean(state.busy) || document.dirty || document.saving || Boolean(snapshot.conflict)} onClick={() => void store.prepareSourceHistory(entry.action, entry.transactionId)}>{entry.action === 'undo' ? copy.sourceUndo : copy.sourceRedo}</Button></Layout>)}{!snapshot?.sourceHistory.length && <Text roleName="muted">{copy.noHistory}</Text>}</Disclosure>
-  </>
+  if (mobile) return <>{document.selection.length === 0 ? <PageInspector /> : <><SelectionInspector /><ComponentProperties atoms={atoms} /></>}</>
   return <Surface roleName="right-rail" label={copy.inspector}>{header}<PanelHeader title={title} />
     {document.selection.length === 0 ? <PageInspector /> : <><SelectionInspector /><ComponentProperties atoms={atoms} /></>}
-    {state.capabilities.runtime === 'desktop' && (state.capabilities.localRepository.available || state.capabilities.git.available) && <Disclosure title={repositoryCopy.title} open={false}><RepositoryPanel local={state.capabilities.localRepository} git={state.capabilities.git} /></Disclosure>}
-    <Disclosure title={copy.promotion} open={false}><ComponentPromotion state={state} document={document} /></Disclosure>
-    <Disclosure title={copy.history} open={false}>{snapshot?.sourceHistory.slice(-1).map(entry => <Layout key={entry.transactionId} roleName="stack"><Text>{entry.summary}</Text><Button variant="outline" disabled={Boolean(state.busy) || document.dirty || document.saving || Boolean(snapshot.conflict)} onClick={() => void store.prepareSourceHistory(entry.action, entry.transactionId)}>{entry.action === 'undo' ? copy.sourceUndo : copy.sourceRedo}</Button></Layout>)}{!snapshot?.sourceHistory.length && <Text roleName="muted">{copy.noHistory}</Text>}</Disclosure>
   </Surface>
 }
 
@@ -192,8 +180,8 @@ export function Editor({ onHome, onPageChange }: { onHome?: () => void; onPageCh
     onToggleLeft: () => { if (mobile) setMobilePanel(current => toggleMobilePanel(current, 'layers')); else setPanelVisibility(current => toggleEditorPanel(current, 'left')) },
     onToggleRight: () => { if (mobile) setMobilePanel(current => toggleMobilePanel(current, 'design')); else setPanelVisibility(current => toggleEditorPanel(current, 'right')) },
   })
-  const library = <Library state={state} document={document} atoms={atoms} documentAtoms={documentAtoms} header={<FileHeader state={state} onHome={onHome} />} mobile={mobile} onPageChange={onPageChange} />
-  const inspector = !document.readOnly ? <Inspector state={state} document={document} atoms={atoms} header={<ActionsHeader state={state} />} mobile={mobile} /> : null
+  const library = <Library state={state} document={document} atoms={atoms} documentAtoms={documentAtoms} header={<FileHeader state={state} onHome={onHome} onTogglePanel={panels.onToggleLeft} />} mobile={mobile} onPageChange={onPageChange} />
+  const inspector = !document.readOnly ? <Inspector state={state} document={document} atoms={atoms} header={<ActionsHeader state={state} onTogglePanel={panels.onToggleRight} />} mobile={mobile} /> : null
   return <ToastRegion mode={state.mode}><ThemeRoot mode={state.mode} label={copy.title} onKeyDown={onKeyDown} onKeyUp={onKeyUp}><EditorWorkArea following={following} readOnly={document.readOnly} mobile={mobile} visibility={effectiveVisibility} columns={columns} library={library} canvas={<Canvas state={state} saving={document.saving} readOnly={document.readOnly} following={following} mobile={mobile} panels={panels} onHome={onHome} />} inspector={inspector} leftResizer={<PanelResizer label={sidebarCopy.resizeLeft} edge="left" offset={widths.left} value={widths.left} min={200} max={480} onChange={left => setWidths(current => ({ ...current, left }))} />} rightResizer={<PanelResizer label={sidebarCopy.resizeRight} edge="right" offset={widths.right} value={widths.right} min={240} max={480} onChange={right => setWidths(current => ({ ...current, right }))} />} />{mobile && <><MobileSheet open={mobilePanel === 'layers'} mode={state.mode} title={sidebarCopy.layers} closeLabel={`${copy.close} ${sidebarCopy.layers}`} onOpenChange={open => { if (!open) setMobilePanel(null) }}>{library}</MobileSheet>{!document.readOnly && <MobileSheet open={mobilePanel === 'design'} mode={state.mode} title={copy.properties} closeLabel={`${copy.close} ${copy.properties}`} onOpenChange={open => { if (!open) setMobilePanel(null) }}>{inspector}</MobileSheet>}</>}{state.reviewOpen && !document.readOnly && <SourceReview state={state} document={document} />}<Activity state={state} />{!document.readOnly && <ShareDialog state={state} />}<Popup mode={state.mode} closeLabel={copy.close} open={state.shortcutOpen} onOpenChange={shortcutOpen => store.set({ shortcutOpen })} title={copy.shortcutTitle}>{copy.shortcutRows.map(([label, value]) => <ValuePair key={label} label={label} value={value} />)}</Popup></ThemeRoot></ToastRegion>
 }
 

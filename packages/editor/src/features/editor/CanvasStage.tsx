@@ -8,14 +8,11 @@ import { documentStore as store } from './document-store'
 import type { CanvasElementKind } from '@canvas/repo-engine/document'
 import { screenToWorld } from './canvas-math'
 import { hasComponentDrag, readComponentDrag } from './component-drag'
-import { componentSyncQueue } from './component-sync-queue'
-import { editorStore } from './store'
 import { collaborationService } from '../collaboration/collaboration-service'
 
 /** The single interaction plane over the workspace. The live preview beneath only receives input in Interact mode. */
 export function CanvasStage({ active = true, readOnly = false, onOpenContextMenu, onDismissContextMenu }: { active?: boolean; readOnly?: boolean; onOpenContextMenu: (position: { x: number; y: number }) => void; onDismissContextMenu: () => void }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
-  const runtime = useSyncExternalStore(editorStore.subscribe, () => editorStore.getSnapshot().capabilities.runtime, () => editorStore.getSnapshot().capabilities.runtime)
   const panReady = state.tool === 'hand' || state.spaceHeld
   const cursor: StageCursor = state.transient?.kind === 'pan' ? 'grabbing' : panReady ? 'grab' : creationTools.includes(state.tool as CanvasElementKind) ? 'crosshair' : state.transient?.kind === 'move' ? 'move' : 'default'
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -50,8 +47,7 @@ export function CanvasStage({ active = true, readOnly = false, onOpenContextMenu
     if (!payload) return
     const bounds = event.currentTarget.getBoundingClientRect()
     const point = screenToWorld({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, state.viewport, state.viewportSize)
-    const inserted = store.commands.insertAt(payload.componentId, point, payload.target)
-    if (inserted && runtime === 'browser' && state.file) componentSyncQueue.queueBrowserUse(state.file.fileId, payload.componentId)
+    store.commands.insertAt(payload.componentId, point, payload.target)
   }
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect()

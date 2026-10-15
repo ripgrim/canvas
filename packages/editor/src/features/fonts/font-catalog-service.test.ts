@@ -42,6 +42,31 @@ describe('FONT-LOCAL-001 session discovery', () => {
     service.dispose()
   })
 
+  it('enumerates immediately when browser permission becomes granted', async () => {
+    let state: 'granted' | 'prompt' = 'prompt'
+    let changed: (() => void) | undefined
+    const query = vi.fn(async () => [{ family: 'Approved Sans', style: 'Regular' }])
+    const service = createFontCatalogService(environment({
+      permission: async () => ({
+        get state() { return state },
+        addEventListener: (_type, listener) => { changed = listener },
+        removeEventListener: () => { changed = undefined },
+      }),
+      queryLocalFonts: query,
+    }))
+    service.start()
+    await vi.waitFor(() => expect(service.getSnapshot().localStatus).toBe('prompt'))
+
+    state = 'granted'
+    changed?.()
+
+    await vi.waitFor(() => expect(service.getSnapshot().localStatus).toBe('loaded'))
+    expect(query).toHaveBeenCalledOnce()
+    expect(service.getSnapshot().options.some(option => option.family === 'Approved Sans')).toBe(true)
+    service.dispose()
+    expect(changed).toBeUndefined()
+  })
+
   it('keeps a late result after the five second UI deadline', async () => {
     vi.useFakeTimers()
     let complete: ((fonts: readonly { family: string }[]) => void) | undefined

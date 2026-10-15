@@ -21,6 +21,7 @@ if (!manifestPath) throw new Error('CANVAS_VERIFIED_COMPONENT_REGISTRY is requir
 const registry = await loadVerifiedRegistryManifest(manifestPath)
 if (!registry) throw new Error('The verified component registry could not be loaded.')
 const previewResponseHeaders = createPreviewResponseHeaders(process.env.CANVAS_PREVIEW_EDITOR_ORIGIN?.trim() || undefined)
+const remoteDevHost = process.env.CANVAS_REMOTE_DEV_HOST?.trim()
 
 export default defineConfig({
     root: 'preview',
@@ -39,7 +40,7 @@ export default defineConfig({
     ],
     // The isolated preview CSP intentionally blocks Vite's inline Fast Refresh preamble.
     // Keep HMR off so React modules are never transformed to depend on blocked globals.
-    server: { host: '127.0.0.1', port: 4318, strictPort: true, hmr: false, headers: previewResponseHeaders },
+    server: { host: '127.0.0.1', port: 4318, strictPort: true, hmr: false, headers: previewResponseHeaders, allowedHosts: remoteDevHost ? [remoteDevHost] : [] },
     preview: { host: '127.0.0.1', port: 4318, strictPort: true, headers: previewResponseHeaders },
     build: { outDir: '../dist/preview', emptyOutDir: true },
 })

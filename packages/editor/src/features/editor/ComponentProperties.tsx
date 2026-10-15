@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { supportedInputTypes } from '@canvas/repo-engine/document'
+import { getNodeSlots, supportedInputTypes } from '@canvas/repo-engine/document'
 import { childrenOf } from '@canvas/repo-engine/file-document'
 import type { ComponentNode, FileDocument } from '@canvas/repo-engine/file-document'
 import type { Atom } from './types'
@@ -12,13 +12,6 @@ import { propertiesCopy as copy } from './properties-copy'
 type PropDefinition = Atom['props'][number]
 type EditorKind = { type: 'text' } | { type: 'number' } | { type: 'boolean' } | { type: 'enum'; values: string[] }
 
-const fixtureProps: Record<string, readonly string[]> = {
-  Button: ['children', 'variant', 'type', 'disabled'],
-  Card: ['heading', 'footer', 'id'],
-  Input: ['id', 'name', 'type', 'placeholder', 'disabled', 'required', 'maxLength'],
-  Label: ['children', 'htmlFor', 'id'],
-}
-
 export function literalOptions(type: string): string[] | null {
   const parts = type.split('|').map(part => part.trim()).filter(part => !['undefined', 'null'].includes(part))
   if (!parts.length) return null
@@ -27,7 +20,7 @@ export function literalOptions(type: string): string[] | null {
 }
 
 export function propertyEditor(atom: Atom, definition: PropDefinition): EditorKind | null {
-  if (atom.kind !== 'atom' || atom.status !== 'bound' || !fixtureProps[atom.exportName]?.includes(definition.name)) return null
+  if (atom.kind !== 'atom' || atom.status !== 'bound' || getNodeSlots(atom).includes(definition.name)) return null
   const choices = literalOptions(definition.type)
   if (choices) return { type: 'enum', values: choices }
   if (atom.exportName === 'Input' && definition.name === 'type' && definition.type.includes('HTMLInputTypeAttribute')) return { type: 'enum', values: [...supportedInputTypes] }

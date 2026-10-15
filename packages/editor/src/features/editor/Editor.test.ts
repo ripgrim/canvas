@@ -99,6 +99,33 @@ describe('AT-PERF-001 collaboration render isolation', () => {
 describe('UI-COLLAB-PRESENCE-001 inspector header placement', () => {
   it('mounts the identity strip before the right-aligned panel actions', () => {
     const source = readFileSync(new URL('./Editor.tsx', import.meta.url), 'utf8')
-    expect(source).toMatch(/<PanelToolbar label=\{copy\.panelActions\}><CollaborationPresence \/><PanelToolbarActions>/)
+    expect(source).toMatch(/<PanelToolbar label=\{copy\.panelActions\}>.*<CollaborationPresence \/><PanelToolbarActions>/)
+  })
+})
+
+describe('UI-DESKTOP-SHELL-001 Paper-style canvas chrome', () => {
+  it('keeps panel controls in their inner headers and recovery controls at collapsed edges', () => {
+    const editor = readFileSync(new URL('./Editor.tsx', import.meta.url), 'utf8')
+    const canvas = readFileSync(new URL('./CanvasWorkspace.tsx', import.meta.url), 'utf8')
+
+    expect(editor).toMatch(/PanelHeaderActions><HeaderIconButton label=\{canvasCopy\.hideLayers\}/)
+    expect(editor).toMatch(/PanelToolbar label=\{copy\.panelActions\}><HeaderIconButton compact label=\{canvasCopy\.hideProperties\}/)
+    expect(canvas).toContain('canvas-panel-reveal-left')
+    expect(canvas).toContain('canvas-panel-reveal-right')
+  })
+
+  it('reserves a real tool column and removes persistent footer clutter', () => {
+    const editor = readFileSync(new URL('./Editor.tsx', import.meta.url), 'utf8')
+    const canvas = readFileSync(new URL('./CanvasWorkspace.tsx', import.meta.url), 'utf8')
+    const styles = readFileSync(new URL('../../design-system/styles.css', import.meta.url), 'utf8')
+    const tools = readFileSync(new URL('../../design-system/tool-rail.css', import.meta.url), 'utf8')
+
+    expect(canvas).toContain('roleName="canvas-tool-column"')
+    expect(canvas).toContain('roleName="canvas-footer"')
+    expect(canvas).toContain('roleName="zoom-controls"')
+    expect(canvas).not.toContain('preview-theme-control')
+    expect(editor).not.toContain('copy.compositionStatus')
+    expect(styles).toMatch(/grid-template-columns: 48px minmax\(0, 1fr\)/)
+    expect(tools).toMatch(/\.canvas-tool-column \{[^}]*grid-column: 1;[^}]*grid-row: 1 \/ 3;/)
   })
 })

@@ -13,7 +13,11 @@ type LocalFontData = Readonly<{
 type LoadedFontResult = PreviewFontFace | Readonly<{ bytes: ArrayBuffer; preview: PreviewFontFace }>
 
 type PermissionStateValue = 'denied' | 'granted' | 'prompt'
-type PermissionQuery = Readonly<{ state: PermissionStateValue }>
+type PermissionQuery = Readonly<{
+  state: PermissionStateValue
+  addEventListener?(type: 'change', listener: () => void): void
+  removeEventListener?(type: 'change', listener: () => void): void
+}>
 
 export type FontCatalogEnvironment = Readonly<{
   documentFonts(): readonly FontFamilyOption[]
@@ -196,6 +200,7 @@ export function createFontCatalogService(environment: FontCatalogEnvironment = b
   let snapshot = initialSnapshot
   let started = false
   let generation = 0
+  let stopPermission: (() => void) | undefined
   let stopVisibility: (() => void) | undefined
   let timeout: ReturnType<typeof setTimeout> | undefined
   const listeners = new Set<() => void>()
@@ -241,6 +246,16 @@ export function createFontCatalogService(environment: FontCatalogEnvironment = b
     try {
       const permission = await environment.permission()
       if (!started) return
+      if (!stopPermission && permission.addEventListener && permission.removeEventListener) {
+        const changed = () => {
+          if (!started) return
+          if (permission.state === 'granted') {
+            if (snapshot.localStatus !== 'loaded' && snapshot.localStatus !== 'loading') void discover(false)
+          } else if (snapshot.localStatus !== 'loading') publish({ localStatus: permission.state })
+        }
+        permission.addEventListener('change', changed)
+        stopPermission = () => permission.removeEventListener?.('change', changed)
+      }
       if (permission.state === 'granted') await discover(false)
       else publish({ localStatus: permission.state })
     } catch { publish({ localStatus: 'prompt' }) }
@@ -294,6 +309,8 @@ export function createFontCatalogService(environment: FontCatalogEnvironment = b
       timeout = undefined
       stopVisibility?.()
       stopVisibility = undefined
+      stopPermission?.()
+      stopPermission = undefined
       environment.clearLoadedFonts()
       fontFeatureService.dispose()
       localFonts = []

@@ -17,7 +17,9 @@
 .tool-rail-tip-shortcut, .tool-rail-tip-note { color: var(--neutral-6); font-size: var(--size-xxs); line-height: var(--line-xxs); letter-spacing: var(--letter-spacing-xxs); }
 .tool-rail-tip-shortcut { font-family: var(--font-data); font-weight: var(--weight-data-regular); }
 .tool-rail-tip-note { font-family: var(--font-ui); font-weight: var(--weight-ui-regular); white-space: normal; }
-.canvas-area > .tool-rail { position: absolute; top: var(--space-s); left: var(--space-s); z-index: 210; }
+.canvas-tool-column { grid-column: 1; grid-row: 1 / 3; z-index: 210; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 0; padding: var(--space-s) 0 var(--space-m); background: var(--neutral-1); box-shadow: inset calc(-1 * var(--border-s)) 0 0 var(--cte-border); }
+.canvas-tool-column > .tool-rail { width: 40px; padding-inline: var(--space-xxs); border-radius: var(--radius-zero); background: var(--color-none); box-shadow: none; }
+.canvas-tool-column > .button { width: 32px; min-height: 32px; padding: var(--space-xs); }
 @media (prefers-reduced-motion: reduce) { .tool-rail-button, .tool-rail-tip { transition: none; } }
 
 @media (max-width: 760px) {

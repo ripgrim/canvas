@@ -79,6 +79,10 @@
     "./node-theme": {
       "types": "./dist/node-theme.d.ts",
       "import": "./dist/node-theme.js"
+    },
+    "./component-model": {
+      "types": "./dist/component-model.d.ts",
+      "import": "./dist/component-model.js"
     }
   },
   "scripts": {

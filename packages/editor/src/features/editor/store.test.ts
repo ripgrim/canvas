@@ -45,8 +45,6 @@ function setup(options: { storage?: ReturnType<typeof memory>; documents?: boole
   const refresh = vi.fn<DesignEditorApi['refresh']>().mockResolvedValue(project())
   const prepare = vi.fn<DesignEditorApi['prepareLabelPadding']>().mockResolvedValue(change)
   const prepareToken = vi.fn<DesignEditorApi['prepareToken']>().mockResolvedValue({ ...change, scope: 'Token' })
-  const undo = vi.fn<DesignEditorApi['prepareUndo']>().mockResolvedValue(change)
-  const redo = vi.fn<DesignEditorApi['prepareRedo']>().mockResolvedValue(change)
   const openFile = vi.fn<NonNullable<DesignEditorApi['openFile']>>().mockImplementation(async () => project())
   const openSharedFile = vi.fn<NonNullable<DesignEditorApi['openSharedFile']>>().mockImplementation(async () => project())
   const listFiles = vi.fn<NonNullable<DesignEditorApi['listFiles']>>().mockResolvedValue([{ id: 'file-a', name: 'Login', location: 'local' }])
@@ -58,12 +56,12 @@ function setup(options: { storage?: ReturnType<typeof memory>; documents?: boole
   const api: DesignEditorApi = {
     capabilities: { runtime: 'desktop', openLabel: 'Open fixture', files: { list: available, create: unavailable, open: available }, sourceWrites: { available: true, reason: 'Explicit test grant' }, localRepository: available, hostedExecution: unavailable, git: unavailable, mcp: unavailable, hostedProjects: unavailable },
     listFiles, openFile, openSharedFile, openProject: async () => project(), refresh, saveFile, getFileShare, setFileShare, shareUrl: fileId => `https://canvas.test/file/${fileId}`,
-    prepareLabelPadding: prepare, prepareToken, preparePromotion: async () => ({ ...change, summary: 'Create LoginForm' }), prepareUndo: undo, prepareRedo: redo, savePrepared: save,
+    prepareLabelPadding: prepare, prepareToken, preparePromotion: async () => ({ ...change, summary: 'Create LoginForm' }), prepareUndo: async () => change, prepareRedo: async () => change, savePrepared: save,
   }
   const storage = options.storage ?? memory()
   const documents = options.documents === false ? undefined : createDocumentStore(() => 'new-id')
   const store = createEditorStore(() => api, documents, () => storage.api)
-  return { api, save, refresh, prepare, prepareToken, undo, redo, openFile, openSharedFile, listFiles, saveFile, getFileShare, setFileShare, storage, documents: documents!, store }
+  return { api, save, refresh, prepare, prepareToken, openFile, openSharedFile, listFiles, saveFile, getFileShare, setFileShare, storage, documents: documents!, store }
 }
 const storedView = (fileId: string, view: object) => ({ [viewKey]: JSON.stringify({ schemaVersion: 1, files: { [fileId]: view } }) })
 
@@ -491,18 +489,6 @@ describe('AT-REVIEW renderer review command gates', () => {
     expect(store.getSnapshot().notice).toBe('Saved Label padding')
   })
 
-  it('prepares source undo and redo without bypassing explicit approval', async () => {
-    const { store, save, undo, redo } = setup()
-    await store.open()
-    await store.prepareSourceHistory('undo', 'saved-forward-1')
-    await store.save()
-    expect(undo.mock.calls).toEqual([['saved-forward-1']])
-    expect(save).not.toHaveBeenCalled()
-    await store.prepareSourceHistory('redo', 'saved-reverse-1')
-    expect(redo.mock.calls).toEqual([['saved-reverse-1']])
-    expect(store.getSnapshot().approved).toBe(false)
-  })
-
   it('clears source approval when the composition document changes', async () => {
     const { store, save } = setup()
     await store.open()
@@ -547,25 +533,6 @@ describe('AT-REVIEW renderer review command gates', () => {
     await store.prepare()
     expect(prepare).not.toHaveBeenCalled()
     expect(store.getSnapshot().error).toBe('Select Label to edit its shared padding.')
-  })
-
-  it('withholds source changes when source writes are unavailable', async () => {
-    const { api } = setup()
-    const store = createEditorStore(() => ({ ...api, capabilities: { ...api.capabilities!, sourceWrites: { available: false, reason: 'Read-only fixture' } } }))
-    await store.open()
-    await store.promote()
-    expect(store.getSnapshot().prepared).toBeNull()
-    expect(store.getSnapshot().error).toBe('Read-only fixture')
-  })
-
-  it('prepares a promotion for review without saving it', async () => {
-    const { store, save } = setup()
-    await store.open()
-    await store.promote()
-    expect(store.getSnapshot().prepared?.summary).toBe('Create LoginForm')
-    expect(store.getSnapshot().preparedKind).toBe('promotion')
-    expect(store.getSnapshot().reviewOpen).toBe(true)
-    expect(save).not.toHaveBeenCalled()
   })
 
   it('rejects Save if any required validation has not run', async () => {

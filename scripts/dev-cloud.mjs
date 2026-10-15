@@ -8,7 +8,7 @@ import { createServer } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { config as loadEnvironment } from 'dotenv'
 import { processErrorDecision, processExitDecision } from './dev-process-lifecycle.mjs'
-import { localEnvironment, localOrigins, localServices, requiredLocalEnvironment, sharedBuildPackages } from './local-services.mjs'
+import { githubAppAuthorizationCallbackURL, localEnvironment, localOrigins, localServices, requiredLocalEnvironment, sharedBuildPackages } from './local-services.mjs'
 import { localRegistryEnvironment, prepareLocalRegistry } from './local-registry.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -18,6 +18,8 @@ const pnpm = process.env.npm_execpath
 if (!pnpm) throw new Error('Run this command through pnpm dev:cloud.')
 
 Object.assign(process.env, localEnvironment)
+const githubAppCallbackURL = githubAppAuthorizationCallbackURL(process.env)
+if (githubAppCallbackURL) process.env.GITHUB_APP_AUTHORIZATION_CALLBACK_URL = githubAppCallbackURL
 
 const required = name => {
   const value = process.env[name]?.trim()
@@ -157,7 +159,14 @@ for (const name of sharedBuildPackages) run(['--filter', name, 'build'])
 const localRegistry = await prepareLocalRegistry({ root })
 Object.assign(process.env, localRegistryEnvironment(localRegistry))
 process.stdout.write(`LOCAL_REGISTRY_EVIDENCE ${JSON.stringify(localRegistry)}\n`)
-await writeFile(assetWorkerVars, `API_SERVICE_TOKEN=${serviceToken}\nUPLOAD_INTENT_SECRET=${uploadSecret}\nTHUMBNAIL_SERVICE_TOKEN=${thumbnailServiceToken}\n`, { encoding: 'utf8', mode: 0o600 })
+await writeFile(assetWorkerVars, [
+  `API_SERVICE_TOKEN=${serviceToken}`,
+  `UPLOAD_INTENT_SECRET=${uploadSecret}`,
+  `THUMBNAIL_SERVICE_TOKEN=${thumbnailServiceToken}`,
+  `API_ORIGIN=${localEnvironment.API_ORIGIN}`,
+  `ALLOWED_ORIGINS=${localEnvironment.ALLOWED_ORIGINS}`,
+  '',
+].join('\n'), { encoding: 'utf8', mode: 0o600 })
 await writeFile(syncWorkerVars, [
   `COLLABORATION_ADMISSION_SERVICE_TOKEN=${collaborationAdmissionServiceToken}`,
   `SYNC_COORDINATOR_INTERNAL_SECRET=${syncCoordinatorInternalSecret}`,

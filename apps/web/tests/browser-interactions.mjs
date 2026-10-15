@@ -83,9 +83,8 @@ async function sharedCopy() {
   return {
     share: pick(source, 'share'), shareUnavailable: pick(source, 'shareUnavailable'),
     themeDark: pick(source, 'themeDark'), themeLight: pick(source, 'themeLight'),
-    review: pick(source, 'review'), promotion: pick(source, 'promotion'),
+    review: pick(source, 'review'),
     preview: pick(canvas, 'preview'), layers: pick(canvas, 'layers'), undo: pick(canvas, 'undo'),
-    sourceReason: /const sourceReason = '([^']+)'/.exec(browser)?.[1],
   }
 }
 
@@ -250,15 +249,11 @@ async function run() {
     assert.deepEqual(await storedCard(page), originalCard)
     record('Card nudge saves locally, undo reverts it, reload keeps node identity', JSON.stringify({ nudgedX, undoneX, id: initialId }))
 
-    await page.locator('.right-rail summary').filter({ hasText: /^Create component$/ }).click()
-    const disclosure = title => page.locator('.right-rail details').filter({ has: page.locator(':scope > summary', { hasText: new RegExp(`^${title}$`) }) })
-    const createComponent = disclosure(copy.promotion).getByRole('button', { name: 'Review component source', exact: true })
-    assert.equal(await createComponent.isDisabled(), true)
-    await page.getByText(copy.sourceReason, { exact: true }).first().waitFor()
-    assert.equal(await disclosure('Source tokens').count(), 0)
-    assert.equal(await disclosure('Source editing').count(), 0)
-    assert.equal(await disclosure('Code tools').count(), 0)
-    record('Legacy source and code utility disclosures are absent while source-backed component creation still explains its availability')
+    const inspector = page.locator('.right-rail')
+    assert.equal(await inspector.locator('summary', { hasText: /^Create component$/ }).count(), 0)
+    assert.equal(await inspector.locator('summary', { hasText: /^Source history$/ }).count(), 0)
+    assert.equal(await inspector.locator('summary', { hasText: /^Repository$/ }).count(), 0)
+    record('Legacy Repository, Create component, and Source history disclosures are absent')
 
     await page.getByRole('button', { name: copy.share, exact: true }).click()
     await page.getByText(copy.shareUnavailable, { exact: true }).waitFor()

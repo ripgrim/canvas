@@ -1,8 +1,8 @@
 import { useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { Button, Icon, Layout, Surface, Text } from '../../design-system/atoms'
-import { CanvasChoice, CanvasFloatingActions, CanvasHudCanvas, CanvasPixelGrid, CanvasViewport, CanvasWorldOrigin, LiveCanvasPreview, MobileCanvasHeader, MobileCanvasPanelToggle, MobileCanvasToolbar } from '../../design-system/canvas-atoms'
-import { FileHomeButton } from '../../design-system/shell-atoms'
+import { CanvasFloatingActions, CanvasHudCanvas, CanvasPixelGrid, CanvasViewport, CanvasWorldOrigin, LiveCanvasPreview, MobileCanvasHeader, MobileCanvasPanelToggle, MobileCanvasToolbar } from '../../design-system/canvas-atoms'
+import { FileHomeButton, HeaderIconButton } from '../../design-system/shell-atoms'
 import { canvasCopy as copy } from './canvas-copy'
 import { documentStore as store } from './document-store'
 import { canvasViewportService } from './canvas-viewport-service'
@@ -29,15 +29,13 @@ export type CanvasWorkspaceProps = {
   mobile?: boolean | undefined
   onHome?: (() => void) | undefined
   panels?: Readonly<{ left: boolean; right: boolean; onToggleLeft: () => void; onToggleRight: () => void }> | undefined
-  /** The file's design preview theme and the themes its stylesheet declares. Independent of the editor appearance. */
-  theme?: { value: string; options: { value: string; label: string }[]; onChange: (themeId: string) => void }
 }
 
 export const canvasPlaceholderVisible = (src: string | undefined) => !src
 
 const attachViewport = (element: HTMLDivElement | null) => { canvasViewportService.attach(element); canvasGestures.attach(element) }
 const attachHud = (element: HTMLCanvasElement | null) => canvasHudPainter.attach(element)
-export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcuts, onHome, placeholder, status, theme, readOnly = false, mobile = false, panels }: CanvasWorkspaceProps) {
+export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcuts, onHome, placeholder, status, readOnly = false, mobile = false, panels }: CanvasWorkspaceProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const state = useSyncExternalStore(store.subscribe, store.getViewSnapshot, store.getViewSnapshot)
   const cameraSnapshot = useSyncExternalStore(previewCameraStore.subscribe, previewCameraStore.getSnapshot, previewCameraStore.getSnapshot)
@@ -60,11 +58,13 @@ export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcu
       <CollaborationFollowIndicator />
     </CanvasViewport>
     {canvasPlaceholderVisible(src) && placeholder}
-    {mobile ? <MobileCanvasToolbar>{panels && <MobileCanvasPanelToggle label={panels.left ? copy.hideLayers : copy.showLayers} active={panels.left} icon="layers" onClick={panels.onToggleLeft} />}{!readOnly && <EditorToolRail active={state.tool} availability={availability} compact shortcuts={{ move: 'V', scale: 'K', hand: 'H', frame: 'F', shader: 'S', text: 'T', rectangle: 'R', shape: 'O', interact: 'I' }} onSelect={selectTool} />}{panels && !readOnly && <MobileCanvasPanelToggle label={panels.right ? copy.hideProperties : copy.showProperties} active={panels.right} icon="selection" onClick={panels.onToggleRight} />}</MobileCanvasToolbar> : !readOnly && <EditorToolRail active={state.tool} availability={availability} compact={false} shortcuts={{ move: 'V', scale: 'K', hand: 'H', frame: 'F', shader: 'S', text: 'T', rectangle: 'R', shape: 'O', interact: 'I' }} onSelect={selectTool} />}
+    {mobile ? <MobileCanvasToolbar>{panels && <MobileCanvasPanelToggle label={panels.left ? copy.hideLayers : copy.showLayers} active={panels.left} icon="layers" onClick={panels.onToggleLeft} />}{!readOnly && <EditorToolRail active={state.tool} availability={availability} compact shortcuts={{ move: 'V', scale: 'K', hand: 'H', frame: 'F', shader: 'S', text: 'T', rectangle: 'R', shape: 'O', interact: 'I' }} onSelect={selectTool} />}{panels && !readOnly && <MobileCanvasPanelToggle label={panels.right ? copy.hideProperties : copy.showProperties} active={panels.right} icon="selection" onClick={panels.onToggleRight} />}</MobileCanvasToolbar> : <Layout roleName="canvas-tool-column">{!readOnly && <EditorToolRail active={state.tool} availability={availability} compact={false} shortcuts={{ move: 'V', scale: 'K', hand: 'H', frame: 'F', shader: 'S', text: 'T', rectangle: 'R', shape: 'O', interact: 'I' }} onSelect={selectTool} />}<Button label={copy.shortcuts} onClick={onShortcuts}>?</Button></Layout>}
+    {!mobile && panels && !panels.left && <Layout roleName="canvas-panel-reveal canvas-panel-reveal-left"><HeaderIconButton label={copy.showLayers} icon="panel-left" onClick={panels.onToggleLeft} /></Layout>}
+    {!mobile && panels && !readOnly && !panels.right && <Layout roleName="canvas-panel-reveal canvas-panel-reveal-right"><HeaderIconButton label={copy.showProperties} icon="panel-right" onClick={panels.onToggleRight} /></Layout>}
     {!readOnly && <CanvasFloatingActions label={copy.history}><Button label={copy.undo} title={copy.undoTip} disabled={!state.canUndo || state.blocked} onClick={() => store.undo()}><Icon name="undo" /></Button><Button label={copy.redo} title={copy.redoTip} disabled={!state.canRedo || state.blocked} onClick={() => store.redo()}><Icon name="redo" /></Button></CanvasFloatingActions>}
     {!readOnly && contextMenu && <NodeContextMenu position={contextMenu} onClose={() => setContextMenu(null)} />}
     {readOnly && <CollaborationPresence floating />}
     {readOnly && <CollaborationReadOnlyNotice key={state.file?.fileId ?? 'read-only'} />}
-    {!mobile && <Layout roleName="canvas-footer"><Layout roleName="canvas-footer-start"><Button label={copy.shortcuts} onClick={onShortcuts}>?</Button>{panels && <><Button label={panels.left ? copy.hideLayers : copy.showLayers} active={panels.left} onClick={panels.onToggleLeft}><Icon name="layers" /></Button>{!readOnly && <Button label={panels.right ? copy.hideDesign : copy.showDesign} active={panels.right} onClick={panels.onToggleRight}><Icon name="selection" /></Button>}</>}{theme && <Layout roleName="preview-theme-control" title={copy.previewTheme}><Text roleName="small">{copy.previewThemeLabel}</Text><CanvasChoice label={copy.previewTheme} value={theme.value} options={theme.options} onChange={theme.onChange} disabled={theme.options.length < 2} /></Layout>}{status && <Layout roleName="canvas-runtime-status" role="status" aria-live="polite" title={status.description}><Text roleName="small">{status.label}</Text></Layout>}</Layout><Layout roleName="zoom-controls"><Button label={copy.zoomOut} onClick={() => store.zoomStep('out')}><Icon name="minus" /></Button><Button label={copy.fit} onClick={() => store.requestFit('all')}>{copy.percentage(state.viewport.zoom)}</Button><Button label={copy.zoomIn} onClick={() => store.zoomStep('in')}><Icon name="plus" /></Button></Layout></Layout>}
+    {!mobile && <Layout roleName="canvas-footer">{status && <Layout roleName="canvas-runtime-status" role="status" aria-live="polite" title={status.description}><Text roleName="small">{status.label}</Text></Layout>}<Layout roleName="zoom-controls"><Button label={copy.zoomOut} onClick={() => store.zoomStep('out')}><Icon name="minus" /></Button><Button label={copy.fit} onClick={() => store.requestFit('all')}>{copy.percentage(state.viewport.zoom)}</Button><Button label={copy.zoomIn} onClick={() => store.zoomStep('in')}><Icon name="plus" /></Button></Layout></Layout>}
   </Surface>
 }

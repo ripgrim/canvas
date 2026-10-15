@@ -55,9 +55,15 @@ describe('bundled preview editor origin', () => {
     expect(csp).not.toContain('http://127.0.0.1:4328')
   })
 
+  it('AT-PRV-001 permits one exact HTTPS editor origin', () => {
+    const csp = createPreviewContentSecurityPolicy('https://desktop.example.ts.net:9443')
+    expect(csp).toContain('https://desktop.example.ts.net:9443')
+    expect(csp).not.toContain('https://desktop.example.ts.net:9444')
+  })
+
   it('AT-PRV-001 rejects unsafe additional editor origins', () => {
-    for (const origin of ['https://example.com', 'http://127.0.0.1:4327/path', 'http://127.0.0.2:4327']) {
-      expect(() => createPreviewContentSecurityPolicy(origin)).toThrow('The preview editor origin must be an HTTP loopback origin.')
+    for (const origin of ['http://example.com', 'https://example.com/path', 'http://127.0.0.1:4327/path', 'http://127.0.0.2:4327']) {
+      expect(() => createPreviewContentSecurityPolicy(origin)).toThrow('The preview editor origin must be HTTPS or HTTP loopback.')
     }
   })
   it('accepts the registered desktop origin and canonical remote origins', () => {

@@ -25,9 +25,9 @@ export type EditorState = {
   snapshot: ProjectSnapshot | null; prepared: PreparedChange | null; approved: boolean; busy: string | null;
   error: string | null; notice: string | null; reviewOpen: boolean; shortcutOpen: boolean; shareOpen: boolean;
   shareAccess: 'private' | 'view' | null; shareDraft: 'private' | 'view'; shareBusy: boolean; shareError: string | null;
-  padding: string; token: string; componentName: string; previewReady: boolean;
+  padding: string; token: string; previewReady: boolean;
   runtimeInstanceIds: readonly string[] | null;
-  compositionPreview: boolean; preparedKind: 'edit' | 'promotion' | 'reverse' | null;
+  compositionPreview: boolean;
   /** Design preview theme of the open file: a per-file viewing preference restored from view state. */
   previewThemeId: string | null;
 }
@@ -72,7 +72,7 @@ export async function reconcileShareUpdate(input: Readonly<{ requestedAccess: Ed
 }
 
 export function createEditorStore(api: () => DesignEditorApi | undefined, documents?: DocumentController, storage?: () => HistoryStorage) {
-  const backing = createStore<EditorState>(() => ({ capabilities: api()?.capabilities ?? unavailableCapabilities, mode: readAppearance(), tab: 'Layers', scope: 'Shared component', selected: null, zoom: 100, snapshot: null, prepared: null, approved: false, busy: null, error: null, notice: null, reviewOpen: false, shortcutOpen: false, shareOpen: false, shareAccess: null, shareDraft: 'private', shareBusy: false, shareError: null, padding: '8px', token: '#009ff0', componentName: 'LoginForm', previewReady: false, compositionPreview: false, runtimeInstanceIds: null, preparedKind: null, previewThemeId: null }))
+  const backing = createStore<EditorState>(() => ({ capabilities: api()?.capabilities ?? unavailableCapabilities, mode: readAppearance(), tab: 'Layers', scope: 'Shared component', selected: null, zoom: 100, snapshot: null, prepared: null, approved: false, busy: null, error: null, notice: null, reviewOpen: false, shortcutOpen: false, shareOpen: false, shareAccess: null, shareDraft: 'private', shareBusy: false, shareError: null, padding: '8px', token: '#009ff0', previewReady: false, compositionPreview: false, runtimeInstanceIds: null, previewThemeId: null }))
   const subscriptions = new Set<() => void>()
   const update = (patch: Partial<EditorState>) => backing.setState(patch)
   let generation = 0
@@ -251,7 +251,7 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
       shareGeneration++
       pendingExternalSnapshots.clear()
       documents?.clear()
-      update({ snapshot: null, prepared: null, approved: false, busy: null, error: null, notice: null, reviewOpen: false, shareOpen: false, shareAccess: null, shareDraft: 'private', shareBusy: false, shareError: null, selected: null, previewReady: false, runtimeInstanceIds: null, compositionPreview: false, preparedKind: null, previewThemeId: null })
+      update({ snapshot: null, prepared: null, approved: false, busy: null, error: null, notice: null, reviewOpen: false, shareOpen: false, shareAccess: null, shareDraft: 'private', shareBusy: false, shareError: null, selected: null, previewReady: false, runtimeInstanceIds: null, compositionPreview: false, previewThemeId: null })
     },
     openShare: async () => {
       if (!shareAllowed) return
@@ -395,10 +395,8 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
         if (selected?.exportName !== 'Label' || selected.status !== 'bound') throw new Error(editorCopy.selectLabel)
       }
       const prepared = await (state.scope === 'Token' ? sourceConnection().prepareToken(state.token) : sourceConnection().prepareLabelPadding(state.padding))
-      return { prepared, preparedKind: 'edit', reviewOpen: true, approved: false }
+      return { prepared, reviewOpen: true, approved: false }
     }),
-    promote: () => run(editorCopy.preparing, async () => ({ prepared: await sourceConnection().preparePromotion(backing.getState().componentName), preparedKind: 'promotion', reviewOpen: true, approved: false })),
-    prepareSourceHistory: (action: 'undo' | 'redo', transactionId: string) => run(editorCopy.preparing, async () => ({ prepared: await (action === 'undo' ? sourceConnection().prepareUndo(transactionId) : sourceConnection().prepareRedo(transactionId)), preparedKind: 'reverse', reviewOpen: true, approved: false })),
     approve: (approved: boolean) => update({ approved }),
     save: () => run(editorCopy.saving, async () => {
       const state = backing.getState()

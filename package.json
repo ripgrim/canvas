@@ -18,6 +18,7 @@
     "build:package:prod": "pnpm build:package:production",
     "dev": "node scripts/dev-cloud.mjs --desktop",
     "dev:cloud": "node scripts/dev-cloud.mjs",
+    "dev:remote": "node scripts/dev-remote.mjs",
     "dev:check": "node scripts/check-local-services.mjs",
     "test:dev-stack": "node scripts/dev-cloud.mjs --check",
     "test:postgres": "node scripts/test-postgres.mjs",

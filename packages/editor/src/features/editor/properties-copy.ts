@@ -1,10 +1,11 @@
 export const propertiesCopy = {
   browser: 'Components',
+  kit: 'From the kit',
   fromCode: 'From code',
   add: (name: string) => `Add ${name}`,
   drag: (name: string) => `Drag ${name} to the canvas or click to add it at the canvas center.`,
   unavailable: 'This export needs a source binding before it can be added.',
-  empty: 'Open a repository to find its components.',
+  empty: 'No kit components are available.',
   addTo: 'Insert into',
   root: 'Page',
   insertFailed: 'The component could not be inserted. Check the layer message for details.',
