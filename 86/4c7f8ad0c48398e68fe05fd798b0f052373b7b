@@ -1,0 +1,398 @@
+packages/editor/src/design-system/property.css
+  s_012c57818fbf95::t_cb0ce27242809a 33,38
+packages/editor/src/design-system/inspector-atoms.tsx
+  s_012c57818fbf95::t_ee58bf457a9f22 6-7,180,200,253,534
+  s_012c57818fbf95::t_d828acfa5106d0 516,521-533,535-539
+  s_e18d232d8e09ca::t_c4a64485ce8016 540-541
+packages/editor/src/design-system/context-menu.tsx
+  s_012c57818fbf95::t_2759a66bcfb1b1 51
+  s_012c57818fbf95::t_3573b83b0aadb0 12
+packages/editor/src/features/editor/appearance-adapters.ts
+  s_012c57818fbf95::t_dfe20d7c7f55b0 8,341-342,345,367-368,380
+packages/editor/src/design-system/sizing-field.css
+  s_012c57818fbf95::t_e60666c6860b46 11,19-22
+packages/editor/src/features/editor/clipboard-image-store.client.test.ts
+  s_012c57818fbf95::t_a745b25a53953e 1-4,6-17,19-28,31-35,37-46,48-49,51-54,56-69,72,74-80,95-96
+  s_012c57818fbf95::t_204894f1713a1e 5,18
+  s_012c57818fbf95::t_f4031dcb2d6e73 47,50,55,70-71,73
+  s_012c57818fbf95::t_a33e46b492ebc7 29-30,36,81-94
+packages/editor/src/features/editor/image-import.ts
+  s_012c57818fbf95::t_30a8ffcbb44628 61-70,73-81
+  s_012c57818fbf95::t_2668b5baaa27df 2,71-72
+packages/editor/src/features/editor/editor-clipboard-service.client.test.ts
+  s_012c57818fbf95::t_8fbcb3f00b9f33 10,57,169-179,181-184,190-205,209-212
+  s_012c57818fbf95::t_b008c46a91297d 59
+  s_012c57818fbf95::t_b2caa286180db4 37-42,265-267,350-364
+  s_012c57818fbf95::t_d1976b055aebf1 8,123-125
+  s_012c57818fbf95::t_8f89a2007398fc 3,56,61
+  s_012c57818fbf95::t_1c8ebad015dc16 19-24,31-36,98-100,115-117,119-122,126-139,141-142
+  s_012c57818fbf95::t_9e24a62ed50d54 1-2,7,9,12-18,53,58,60,62-74,76-78,436-438
+  s_012c57818fbf95::t_c403b39ebe98b9 216-223,226-247
+  s_012c57818fbf95::t_476af59d418afe 268-271,277,279-303,328-331,334-340,343-349
+  s_012c57818fbf95::t_d13b4bdc57d013 5,11,186,188-189,206-208
+  s_012c57818fbf95::t_494f19845639d5 4,365-435
+  s_012c57818fbf95::t_fb3ab0eff4b4e7 54,153-154,165
+  s_012c57818fbf95::t_8fa42d922c4697 75
+  s_012c57818fbf95::t_43377c7015df40 55,332-333,341-342
+  s_012c57818fbf95::t_05cc35cb5996ec 185,187
+  s_012c57818fbf95::t_d2977e4f59cccc 101-114
+  s_012c57818fbf95::t_acfdba48594717 180,224-225
+  s_012c57818fbf95::t_48eea518ade026 140
+  s_012c57818fbf95::t_af857fca8c608d 6,143-152,155-164,166-168
+  s_012c57818fbf95::t_c0f7d6f1dc86e7 118
+  s_012c57818fbf95::t_37898dc350c1b1 272-276,278,304-327
+  s_012c57818fbf95::t_573f8ce1c56ed8 25-30,213-215,248-264
+  s_012c57818fbf95::t_0de95106583677 43-52,79-97
+packages/editor/src/features/editor/theme-token-menu.test.ts
+  s_012c57818fbf95::t_ef2f15c5d0da12 1-12,15-22
+  s_012c57818fbf95::t_f612a346f67e5c 13-14
+packages/editor/src/design-system/color-picker.tsx
+  s_012c57818fbf95::t_a3ff9d7cfb0a6d 345
+  s_012c57818fbf95::t_4d9953c1dc094c 25-26,344
+  s_012c57818fbf95::t_ee58bf457a9f22 10,339-340,342
+packages/editor/src/design-system/sizing-field.tsx
+  s_012c57818fbf95::t_ee58bf457a9f22 5,36
+  s_012c57818fbf95::t_e60666c6860b46 9-10,13,18,27,37,39-41,43-44
+  s_012c57818fbf95::t_329bcaaa96a0f4 42
+packages/editor/src/features/editor/PageContextMenu.tsx
+  s_012c57818fbf95::t_ae9ebffc01ed42 5,8-9
+packages/editor/src/features/editor/theme-copy.ts
+  s_012c57818fbf95::t_aa6fc23c5f8eb8 65-68
+  s_012c57818fbf95::t_91a2b05d460054 5,7-19,22,25,35,41
+  s_012c57818fbf95::t_434df12fe769bf 51-58
+packages/editor/src/features/editor/theme-focus.ts
+  s_012c57818fbf95::t_a76ee02130a56f 8
+packages/editor/src/features/editor/ThemePanel.tsx
+  s_012c57818fbf95::t_395559d5024997 13
+  s_012c57818fbf95::t_dfe20d7c7f55b0 127,132
+  s_012c57818fbf95::t_9f2868c4504b6f 158,229-232,234,289-290,337-354
+  s_012c57818fbf95::t_f9f8006b36e596 25
+  s_012c57818fbf95::t_68028bb1d81233 31,314
+  s_012c57818fbf95::t_4d9953c1dc094c 108
+  s_012c57818fbf95::t_77643b0a5b1cec 276
+  s_012c57818fbf95::t_434df12fe769bf 3,7,11-12,18-19,23,33,35-46,155,157,174-175,181,212,221-228,235-275,277,286-288,291-299,301,333,335,368
+  s_012c57818fbf95::t_aa6fc23c5f8eb8 22,116,126,136,186,192,204,206-210,216-218,278-285,300,355,358,366
+  s_012c57818fbf95::t_9807b8da92f133 233
+  s_012c57818fbf95::t_06476a22165a7b 187-191,193-194,306
+  s_012c57818fbf95::t_d2192239b4d9f8 2,8,28,30,32,47-53,55-56,59,62-64,68-69,71-76,79-100,106-107,109-115,117-119,123-124,131,133,146,154,169,172,176-178,183,195,197,200,317,321-332,334,336,356-357
+packages/editor/src/features/editor/node-theme-store.test.ts
+  s_012c57818fbf95::t_7c0f31a0d01eea 26
+  s_012c57818fbf95::t_8da9386d73b41e 25
+  s_012c57818fbf95::t_1abd08c746dc75 19
+packages/editor/src/design-system/font-family-picker.tsx
+  s_012c57818fbf95::t_ee58bf457a9f22 8,59
+packages/editor/src/design-system/theme-atoms.tsx
+  s_012c57818fbf95::t_395559d5024997 102,106
+  s_012c57818fbf95::t_bb732a7c0dbfd7 82
+  s_012c57818fbf95::t_91051ecd9bd9ee 22-23
+  s_012c57818fbf95::t_4d9953c1dc094c 108
+  s_012c57818fbf95::t_d9c44ac34a3fe3 1,65,70
+  s_012c57818fbf95::t_68028bb1d81233 20-21
+  s_012c57818fbf95::t_f602b11086d78e 83
+packages/editor/src/design-system/inspector-atoms.client.test.ts
+  s_012c57818fbf95::t_2f311f9be3c2e9 66-69,71,74
+  s_012c57818fbf95::t_720cffdf92ca09 6-7,48-65,70,72-73
+  s_012c57818fbf95::t_d828acfa5106d0 1-5,8-18,20-47,75-76
+  s_012c57818fbf95::t_0fab6056fb504a 19
+packages/editor/src/design-system/molecules.tsx
+  s_012c57818fbf95::t_c8032705d24050 5
+packages/editor/src/design-system/inspector.css
+  s_012c57818fbf95::t_d828acfa5106d0 176-177,179-186
+packages/editor/src/design-system/appearance-atoms.tsx
+  s_012c57818fbf95::t_0e49b7938b5246 185,194
+  s_012c57818fbf95::t_9d46f5c70e0273 186-188
+  s_012c57818fbf95::t_ee58bf457a9f22 6,193
+  s_012c57818fbf95::t_895460b04932cb 5
+  s_012c57818fbf95::t_44d428c33ce420 100
+  s_012c57818fbf95::t_cb0ce27242809a 181,192,195,207
+  s_012c57818fbf95::t_86adb234f235a7 182,191,203,205-206
+packages/editor/src/features/editor/clipboard-html.ts
+  s_012c57818fbf95::t_d2977e4f59cccc 1-28
+packages/editor/src/features/editor/appearance-adapters.test.ts
+  s_012c57818fbf95::t_7c0f31a0d01eea 15,230-231
+  s_012c57818fbf95::t_1abd08c746dc75 226
+packages/editor/src/features/fonts/font-catalog-service.test.ts
+  s_012c57818fbf95::t_fd3658c91ed31a 151-167
+packages/editor/src/features/editor/editor-clipboard-service.ts
+  s_012c57818fbf95::t_5387c697a9ffb9 1,6,8,11,55-57,79-81,107-108
+  s_012c57818fbf95::t_0de95106583677 26-27,29-30
+  s_012c57818fbf95::t_3768ef5c67f524 12-18,20-21,25,32-38,40-54,58,60,83,87-88,94,96-98,104-105
+  s_012c57818fbf95::t_6fd692fcdd9c42 5,7,74-77,95
+  s_012c57818fbf95::t_d56818c2417ebc 2-3,59,73,78,84-86,89,99-102
+  s_012c57818fbf95::t_d2977e4f59cccc 4,62-63,65,82
+  s_012c57818fbf95::t_8f69a2e07063c5 66,68-72
+  s_012c57818fbf95::t_cc53a22b5dd5fd 90-93
+  s_012c57818fbf95::t_9a0fec0ecc3681 103
+  s_012c57818fbf95::t_fd1aa8de8fa5da 9-10,19,22-24,28,31,39,61,64,67,106
+packages/editor/src/features/editor/clipboard-internal.ts
+  s_012c57818fbf95::t_d35c9f81cd1f49 3,6,10,111-116,214-215,217-224,226-237,239-243,251-262,264,270-277,279-280,282,288-290,292-293,295-296,304-305,319,325-332,334-356,358-361,363-415,432-433,435
+  s_012c57818fbf95::t_f3d32b5bf3d85e 357,362,434,436
+  s_012c57818fbf95::t_de85f082faf122 2,4-5,8-9,11,13-16,18,20-57,59-79,81-105,117-124,250,263,265,278,281,283-285,287,320-322,324,333,437
+  s_012c57818fbf95::t_8e0ac71c5f44e5 19
+  s_012c57818fbf95::t_8415caffdc3963 1,106,125-140,142,145,147,150-154,157-161,187-197,203,211,216,225,267,291,294,423,425,428,431
+  s_012c57818fbf95::t_14c12b369e46e7 17
+  s_012c57818fbf95::t_1f7806d0978559 58,80
+  s_012c57818fbf95::t_2e50af3acb6dd9 7
+  s_012c57818fbf95::t_7cb9dcc7fe0937 141,143-144,146,148-149,155-156,162-174,177,180-182,185-186,198-202,204-205,207-210,212-213,238,244-249,266,268-269,286,416-417,419,421-422,424,426-427,429
+  s_012c57818fbf95::t_fd9610edb254d9 179,206
+  s_012c57818fbf95::t_fd1aa8de8fa5da 107-110,299,306-308
+  s_012c57818fbf95::t_b944bbf883b272 303
+  s_012c57818fbf95::t_f7afde57dbd562 12,298,300-302,309-318,418,420,430
+  s_012c57818fbf95::t_0a30297f906acb 175-176,178,183-184
+  s_012c57818fbf95::t_7e122b92d0dcf8 297
+  s_012c57818fbf95::t_7228ddbc289aa0 323
+packages/editor/src/features/editor/clipboard-image-insertion.test.ts
+  s_012c57818fbf95::t_bf12c280314854 45-56
+  s_012c57818fbf95::t_0aa77a1c8fbc79 6
+  s_012c57818fbf95::t_b87a16889d0509 15-16
+  s_012c57818fbf95::t_b4db7891b111fb 3,22-29
+  s_012c57818fbf95::t_f455e325188fa3 1-2,4-5,7-14,17-21,30-44,66
+  s_012c57818fbf95::t_0de95106583677 57-65
+packages/preview-runtime/tests/appearance-styles.test.ts
+  s_012c57818fbf95::t_55d8e6d3e0ff81 163
+  s_012c57818fbf95::t_4fbeb97134fc71 165
+packages/editor/src/features/editor/clipboard-insertion.test.ts
+  s_012c57818fbf95::t_8fa42d922c4697 24,36,41
+  s_012c57818fbf95::t_bf12c280314854 44-58
+  s_012c57818fbf95::t_27f69bd15caf51 1-23,25-35,37-40,42-43,59-68
+tests/pr-evidence/scenarios/typography.spec.ts
+  s_012c57818fbf95::t_de4a7b0edadf9e 41
+  s_012c57818fbf95::t_4cd598f5743bd7 50-51,53
+  s_012c57818fbf95::t_4484bfd19c1849 6,8
+  s_012c57818fbf95::t_b9f478d0851381 49,52,54-55
+  s_012c57818fbf95::t_7bb84d53030b06 40,42
+  s_012c57818fbf95::t_06125a2aebe034 38-39,43-48,56-57
+tests/pr-evidence/scenarios/theme-token-color.spec.ts
+  s_012c57818fbf95::t_49004a150c2a02 46
+  s_012c57818fbf95::t_65d70ae4c06e2f 1-45,47-55
+packages/preview-runtime/tests/theme-runtime.test.ts
+  s_012c57818fbf95::t_8883e2e4b15194 74
+packages/editor/src/features/editor/text-editing-gestures.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 22
+  s_012c57818fbf95::t_7c0f31a0d01eea 28
+packages/editor/src/features/editor/NodeContextMenu.test.ts
+  s_012c57818fbf95::t_8a220474865a34 101-110
+  s_012c57818fbf95::t_7c0f31a0d01eea 20-22,77
+  s_012c57818fbf95::t_1abd08c746dc75 14
+packages/editor/src/features/editor/clipboard-codec.ts
+  s_012c57818fbf95::t_2bda60eee8e64b 1-3,8-15,18,20-45,49-52,71-72,78-105,114-149,219-228,230-232,235-257,259-263,267-346,349,358-361,363-364,366-372,380,389-393,439
+  s_012c57818fbf95::t_ee233798c799da 229
+  s_012c57818fbf95::t_678e02debd5e3e 16-17,258,264-266,350-357
+  s_012c57818fbf95::t_88beaf515dd318 106-113
+  s_012c57818fbf95::t_2668b5baaa27df 424-425
+  s_012c57818fbf95::t_e8b1e76e5848ef 348,362
+  s_012c57818fbf95::t_ac071510f98943 426,429,431,434
+  s_012c57818fbf95::t_495a303d1619fc 6-7,19,46-48,53-70,73-77,150-218,347,365,373-379,381-388,394-423,427-428,430,432-433,435-438
+  s_012c57818fbf95::t_860619d5ad4e9e 5,233-234
+  s_012c57818fbf95::t_504626b7863844 4
+packages/editor/src/features/editor/selection-colors.test.ts
+  s_012c57818fbf95::t_7c0f31a0d01eea 16-18
+  s_012c57818fbf95::t_1abd08c746dc75 10
+packages/editor/src/features/editor/clipboard-internal-buffer.client.test.ts
+  s_012c57818fbf95::t_8fbcb3f00b9f33 19
+  s_012c57818fbf95::t_575d66fe081100 1-18,20-22,26-27,29-33
+  s_012c57818fbf95::t_7d179fbfa54a57 23-25,28
+packages/editor/src/features/editor/clipboard-service.ts
+  s_012c57818fbf95::t_06889b08b9c016 4-5,7,9,11,18-19,38,52-55,57,62-65,67,72-74
+  s_012c57818fbf95::t_504626b7863844 1
+  s_012c57818fbf95::t_f8293805e8f5a3 2-3,12,20,27-28,31,56,66
+  s_012c57818fbf95::t_d56818c2417ebc 41,43-46,49,58,68
+  s_012c57818fbf95::t_3768ef5c67f524 6,8,10,25,29-30,47
+  s_012c57818fbf95::t_5387c697a9ffb9 13,26
+  s_012c57818fbf95::t_9a0fec0ecc3681 14-15,40,42,48,50-51,59,69
+  s_012c57818fbf95::t_fd1aa8de8fa5da 16-17,21-24,32-37,39,60-61,70-71
+packages/editor/src/features/editor/clipboard-copy.ts
+  s_012c57818fbf95::t_d56818c2417ebc 2-3,11-12
+  s_012c57818fbf95::t_8f69a2e07063c5 13-14
+  s_012c57818fbf95::t_3768ef5c67f524 7
+  s_012c57818fbf95::t_d35c9f81cd1f49 9-10
+  s_012c57818fbf95::t_575d66fe081100 4
+  s_012c57818fbf95::t_5387c697a9ffb9 1,8,15-16
+  s_012c57818fbf95::t_9a0fec0ecc3681 5-6
+packages/editor/src/design-system/theme-panel.css
+  s_012c57818fbf95::t_bb732a7c0dbfd7 56,89-90
+  s_012c57818fbf95::t_91051ecd9bd9ee 91,93
+  s_012c57818fbf95::t_3ce387377b8973 92
+packages/editor/src/design-system/appearance.css
+  s_012c57818fbf95::t_57f0de2793f2fb 59
+  s_012c57818fbf95::t_44d428c33ce420 18
+  s_012c57818fbf95::t_cb0ce27242809a 49,51,67-68
+  s_012c57818fbf95::t_8c121c43005f49 17,19-20
+  s_012c57818fbf95::t_9dac5807c1d0ee 48
+  s_012c57818fbf95::t_86adb234f235a7 64
+packages/editor/src/features/editor/clipboard-placement.ts
+  s_012c57818fbf95::t_f7afde57dbd562 2-13,15-19,21-27
+  s_012c57818fbf95::t_253b42b377416b 1
+  s_012c57818fbf95::t_00a5d58fcd3dce 14,20
+packages/editor/src/features/editor/paper-text-creation.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 24
+  s_012c57818fbf95::t_7c0f31a0d01eea 37,85,104,134,159
+packages/editor/src/features/editor/ThemePanel.test.ts
+  s_012c57818fbf95::t_c5bdb3a4ca8187 1-20
+  s_012c57818fbf95::t_2fe91f2685d2f8 21
+packages/editor/src/features/editor/clipboard-internal.test.ts
+  s_012c57818fbf95::t_21fea7169b0161 50
+  s_012c57818fbf95::t_8fbcb3f00b9f33 190-204
+  s_012c57818fbf95::t_0de95106583677 129-138
+  s_012c57818fbf95::t_4f0110766117c8 265-267
+  s_012c57818fbf95::t_1f7806d0978559 47-49,52-54,56-60,64-65
+  s_012c57818fbf95::t_230cc8f74e46dd 95-103
+  s_012c57818fbf95::t_82f5eabe98d592 3,51,55,61-63
+  s_012c57818fbf95::t_bf12c280314854 119-128
+  s_012c57818fbf95::t_fa89ec2beb0c0a 94,139-157,159-188
+  s_012c57818fbf95::t_48eea518ade026 76,158
+  s_012c57818fbf95::t_cf1db09c687abe 24
+  s_012c57818fbf95::t_fcab3ec00e4f92 1-2,5-23,25-46,66-75,77-78,81-93,260,280
+  s_012c57818fbf95::t_129b9433b35e5e 261-264,268-279
+  s_012c57818fbf95::t_6583ccfdd8565f 79-80
+  s_012c57818fbf95::t_7e122b92d0dcf8 4,104-118,189,205-259
+packages/preview-runtime/tests/theme-protocol.test.ts
+  s_012c57818fbf95::t_8883e2e4b15194 10
+packages/editor/src/features/editor/NodeContextMenu.tsx
+  s_012c57818fbf95::t_44d1c140671867 9,82,103-105,139
+  s_012c57818fbf95::t_2759a66bcfb1b1 14,76,88,132
+  s_012c57818fbf95::t_c7ae84443c453d 17,23,116
+  s_012c57818fbf95::t_d35c9f81cd1f49 18,89-90,93,102,149
+  s_012c57818fbf95::t_575d66fe081100 16,74,83-84,91-92,106-112,114-115
+  s_012c57818fbf95::t_e0a67e7d96f801 15,94-101
+  s_012c57818fbf95::t_98fdc1cecc2b90 19,85-87,113
+  s_012c57818fbf95::t_3573b83b0aadb0 29
+packages/editor/src/features/editor/clipboard-codec.client.test.ts
+  s_012c57818fbf95::t_e50c5d7f509435 65-70,109-113
+  s_012c57818fbf95::t_3b248748ce1f0b 1-2,5-12,14-47,52-64,71-82,84-85,104-108,152-183
+  s_012c57818fbf95::t_ac071510f98943 118-127
+  s_012c57818fbf95::t_2f26a6526b3bb6 3-4,83,86-103,114-117,128-151
+  s_012c57818fbf95::t_13830839d832ed 13
+  s_012c57818fbf95::t_ee233798c799da 48-51
+packages/editor/src/features/editor/text-inspector.test.ts
+  s_012c57818fbf95::t_7c0f31a0d01eea 17,23,107
+  s_012c57818fbf95::t_1abd08c746dc75 26
+packages/editor/src/features/editor/clipboard-internal-buffer.ts
+  s_012c57818fbf95::t_575d66fe081100 1-2,4,8-12,18-19,31-47
+  s_012c57818fbf95::t_8415caffdc3963 3,5-7,13-17,20-30
+packages/editor/src/features/editor/clipboard-service.client.test.ts
+  s_012c57818fbf95::t_9e24a62ed50d54 67-78
+  s_012c57818fbf95::t_d56818c2417ebc 13-18,88-97,130
+  s_012c57818fbf95::t_3addafa0ee997c 45,63
+  s_012c57818fbf95::t_0de95106583677 25-30,109-116,118-129
+  s_012c57818fbf95::t_9a0fec0ecc3681 19-24,98-108
+  s_012c57818fbf95::t_3b248748ce1f0b 1-12,31-35,37-44,46-62,64-66,80-83,85-87,131-132
+  s_012c57818fbf95::t_2f26a6526b3bb6 36,79,84
+  s_012c57818fbf95::t_7c9f121c51aef2 117
+packages/repo-engine/src/document.test.ts
+  s_012c57818fbf95::t_51161d9b16c9a0 179,183-195,203
+  s_012c57818fbf95::t_3760ec80bcbf5e 174,176,201,208
+packages/editor/src/features/fonts/font-catalog-service.ts
+  s_012c57818fbf95::t_acda4f1450f114 210,212-217,223,327,336-340
+packages/editor/src/design-system/floating-portal.ts
+  s_012c57818fbf95::t_4d9953c1dc094c 2
+  s_012c57818fbf95::t_ee58bf457a9f22 1
+packages/editor/src/features/editor/clipboard-image-insertion.ts
+  s_012c57818fbf95::t_f7afde57dbd562 1,5
+  s_012c57818fbf95::t_0aa77a1c8fbc79 72
+  s_012c57818fbf95::t_f455e325188fa3 2-4,6-10,12-36,38-71,73-74
+  s_012c57818fbf95::t_fd1aa8de8fa5da 11,37
+packages/preview-runtime/tests/text-runtime.test.ts
+  s_012c57818fbf95::t_4fbeb97134fc71 38-39,85,117-121
+  s_012c57818fbf95::t_55d8e6d3e0ff81 21
+packages/editor/src/features/editor/layer-presentation.ts
+  s_012c57818fbf95::t_cb0ce27242809a 1-17
+packages/editor/src/features/editor/AppearancePanels.tsx
+  s_012c57818fbf95::t_0e49b7938b5246 391,401,408,423,436
+  s_012c57818fbf95::t_44d428c33ce420 435
+packages/editor/src/design-system/token-field-atoms.tsx
+  s_012c57818fbf95::t_ee58bf457a9f22 6,82
+packages/editor/src/design-system/property-atoms.tsx
+  s_012c57818fbf95::t_86adb234f235a7 9,29-35
+  s_012c57818fbf95::t_cb0ce27242809a 6
+  s_fc5e01ab5eb22b::t_35a19ef45070a2 11,22
+packages/editor/src/features/editor/ElementLayoutProperties.tsx
+  s_012c57818fbf95::t_cd3fb0b82b8cde 6,21,23-24
+packages/preview-runtime/tests/text-browser-runtime.test.ts
+  s_012c57818fbf95::t_8883e2e4b15194 178
+  s_012c57818fbf95::t_55d8e6d3e0ff81 73,76
+  s_012c57818fbf95::t_465e3513baf021 40
+  s_012c57818fbf95::t_d6d619cc7f96e2 312-313
+packages/editor/src/design-system/styles.css
+  s_012c57818fbf95::t_c8032705d24050 16-18
+packages/repo-engine/tests/file-preview-theme.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 24
+  s_012c57818fbf95::t_4bc533c1f49412 31
+packages/editor/src/features/editor/clipboard-html.test.ts
+  s_012c57818fbf95::t_d2977e4f59cccc 1-12,14-15
+  s_012c57818fbf95::t_5b8bb44a8b37e6 13
+packages/editor/src/features/editor/theme-token-menu.ts
+  s_012c57818fbf95::t_f612a346f67e5c 2,10-26
+  s_012c57818fbf95::t_d9c44ac34a3fe3 1,3-9,27-57
+packages/repo-engine/tests/file-text-v8.test.ts
+  s_012c57818fbf95::t_fddea57f667895 112
+  s_012c57818fbf95::t_4bc533c1f49412 27-28,41-42,79,92
+  s_012c57818fbf95::t_1abd08c746dc75 34,54
+  s_012c57818fbf95::t_fcb25f19282951 35,55
+packages/editor/src/features/editor/text-store.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 20
+  s_012c57818fbf95::t_f941471a73302e 194
+  s_012c57818fbf95::t_7c0f31a0d01eea 26-29
+  s_012c57818fbf95::t_248a907526b5b2 181,186
+packages/repo-engine/tests/file-text-commands.test.ts
+  s_012c57818fbf95::t_4bc533c1f49412 44-45
+  s_012c57818fbf95::t_1abd08c746dc75 38
+packages/editor/src/features/editor/theme-independence.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 16
+tests/pr-evidence/scenarios/mobile-properties-menu.spec.ts
+  s_012c57818fbf95::t_017ec6ca95500f 39,52-54
+  s_012c57818fbf95::t_cab2acff05d559 1-38,40-51,55-63
+tests/pr-evidence/scenarios/clipboard-drop.spec.ts
+  s_012c57818fbf95::t_362af25af3a392 34
+  s_012c57818fbf95::t_3986c0dc3bc6fd 11
+  s_012c57818fbf95::t_407df565c02312 1-10,12-25,28-33,35
+  s_012c57818fbf95::t_9732ea892017c0 26-27
+packages/editor/src/design-system/color-picker.css
+  s_012c57818fbf95::t_4d9953c1dc094c 55-59
+packages/editor/src/features/editor/ThemePanel.client.test.ts
+  s_012c57818fbf95::t_009b9f05f0f847 39-67
+  s_012c57818fbf95::t_e9d0ba6c64cc66 68-90
+  s_012c57818fbf95::t_75cdfd1bfdfc06 137
+  s_012c57818fbf95::t_6c94a5a45e190e 6-7,37-38,91-105,107-118,125-127
+  s_012c57818fbf95::t_ef2f15c5d0da12 1-5,8-36,128,153
+  s_012c57818fbf95::t_9d80d0cacc7c9f 121-123
+  s_012c57818fbf95::t_93c1b1ef8eb69d 106
+  s_012c57818fbf95::t_93da8bbba954cf 119-120
+  s_012c57818fbf95::t_f8f442a83b4f3d 129-136,138-152
+  s_012c57818fbf95::t_f4218b699f754b 124
+tests/pr-evidence/scenarios/font-restore.spec.ts
+  s_012c57818fbf95::t_9996263718fc81 55,64
+  s_012c57818fbf95::t_a885c6f2addbdf 1-54,56-63,65-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "864c7f8ad0c48398e68fe05fd798b0f052373b7b",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_fc5e01ab5eb22b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a142cf-e219-7f83-baef-d6b489b039be",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
