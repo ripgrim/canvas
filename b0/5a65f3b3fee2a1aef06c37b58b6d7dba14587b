@@ -1,0 +1,284 @@
+packages/editor/src/features/editor/component-authoring-dialogs.tsx
+  s_012c57818fbf95::t_954db9c9203676 3,145-146,166-167
+packages/editor/src/features/editor/keyboard-service.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 11,28,232,315,395,415,436
+packages/editor/src/features/editor/layout-remove-planner.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 43,145,166
+packages/editor/src/features/editor/document-store.ts
+  s_012c57818fbf95::t_954db9c9203676 45,1037-1038,1518-1522
+packages/editor/src/features/editor/canvas-hud-projection.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 21,71
+packages/repo-engine/tests/file-layout-v9.test.ts
+  s_012c57818fbf95::t_7e910b38bffd6f 12
+packages/editor/src/features/editor/gesture-terminal-intent.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 40,101,137
+packages/repo-engine/tests/file-document.test.ts
+  s_012c57818fbf95::t_45df51259c0e4a 40,68
+packages/repo-engine/tests/file-resize-presentation-history.test.ts
+  s_012c57818fbf95::t_7e910b38bffd6f 28,221,354
+packages/sync-client/tests/collaboration-client.test.ts
+  s_012c57818fbf95::t_6b1db0060185c0 894,933
+packages/editor/src/features/editor/resize-projection.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 22,331
+packages/editor/src/features/editor/flow-drag-target.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 66
+apps/sync-room-core/tests/support.ts
+  s_012c57818fbf95::t_6b1db0060185c0 136,201
+  s_012c57818fbf95::t_3527401aa2975c 24
+packages/editor/src/features/editor/gesture-authority.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 10
+packages/repo-engine/tests/file-wrap-command.test.ts
+  s_012c57818fbf95::t_7e910b38bffd6f 19
+packages/repo-engine/tests/engine.test.ts
+  s_012c57818fbf95::t_d0bd1269c6e137 176,203,235,251,272
+packages/editor/src/features/editor/primitive-sizing-projection.test.ts
+  s_012c57818fbf95::t_092128ab194c56 8
+packages/editor/src/features/editor/appearance-adapters.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 226
+packages/editor/src/features/editor/layout-measure-resize.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 15
+packages/editor/src/features/editor/NodeContextMenu.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 14
+tests/pr-evidence/scenarios/component-system.spec.ts
+  s_012c57818fbf95::t_0ef40873d559e3 23,649-650,652
+  s_012c57818fbf95::t_b6d8408c09d6c1 642,647,658-664,715,720,722,724,727,733,735,737,739-740,744-745
+  s_012c57818fbf95::t_b98c3d09f901e0 639
+  s_012c57818fbf95::t_d61454ca8fcbea 1048
+  s_012c57818fbf95::t_43cfb3208afeca 636-638
+  s_012c57818fbf95::t_f9685a9de62cc8 168-193,195,197-198
+  s_012c57818fbf95::t_428bc5016d872d 194,805,820,828-832
+  s_012c57818fbf95::t_3da641a073871d 196,646,665,694,705,734,736,738
+packages/editor/src/features/editor/component-property-projection.ts
+  s_012c57818fbf95::t_aee8645c783aa4 1,93-99,110
+packages/repo-engine/tests/file-migration-v9.test.ts
+  s_012c57818fbf95::t_d0bd1269c6e137 23
+packages/editor/src/features/collaboration/CollaborationPresence.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 220
+packages/editor/src/features/editor/layout-wrap-planner.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 27,29
+apps/api/tests/app.test.ts
+  s_012c57818fbf95::t_773f4938ef5cd3 45,346,381,580,767
+packages/editor/src/bootstrap.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 99
+packages/editor/src/features/editor/preview-asset-connection.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 12
+packages/editor/src/features/editor/ComponentMasterProperties.tsx
+  s_012c57818fbf95::t_954db9c9203676 63,88
+packages/repo-engine/src/component-model.ts
+  s_012c57818fbf95::t_49ba2dca1c00cc 229-232,373
+  s_012c57818fbf95::t_ad936a4213e2cf 218,226
+  s_012c57818fbf95::t_1c05fffd607fd5 207-213
+  s_012c57818fbf95::t_dbbcbf4435b6f8 55-57,67,128,145-206,214-217,219-225,233,235,238-248,284,374,400-403,671
+  s_012c57818fbf95::t_fc9f47c50e5021 227-228,234,236-237
+packages/editor/src/features/editor/paper-text-creation.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 24
+packages/editor/src/features/editor/layout-measure-absolute-drop.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 20,78
+packages/repo-engine/src/file-preview.ts
+  s_012c57818fbf95::t_e09573d77e084c 178,182-186,191
+  s_012c57818fbf95::t_ebfa5d9cfbac7f 16,169,171,176,194-199,204,213-216
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_8f87128745fed2 159
+  s_012c57818fbf95::t_215b5bc1941729 1357-1364
+packages/repo-engine/tests/smoke.test.ts
+  s_012c57818fbf95::t_d0bd1269c6e137 41
+packages/editor/src/features/editor/flow-drag-authority.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 35
+packages/editor/src/features/editor/layout-panels-flex.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 20
+apps/sync-room-core/tests/legacy-document.test.ts
+  s_012c57818fbf95::t_3527401aa2975c 24,26,42,46,72,78-79,85,90,94-97,102,104,110,112,119,121,128,131-135
+  s_012c57818fbf95::t_ad318ab268e449 136
+packages/repo-engine/src/document.test.ts
+  s_012c57818fbf95::t_565e46e365b71e 174,176,201,208
+packages/editor/src/features/collaboration/flow-drag-relay.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 11
+packages/editor/src/features/editor/theme-independence.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 16
+tests/pr-evidence/registry.json
+  s_012c57818fbf95::t_d61454ca8fcbea 250-251
+packages/sync-protocol/src/collaboration.ts
+  s_012c57818fbf95::t_ab58dafbba81e6 15
+packages/editor/src/features/editor/gesture-command-planner.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 16
+packages/database/tests/control-plane.test.ts
+  s_012c57818fbf95::t_773f4938ef5cd3 69,73,160
+packages/editor/src/features/editor/text-editing-gestures.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 22
+packages/repo-engine/tests/file-migration-v7.test.ts
+  s_012c57818fbf95::t_d0bd1269c6e137 21,32
+packages/repo-engine/tests/file-primitive-sizing.test.ts
+  s_012c57818fbf95::t_7e910b38bffd6f 10
+apps/api/tests/legacy-assets.test.ts
+  s_012c57818fbf95::t_773f4938ef5cd3 116
+apps/repository-jobs/tests/docs-worker.test.ts
+  s_012c57818fbf95::t_773f4938ef5cd3 23
+packages/editor/src/features/editor/layout-last-baseline-store.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 9
+packages/editor/src/features/editor/clipboard-internal.ts
+  s_012c57818fbf95::t_1103a895d6bde5 30,146
+packages/editor/src/features/editor/layout-grid-store.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 34
+packages/repo-engine/tests/file-preview.test.ts
+  s_012c57818fbf95::t_df3b24db8c58af 268-271,278-294,296-298,300-301,305-306
+  s_012c57818fbf95::t_4fc156ce03bf95 307-311,313-346
+  s_012c57818fbf95::t_45df51259c0e4a 26,267
+  s_012c57818fbf95::t_7b8a55b33bfa1e 266
+  s_012c57818fbf95::t_c58d9248694421 272-277,295,299,302-304
+  s_012c57818fbf95::t_44a1b39259f422 312
+packages/repo-engine/tests/file-preview-theme.test.ts
+  s_012c57818fbf95::t_d0bd1269c6e137 24
+packages/editor/src/features/editor/canvas-hud-projection-service.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 15,233,289,359,424
+packages/database/tests/collaboration-persistence.test.ts
+  s_012c57818fbf95::t_bd5e84c4cd77f0 140,150,154,224,228,261,284,309,450,850
+  s_012c57818fbf95::t_6b1db0060185c0 162,235,547,574,716,729,772
+  s_012c57818fbf95::t_773f4938ef5cd3 94,133,180,199,244,272,361,387,588
+packages/editor/src/features/editor/gesture-resize-command-planner.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 27,345
+packages/repo-engine/tests/component-model.test.ts
+  s_012c57818fbf95::t_7103245ae9493e 161-163
+  s_012c57818fbf95::t_1c05fffd607fd5 164-167
+  s_012c57818fbf95::t_6f443625161733 168,181-185
+  s_012c57818fbf95::t_16df84a5d98d1d 2,140-160,169-180,186-191
+  s_012c57818fbf95::t_3edd6d6e1b6d91 192
+packages/editor/src/features/editor/gesture-paper-flow-terminal.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 22
+packages/repo-engine/src/file-migration.ts
+  s_012c57818fbf95::t_49ba2dca1c00cc 18-19,186-187,192
+  s_012c57818fbf95::t_dbbcbf4435b6f8 62,178-180,182
+  s_012c57818fbf95::t_6ddc5a6a9107ff 181,183-185,193-194
+  s_012c57818fbf95::t_9e5377a7f82485 188-191
+  s_012c57818fbf95::t_7be03c5b57c908 42
+packages/editor/src/features/editor/layout-store.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 18
+packages/repo-engine/tests/file-text-commands.test.ts
+  s_012c57818fbf95::t_7e910b38bffd6f 38
+packages/repo-engine/tests/file-remove-flex.test.ts
+  s_012c57818fbf95::t_d0bd1269c6e137 33,76
+packages/editor/src/features/editor/preview-flow-drag-connection.test.ts
+  s_012c57818fbf95::t_08ee623d911a1f 178
+  s_012c57818fbf95::t_3d5c11b1f782ea 14
+packages/editor/src/features/editor/preview-transient.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 11
+packages/repo-engine/tests/last-baseline.test.ts
+  s_012c57818fbf95::t_7e910b38bffd6f 13,112
+apps/sync-room-core/tests/network.test.ts
+  s_012c57818fbf95::t_6b1db0060185c0 211,289-290,429
+packages/editor/src/features/editor/layout-remove-store.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 28
+packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts
+  s_012c57818fbf95::t_49d2814271dda3 332-362
+apps/web/src/adapters/browser.test.ts
+  s_012c57818fbf95::t_773f4938ef5cd3 48,68
+packages/editor/src/features/editor/live-resize-interaction.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 9
+apps/web/src/features/files/service.test.ts
+  s_012c57818fbf95::t_773f4938ef5cd3 99,115,232,237,263,269,301,314,355,369,407
+packages/repo-engine/tests/file-migration-v5.test.ts
+  s_012c57818fbf95::t_092128ab194c56 55-56
+  s_012c57818fbf95::t_d0bd1269c6e137 33,50,65
+packages/editor/src/features/editor/document-store.test.ts
+  s_012c57818fbf95::t_9c28dae205ef0a 1593-1599,1607,1640-1669
+  s_012c57818fbf95::t_325907874795d0 1602-1603,1605-1606,1613-1614
+  s_012c57818fbf95::t_2fcceee95d77eb 1561-1592,1600-1601,1604,1608-1612,1670-1671
+  s_012c57818fbf95::t_3d5c11b1f782ea 27
+  s_012c57818fbf95::t_3b7db8d8061533 1615-1639
+packages/editor/src/features/editor/SelectionHud.client.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 24,248
+packages/editor/src/features/editor/store.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 11
+packages/editor/src/features/editor/store-history.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 15
+packages/editor/src/features/editor/layout-flex-store.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 25,77,223
+packages/editor/src/features/editor/component-configured-preview.ts
+  s_012c57818fbf95::t_533cf0eea1773c 43-56
+  s_012c57818fbf95::t_f932ee0dcd34d5 1,26-31,36
+packages/editor/src/features/editor/layout-flex-actions.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 10
+packages/editor/src/features/editor/component-canvas-link.ts
+  s_012c57818fbf95::t_092128ab194c56 3
+  s_012c57818fbf95::t_954db9c9203676 226-236,241-247,249
+packages/editor/src/features/editor/layout-wrap-store.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 8
+packages/repo-engine/tests/file-wrap-sizing.test.ts
+  s_012c57818fbf95::t_7e910b38bffd6f 20
+packages/editor/src/features/editor/canvas-gestures.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 20
+packages/editor/src/features/editor/preview-resize-connection.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 13
+apps/sync-room-core/src/legacy-document.ts
+  s_012c57818fbf95::t_3527401aa2975c 9,11
+packages/editor/src/features/editor/gesture-command-store.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 17
+packages/editor/src/features/editor/document-history.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 11
+packages/editor/src/features/editor/layout-measure-cross-parent-absolute.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 15
+packages/editor/src/features/editor/SelectionHud.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 18
+packages/repo-engine/tests/promotion-layout.test.ts
+  s_012c57818fbf95::t_d0bd1269c6e137 25
+packages/repo-engine/tests/file-text-v8.test.ts
+  s_012c57818fbf95::t_d0bd1269c6e137 34,54
+packages/editor/src/features/editor/layout-measure.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 18,174,246,277,314,370,423,566,641,654
+packages/cloud-document/tests/hosted-document.test.ts
+  s_012c57818fbf95::t_773f4938ef5cd3 5,43
+packages/editor/src/features/editor/text-store.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 20
+packages/editor/src/features/editor/component-configured-preview.test.ts
+  s_012c57818fbf95::t_533cf0eea1773c 51-52,64,66-70
+  s_012c57818fbf95::t_088ea651c88079 44-50,53-63,65,71-72
+packages/repo-engine/src/file-document.ts
+  s_012c57818fbf95::t_dbbcbf4435b6f8 27
+packages/database/tests/collaboration-postgres-acceptance.mjs
+  s_012c57818fbf95::t_6b1db0060185c0 137,148,158,232,324,350,431,575,590,784
+  s_012c57818fbf95::t_773f4938ef5cd3 771
+packages/repo-engine/tests/file-transform-matrix.test.ts
+  s_012c57818fbf95::t_d0bd1269c6e137 8
+packages/editor/src/features/editor/node-theme-store.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 19
+packages/repo-engine/tests/file-reorder-history.test.ts
+  s_012c57818fbf95::t_7e910b38bffd6f 6
+packages/database/src/index.ts
+  s_012c57818fbf95::t_3527401aa2975c 190
+packages/editor/src/features/editor/gesture-resize-store.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 19
+packages/sync-protocol/tests/collaboration.test.ts
+  s_012c57818fbf95::t_6b1db0060185c0 608,634
+packages/editor/src/features/editor/selection-colors.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 10
+packages/editor/src/features/editor/canvas-scene.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 9
+packages/repo-engine/tests/file-migration.test.ts
+  s_012c57818fbf95::t_6c6379905671c6 418-421,432
+  s_012c57818fbf95::t_e54745e16a817b 386,403-404
+  s_012c57818fbf95::t_7c58919f10f559 205,298,328,340,353,371,391,448,496,544
+  s_012c57818fbf95::t_aac8df8b1efb78 409-417,422-431,433-436
+docs/plans/canvas-authored-component-closure.md
+  s_012c57818fbf95::t_10e6f2460f86af 101,117-118,121,128
+  s_012c57818fbf95::t_8fae6f9945694b 102-114,116
+  s_012c57818fbf95::t_1a33c184522f76 115
+packages/editor/src/features/editor/text-inspector.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 26
+packages/editor/src/features/collaboration/collaboration-flow-service.test.ts
+  s_012c57818fbf95::t_3d5c11b1f782ea 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b05a65f3b3fee2a1aef06c37b58b6d7dba14587b",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
