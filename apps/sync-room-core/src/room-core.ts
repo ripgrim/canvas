@@ -364,7 +364,8 @@ export class CollaborationRoomCore {
     }
     let projected: CollaborationPayload
     try { projected = baseSequence === projection.sequence ? this.#dependencies.projector.apply(projection.document, message.operation.command) : projection.document }
-    catch {
+    catch (error) {
+      this.#log('room_operation_rejected', { connectionId: session.peer.connectionId, mutationId: message.operation.mutationId, commandType: message.operation.command.type, error: errorMessage(error) })
       if (flowPlan.lease) await this.#settleFailedFlow(flowPlan.lease, message.operation.mutationId)
       await this.#roomError(session, 'invalid_operation', 'Operation is invalid.', 'none', message.operation.mutationId)
       return

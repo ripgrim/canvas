@@ -32,6 +32,7 @@ export type CanvasWorkspaceProps = {
 }
 
 export const canvasPlaceholderVisible = (src: string | undefined) => !src
+export const canvasHudVisible = (src: string | undefined) => Boolean(src)
 
 const attachViewport = (element: HTMLDivElement | null) => { canvasViewportService.attach(element); canvasGestures.attach(element) }
 const attachHud = (element: HTMLCanvasElement | null) => canvasHudPainter.attach(element)
@@ -43,6 +44,7 @@ export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcu
   const visibleCamera = presentedCamera ? { x: presentedCamera.x, y: presentedCamera.y, zoom: presentedCamera.zoom } : state.viewport
   const visibleViewportSize = presentedCamera ? { width: presentedCamera.width, height: presentedCamera.height } : state.viewportSize
   const connected = Boolean(src && ready)
+  const showHud = canvasHudVisible(src)
   const availability = Object.fromEntries(editorTools.map(tool => [tool, !state.file ? { available: false, reason: copy.openFileForTools } : !connected ? { available: false, reason: copy.connectPreviewForTools } : { available: true, reason: '' }])) as unknown as EditorToolAvailability
   const selectTool = (tool: EditorTool) => store.setTool(tool)
   const grid = gridBackground(visibleCamera, visibleViewportSize, typeof window === 'undefined' ? 1 : window.devicePixelRatio)
@@ -54,7 +56,7 @@ export function CanvasWorkspace({ src, ready = true, onReady, onError, onShortcu
       <CanvasPixelGrid visible={state.gridVisible} size={grid.size} position={grid.position} lineWidth={grid.lineWidth} />
       <CanvasWorldOrigin camera={visibleCamera} />
       <CanvasStage active={connected} readOnly={readOnly} onOpenContextMenu={setContextMenu} onDismissContextMenu={() => setContextMenu(null)} />
-      {connected && <><CanvasHudCanvas attach={attachHud} /><SelectionHud /><CollaborationCanvasPresence /></>}
+      {showHud && <><CanvasHudCanvas attach={attachHud} /><SelectionHud /><CollaborationCanvasPresence /></>}
       <CollaborationFollowIndicator />
     </CanvasViewport>
     {canvasPlaceholderVisible(src) && placeholder}

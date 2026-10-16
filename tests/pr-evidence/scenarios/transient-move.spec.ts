@@ -2,8 +2,9 @@ import { resolve } from "node:path"
 import { createPlaywrightAutomation } from "../../../packages/editor-automation/dist/playwright.js"
 import { expect, test, type Page } from "@playwright/test"
 import { evidencePort, writeCaptureReport } from "../evidence-capture.js"
+import { prEvidenceDefaultPorts, prEvidenceUrl } from "../ports.js"
 
-const editorUrl = "http://127.0.0.1:4327/"
+const editorUrl = prEvidenceUrl("PR_EVIDENCE_EDITOR_PORT", prEvidenceDefaultPorts.editor)
 const evidenceRoot = resolve(import.meta.dirname, "../../../outputs/pr-evidence/local/editor.transient-move/browser")
 
 test("PR-EVIDENCE-003 [editor.transient-move]", async ({ page }) => {

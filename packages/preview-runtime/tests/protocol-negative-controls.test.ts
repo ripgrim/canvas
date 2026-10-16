@@ -10,7 +10,7 @@ const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, c
 
 const editorOrigin = 'http://127.0.0.1:4319'
 const parent = {} as Window
-const envelope = { channel: 'design-editor-preview', version: 8, generation: 7 } as const
+const envelope = { channel: 'design-editor-preview', version: 9, generation: 7 } as const
 const deliver = (data: unknown, document: PreviewDocument | null = null) => acceptPreviewCommand({ origin: editorOrigin, source: parent, data }, editorOrigin, parent, 7, document)
 
 const document = (): PreviewDocument => ({
@@ -85,8 +85,15 @@ describe('LAY-SEC-001 unknown top-level fields', () => {
 describe('LAY-SEC-001 unknown fields inside a set-layout item', () => {
   it('accepts the base item with and without its optional size fields', () => {
     expect(deliver(layout([item]), document())).not.toBeNull()
+    expect(deliver(layout([{ ...item, declarations: { transform: 'matrix(1, 0.25, -0.5, 1, 0, 0)' } }]), document())).not.toBeNull()
     const { width: _width, height: _height, ...bare } = item
     expect(deliver(layout([bare]), document())).not.toBeNull()
+  })
+
+  it('rejects legacy transform functions and translated matrices at the runtime boundary', () => {
+    for (const transform of ['rotate(45deg) scale(1.5)', 'matrix(1, 0, 0, 1, 10, 20)', 'matrix(1001, 0, 0, 1, 0, 0)']) {
+      expect(deliver(layout([{ ...item, declarations: { transform } }]), document())).toBeNull()
+    }
   })
 
   it.each([
@@ -188,7 +195,6 @@ describe('AT-CAN-005 transient move boundary', () => {
   it('accepts bounded current nodes and the empty clear command', () => {
     expect(deliver(transient([move]), document())).toEqual(transient([move]))
     expect(deliver(transient([{ ...move, width: 140, height: 60 }]), document())).toEqual(transient([{ ...move, width: 140, height: 60 }]))
-    expect(deliver(transient([{ ...move, rotationDelta: 22.5 }]), document())).toEqual(transient([{ ...move, rotationDelta: 22.5 }]))
     expect(deliver(transient([{ ...move, duplicate: true }]), document())).toEqual(transient([{ ...move, duplicate: true }]))
     const appearance = { fills: [{ type: 'image', assetId: 'flowers', fit: 'cover', geometry: { x: -20, y: 0, width: 180, height: 120 } }] }
     expect(deliver(transient([{ ...move, width: 140, height: 60, appearance }]), document())).toEqual(transient([{ ...move, width: 140, height: 60, appearance }]))
@@ -205,7 +211,7 @@ describe('AT-CAN-005 transient move boundary', () => {
     ['a zero width', { ...move, width: 0 }],
     ['a negative height', { ...move, height: -1 }],
     ['an over-limit width', { ...move, width: 1_000_001 }],
-    ['a non-finite rotation', { ...move, rotationDelta: Number.NaN }],
+    ['the removed rotation compatibility field', { ...move, rotationDelta: 22.5 }],
     ['a false duplicate marker', { ...move, duplicate: false }],
     ['an invalid image geometry', { ...move, appearance: { fills: [{ type: 'image', assetId: 'flowers', fit: 'cover', geometry: { x: 0, y: 0, width: 0, height: 40 } }] } }],
   ])('rejects %s', (_, candidate) => {
@@ -219,7 +225,7 @@ describe('AT-CAN-005 transient move boundary', () => {
   })
 })
 
-describe('PAPER-FLEX-006-PROTOCOL-V8, PAPER-FLEX-007-PROTOCOL-V8, AT-CAN-005-PROTOCOL-V8, and CLOUD-SYNC-GESTURE-001-PROTOCOL-V8', () => {
+describe('PAPER-FLEX-006-PROTOCOL-V9, PAPER-FLEX-007-PROTOCOL-V9, AT-CAN-005-PROTOCOL-V9, and CLOUD-SYNC-GESTURE-001-PROTOCOL-V9', () => {
   const sourceFence = {
     fileId: 'file-1', fileRevision: 3, measurementRevision: 8, documentRevision: 3, layoutGeneration: 5,
     pageId: 'page-1', pageRootId: 'page-root-1',
@@ -419,10 +425,10 @@ describe('PAPER-FLEX-006-PROTOCOL-V8, PAPER-FLEX-007-PROTOCOL-V8, AT-CAN-005-PRO
   })
 })
 
-describe('PAPER-FLEX-006, PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 v8 transient presentation boundary', () => {
+describe('PAPER-FLEX-006, PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 v9 transient presentation boundary', () => {
   const fence = { documentRevision: 1, layoutGeneration: 3, measurementRevision: 8 }
   const move = { kind: 'move-world', coordinateSpace: 'world', interactionId: 'drag-1', sampleSequence: 4, fence, items: [{ nodeId: 'button-1', dx: 10, dy: -20 }] }
-  const resize = { kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'resize-1', sampleSequence: 5, fence, items: [{ nodeId: 'button-1', parentNodeId: 'card-1', startRect: { x: 1, y: 2, width: 30, height: 40 }, rect: { x: 5, y: -15, width: 35, height: 50 } }] }
+  const resize = { kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'resize-1', sampleSequence: 5, fence, items: [{ nodeId: 'button-1', parentNodeId: 'card-1', startRect: { x: 1, y: 2, width: 30, height: 40 }, rect: { x: 5, y: -15, width: 35, height: 50 }, nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 17.5, y: 25 } }] }
   const command = (presentations: unknown[]) => ({ ...envelope, type: 'set-transient-presentations', presentations })
 
   it('accepts strict world and parent-padding presentations plus an empty clear', () => {
@@ -465,6 +471,8 @@ describe('PAPER-FLEX-006, PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001
     for (const invalid of [0, -1, 1_000_001, Number.NaN]) {
       expect(deliver(command([{ ...resize, items: [{ ...resize.items[0], rect: { ...resize.items[0]!.rect, width: invalid } }] }]), document())).toBeNull()
     }
+    expect(deliver(command([{ ...resize, items: [{ ...resize.items[0], nodeTransform: [1, 0, 0, 0, 0, 0] }] }]), document())).toBeNull()
+    expect(deliver(command([{ ...resize, items: [{ ...resize.items[0], nodeTransform: [1, 0, 0, 1, 1, 0] }] }]), document())).toBeNull()
     for (const invalid of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       expect(deliver(command([{ ...move, sampleSequence: invalid }]), document())).toBeNull()
       expect(deliver(command([{ ...move, fence: { ...fence, measurementRevision: invalid } }]), document())).toBeNull()
@@ -532,7 +540,7 @@ describe('PAPER-FLEX-006, PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001
     const appearance = { fills: Array.from({ length: 16 }, () => ({ type: 'gradient', shape: 'linear', angle: 0, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'srgb', stops: Array.from({ length: 16 }, (_, index) => ({ color, position: index / 15 })) })) }
     const presentations = Array.from({ length: 500 }, (_, index) => {
       const nodeId = `node-${index}`
-      large.canvas!.elements.push({ id: nodeId, kind: 'rectangle', name: nodeId, x: 0, y: 0, width: 10, height: 10, rotation: 0, parentId: null, appearance })
+      large.canvas!.elements.push({ id: nodeId, kind: 'rectangle', name: nodeId, relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10, parentId: null, appearance })
       return { ...resize, interactionId: `resize-${index}`, items: [{ ...resize.items[0], nodeId, parentNodeId: null, appearance }] }
     })
     expect(JSON.stringify(command(presentations)).length).toBeGreaterThan(1_000_000)
@@ -550,8 +558,8 @@ describe('PAPER-FLEX-003 freeform primitive sizing grammar', () => {
     ...document(),
     canvas: {
       elements: [
-        { id: 'frame', kind: 'frame', name: 'Frame', x: 0, y: 0, width: 300, height: 200, rotation: 0, parentId: null },
-        { id: 'shape', kind: 'shape', name: 'Shape', x: 10, y: 10, width: 80, height: 60, rotation: 0, parentId: 'frame', layout: { mode: 'freeform', declarations: { [name]: value } } },
+        { id: 'frame', kind: 'frame', name: 'Frame', relativeTransform: [1, 0, 0, 1, 0, 0], width: 300, height: 200, parentId: null },
+        { id: 'shape', kind: 'shape', name: 'Shape', relativeTransform: [1, 0, 0, 1, 10, 10], width: 80, height: 60, parentId: 'frame', layout: { mode: 'freeform', declarations: { [name]: value } } },
       ],
     },
   })

@@ -41,6 +41,20 @@ describe('semantic projector', () => {
     })
   })
 
+  it('COMP-V2-UI-012 applies and reverses checked component authoring commands', () => {
+    const definition = {
+      id: 'button-component', name: 'Button', source: { kind: 'canvas' as const, masterRootId: 'node-1' }, revision: 0,
+      properties: [], materials: [], parts: [], interactions: [],
+    }
+    const source = document({ componentModel: { definitions: { [definition.id]: definition }, instances: {} } })
+    const renamed = { ...definition, revision: 1, name: 'Primary button' }
+    const projector = createSemanticProjector()
+    const changed = projector.apply(source, { type: 'component.replace', componentId: definition.id, expectedRevision: 0, definition: renamed })
+    expect((changed.componentModel as { definitions: Record<string, { name: string }> }).definitions[definition.id]?.name).toBe('Primary button')
+    const restored = projector.apply(changed, { type: 'component.restore', componentId: definition.id, expected: renamed, source: definition })
+    expect((restored.componentModel as { definitions: Record<string, { name: string }> }).definitions[definition.id]?.name).toBe('Button')
+  })
+
   it('rejects non-canonical source documents instead of preserving arbitrary fields', () => {
     expect(() => createSemanticProjector().apply(document({ document: { replacement: true } }), { type: 'node.rename', nodeId: 'node-1', name: 'Renamed' })).toThrow('Unsupported design file field')
   })
@@ -63,7 +77,7 @@ describe('semantic projector', () => {
     const withComponent = document({
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
-        'node-1': { id: 'node-1', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 100, height: 100 } },
+        'node-1': { id: 'node-1', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 } },
         'button-1': { id: 'button-1', type: 'component', componentId: 'button-component', exportName: 'Button', props: { label: 'Save' } },
       },
       relationships: {

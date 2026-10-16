@@ -1,6 +1,6 @@
 import { configureSourceBindings, applySourceDocument, disposeSourceBindings } from './source-bindings.mjs'
 import { createGeometryObserver } from './geometry-observer.mjs'
-import React from 'react'
+import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { acceptPreviewCommand, compareFlowDragTransactionOrder, isPreviewDocument, protocolVersion } from './protocol.js'
@@ -57,10 +57,30 @@ export function createSelectionDecorations(ownerDocument) {
   }
 }
 
-function renderCanvasTree(elements, parentId, offset, assets) {
+function CanvasElement({ element, elements, offset, assets, interactionMode }) {
+  const [activeTrigger, setActiveTrigger] = useState(null)
+  const interactions = element.interactions || []
+  const hover = interactions.find(candidate => candidate.trigger === 'pointer-hover')
+  const press = interactions.find(candidate => candidate.trigger === 'pointer-press')
+  const active = interactionMode() === 'interact' ? interactions.find(candidate => candidate.trigger === activeTrigger) : null
+  const transition = active?.transition?.type === 'smart-animate'
+    ? `all ${active.transition.durationMs ?? 300}ms ${active.transition.easing ?? 'ease-out'}`
+    : undefined
+  const children = element.kind === 'frame' ? renderCanvasTree(elements, element.id, { x: 0, y: 0 }, assets, interactionMode) : element.kind === 'text' ? element.text || '\u00a0' : null
+  const interactive = hover || press ? {
+    onPointerEnter: () => { if (interactionMode() === 'interact' && hover) setActiveTrigger('pointer-hover') },
+    onPointerLeave: () => { if (interactionMode() === 'interact') setActiveTrigger(null) },
+    onPointerDown: () => { if (interactionMode() === 'interact' && press) setActiveTrigger('pointer-press') },
+    onPointerUp: () => { if (interactionMode() === 'interact') setActiveTrigger(hover ? 'pointer-hover' : null) },
+    onPointerCancel: () => setActiveTrigger(null),
+  } : {}
+  const displayed = active ? { ...element, appearance: active.appearance } : element
+  return React.createElement('div', { ...interactive, key: element.id, 'data-preview-canvas': element.id, 'data-preview-kind': element.kind, 'aria-hidden': 'true', style: { ...canvasElementStyle(displayed, assets, offset), ...(hover || press ? { pointerEvents: 'auto' } : {}), ...(transition ? { transition } : {}) } }, children)
+}
+
+function renderCanvasTree(elements, parentId, offset, assets, interactionMode) {
   return elements.filter(element => element.parentId === parentId).map(element => {
-    const children = element.kind === 'frame' ? renderCanvasTree(elements, element.id, { x: 0, y: 0 }, assets) : element.kind === 'text' ? element.text || '\u00a0' : null
-    return React.createElement('div', { key: element.id, 'data-preview-canvas': element.id, 'data-preview-kind': element.kind, 'aria-hidden': 'true', style: canvasElementStyle(element, assets, offset) }, children)
+    return React.createElement(CanvasElement, { key: element.id, element, elements, offset, assets, interactionMode })
   })
 }
 
@@ -270,7 +290,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
       ? { position: 'absolute', left: `${origin.x}px`, top: `${origin.y}px`, width: `${origin.width}px`, display: 'flex', flexDirection: frame.direction, gap: `${frame.gap}px`, boxSizing: 'border-box' }
       : { position: 'absolute', left: '0px', top: '0px' }
     const host = React.createElement('div', { key: 'host', 'data-preview-host': '', style: hostStyle }, content)
-    const scene = editorDocument?.canvas ? renderCanvasTree(editorDocument.canvas.elements, null, { x: 0, y: 0 }, editorDocument.assets) : []
+    const scene = editorDocument?.canvas ? renderCanvasTree(editorDocument.canvas.elements, null, { x: 0, y: 0 }, editorDocument.assets, () => interactionMode) : []
     flushSync(() => root.render(React.createElement(React.Fragment, null, host, ...scene)))
     layoutLayer.update(editorDocument, layoutItems)
     appearanceLayer.update(editorDocument)
@@ -309,7 +329,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
     else if (command.type === 'ping') return
     else if (command.type === 'set-theme') { setTheme(command.theme); geometry.refresh() }
     else if (command.type === 'set-fonts') void setFonts(command.fonts).catch(error => send('diagnostic', { message: String(error).slice(0, 4000) }))
-    else if (command.type === 'set-interaction-mode') interactionMode = command.mode
+    else if (command.type === 'set-interaction-mode') { interactionMode = command.mode; render() }
     else if (command.type === 'set-camera' && command.sequence > cameraSequence) {
       cameraSequence = command.sequence
       camera = { ...command.camera }
@@ -371,6 +391,7 @@ export function startPreview({ Component, Provider, providerProps, initialProps,
       })
       else render(true)
       refreshFlowProjection(); scheduleFlowBarrier()
+      if (command.renderSequence !== undefined) send('document-applied', { renderSequence: command.renderSequence, documentRevision: command.document.revision })
     }
     else if (!editorDocument) { props = command.props; render() }
     else send('diagnostic', { message: 'Edit document instance props through the component inspector.' })

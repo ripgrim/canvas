@@ -277,8 +277,8 @@ describe('collaboration room authority', () => {
     persistence.current = projection(document({
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
-        'node-1': { id: 'node-1', type: 'frame', name: 'One', styles: { left: 0, top: 0, width: 100, height: 100 } },
-        'node-2': { id: 'node-2', type: 'frame', name: 'Two', styles: { left: 150, top: 0, width: 100, height: 100 } },
+        'node-1': { id: 'node-1', type: 'frame', name: 'One', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 } },
+        'node-2': { id: 'node-2', type: 'frame', name: 'Two', styles: { relativeTransform: [1, 0, 0, 1, 150, 0], width: 100, height: 100 } },
       },
       relationships: {
         'node-1': { parentId: 'root-1', orderKey: 'V' },
@@ -341,9 +341,9 @@ describe('collaboration room authority', () => {
     persistence.current = projection(document({
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
-        parent: { id: 'parent', type: 'frame', name: 'Parent', styles: { left: 0, top: 0, width: 200, height: 200 } },
-        child: { id: 'child', type: 'rectangle', name: 'Child', styles: { left: 10, top: 10, width: 20, height: 20 } },
-        spare: { id: 'spare', type: 'rectangle', name: 'Spare', styles: { left: 250, top: 10, width: 20, height: 20 } },
+        parent: { id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 200, height: 200 } },
+        child: { id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 10, 10], width: 20, height: 20 } },
+        spare: { id: 'spare', type: 'rectangle', name: 'Spare', styles: { relativeTransform: [1, 0, 0, 1, 250, 10], width: 20, height: 20 } },
       },
       relationships: {
         parent: { parentId: 'root-1', orderKey: 'V' },
@@ -366,7 +366,7 @@ describe('collaboration room authority', () => {
       operation: {
         mutationId: 'mutation-nested-ancestor',
         baseSequence: '0',
-        command: { type: 'batch', commands: [{ type: 'batch', commands: [{ type: 'node.setStyles', nodeId: 'parent', styles: { left: 25 } }] }] },
+        command: { type: 'batch', commands: [{ type: 'batch', commands: [{ type: 'node.setStyles', nodeId: 'parent', styles: { relativeTransform: [1, 0, 0, 1, 25, 0] } }] }] },
       },
     })
     await room.receive(contender.connectionId, {
@@ -375,7 +375,7 @@ describe('collaboration room authority', () => {
     })
     await room.receive(contender.connectionId, {
       type: 'operation.submit',
-      operation: { mutationId: 'mutation-insert-locked-parent', baseSequence: '0', command: { type: 'node.insert', node: { id: 'inserted', type: 'rectangle', name: 'Inserted', styles: { left: 0, top: 0, width: 10, height: 10 } }, placement: { parentId: 'parent' } } },
+      operation: { mutationId: 'mutation-insert-locked-parent', baseSequence: '0', command: { type: 'node.insert', node: { id: 'inserted', type: 'rectangle', name: 'Inserted', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } }, placement: { parentId: 'parent' } } },
     })
     await room.receive(contender.connectionId, {
       type: 'operation.submit',
@@ -404,9 +404,9 @@ describe('collaboration room authority', () => {
       ],
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
-        'node-1': { id: 'node-1', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 100, height: 100 } },
+        'node-1': { id: 'node-1', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 } },
         'root-2': { id: 'root-2', type: 'root' },
-        'node-2': { id: 'node-2', type: 'frame', name: 'Other', styles: { left: 0, top: 0, width: 100, height: 100 } },
+        'node-2': { id: 'node-2', type: 'frame', name: 'Other', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 } },
       },
       relationships: {
         'node-1': { parentId: 'root-1', orderKey: 'V' },
@@ -1256,7 +1256,7 @@ describe('collaboration room authority', () => {
     const persistence = new FakePersistence()
     const value = flowDocument() as unknown as { nodes: Record<string, unknown>; relationships: Record<string, unknown> }
     value.nodes['second-target-frame'] = {
-      id: 'second-target-frame', type: 'frame', name: 'Second target', styles: { left: 1040, top: 0, width: 200, height: 200 },
+      id: 'second-target-frame', type: 'frame', name: 'Second target', styles: { relativeTransform: [1, 0, 0, 1, 1040, 0], width: 200, height: 200 },
       layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } },
     }
     value.relationships['second-target-frame'] = { parentId: 'root-1', orderKey: 'Y' }
@@ -1465,8 +1465,8 @@ describe('collaboration room authority', () => {
     const persistence = new FakePersistence()
     const value = flowDocument() as unknown as { nodes: Record<string, unknown>; relationships: Record<string, { parentId: string; orderKey: string }> }
     const flex = { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } as const
-    value.nodes['source-node'] = { id: 'source-node', type: 'frame', name: 'Source subtree', styles: { left: 0, top: 0, width: 100, height: 80 }, layout: { item: { position: { mode: 'flow' } }, container: flex } }
-    value.nodes['nested-target'] = { id: 'nested-target', type: 'frame', name: 'Nested target', styles: { left: 0, top: 0, width: 50, height: 40 }, layout: { item: { position: { mode: 'flow' } }, container: flex } }
+    value.nodes['source-node'] = { id: 'source-node', type: 'frame', name: 'Source subtree', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 80 }, layout: { item: { position: { mode: 'flow' } }, container: flex } }
+    value.nodes['nested-target'] = { id: 'nested-target', type: 'frame', name: 'Nested target', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 50, height: 40 }, layout: { item: { position: { mode: 'flow' } }, container: flex } }
     value.relationships['nested-target'] = { parentId: 'source-node', orderKey: 'V' }
     const room = createFlowRoomWith(persistence, value as never)
     await room.start()
@@ -1600,7 +1600,7 @@ describe('collaboration room authority', () => {
 
     const commands: readonly Readonly<{ mutationId: string; command: SemanticFileCommand }>[] = [
       { mutationId: 'nested-source', command: { type: 'batch', commands: [{ type: 'batch', commands: [{ type: 'node.rename', nodeId: 'source-frame', name: 'Blocked' }] }] } },
-      { mutationId: 'insert-target-lane', command: { type: 'node.insert', node: { id: 'inserted-node', type: 'rectangle', name: 'Inserted', styles: { left: 0, top: 0, width: 10, height: 10 }, layout: { item: { position: { mode: 'flow' } } } }, placement: { parentId: 'target-frame', index: 0 } } },
+      { mutationId: 'insert-target-lane', command: { type: 'node.insert', node: { id: 'inserted-node', type: 'rectangle', name: 'Inserted', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 }, layout: { item: { position: { mode: 'flow' } } } }, placement: { parentId: 'target-frame', index: 0 } } },
       { mutationId: 'reparent-target-lane', command: { type: 'node.reparent', nodeId: 'disjoint-node', placement: { parentId: 'target-frame', index: 0 } } },
       { mutationId: 'delete-page', command: { type: 'page.delete', pageId: 'page-1' } },
     ]
@@ -1717,7 +1717,7 @@ describe('collaboration room authority', () => {
     const value = structuredClone(flowDocument()) as unknown as { pages: unknown[]; nodes: Record<string, unknown>; relationships: Record<string, unknown> }
     value.pages.push({ id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' })
     value.nodes['root-2'] = { id: 'root-2', type: 'root' }
-    value.nodes['page-2-node'] = { id: 'page-2-node', type: 'rectangle', name: 'Other page', styles: { left: 0, top: 0, width: 100, height: 80 }, layout: { item: { position: { mode: 'flow' } } } }
+    value.nodes['page-2-node'] = { id: 'page-2-node', type: 'rectangle', name: 'Other page', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 80 }, layout: { item: { position: { mode: 'flow' } } } }
     value.relationships['page-2-node'] = { parentId: 'root-2', orderKey: 'V' }
     persistence.current = projection(value as never)
     const room = new CollaborationRoomCore({
@@ -2202,7 +2202,7 @@ describe('collaboration room authority', () => {
     let parentId = 'source-node'
     for (let index = 0; index < 130; index += 1) {
       const nodeId = `deep-${index}`
-      value.nodes[nodeId] = { id: nodeId, type: 'frame', name: nodeId, styles: { left: 0, top: 0, width: 10, height: 10 } }
+      value.nodes[nodeId] = { id: nodeId, type: 'frame', name: nodeId, styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } }
       value.relationships[nodeId] = { parentId, orderKey: 'V' }
       parentId = nodeId
     }

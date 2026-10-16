@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { DragEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react'
+import type { KeyboardEvent, MouseEvent, PointerEvent } from 'react'
 import { CanvasStageSurface } from '../../design-system/canvas-atoms'
 import type { StageCursor } from '../../design-system/canvas-atoms'
 import { canvasCopy as copy } from './canvas-copy'
@@ -7,7 +7,6 @@ import { canvasGestures, creationTools } from './canvas-gestures'
 import { documentStore as store } from './document-store'
 import type { CanvasElementKind } from '@canvas/repo-engine/document'
 import { screenToWorld } from './canvas-math'
-import { hasComponentDrag, readComponentDrag } from './component-drag'
 import { collaborationService } from '../collaboration/collaboration-service'
 
 /** The single interaction plane over the workspace. The live preview beneath only receives input in Interact mode. */
@@ -35,24 +34,10 @@ export function CanvasStage({ active = true, readOnly = false, onOpenContextMenu
     if (!state.selection.includes(target.id)) store.select(target.id)
     onOpenContextMenu({ x: event.clientX, y: event.clientY })
   }
-  const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (readOnly || !hasComponentDrag(event.dataTransfer)) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
-  }
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (readOnly || !hasComponentDrag(event.dataTransfer)) return
-    event.preventDefault()
-    const payload = readComponentDrag(event.dataTransfer)
-    if (!payload) return
-    const bounds = event.currentTarget.getBoundingClientRect()
-    const point = screenToWorld({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, state.viewport, state.viewportSize)
-    store.commands.insertAt(payload.componentId, point, payload.target)
-  }
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect()
     collaborationService.updateCursor(screenToWorld({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, state.viewport, state.viewportSize))
     canvasGestures.pointerMove(event)
   }
-  return <CanvasStageSurface label={copy.stage} cursor={cursor} inactive={!active || state.tool === 'interact' || !state.file} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={event => { canvasGestures.pointerUp(event); release(event) }} onPointerCancel={event => { canvasGestures.pointerCancel(event); release(event) }} onDoubleClick={event => canvasGestures.doubleClick(event)} onContextMenu={onContextMenu} onKeyDown={onKeyDown} onDragOver={onDragOver} onDrop={onDrop} />
+  return <CanvasStageSurface label={copy.stage} cursor={cursor} inactive={!active || state.tool === 'interact' || !state.file} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={event => { canvasGestures.pointerUp(event); release(event) }} onPointerCancel={event => { canvasGestures.pointerCancel(event); release(event) }} onDoubleClick={event => canvasGestures.doubleClick(event)} onContextMenu={onContextMenu} onKeyDown={onKeyDown} />
 }

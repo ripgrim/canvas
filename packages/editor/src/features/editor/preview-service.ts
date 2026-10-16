@@ -276,26 +276,19 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
   let stopDocument: (() => void) | undefined
   let stopCollaboration: (() => void) | undefined
   let stopFonts: (() => void) | undefined
+  const interruptGeometryAuthority = () => {
+    signature = ''
+    cameraSignature = ''
+    transientSignature = '[]'
+    projectedDocument = null
+    projectedAuthority = null
+    sceneGeometry.clear('temporary')
+  }
   /** Pointer input is already browser-coalesced. Forward every distinct sample without adding another frame of latency. */
   const publishTransient = (pending: { target: Window; origin: string; envelope: { channel: 'design-editor-preview'; version: typeof protocolVersion; generation: number }; items: PreviewTransientMove[]; signature: string }) => {
     if (target !== pending.target) return
     transientSignature = pending.signature
     pending.target.postMessage({ ...pending.envelope, type: 'set-transient-move', items: pending.items }, pending.origin)
-  }
-  const publishRotationPreview = (nodeId: string, rotationDelta: number): boolean => {
-    const context = connectedContext()
-    if (!context || !projectedDocument || !Number.isFinite(rotationDelta)) return false
-    const items: PreviewTransientMove[] = [{ nodeId, dx: 0, dy: 0, rotationDelta }]
-    const nextSignature = JSON.stringify(items)
-    publishTransient({ target: context.target, origin: context.origin, envelope: context.envelope, items, signature: nextSignature })
-    return true
-  }
-  const clearRotationPreview = (): boolean => {
-    const context = connectedContext()
-    transientSignature = '[]'
-    if (!context) return false
-    context.target.postMessage({ ...context.envelope, type: 'set-transient-move', items: [] }, context.origin)
-    return true
   }
   const retireStrictPresentation = () => {
     strictPresentationSignature = ''
@@ -574,11 +567,16 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       committedProjectionRetry = null
       geometryGeneration = preview?.activeGeneration ?? null
       transientSignature = '[]'
+      projectedDocument = null
       projectedAuthority = null
       sceneGeometry.clear()
     }
-    if (!state.previewReady || !target || !preview?.origin || preview.activeGeneration === null) { sceneGeometry.clear(); return }
+    if (preview?.activeGeneration === null || preview?.activeGeneration === undefined) { sceneGeometry.clear(); return }
+    if (!state.previewReady || !target || !preview.origin) { interruptGeometryAuthority(); return }
     const envelope = { channel: 'design-editor-preview', version: protocolVersion, generation: preview.activeGeneration } as const
+    for (const node of Object.values(document.file?.nodes ?? {})) {
+      if (node.type === 'text' && node.textStyle) fontCatalogService.require(node.textStyle.fontFamily, { style: node.textStyle.fontStyle, weight: node.textStyle.fontWeight })
+    }
     const fonts = fontCatalogService.getLoadedFonts()
     const nextFonts = fonts.map(font => font.key).join('|')
     if (fonts.length && nextFonts !== fontSignature) {
@@ -681,6 +679,7 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       previewCameraStore.publish(preview.activeGeneration, accepted.sequence, accepted.camera)
     }
     if (accepted.type === 'geometry') {
+      if (!editorStore.getSnapshot().previewReady) return
       const current = documentStore.getSnapshot()
       if (!geometryMatchesProjection(accepted, projectedDocument, current.layoutGeneration)) return
       const camera = accepted.camera ?? { x: current.viewport.x, y: current.viewport.y, zoom: current.viewport.zoom, width: current.viewportSize.width, height: current.viewportSize.height }
@@ -1041,7 +1040,10 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       if (listening) return
       window.addEventListener('message', handleMessage)
       listening = true
-      stopEditor = editorStore.subscribe(syncFrames.request)
+      stopEditor = editorStore.subscribe(() => {
+        if (!editorStore.getSnapshot().previewReady) interruptGeometryAuthority()
+        syncFrames.request()
+      })
       stopDocument = documentStore.subscribe(syncDocument)
       stopCollaboration = collaborationService.subscribe(sync)
       stopFonts = fontCatalogService.subscribeLoadedFonts(sync)
@@ -1052,8 +1054,6 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
     publishResizePresentation,
     clearResizePresentation,
     syncCommittedDocument,
-    publishRotationPreview,
-    clearRotationPreview,
     publishFlowDragPresentation,
     clearFlowDragPresentation,
     syncCommittedFlowDrag,
@@ -1063,7 +1063,7 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       clearStrictPresentationBeforeContextChange()
       committedProjectionRetry = null
       target = null
-      sceneGeometry.clear()
+      sceneGeometry.clear('temporary')
       documentStore.setEditPolicy(undefined)
       signature = ''
       fontSignature = fontCatalogService.getLoadedFonts().length ? '' : '[]'
@@ -1073,6 +1073,7 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       sentCameras.clear()
       previewCameraStore.reset()
       transientSignature = '[]'
+      projectedDocument = null
       projectedAuthority = null
       editorStore.set({ previewReady: false, runtimeInstanceIds: null })
     },
@@ -1082,7 +1083,7 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       clearStrictPresentationBeforeContextChange()
       committedProjectionRetry = null
       target = frame
-      sceneGeometry.clear()
+      sceneGeometry.clear('temporary')
       documentStore.setEditPolicy(undefined)
       signature = ''
       fontSignature = fontCatalogService.getLoadedFonts().length ? '' : '[]'
@@ -1092,6 +1093,7 @@ export function createPreviewConnection(options: { resolveAsset?: (assetId: stri
       sentCameras.clear()
       previewCameraStore.reset()
       transientSignature = '[]'
+      projectedDocument = null
       projectedAuthority = null
       const preview = editorStore.getSnapshot().snapshot?.preview
       if (!frame || !preview?.origin || preview.activeGeneration === null) return

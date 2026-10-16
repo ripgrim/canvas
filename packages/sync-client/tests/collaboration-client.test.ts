@@ -390,6 +390,32 @@ describe('protocol epoch 4 collaboration client transport', () => {
     expect(socket.closes.at(-1)?.code).toBe(4008)
   })
 
+  it('CLOUD-FILES-001 surfaces a deterministic stored-document validation failure without reconnecting forever', () => {
+    const harness = createHarness()
+    const { socket, requestId } = harness.openAssigned()
+    const bytes = new TextEncoder().encode('{}')
+    const digest = createHash('sha256').update(bytes).digest('hex')
+    const snapshotId = 'projection:0'
+    socket.server({ type: 'load.phase', envelope: envelope(), requestId, phase: 'stream' })
+    socket.server({
+      type: 'snapshot.begin', envelope: envelope(), requestId, snapshotId,
+      documentSchemaVersion: collaborationDocumentSchemaVersion, baseSequence: '0', compression: 'none', contentEncoding: 'utf-8',
+      storedByteLength: bytes.byteLength, documentByteLength: bytes.byteLength,
+      objectDigest: digest, documentDigest: digest, chunkCount: 1,
+    })
+    socket.server({ type: 'snapshot.chunk', envelope: envelope(), requestId, snapshotId, chunkIndex: 0, chunkCount: 1, data: Buffer.from(bytes).toString('base64') })
+    socket.server({ type: 'snapshot.end', envelope: envelope(), requestId, snapshotId })
+
+    expect(harness.client.getSnapshot()).toMatchObject({
+      lifecycle: 'connection-failed',
+      document: null,
+      snapshotId: null,
+      error: 'This file contains invalid data. Error ID: invalid-file-document',
+    })
+    expect(harness.timers).toHaveLength(0)
+    expect(socket.closes.at(-1)?.code).toBe(4008)
+  })
+
   it('keeps the visible document, sequence, and pending queue when a reconnect snapshot has a corrupt later chunk', async () => {
     const memory = createMemoryDurableStore()
     const harness = createHarness({ ids: ['request-0001', 'request-0002'], durableStore: memory.store, cache: { accountId: 'account-a', documentSchemaVersion: collaborationDocumentSchemaVersion } })
@@ -865,7 +891,7 @@ describe('protocol epoch 4 collaboration client transport', () => {
 
   it('CLOUD-SYNC-REPLAY-001-C3A quarantines an interaction-bound mutation across reconnect until an exact fresh binding is supplied', async () => {
     const memory = createMemoryDurableStore()
-    const harness = createHarness({ durableStore: memory.store, cache: { accountId: 'account-1', documentSchemaVersion: 9 } })
+    const harness = createHarness({ durableStore: memory.store, cache: { accountId: 'account-1', documentSchemaVersion: 12 } })
     await harness.started
     const room = harness.openAssigned()
     harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
@@ -904,7 +930,7 @@ describe('protocol epoch 4 collaboration client transport', () => {
 
   it('CLOUD-SYNC-REPLAY-001-C3A persists an interaction binding and quarantines it after process restart', async () => {
     const memory = createMemoryDurableStore()
-    const cache = { accountId: 'account-1', documentSchemaVersion: 9 }
+    const cache = { accountId: 'account-1', documentSchemaVersion: 12 }
     const first = createHarness({ durableStore: memory.store, cache })
     await first.started
     const firstRoom = first.openAssigned()
@@ -1896,6 +1922,25 @@ describe('protocol epoch 4 collaboration client transport', () => {
     harness.sockets[1]!.serverClose(1006)
     expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'connection-failed', error: 'Collaboration could not be reached. Try again.' })
     expect(lifecycle.listenerCount()).toBe(0)
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-003 keeps reconnecting after an admitted room survives a dev-server restart', async () => {
+    const harness = createHarness({ maxPreAdmissionFailures: 2, ids: ['request-0001', 'request-0002', 'request-0003', 'request-0004'] })
+    const first = harness.openAssigned()
+    harness.streamDocument(first.socket, first.requestId, { title: 'Before' })
+    await vi.waitFor(() => expect(harness.client.getSnapshot().lifecycle).toBe('live'))
+
+    first.socket.serverClose(1006, 'Dev server restarted')
+    for (let index = 1; index <= 2; index += 1) {
+      harness.timers.at(-1)!.callback()
+      harness.sockets[index]!.serverClose(1006, 'Dev server unavailable')
+      expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'reconnecting', reconnectAttempt: index + 1, document: { title: 'Before' } })
+    }
+
+    harness.timers.at(-1)!.callback()
+    const recovered = harness.openAssigned(3, secondGenerationId, '10')
+    harness.streamDocument(recovered.socket, recovered.requestId, { title: 'After restart' }, '1', envelope(secondGenerationId, '10'))
+    await vi.waitFor(() => expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'live', reconnectAttempt: 0, document: { title: 'After restart' } }))
   })
 
   it('CLOUD-SYNC-LIFECYCLE-001 caps socket factory failures before admission', () => {

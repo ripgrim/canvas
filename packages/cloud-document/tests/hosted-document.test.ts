@@ -1,43 +1,59 @@
 import { describe, expect, it } from 'vitest'
-import { externalizeHostedFileDocument, validateHostedFileDocument } from '../src/index.js'
+import { externalizeHostedFileDocument, repairHostedFileDocument, validateHostedFileDocument } from '../src/index.js'
 
 const blank = () => ({
-  schemaVersion: 9,
+  schemaVersion: 12,
   fileId: 'file-1',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: { 'root-1': { id: 'root-1', type: 'root' } },
   relationships: {},
   theme: { tokens: {} },
+  componentModel: { definitions: {}, instances: {} },
 })
+const legacyBlank = (schemaVersion: number) => {
+  const { componentModel: _componentModel, ...document } = blank()
+  return { ...document, schemaVersion }
+}
 
 describe('hosted document validation', () => {
   it('accepts a canonical blank document', () => {
     expect(validateHostedFileDocument(blank())).toEqual(blank())
   })
 
-  it('upgrades an asset-free version 6 document and rejects inline asset migration', () => {
-    expect(validateHostedFileDocument({ ...blank(), schemaVersion: 6 })).toEqual(blank())
-    expect(() => validateHostedFileDocument({ ...blank(), schemaVersion: 6, assets: { photo: { data: 'inline' } } })).toThrow('externalization')
+  it('upgrades a schema v10 document to the current schema', () => {
+    expect(validateHostedFileDocument({ ...blank(), schemaVersion: 10 })).toEqual(blank())
   })
 
-  it('PAPER-FLEX-001 upgrades schema v8 to v9 without synthesizing primitive layout', () => {
-    const current = blank()
+  it('upgrades an asset-free version 6 document and rejects inline asset migration', () => {
+    expect(validateHostedFileDocument(legacyBlank(6))).toEqual(blank())
+    expect(() => validateHostedFileDocument({ ...legacyBlank(6), assets: { photo: { data: 'inline' } } })).toThrow('externalization')
+  })
+
+  it('PAPER-FLEX-001 upgrades schema v8 to v11 without synthesizing primitive layout', () => {
+    const current = legacyBlank(8)
     const source = {
       ...current,
-      schemaVersion: 8,
       nodes: { ...current.nodes, frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 10, top: 20, width: 300, height: 200 }, themeMode: 'inherit' } },
       relationships: { frame: { parentId: 'root-1', orderKey: 'V' } },
     }
     const upgraded = validateHostedFileDocument(source)
-    expect(upgraded).toEqual({ ...source, schemaVersion: 9 })
+    expect(upgraded).toEqual({
+      ...source,
+      schemaVersion: 12,
+      componentModel: { definitions: {}, instances: {} },
+      nodes: {
+        ...source.nodes,
+        frame: { ...source.nodes.frame, styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 300, height: 200 } },
+      },
+    })
     expect(upgraded.nodes.frame).not.toHaveProperty('layout')
     expect(source.schemaVersion).toBe(8)
   })
 
   it('checks the complete primitive graph instead of only the envelope', () => {
     const input = blank()
-    ;(input.nodes as Record<string, unknown>).box = { id: 'box', type: 'rectangle', name: 'Box', styles: { left: 0, top: 0, width: -1, height: 10 } }
+    ;(input.nodes as Record<string, unknown>).box = { id: 'box', type: 'rectangle', name: 'Box', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: -1, height: 10 } }
     ;(input.relationships as Record<string, unknown>).box = { parentId: 'root-1', orderKey: 'a0' }
     expect(() => validateHostedFileDocument(input)).toThrow('Invalid node geometry')
   })
@@ -69,10 +85,41 @@ describe('hosted document validation', () => {
     expect(() => validateHostedFileDocument(input)).toThrow('Component identity is inconsistent')
   })
 
+  it('COMP-V2-PERSIST-ORPHAN-001 repairs only component instance metadata whose design node is already absent', () => {
+    const source = blank()
+    ;(source.nodes as Record<string, unknown>).master = { id: 'master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 120, height: 40 } }
+    ;(source.relationships as Record<string, unknown>).master = { parentId: 'root-1', orderKey: 'V' }
+    source.componentModel = {
+      definitions: { button: { id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'master' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] } },
+      instances: { ghost: { id: 'ghost', componentId: 'button', values: {} } },
+    }
+
+    const repaired = repairHostedFileDocument(source)
+    expect(repaired).toMatchObject({ status: 'repaired', removedInstanceIds: ['ghost'], document: { revision: 0, componentModel: { instances: {} } } })
+    expect(source.componentModel.instances).toHaveProperty('ghost')
+    expect(repairHostedFileDocument(blank())).toEqual({ status: 'not-repairable' })
+  })
+
+  it('COMP-V2-PERSIST-ORPHAN-001 refuses broader graph repair and leaves existing instance nodes alone', () => {
+    const malformed = blank()
+    ;(malformed.nodes as Record<string, unknown>).master = { id: 'master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 120, height: 40 } }
+    ;(malformed.relationships as Record<string, unknown>).master = { parentId: 'missing', orderKey: 'V' }
+    malformed.componentModel = {
+      definitions: { button: { id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'master' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] } },
+      instances: { ghost: { id: 'ghost', componentId: 'button', values: {} } },
+    }
+    expect(repairHostedFileDocument(malformed)).toEqual({ status: 'not-repairable' })
+
+    const present = structuredClone(malformed)
+    ;(present.relationships as Record<string, unknown>).master = { parentId: 'root-1', orderKey: 'V' }
+    ;(present.nodes as Record<string, unknown>).ghost = { id: 'ghost', type: 'rectangle', name: 'Ghost', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } }
+    ;(present.relationships as Record<string, unknown>).ghost = { parentId: 'root-1', orderKey: 'W' }
+    expect(repairHostedFileDocument(present)).toEqual({ status: 'not-repairable' })
+  })
+
   it('FILE-ASSET-001 externalizes every validated version 6 image before returning the current schema', async () => {
     const source = {
-      ...blank(),
-      schemaVersion: 6,
+      ...legacyBlank(6),
       assets: {
         photo: { id: 'photo', name: 'photo.jpg', mime: 'image/jpeg', width: 1, height: 1, bytes: 3, data: 'AAAA' },
       },
@@ -95,8 +142,7 @@ describe('hosted document validation', () => {
 
   it('FILE-ASSET-SEC-001 validates the full graph before uploading legacy bytes', async () => {
     const source = {
-      ...blank(),
-      schemaVersion: 6,
+      ...legacyBlank(6),
       assets: {
         photo: { id: 'photo', name: 'photo.png', mime: 'image/png', width: 1, height: 1, bytes: 3, data: 'AAAA' },
       },
@@ -112,8 +158,7 @@ describe('hosted document validation', () => {
 
   it('FILE-ASSET-SEC-001 rejects malformed bytes and mismatched trusted results', async () => {
     const source = {
-      ...blank(),
-      schemaVersion: 6,
+      ...legacyBlank(6),
       assets: {
         photo: { id: 'photo', name: 'photo.png', mime: 'image/png', width: 1, height: 1, bytes: 4, data: 'AAAA' },
       },

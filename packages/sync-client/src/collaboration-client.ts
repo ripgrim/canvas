@@ -546,6 +546,7 @@ export function createCollaborationClient<TDocument extends object>(options: Col
   let sessionEpoch = 0
   let lifecycleListening = false
   let admittedSocketEpoch: number | null = null
+  let sessionWasAdmitted = false
   const explicitRecoverySessionEpochs = new Set<number>()
   const flowClaims = new Map<number, MutableFlowClaim>()
   const flowWaiters = new Set<FlowResultWaiter>()
@@ -957,7 +958,7 @@ export function createCollaborationClient<TDocument extends object>(options: Col
 
   const protocolFailure = (error: unknown, code = policyViolation) => {
     const failure = error instanceof Error ? error : new Error('Invalid collaboration message.')
-    const preAdmissionFailure = binding !== null && admittedSocketEpoch !== binding.epoch
+    const preAdmissionFailure = !sessionWasAdmitted && binding !== null && admittedSocketEpoch !== binding.epoch
     detach(true, code, failure.message.slice(0, 123))
     scheduleReconnect(failure.message, preAdmissionFailure)
   }
@@ -1084,6 +1085,7 @@ export function createCollaborationClient<TDocument extends object>(options: Col
       if (state.getSnapshot().lifecycle === 'authorizing') state.acceptAdmissionQueued({ requestId, socketEpoch: current.epoch })
       roomEnvelope = state.assignRoom({ requestId: message.requestId, socketEpoch: current.epoch, envelope: message.envelope, role: message.role })
       admittedSocketEpoch = current.epoch
+      sessionWasAdmitted = true
       currentReplayScopeId = message.replayScopeId
       const finish = () => {
         if (sessionEpoch !== expectedSessionEpoch || stopped || disposed || binding?.epoch !== current.epoch || currentReplayScopeId !== message.replayScopeId) return
@@ -1230,9 +1232,14 @@ export function createCollaborationClient<TDocument extends object>(options: Col
       if (!assembler) throw new Error('Snapshot end arrived before snapshot metadata.')
       assembler.finish(message)
       const publication = assembler.publish()
-      let decoded: unknown
-      try { decoded = JSON.parse(publication.jsonText) } catch { throw new Error('Snapshot document is not valid JSON.') }
-      const document = options.validateDocument(decoded)
+      let document: TDocument
+      try {
+        const decoded: unknown = JSON.parse(publication.jsonText)
+        document = options.validateDocument(decoded)
+      } catch {
+        terminal('connection-failed', new Error('This file contains invalid data. Error ID: invalid-file-document'))
+        return
+      }
       stagedSnapshot = Object.freeze({ requestId: publication.requestId, snapshotId: publication.snapshotId, baseSequence: publication.baseSequence, document })
       assembler = null
       return
@@ -1411,7 +1418,7 @@ export function createCollaborationClient<TDocument extends object>(options: Col
     let socket: CollaborationWebSocket
     try { socket = socketFactory(websocketUrl(origin, cached.fileId, clientId), collaborationWebSocketProtocol) }
     catch (error) {
-      scheduleReconnect(error instanceof Error ? error.message : 'Collaboration connection failed.', true)
+      scheduleReconnect(error instanceof Error ? error.message : 'Collaboration connection failed.', !sessionWasAdmitted)
       return
     }
     const epoch = socketEpoch
@@ -1476,7 +1483,7 @@ export function createCollaborationClient<TDocument extends object>(options: Col
       detach(false, normalClosure, event.reason || 'Collaboration disconnected.')
       if (!stopped && !disposed) {
         const message = event.reason || 'Collaboration disconnected.'
-        scheduleReconnect(message, !admitted)
+        scheduleReconnect(message, !sessionWasAdmitted && !admitted)
       }
     }
     const error = () => {
@@ -1589,6 +1596,7 @@ export function createCollaborationClient<TDocument extends object>(options: Col
       sessionEpoch += 1
       const activeSessionEpoch = sessionEpoch
       stopped = false
+      sessionWasAdmitted = false
       presenceSequence = 0
       localPresence = emptyPresence
       currentReplayScopeId = null

@@ -3,14 +3,14 @@ import { acceptPreviewCommand, acceptPreviewEvent, isPreviewDocument } from '../
 import { canvasElementStyle, hostOrigin } from '../src/scene-styles.mjs'
 
 const source = {} as Window
-const envelope = { channel: 'design-editor-preview', version: 8, generation: 3 }
+const envelope = { channel: 'design-editor-preview', version: 9, generation: 3 }
 const solid = (color: string) => ({ fills: [{ type: 'solid', color }] })
 const gradient = { fills: [{ type: 'gradient', shape: 'linear', angle: 135, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'srgb', stops: [{ color: 'oklch(0.62 0.19 259.8)', position: 0 }, { color: '#000000', position: 1 }] }] }
 const legacyTextProperties = {
   textStyle: { fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false },
   textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
 }
-const document = { version: 2, revision: 0, rootIds: [], nodes: {}, frame: { width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [{ id: 'frame', kind: 'frame', name: 'Frame', x: -213, y: -276, width: 438, height: 560, rotation: 0, appearance: solid('#ffffff'), parentId: null }, { id: 'text', kind: 'text', name: 'Text', x: 12, y: 13.5, width: 200, height: 21, rotation: 0, appearance: solid('#64748b'), text: 'you@example.com', ...legacyTextProperties, parentId: 'frame' }, { id: 'glow', kind: 'shader', name: 'Glow', x: 40, y: 80, width: 120, height: 120, rotation: 15, appearance: gradient, parentId: 'frame' }] } }
+const document = { version: 2, revision: 0, rootIds: [], nodes: {}, frame: { width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [{ id: 'frame', kind: 'frame', name: 'Frame', relativeTransform: [1, 0, 0, 1, -213, -276], width: 438, height: 560, appearance: solid('#ffffff'), parentId: null }, { id: 'text', kind: 'text', name: 'Text', relativeTransform: [1, 0, 0, 1, 12, 13.5], width: 200, height: 21, appearance: solid('#64748b'), text: 'you@example.com', ...legacyTextProperties, parentId: 'frame' }, { id: 'glow', kind: 'shader', name: 'Glow', relativeTransform: [0.965925826289, 0.258819045103, -0.258819045103, 0.965925826289, 57.573593128807, 66.515307716505], width: 120, height: 120, appearance: gradient, parentId: 'frame' }] } }
 const withElement = (index: number, patch: Record<string, unknown>) => ({ ...document, canvas: { elements: document.canvas.elements.map((element, position) => position === index ? { ...element, ...patch } : element) } })
 
 describe('scene protocol', () => {
@@ -42,6 +42,19 @@ describe('scene protocol', () => {
     expect(isPreviewDocument(withElement(0, { parentId: '' }))).toBe(false)
   })
 
+  it('COMP-V2-UI-009 admits only bounded declarative canvas interactions', () => {
+    const interactions = [
+      { trigger: 'pointer-hover', appearance: solid('#ff0000'), transition: { type: 'smart-animate', durationMs: 180, easing: 'ease-out' } },
+      { trigger: 'pointer-press', appearance: solid('#0000ff') },
+    ]
+    expect(isPreviewDocument(withElement(0, { interactions }))).toBe(true)
+    expect(isPreviewDocument(withElement(0, { interactions: [...interactions, interactions[0]] }))).toBe(false)
+    expect(isPreviewDocument(withElement(0, { interactions: [interactions[0], interactions[0]] }))).toBe(false)
+    expect(isPreviewDocument(withElement(0, { interactions: [{ trigger: 'click', appearance: solid('#ff0000') }] }))).toBe(false)
+    expect(isPreviewDocument(withElement(0, { interactions: [{ trigger: 'pointer-hover', appearance: solid('url(x)') }] }))).toBe(false)
+    expect(isPreviewDocument(withElement(0, { interactions: [{ ...interactions[0], transition: { type: 'smart-animate', durationMs: 60_001 } }] }))).toBe(false)
+  })
+
   it('PAPER-FLEX-001/002 accepts projected primitive layout and fails closed on competing or hostile authorities', () => {
     const frameLayout = { mode: 'freeform', declarations: { display: 'flex', 'flex-direction': 'row', 'flex-wrap': 'wrap', 'justify-content': 'flex-start', 'align-items': 'center', 'column-gap': '8px', 'row-gap': '10px', 'padding-left': '12px' } }
     const flowText = { mode: 'flow', declarations: { 'margin-left': '4px' } }
@@ -54,7 +67,7 @@ describe('scene protocol', () => {
       { ...frameLayout, extra: true },
       { mode: 'flow', declarations: { position: 'absolute' } },
       { mode: 'absolute', declarations: { left: '7px' } },
-      { mode: 'absolute', declarations: { position: 'absolute', transform: 'rotate(15deg)' } },
+      { mode: 'absolute', declarations: { position: 'absolute', transform: 'matrix(0.965925826289, 0.258819045103, -0.258819045103, 0.965925826289, 0, 0)' } },
       { mode: 'freeform', declarations: { overflow: 'hidden' } },
       { mode: 'flow', declarations: { width: 'calc(100% - 2px)' } },
     ]) expect(isPreviewDocument(withElement(0, { layout }))).toBe(false)
@@ -107,7 +120,7 @@ describe('scene protocol', () => {
     for (const declarations of [
       { left: '1px' }, { right: '1px' }, { top: '1px' }, { bottom: '1px' }, { 'z-index': '1' },
       { 'flex-grow': '1' }, { 'flex-shrink': '0' }, { 'flex-basis': 'auto' }, { 'grid-column-start': '1' },
-      { transform: 'scale(1)' }, { overflow: 'hidden' }, { 'aspect-ratio': '1' },
+      { transform: 'matrix(1, 0, 0, 1, 0, 0)' }, { overflow: 'hidden' }, { 'aspect-ratio': '1' },
     ]) expect(isPreviewDocument(withElement(2, { layout: { mode: 'freeform', declarations } }))).toBe(false)
 
     for (const name of Object.keys(semanticFields)) {
@@ -131,33 +144,33 @@ describe('scene protocol', () => {
 
   it('derives primitive styles from appearance and keeps the legacy host at the old frame origin', () => {
     expect(hostOrigin({ width: 400, height: 520, padding: 24 })).toEqual({ x: -176, y: -236, width: 352 })
-    expect(canvasElementStyle(document.canvas.elements[0])).toMatchObject({ position: 'absolute', left: '-213px', top: '-276px', width: '438px', height: '560px', backgroundColor: '#ffffff', overflow: 'hidden', pointerEvents: 'none', boxSizing: 'border-box' })
+    expect(canvasElementStyle(document.canvas.elements[0])).toMatchObject({ position: 'absolute', left: '0px', top: '0px', width: '438px', height: '560px', transformOrigin: '0 0', transform: 'matrix(1, 0, 0, 1, -213, -276)', backgroundColor: '#ffffff', overflow: 'hidden', pointerEvents: 'none', boxSizing: 'border-box' })
     expect(canvasElementStyle(document.canvas.elements[0]).backgroundImage).toBeUndefined()
     expect(canvasElementStyle({ ...document.canvas.elements[0], clip: false }).overflow).toBe('visible')
     expect(canvasElementStyle({ ...document.canvas.elements[0], clip: true }).overflow).toBe('hidden')
-    expect(canvasElementStyle(document.canvas.elements[1], undefined, { x: 2, y: 3.5 })).toMatchObject({ left: '10px', top: '10px', color: '#64748b', fontSize: '16px', whiteSpace: 'pre-wrap' })
+    expect(canvasElementStyle(document.canvas.elements[1], undefined, { x: 2, y: 3.5 })).toMatchObject({ left: '0px', top: '0px', transform: 'matrix(1, 0, 0, 1, 10, 10)', color: '#64748b', fontSize: '16px', whiteSpace: 'pre-wrap' })
     expect(canvasElementStyle(document.canvas.elements[1]).backgroundImage).toBeUndefined()
-    expect(canvasElementStyle(document.canvas.elements[2])).toMatchObject({ backgroundColor: 'transparent', backgroundImage: 'linear-gradient(135deg, oklch(0.62 0.19 259.8) 0%, #000000 100%)', transform: 'rotate(15deg)' })
-    expect(canvasElementStyle({ ...document.canvas.elements[2], flipX: true })).toMatchObject({ transform: 'rotate(15deg) scale(-1, 1)' })
-    expect(canvasElementStyle({ ...document.canvas.elements[2], rotation: 0, flipY: true })).toMatchObject({ transform: 'scale(1, -1)' })
+    expect(canvasElementStyle(document.canvas.elements[2])).toMatchObject({ backgroundColor: 'transparent', backgroundImage: 'linear-gradient(135deg, oklch(0.62 0.19 259.8) 0%, #000000 100%)', transform: 'matrix(0.965925826289, 0.258819045103, -0.258819045103, 0.965925826289, 57.573593128807, 66.515307716505)' })
+    expect(canvasElementStyle({ ...document.canvas.elements[2], relativeTransform: [-1, 0, 0, 1, 160, 80] })).toMatchObject({ transform: 'matrix(-1, 0, 0, 1, 160, 80)' })
+    expect(canvasElementStyle({ ...document.canvas.elements[2], relativeTransform: [1, 0, 0, -1, 40, 200] })).toMatchObject({ transform: 'matrix(1, 0, 0, -1, 40, 200)' })
     expect(canvasElementStyle({ ...document.canvas.elements[2], kind: 'shape' })).toMatchObject({ backgroundImage: 'linear-gradient(135deg, oklch(0.62 0.19 259.8) 0%, #000000 100%)', borderRadius: '50%' })
-    expect(canvasElementStyle({ ...document.canvas.elements[2], kind: 'rectangle', appearance: undefined, rotation: 0 })).toMatchObject({ backgroundColor: 'transparent', transform: undefined })
+    expect(canvasElementStyle({ ...document.canvas.elements[2], kind: 'rectangle', appearance: undefined, relativeTransform: [1, 0, 0, 1, 40, 80] })).toMatchObject({ backgroundColor: 'transparent', transform: 'matrix(1, 0, 0, 1, 40, 80)' })
     expect(canvasElementStyle({ ...document.canvas.elements[2], kind: 'rectangle', appearance: undefined }).backgroundImage).toBeUndefined()
   })
 
   it('PAPER-FLEX-001 keeps legacy freeform absolute and projects flow, flex, and absolute DOM styles independently', () => {
     const frame = document.canvas.elements[0]!
     const legacy = canvasElementStyle(frame)
-    expect(legacy).toMatchObject({ position: 'absolute', left: '-213px', top: '-276px', width: '438px', height: '560px' })
+    expect(legacy).toMatchObject({ position: 'absolute', left: '0px', top: '0px', width: '438px', height: '560px', transform: 'matrix(1, 0, 0, 1, -213, -276)' })
 
     const flex = canvasElementStyle({ ...frame, layout: { mode: 'freeform', declarations: { display: 'flex', 'flex-direction': 'row', 'flex-wrap': 'wrap', 'column-gap': '8px', 'row-gap': '10px', 'padding-left': '12px' } } })
-    expect(flex).toMatchObject({ position: 'absolute', left: '-213px', top: '-276px', display: 'flex', flexDirection: 'row', flexWrap: 'wrap', columnGap: '8px', rowGap: '10px', paddingLeft: '12px' })
+    expect(flex).toMatchObject({ position: 'absolute', left: '0px', top: '0px', transform: 'matrix(1, 0, 0, 1, -213, -276)', display: 'flex', flexDirection: 'row', flexWrap: 'wrap', columnGap: '8px', rowGap: '10px', paddingLeft: '12px' })
 
     const flow = canvasElementStyle({ ...frame, layout: { mode: 'flow', declarations: { width: '120px', 'flex-grow': '1' } } })
     expect(flow).toMatchObject({ position: 'relative', left: undefined, top: undefined, width: '120px', flexGrow: '1' })
 
     const absolute = canvasElementStyle({ ...document.canvas.elements[2]!, layout: { mode: 'absolute', declarations: { position: 'absolute', left: '25%', top: '7px' } } })
-    expect(absolute).toMatchObject({ position: 'absolute', left: '25%', top: '7px', transform: 'rotate(15deg)' })
+    expect(absolute).toMatchObject({ position: 'absolute', left: '25%', top: '7px', transform: 'matrix(0.965925826289, 0.258819045103, -0.258819045103, 0.965925826289, 57.573593128807, 66.515307716505)' })
   })
 
   it('PAPER-FLEX-002 keeps far-edge absolute anchors independent from authored x and y fallbacks', () => {

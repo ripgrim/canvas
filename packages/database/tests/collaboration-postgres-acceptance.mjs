@@ -133,7 +133,7 @@ async function runAcceptance(pool) {
 
   const staleAppend = await persistence.appendOperation(operationInput({ fileId, lease: expiring.lease, mutationId: 'stale-append', baseSequence: 0n, revision: 1, name: 'Stale', expectedAccessEpoch: 3n }))
   assert.equal(staleAppend.status, 'stale-fence')
-  assert.equal((await persistence.bootstrapProjectionFromLegacy({ fileId, generationId: waitingGeneration, protocolEpoch: 3, fencingToken: expiring.lease.fencingToken, documentSchemaVersion: 9 })).status, 'stale-fence')
+  assert.equal((await persistence.bootstrapProjectionFromLegacy({ fileId, generationId: waitingGeneration, protocolEpoch: 3, fencingToken: expiring.lease.fencingToken, documentSchemaVersion: 12 })).status, 'stale-fence')
   const staleCheckpoint = await persistence.commitVerifiedCheckpoint({
     fileId,
     generationId: waitingGeneration,
@@ -144,7 +144,7 @@ async function runAcceptance(pool) {
     objectDigest: 'f'.repeat(64),
     documentDigest: 'e'.repeat(64),
     compressedBytes: 64n,
-    documentSchemaVersion: 9,
+    documentSchemaVersion: 12,
   })
   assert.equal(staleCheckpoint.status, 'stale-fence')
 
@@ -154,7 +154,7 @@ async function runAcceptance(pool) {
   const legacyThumbnailKey = `thumbnails/${fileId}/versions/1/before-cutover.avif`
   assert.equal((await controlPlane.setFileThumbnail('collaboration-acceptance', fileId, 1, legacyThumbnailKey, '"before-cutover"')).status, 'saved')
 
-  const bootstrapInput = { fileId, generationId: replacementGeneration, protocolEpoch: 3, fencingToken: replacement.lease.fencingToken, documentSchemaVersion: 9 }
+  const bootstrapInput = { fileId, generationId: replacementGeneration, protocolEpoch: 3, fencingToken: replacement.lease.fencingToken, documentSchemaVersion: 12 }
   const bootstrapped = await Promise.all([
     persistence.bootstrapProjectionFromLegacy(bootstrapInput),
     persistence.bootstrapProjectionFromLegacy(bootstrapInput),
@@ -228,7 +228,7 @@ async function runAcceptance(pool) {
     objectDigest: 'a'.repeat(64),
     documentDigest: projection.documentDigest,
     compressedBytes: 256n,
-    documentSchemaVersion: 9,
+    documentSchemaVersion: 12,
   }
   assert.equal((await persistence.commitVerifiedCheckpoint(checkpointInput)).status, 'committed')
   assert.equal((await persistence.commitVerifiedCheckpoint(checkpointInput)).status, 'replayed')
@@ -264,7 +264,7 @@ async function assertCloudSyncClientCanonicalProjectionReads(pool, persistence, 
   assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId, protocolEpoch: 3 })).status, 'registered')
   const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 3, leaseDurationMs: 30_000 })
   assert.equal(acquired.status, 'acquired')
-  const bootstrapInput = { fileId: file.id, generationId, protocolEpoch: 3, fencingToken: acquired.lease.fencingToken, documentSchemaVersion: 9 }
+  const bootstrapInput = { fileId: file.id, generationId, protocolEpoch: 3, fencingToken: acquired.lease.fencingToken, documentSchemaVersion: initial.document.schemaVersion }
   assert.equal((await persistence.bootstrapProjectionFromLegacy(bootstrapInput)).status, 'seeded')
 
   const unpublishedDocument = {
@@ -304,7 +304,7 @@ async function assertCloudSyncClientCanonicalProjectionReads(pool, persistence, 
     operationType: 'page.rename',
     operationPayload: { pageId: legacyDocument.pages[0].id, name: 'Live' },
     baseSequence: 0n,
-    projection: { documentSchemaVersion: 9, document: liveDocument },
+    projection: { documentSchemaVersion: 12, document: liveDocument },
   })
   assert.equal(appended.status, 'committed')
 
@@ -398,6 +398,7 @@ async function assertBootstrapCutoverRace(pool, persistence, controlPlane) {
   assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId, protocolEpoch: 3 })).status, 'registered')
   const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 3, leaseDurationMs: 30_000 })
   assert.equal(acquired.status, 'acquired')
+  const source = await controlPlane.getFileDocument('cutover-race-owner', file.id)
 
   const advisoryKey = 1_143_920_117
   const blocker = await pool.connect()
@@ -417,10 +418,9 @@ async function assertBootstrapCutoverRace(pool, persistence, controlPlane) {
       generationId,
       protocolEpoch: 3,
       fencingToken: acquired.lease.fencingToken,
-      documentSchemaVersion: 9,
+      documentSchemaVersion: source.document.schemaVersion,
     })
     await waitForAdvisoryWaiter(pool)
-    const source = await controlPlane.getFileDocument('cutover-race-owner', file.id)
     const legacySave = controlPlane.saveFileDocument('cutover-race-owner', file.id, 0, { ...source.document, revision: 1, racedLegacySave: true })
     await blocker.query('COMMIT')
 
@@ -448,7 +448,7 @@ async function assertUniformLockOrderRace(pool) {
   const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 3, leaseDurationMs: 30_000 })
   assert.equal(acquired.status, 'acquired')
   const lease = acquired.lease
-  const bootstrapInput = { fileId: file.id, generationId, protocolEpoch: 3, fencingToken: lease.fencingToken, documentSchemaVersion: 9 }
+  const bootstrapInput = { fileId: file.id, generationId, protocolEpoch: 3, fencingToken: lease.fencingToken, documentSchemaVersion: 12 }
   assert.equal((await persistence.bootstrapProjectionFromLegacy(bootstrapInput)).status, 'seeded')
   const firstInput = operationInput({ fileId: file.id, lease, mutationId: 'lock-order-mutation', baseSequence: 0n, revision: 1, name: 'Lock order', expectedSubjectId: 'lock-order-owner', expectedAccessEpoch: 1n })
   assert.equal((await persistence.appendOperation(firstInput)).status, 'committed')
@@ -463,7 +463,7 @@ async function assertUniformLockOrderRace(pool) {
     objectDigest: 'c'.repeat(64),
     documentDigest: projection.documentDigest,
     compressedBytes: 128n,
-    documentSchemaVersion: 9,
+    documentSchemaVersion: 12,
   }
 
   const appendBarrier = queryBarrier()
@@ -644,7 +644,7 @@ async function waitForAdvisoryWaiter(pool) {
 }
 
 function operationInput({ fileId, lease, mutationId, baseSequence, revision, name, failureMarker, expectedSubjectId = 'collaboration-acceptance', expectedAccessEpoch }) {
-  const document = { schemaVersion: 9, fileId, revision, name, ...(failureMarker ? { failureMarker } : {}) }
+  const document = { schemaVersion: 12, fileId, revision, name, ...(failureMarker ? { failureMarker } : {}) }
   return {
     fileId,
     generationId: lease.generationId,
@@ -657,7 +657,7 @@ function operationInput({ fileId, lease, mutationId, baseSequence, revision, nam
     operationType: 'document.edit',
     operationPayload: { kind: 'rename', name },
     baseSequence,
-    projection: { documentSchemaVersion: 9, document },
+    projection: { documentSchemaVersion: 12, document },
   }
 }
 

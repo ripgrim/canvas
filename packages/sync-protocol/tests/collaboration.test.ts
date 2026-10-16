@@ -123,8 +123,8 @@ describe('CLOUD-SYNC-SCHEMA-001 client validation', () => {
       { type: 'page.create', page: { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' } },
       { type: 'page.setBackground', pageId: 'page-1', background: literal },
       { type: 'page.rename', pageId: 'page-1', name: 'Home' },
-      { type: 'node.insert', node: { id: 'node-2', type: 'rectangle', name: 'Box', styles: { left: 0, top: 0, width: 10, height: 10 } }, placement: { parentId: 'root-1' } },
-      { type: 'node.setStyles', nodeId: 'node-1', styles: { width: 200, rotation: null } },
+      { type: 'node.insert', node: { id: 'node-2', type: 'rectangle', name: 'Box', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } }, placement: { parentId: 'root-1' } },
+      { type: 'node.setStyles', nodeId: 'node-1', styles: { width: 200, relativeTransform: [1, 0, 0, 1, 0, 0] } },
       { type: 'node.setText', nodeId: 'node-1', text: 'Hello' },
       { type: 'node.setAppearance', nodeId: 'node-1', appearance: { fills: [solid] } },
       { type: 'node.fill.update', nodeId: 'node-1', fillId: 'fill-1', paint: solid },
@@ -605,7 +605,7 @@ describe('snapshot stream contract', () => {
       { type: 'admission.queued', protocolEpoch: 4, schemaVersion: 1, requestId: 'request-1' },
       { type: 'room.assigned', envelope: serverEnvelope, requestId: 'request-1', role: 'owner', replayScopeId: 'a'.repeat(64) },
       { type: 'load.phase', envelope: serverEnvelope, requestId: 'request-1', phase: 'stream' },
-      { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 9, baseSequence: '4', compression: 'none', contentEncoding: 'utf-8', storedByteLength: 2, documentByteLength: 2, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 1 },
+      { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 12, baseSequence: '4', compression: 'none', contentEncoding: 'utf-8', storedByteLength: 2, documentByteLength: 2, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 1 },
       { type: 'snapshot.chunk', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', chunkIndex: 0, chunkCount: 1, data: 'e30=' },
       { type: 'snapshot.end', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1' },
       { type: 'load.phase', envelope: serverEnvelope, requestId: 'request-1', phase: 'apply' },
@@ -631,9 +631,9 @@ describe('snapshot stream contract', () => {
   })
 
   it('rejects unsupported schemas and inconsistent or oversized snapshot declarations', () => {
-    const begin = { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 9, baseSequence: '0', compression: 'none', contentEncoding: 'utf-8', storedByteLength: maxSnapshotChunkBytes + 1, documentByteLength: maxSnapshotChunkBytes + 1, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 2 }
+    const begin = { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 12, baseSequence: '0', compression: 'none', contentEncoding: 'utf-8', storedByteLength: maxSnapshotChunkBytes + 1, documentByteLength: maxSnapshotChunkBytes + 1, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 2 }
     expect(parseCollaborationServerMessage(JSON.stringify(begin))).toEqual(begin)
-    expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, documentSchemaVersion: 8 }))).toThrow('Invalid collaboration server message')
+    expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, documentSchemaVersion: 11 }))).toThrow('Invalid collaboration server message')
     expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, chunkCount: 1 }))).toThrow('Invalid collaboration server message')
     expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, storedByteLength: maxSnapshotBytes + 1, documentByteLength: maxSnapshotBytes + 1 }))).toThrow('Invalid collaboration server message')
     expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, compression: 'gzip' }))).toThrow('Invalid collaboration server message')

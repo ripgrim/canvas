@@ -53,6 +53,7 @@ function bearer(request: IncomingMessage): string | null {
 }
 
 function reject(socket: Duplex, status: number, reason: string): void {
+  if (socket.destroyed) return
   const body = `${reason}\n`
   socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\nX-Content-Type-Options: nosniff\r\n\r\n${body}`)
 }
@@ -86,6 +87,7 @@ export function createRoomNetworkServer(options: RoomNetworkOptions): RoomNetwor
   })
 
   server.on('upgrade', (request, socket, head) => {
+    socket.on('error', () => undefined)
     socket.pause()
     void (async () => {
       const route = routeOf(request)

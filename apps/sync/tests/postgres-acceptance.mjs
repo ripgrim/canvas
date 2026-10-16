@@ -8,6 +8,7 @@ if (!connectionString) throw new Error('DATABASE_URL is required for the Postgre
 
 const pool = new Pool({ connectionString })
 const syncPool = new Pool({ connectionString, application_name: `sync-acceptance-${process.pid}` })
+const projectId = randomUUID()
 const fileId = randomUUID()
 const ownerId = `sync-acceptance:${randomUUID()}`
 const unrelatedOwnerId = `sync-acceptance:${randomUUID()}`
@@ -37,7 +38,8 @@ const commit = (overrides = {}) => ({
 })
 
 try {
-  await pool.query('INSERT INTO app_file (id, owner_user_id, name) VALUES ($1, $2, $3)', [fileId, ownerId, 'Sync acceptance'])
+  await pool.query('INSERT INTO app_project (id, owner_user_id, name) VALUES ($1, $2, $3)', [projectId, ownerId, 'Sync acceptance'])
+  await pool.query('INSERT INTO app_file (id, project_id, owner_user_id, name) VALUES ($1, $2, $3, $4)', [fileId, projectId, ownerId, 'Sync acceptance'])
   await pool.query('INSERT INTO app_file_document (file_id, owner_user_id, revision, document) VALUES ($1, $2, 0, $3::jsonb)', [fileId, ownerId, JSON.stringify(document)])
 
   const first = new PostgresSyncRepository(syncPool, { historyLimit: 2 })
@@ -167,5 +169,6 @@ try {
   await pool.query(`DROP TRIGGER IF EXISTS ${triggerName} ON app_file`).catch(() => undefined)
   await pool.query(`DROP FUNCTION IF EXISTS ${functionName}()`).catch(() => undefined)
   await pool.query('DELETE FROM app_file WHERE id = $1', [fileId]).catch(() => undefined)
+  await pool.query('DELETE FROM app_project WHERE id = $1', [projectId]).catch(() => undefined)
   await Promise.all([syncPool.end(), pool.end()])
 }

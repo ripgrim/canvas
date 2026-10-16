@@ -12,6 +12,10 @@ import type { CollaborationClientMessage, CollaborationServerMessage, ServerRoom
 const id = '11111111-2222-4333-8444-555555555555'
 const metadata = { id, projectId: null, name: 'Untitled 1', headRevision: 0, thumbnailKey: null, createdAt: '2026-10-09T00:00:00.000Z', updatedAt: '2026-10-09T00:00:00.000Z' }
 const document = createBlankFile(id, 'page_cloud', 'root_cloud', 'Page 1')
+const malformedHostedDocument = () => ({
+  ...document,
+  pages: [{ ...document.pages[0]!, rootNodeId: 'missing-root' }],
+}) as typeof document
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
 
 class ScriptedSocket implements CollaborationWebSocket {
@@ -80,6 +84,15 @@ describe('desktop cloud files', () => {
     expect(new URL(opened.preview.url!).searchParams.get('editorOrigin')).toBe('design-editor://app')
     expect(instance.activePreviewUrl()).toBe(opened.preview.url)
     expect(() => service(async () => json({}), document, 'other-editor://app')).toThrow('Editor origin must be an HTTP or HTTPS origin.')
+  })
+
+  it('CLOUD-FILES-001 rejects the canonical malformed hosted document at the desktop boundary', async () => {
+    const { instance } = service(async () => json({ file: metadata }), malformedHostedDocument())
+
+    const opening = instance.open(id)
+    await expect(opening).rejects.toThrow('This file contains invalid data. Error ID: invalid-file-document')
+    expect(instance.collaborationSnapshot()).toMatchObject({ status: 'unavailable', error: null })
+    instance.dispose()
   })
 
   it('[CLOUD-SYNC-CLIENT-001] uses the main-process authenticated room for consecutive cloud saves', async () => {

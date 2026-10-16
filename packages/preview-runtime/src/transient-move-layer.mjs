@@ -91,7 +91,6 @@ export function createTransientMoveLayer(ownerDocument, container) {
       if (width !== undefined || height !== undefined) nextProperties.add('box-sizing')
       if (width !== undefined) nextProperties.add('width')
       if (height !== undefined) nextProperties.add('height')
-      if (item.rotationDelta !== undefined) nextProperties.add('rotate')
       if (geometry) for (const property in geometry) nextProperties.add(cssName(property))
       for (const property of state.activeProperties) if (!nextProperties.has(property)) restoreProperty(state, property)
       for (const property of nextProperties) capture(state, property)
@@ -102,7 +101,6 @@ export function createTransientMoveLayer(ownerDocument, container) {
       if (width !== undefined || height !== undefined) state.element.style.setProperty('box-sizing', 'border-box', 'important')
       if (width !== undefined) state.element.style.setProperty('width', `${width}px`, 'important')
       if (height !== undefined) state.element.style.setProperty('height', `${height}px`, 'important')
-      if (item.rotationDelta !== undefined) state.element.style.setProperty('rotate', `${item.rotationDelta}deg`, 'important')
       if (geometry) for (const property in geometry) {
         const name = cssName(property)
         if (state.element.style.getPropertyValue(name) !== geometry[property] || state.element.style.getPropertyPriority(name) !== 'important') state.element.style.setProperty(name, geometry[property], 'important')
@@ -124,8 +122,8 @@ export function createTransientMoveLayer(ownerDocument, container) {
 }
 
 /**
- * Coordinate-explicit v7 presentation layer. This is separate from the legacy transient move layer while the live
- * controller migrates. Each node has one declaration owner and every owned inline value is restored byte-for-byte.
+ * Coordinate-explicit v9 presentation layer. Each node has one declaration owner and every owned inline value is
+ * restored byte-for-byte.
  */
 export function createTransientPresentationLayer(ownerDocument, container) {
   const applied = new Map()
@@ -193,6 +191,9 @@ export function createTransientPresentationLayer(ownerDocument, container) {
       ['width', `${item.rect.width}px`],
       ['height', `${item.rect.height}px`],
       ['box-sizing', 'border-box'],
+      ['transform-origin', `${item.transformOrigin.x}px ${item.transformOrigin.y}px`],
+      ['transform', `matrix(${item.nodeTransform.join(', ')})`],
+      ['will-change', 'transform, width, height'],
     ])
     const geometry = item.appearance?.fills ? fillGeometryStyle(item.appearance.fills, editorDocument?.assets) : null
     if (geometry) for (const property in geometry) declarations.set(cssName(property), geometry[property])

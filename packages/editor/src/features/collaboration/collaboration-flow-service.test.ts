@@ -7,11 +7,11 @@ import { documentStore } from '../editor/document-store'
 import { createCollaborationService } from './collaboration-service'
 
 const file: FileDocument = {
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 4,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
-  nodes: { 'root-1': { id: 'root-1', type: 'root' }, source: { id: 'source', type: 'rectangle', name: 'Source', styles: { left: 0, top: 0, width: 40, height: 30 } } },
+  nodes: { 'root-1': { id: 'root-1', type: 'root' }, source: { id: 'source', type: 'rectangle', name: 'Source', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 30 } } },
   relationships: { source: { parentId: 'root-1', orderKey: 'V' } },
   theme: { tokens: {} },
 }

@@ -8,14 +8,14 @@ import { sceneGeometry } from './scene-geometry'
 import type { ResizePresentation, ResizePresentationItem } from './resize-projection'
 
 const file: FileDocument = {
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-transient',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
-    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 100, top: 200, width: 300, height: 200 } },
-    child: { id: 'child', type: 'rectangle', name: 'Child', styles: { left: 20, top: 30, width: 40, height: 50 } },
+    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 100, 200], width: 300, height: 200 } },
+    child: { id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 40, height: 50 } },
     button: { id: 'button', type: 'component', componentId: 'atom-button', exportName: 'Button', props: {} },
   },
   relationships: {
@@ -60,7 +60,7 @@ describe('AT-CAN-005 preview transient move projection', () => {
   it('hydrates fixed image assets without using the retired resize transient adapter', () => {
     const imageFile: FileDocument = {
       ...file,
-      nodes: { ...file.nodes, frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 100, top: 200, width: 300, height: 200 }, appearance: { fills: [{ id: 'image-fill', type: 'image', assetId: 'flowers', fit: 'cover' }] } } },
+      nodes: { ...file.nodes, frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 100, 200], width: 300, height: 200 }, appearance: { fills: [{ id: 'image-fill', type: 'image', assetId: 'flowers', fit: 'cover' }] } } },
       assets: { flowers: { id: 'flowers', name: 'flowers.webp', mime: 'image/webp', extension: 'webp', width: 1600, height: 1200, bytes: 3, sha256: 'a'.repeat(64) } },
     }
     const projected = projectPreviewPage(imageFile, 'page-1')!.document
@@ -75,7 +75,7 @@ describe('AT-CAN-005 preview transient move projection', () => {
   it('FILE-ASSET-001 hydrates AVIF bytes without removing the image fill', () => {
     const avifFile: FileDocument = {
       ...file,
-      nodes: { ...file.nodes, child: { id: 'child', type: 'rectangle', name: 'Child', styles: { left: 20, top: 30, width: 40, height: 50 }, appearance: { fills: [{ id: 'avif-fill', type: 'image', assetId: 'portrait', fit: 'contain' }] } } },
+      nodes: { ...file.nodes, child: { id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 40, height: 50 }, appearance: { fills: [{ id: 'avif-fill', type: 'image', assetId: 'portrait', fit: 'contain' }] } } },
       assets: { portrait: { id: 'portrait', name: 'portrait.avif', mime: 'image/avif', extension: 'avif', width: 40, height: 30, bytes: 3, sha256: 'b'.repeat(64) } },
     }
     const projected = projectPreviewPage(avifFile, 'page-1')!.document
@@ -104,8 +104,8 @@ describe('PAPER-FLEX-006, PAPER-FLEX-007, and AT-CAN-006 coordinate-explicit res
     frame: { width: 800, height: 600, direction: 'column' as const, gap: 0, padding: 0, clip: false },
     canvas: {
       elements: [
-        { id: 'frame', kind: 'frame' as const, name: 'Frame', x: 0, y: 0, width: 200, height: 160, rotation: 0, parentId: null, clip: false },
-        { id: 'selected', kind: 'rectangle' as const, name: 'Selected', x: 0, y: 0, width: 100, height: 50, rotation: 0, parentId: 'frame' },
+        { id: 'frame', kind: 'frame' as const, name: 'Frame', relativeTransform: [1, 0, 0, 1, 0, 0] as const, width: 200, height: 160, parentId: null, clip: false },
+        { id: 'selected', kind: 'rectangle' as const, name: 'Selected', relativeTransform: [1, 0, 0, 1, 0, 0] as const, width: 100, height: 50, parentId: 'frame' },
       ],
     },
   }
@@ -116,6 +116,7 @@ describe('PAPER-FLEX-006, PAPER-FLEX-007, and AT-CAN-006 coordinate-explicit res
   const item = (patch: Partial<ResizePresentationItem> = {}): ResizePresentationItem => ({
     nodeId: 'selected', parentId: 'frame', coordinateSpace: 'parent-padding',
     startRect: { x: 0, y: 0, width: 100, height: 50 }, rect: { x: 5, y: -15, width: 35, height: 50 }, world,
+    nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 17.5, y: 25 },
     ...patch,
   })
   const presentation = (items: readonly ResizePresentationItem[]): ResizePresentation => ({
@@ -131,7 +132,7 @@ describe('PAPER-FLEX-006, PAPER-FLEX-007, and AT-CAN-006 coordinate-explicit res
 
     expect(result).toStrictEqual({
       kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'resize-1', sampleSequence: 7, fence,
-      items: [{ nodeId: 'selected', parentNodeId: 'frame', startRect: { x: 0, y: 0, width: 100, height: 50 }, rect: { x: 5, y: -15, width: 35, height: 50 } }],
+      items: [{ nodeId: 'selected', parentNodeId: 'frame', startRect: { x: 0, y: 0, width: 100, height: 50 }, rect: { x: 5, y: -15, width: 35, height: 50 }, nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 17.5, y: 25 } }],
     })
     expect(JSON.stringify(projected)).toBe(source)
     expect(Object.isFrozen(result)).toBe(true)
@@ -143,8 +144,8 @@ describe('PAPER-FLEX-006, PAPER-FLEX-007, and AT-CAN-006 coordinate-explicit res
     const component = item({ nodeId: 'component', parentId: 'page-root' })
     const rootPrimitive = item({ nodeId: 'frame', parentId: 'page-root' })
     expect(previewResizePresentation({ presentation: presentation([rootPrimitive, component]), document: preview, pageRootNodeId: 'page-root', interactionId: 'resize-roots', sampleSequence: 1, fence })?.items).toStrictEqual([
-      { nodeId: 'frame', parentNodeId: null, startRect: { x: 0, y: 0, width: 100, height: 50 }, rect: { x: 5, y: -15, width: 35, height: 50 } },
-      { nodeId: 'component', parentNodeId: null, startRect: { x: 0, y: 0, width: 100, height: 50 }, rect: { x: 5, y: -15, width: 35, height: 50 } },
+      { nodeId: 'frame', parentNodeId: null, startRect: { x: 0, y: 0, width: 100, height: 50 }, rect: { x: 5, y: -15, width: 35, height: 50 }, nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 17.5, y: 25 } },
+      { nodeId: 'component', parentNodeId: null, startRect: { x: 0, y: 0, width: 100, height: 50 }, rect: { x: 5, y: -15, width: 35, height: 50 }, nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 17.5, y: 25 } },
     ])
     expect(previewResizePresentation({ presentation: presentation([item({ parentId: 'page-root' })]), document: preview, pageRootNodeId: 'page-root', interactionId: 'bad-parent', sampleSequence: 1, fence })).toBeNull()
   })

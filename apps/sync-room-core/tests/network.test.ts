@@ -1,11 +1,13 @@
 import { once } from 'node:events'
+import { applyHostedFileCommand, validateFileDocument, type FileDocument } from '@canvas/repo-engine/file-document'
+import { createCollaborationClient, createCollaborationDurableStore, type CollaborationWebSocket } from '@canvas/sync-client'
 import { parseCollaborationServerMessage } from '@canvas/sync-protocol'
 import { WebSocket } from 'ws'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createRoomNetworkServer } from '../src/network.js'
 import { createSemanticProjector } from '../src/projector.js'
 import { CollaborationRoomCore } from '../src/room-core.js'
-import { checkpoints, clientId, connectionNonce, FakePersistence, fileId, flowDocument, flowPresentation, generationId, projection, projector, ticket, tickets } from './support.js'
+import { checkpoints, clientId, connectionNonce, document, FakePersistence, fileId, flowDocument, flowPresentation, generationId, projection, projector, ticket, tickets } from './support.js'
 
 const origin = 'http://127.0.0.1:4317'
 
@@ -28,6 +30,37 @@ async function openObservedSocket(port: number, nonce: string, socketClientId: s
   socket.send(JSON.stringify({ type: 'room.open', protocolEpoch: 4, schemaVersion: 1, requestId, fileId, clientId: socketClientId, buildId: 'test-build' }))
   await waitForWire(messages, value => value.type === 'presence.roster')
   return Object.freeze({ socket, messages })
+}
+
+function memoryCollaborationStore() {
+  const values = new Map<string, unknown>()
+  return createCollaborationDurableStore({
+    async read(key) { return values.get(key) ?? null },
+    async update(key, updater) {
+      const next = updater(values.get(key) ?? null)
+      if (next === null) values.delete(key)
+      else values.set(key, next)
+    },
+    async reserve() {},
+    async purgeAccount(accountId) {
+      for (const [key, value] of values) {
+        if (typeof value === 'object' && value !== null && Reflect.get(Reflect.get(value, 'scope') ?? {}, 'accountId') === accountId) values.delete(key)
+      }
+    },
+  })
+}
+
+async function waitForClientDocument(
+  client: ReturnType<typeof createCollaborationClient<FileDocument>>,
+  predicate: (document: FileDocument) => boolean,
+): Promise<FileDocument> {
+  const expiresAt = Date.now() + 1_000
+  while (Date.now() < expiresAt) {
+    const current = client.getSnapshot().document
+    if (current && predicate(current)) return current
+    await new Promise<void>(resolve => setImmediate(resolve))
+  }
+  throw new Error('Expected collaboration client document was not received')
 }
 
 describe('room network boundary', () => {
@@ -81,6 +114,77 @@ describe('room network boundary', () => {
     expect(code).toBe(1007)
     expect(reason.toString()).toBe('Invalid collaboration message')
     expect(verificationCount).toBe(1)
+  })
+
+  it('PAPER-CLIP-008 broadcasts one atomic clipboard batch and converges the persisted projection over real WebSockets', async () => {
+    const persistence = new FakePersistence()
+    const room = new CollaborationRoomCore({
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+    }, { persistence, tickets: tickets(), projector: createSemanticProjector(), checkpoints })
+    await room.start()
+    const network = createRoomNetworkServer({ room, allowedOrigins: [origin], maxMessageBytes: 256 * 1024, handshakeTimeoutMs: 2_000 })
+    const address = await network.listen(0)
+    let observerClient: ReturnType<typeof createCollaborationClient<FileDocument>> | null = null
+    cleanup = async () => {
+      observerClient?.dispose()
+      await network.close()
+    }
+    const owner = await openObservedSocket(address.port, connectionNonce, clientId, 'clipboard-owner')
+    const observerClientId = 'clipboard-observer'
+    const observerNonce = 'C'.repeat(24)
+    const observerAppliedCommands: unknown[] = []
+    let observerRequest = 0
+    observerClient = createCollaborationClient<FileDocument>({
+      syncOrigin: `ws://${address.hostname}:${address.port}`,
+      buildId: 'test-build',
+      clientId: observerClientId,
+      durableStore: memoryCollaborationStore(),
+      validateDocument: value => validateFileDocument(value, []),
+      applyCommand(value, nextCommand) {
+        observerAppliedCommands.push(nextCommand)
+        return applyHostedFileCommand(value, nextCommand)
+      },
+      createId: () => `clipboard-observer-request-${++observerRequest}`,
+      lifecycleTarget: null,
+      reconnectDelaysMs: [0],
+      createWebSocket(_url, protocol) {
+        const url = `ws://${address.hostname}:${address.port}/sync/${fileId}/${generationId}?clientId=${observerClientId}&connectionNonce=${observerNonce}`
+        return new WebSocket(url, protocol, { origin, headers: { Authorization: `Bearer ${ticket}` } }) as unknown as CollaborationWebSocket
+      },
+    })
+    await observerClient.start({ fileId, cache: { accountId: 'clipboard-account', documentSchemaVersion: 12 } })
+    await waitForClientDocument(observerClient, value => value.revision === document().revision)
+    owner.messages.length = 0
+    const command = {
+      type: 'batch', commands: [
+        { type: 'token.create', token: { id: 'clipboard-color', type: 'color', name: 'Clipboard color', orderKey: 'V', value: { kind: 'literal', color: { kind: 'hex', hex: '#123456' } } } },
+        { type: 'asset.attach', asset: { id: 'clipboard-asset', name: 'Clipboard image', mime: 'image/png', extension: 'png', bytes: 4, width: 1, height: 1, sha256: '9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a' } },
+        { type: 'node.insert', node: { id: 'clipboard-node', type: 'rectangle', name: 'Clipboard image', styles: { relativeTransform: [1, 0, 0, 1, 120, 80], width: 80, height: 60 }, appearance: { fills: [
+          { id: 'clipboard-image-fill', type: 'image', assetId: 'clipboard-asset', fit: 'cover' },
+          { id: 'clipboard-color-fill', type: 'solid', color: { kind: 'token', tokenId: 'clipboard-color' } },
+        ] } }, placement: { parentId: 'root-1' } },
+      ],
+    }
+    owner.socket.send(JSON.stringify({ type: 'operation.submit', operation: { mutationId: 'clipboard-paste-0001', baseSequence: '0', command } }))
+    await expect(waitForWire(owner.messages, value => value.type === 'operation.ack')).resolves.toMatchObject({ mutationId: 'clipboard-paste-0001', sequence: '1', status: 'applied' })
+    const observerDocument = await waitForClientDocument(observerClient, value => value.revision === 1 && Boolean(value.nodes['clipboard-node']))
+    expect(observerAppliedCommands).toEqual([command])
+    expect(observerClient.getSnapshot()).toMatchObject({ lifecycle: 'live', serverSequence: '1', lastOperation: { mutationId: 'clipboard-paste-0001', command } })
+    expect(observerDocument).toMatchObject({
+      revision: 1,
+      theme: { tokens: { 'clipboard-color': { value: { color: { hex: '#123456' } } } } },
+      assets: { 'clipboard-asset': { sha256: '9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a' } },
+      nodes: { 'clipboard-node': { appearance: { fills: [{ assetId: 'clipboard-asset' }, { color: { tokenId: 'clipboard-color' } }] } } },
+      relationships: { 'clipboard-node': { parentId: 'root-1' } },
+    })
+    expect(persistence.current.sequence).toBe(1n)
+    expect(persistence.current.document).toMatchObject({
+      revision: 1,
+      theme: { tokens: { 'clipboard-color': { value: { color: { hex: '#123456' } } } } },
+      assets: { 'clipboard-asset': { sha256: '9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a' } },
+      nodes: { 'clipboard-node': { appearance: { fills: [{ assetId: 'clipboard-asset' }, { color: { tokenId: 'clipboard-color' } }] } } },
+      relationships: { 'clipboard-node': { parentId: 'root-1' } },
+    })
   })
 
   it('CLOUD-SYNC-DO-SEC-001 rejects non-exact query authority before ticket verification', async () => {

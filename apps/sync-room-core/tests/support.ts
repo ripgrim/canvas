@@ -21,13 +21,14 @@ export const ticket = 'B'.repeat(32)
 
 export function document(extra: Readonly<Record<string, unknown>> = {}): CollaborationPayload {
   return {
-    schemaVersion: 9,
+    schemaVersion: 12,
     fileId,
     revision: 0,
     pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
-    nodes: { 'root-1': { id: 'root-1', type: 'root' }, 'node-1': { id: 'node-1', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 100, height: 100 } } },
+    nodes: { 'root-1': { id: 'root-1', type: 'root' }, 'node-1': { id: 'node-1', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 } } },
     relationships: { 'node-1': { parentId: 'root-1', orderKey: 'V' } },
     theme: { tokens: {} },
+    componentModel: { definitions: {}, instances: {} },
     ...extra,
   } as CollaborationPayload
 }
@@ -37,12 +38,12 @@ export function flowDocument(): CollaborationPayload {
   return document({
     nodes: {
       'root-1': { id: 'root-1', type: 'root' },
-      'source-frame': { id: 'source-frame', type: 'frame', name: 'Source', styles: { left: 0, top: 0, width: 300, height: 200 }, layout: { item: { position: { mode: 'freeform' } }, container: flex } },
-      'target-frame': { id: 'target-frame', type: 'frame', name: 'Target', styles: { left: 400, top: 0, width: 300, height: 200 }, layout: { item: { position: { mode: 'freeform' } }, container: flex } },
-      'source-node': { id: 'source-node', type: 'rectangle', name: 'Source node', styles: { left: 0, top: 0, width: 100, height: 80 }, layout: { item: { position: { mode: 'flow' } } } },
-      'target-child': { id: 'target-child', type: 'rectangle', name: 'Target child', styles: { left: 0, top: 0, width: 40, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
-      'disjoint-frame': { id: 'disjoint-frame', type: 'frame', name: 'Disjoint', styles: { left: 800, top: 0, width: 200, height: 200 }, layout: { item: { position: { mode: 'freeform' } }, container: flex } },
-      'disjoint-node': { id: 'disjoint-node', type: 'rectangle', name: 'Disjoint node', styles: { left: 0, top: 0, width: 30, height: 30 }, layout: { item: { position: { mode: 'flow' } } } },
+      'source-frame': { id: 'source-frame', type: 'frame', name: 'Source', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 300, height: 200 }, layout: { item: { position: { mode: 'freeform' } }, container: flex } },
+      'target-frame': { id: 'target-frame', type: 'frame', name: 'Target', styles: { relativeTransform: [1, 0, 0, 1, 400, 0], width: 300, height: 200 }, layout: { item: { position: { mode: 'freeform' } }, container: flex } },
+      'source-node': { id: 'source-node', type: 'rectangle', name: 'Source node', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 80 }, layout: { item: { position: { mode: 'flow' } } } },
+      'target-child': { id: 'target-child', type: 'rectangle', name: 'Target child', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
+      'disjoint-frame': { id: 'disjoint-frame', type: 'frame', name: 'Disjoint', styles: { relativeTransform: [1, 0, 0, 1, 800, 0], width: 200, height: 200 }, layout: { item: { position: { mode: 'freeform' } }, container: flex } },
+      'disjoint-node': { id: 'disjoint-node', type: 'rectangle', name: 'Disjoint node', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 30, height: 30 }, layout: { item: { position: { mode: 'flow' } } } },
     },
     relationships: {
       'source-frame': { parentId: 'root-1', orderKey: 'V' },
@@ -132,7 +133,7 @@ export function projection(value = document(), sequence = 0n): CollaborationProj
   return Object.freeze({
     fileId,
     sequence,
-    documentSchemaVersion: 9,
+    documentSchemaVersion: 12,
     document: value,
     documentDigest: collaborationDocumentDigest(value),
     generationId,
@@ -184,7 +185,7 @@ export class FakePersistence implements CollaborationPersistence {
   async listOperationsAfter() { return [] }
   async getProjection() { return this.current }
   async pruneCoveredOperations(_input: Parameters<CollaborationPersistence['pruneCoveredOperations']>[0]) { return { status: 'pruned' as const, throughSequence: 0n, deletedCount: 0n } }
-  async commitVerifiedCheckpoint() { this.calls.push('checkpoint'); return { status: 'committed' as const, checkpoint: { fileId, sequence: this.current.sequence, objectKey: 'checkpoint.json', objectDigest: this.current.documentDigest, documentDigest: this.current.documentDigest, compressedBytes: 1n, documentSchemaVersion: 9, generationId, fencingToken: 1n, committedAt: new Date(0).toISOString() } } }
+  async commitVerifiedCheckpoint() { this.calls.push('checkpoint'); return { status: 'committed' as const, checkpoint: { fileId, sequence: this.current.sequence, objectKey: 'checkpoint.json', objectDigest: this.current.documentDigest, documentDigest: this.current.documentDigest, compressedBytes: 1n, documentSchemaVersion: 12, generationId, fencingToken: 1n, committedAt: new Date(0).toISOString() } } }
   async getCheckpoint() { return null }
 }
 
