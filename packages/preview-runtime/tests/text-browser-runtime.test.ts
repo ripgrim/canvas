@@ -41,7 +41,7 @@ const textNode = (
 
 const repeatedCopy = 'LINE 1\nLINE 2\nLINE 3\nLINE 4\nLINE 5\nLINE 6'
 const previewDocument = {
-  version: 2,
+  version: 3,
   revision: 1,
   rootIds: [],
   nodes: {},
@@ -175,7 +175,7 @@ beforeAll(async () => {
   await page.goto(editorOrigin)
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
-  const command = { channel: 'design-editor-preview', version: 9, generation: result.activeGeneration, type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument, theme: { attribute: null, colorScheme: 'light' } }
+  const command = { channel: 'design-editor-preview', version: 10, generation: result.activeGeneration, type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument, theme: { attribute: null, colorScheme: 'light' } }
   await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, result.origin] as const)
   await frame.waitForSelector('[data-preview-canvas="formatted"]')
   await waitFor(() => observe('fit-height'), value => value.rect.height > 24)

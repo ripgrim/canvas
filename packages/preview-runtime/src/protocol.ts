@@ -3,8 +3,8 @@ import { containerLonghands, isLayoutDeclarations, type LayoutDeclarations } fro
 export type { PreviewBoxMeasure, PreviewCamera, PreviewContentDistribution, PreviewThemeDiagnostics, PreviewThemeStatus, PreviewGeometryItem, PreviewGridMeasure, PreviewLayoutReport, PreviewMatrix, PreviewOffsetMeasure, PreviewRootGeometry, PreviewSides, PreviewTextMeasure, PreviewUnsupportedLayout } from './geometry.js'
 export type { LayoutDeclarations, LayoutStatus } from './layout-protocol.js'
 export { isLayoutDeclarations, layoutLonghands, layoutStatuses } from './layout-protocol.js'
-/** Wire version of the editor/preview envelope. Version 9 makes transient resize and rotation matrix-native. */
-export const protocolVersion = 9 as const
+/** Wire version of the editor/preview envelope. Version 10 adds explicit interaction target ownership. */
+export const protocolVersion = 10 as const
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 export const previewBlendModes = ['normal', 'darken', 'multiply', 'color-burn', 'lighten', 'screen', 'plus-lighter', 'color-dodge', 'overlay', 'soft-light', 'hard-light', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity'] as const
 export type PreviewBlendMode = typeof previewBlendModes[number]
@@ -38,9 +38,9 @@ export function isPreviewNodeTheme(value: unknown): value is PreviewNodeTheme {
   return typeof value.explicit === 'boolean'
 }
 export type PreviewPrimitiveLayout = { mode: 'freeform' | 'flow' | 'absolute'; declarations: LayoutDeclarations }
-export type PreviewCanvasInteraction = { trigger: 'pointer-hover' | 'pointer-press'; appearance: PreviewAppearance; transition?: { type: 'instant' | 'smart-animate'; durationMs?: number; easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' } }
+export type PreviewCanvasInteraction = { trigger: 'pointer-hover' | 'pointer-press'; targetId: string; appearance: PreviewAppearance; transition?: { type: 'instant' | 'smart-animate'; durationMs?: number; easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' } }
 export type PreviewCanvasElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; relativeTransform: readonly [number, number, number, number, number, number]; width: number; height: number; text?: string; textStyle?: PreviewTextStyle; textSizing?: PreviewTextSizing; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance; interactions?: PreviewCanvasInteraction[]; layout?: PreviewPrimitiveLayout }
-export type PreviewDocument = { version: 2; revision: number; rootIds: string[]; nodes: Record<string, PreviewDocumentNode>; frame: { width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean; name?: string }; canvas?: { elements: PreviewCanvasElement[] }; background?: string; assets?: Record<string, PreviewAsset> }
+export type PreviewDocument = { version: 3; revision: number; rootIds: string[]; nodes: Record<string, PreviewDocumentNode>; frame: { width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean; name?: string }; canvas?: { elements: PreviewCanvasElement[] }; background?: string; assets?: Record<string, PreviewAsset> }
 export type PreviewPropRule = { kind: 'string' | 'number' | 'boolean'; optional?: boolean } | { kind: 'enum'; values: readonly (string | number | boolean)[]; optional?: boolean }
 export type PreviewRegistryBinding = { componentId: string; exportName: string; entryPath: string; props?: Readonly<Record<string, PreviewPropRule>>; slots?: readonly string[] }
 /** The design theme applied to the preview document root. `attribute` becomes `data-theme`; null clears it for the base theme. */
@@ -271,9 +271,9 @@ export function isPreviewCanvasElement(value: unknown, assets?: Record<string, u
     if (!Array.isArray(value.interactions) || value.interactions.length > 2) return false
     const triggers = new Set<string>()
     for (const candidate of value.interactions) {
-      if (!record(candidate) || !shape(candidate, ['trigger', 'appearance'], ['transition']) || !oneOf(candidate.trigger, ['pointer-hover', 'pointer-press']) || triggers.has(candidate.trigger as string)) return false
+      if (!record(candidate) || !shape(candidate, ['trigger', 'targetId', 'appearance'], ['transition']) || !oneOf(candidate.trigger, ['pointer-hover', 'pointer-press']) || !validId(candidate.targetId) || triggers.has(candidate.trigger as string)) return false
       triggers.add(candidate.trigger as string)
-      if (!isPreviewAppearance(candidate.appearance, assets, value.kind as PreviewCanvasElement['kind'])) return false
+      if (!isPreviewAppearance(candidate.appearance, assets)) return false
       if (Object.hasOwn(candidate, 'transition')) {
         if (!record(candidate.transition) || !shape(candidate.transition, ['type'], ['durationMs', 'easing']) || !oneOf(candidate.transition.type, ['instant', 'smart-animate'])) return false
         if (Object.hasOwn(candidate.transition, 'durationMs') && !numberWithin(candidate.transition.durationMs, 0, 60_000)) return false
@@ -358,7 +358,7 @@ function isPreviewTextStyle(value: unknown): value is PreviewTextStyle {
 export function isPreviewDocument(value: unknown, registry?: readonly Pick<PreviewRegistryBinding, 'componentId' | 'exportName' | 'props' | 'slots'>[]): value is PreviewDocument {
   if (!record(value)) return false
   const optional = ['canvas', 'background', 'assets'].filter(name => Object.hasOwn(value, name))
-  if (!exactFields(value, ['version', 'revision', 'rootIds', 'nodes', 'frame', ...optional]) || value.version !== 2 || !Number.isSafeInteger(value.revision) || (value.revision as number) < 0) return false
+  if (!exactFields(value, ['version', 'revision', 'rootIds', 'nodes', 'frame', ...optional]) || value.version !== 3 || !Number.isSafeInteger(value.revision) || (value.revision as number) < 0) return false
   if (!record(value.nodes) || Object.keys(value.nodes).length > 500 || !Array.isArray(value.rootIds) || value.rootIds.length > 500 || !record(value.frame)) return false
   const frame = value.frame
   if (!exactFields(frame, ['width', 'height', 'direction', 'gap', 'padding', 'clip', ...(Object.hasOwn(frame, 'name') ? ['name'] : [])]) || !['row', 'column'].includes(frame.direction as string) || typeof frame.clip !== 'boolean') return false
@@ -379,6 +379,13 @@ export function isPreviewDocument(value: unknown, registry?: readonly Pick<Previ
       if (element.parentId === null && hasPercentagePrimitiveSizing(element.layout)) return false
       const visited = new Set([element.id]); let parentId: string | null | undefined = element.parentId
       while (parentId) { if (visited.has(parentId)) return false; visited.add(parentId); parentId = byId.get(parentId)?.parentId }
+      for (const interaction of element.interactions ?? []) {
+        const target = byId.get(interaction.targetId)
+        if (!target || !isPreviewAppearance(interaction.appearance, assets, target.kind)) return false
+        let candidate: PreviewCanvasElement | undefined = target
+        while (candidate && candidate.id !== element.id) candidate = candidate.parentId ? byId.get(candidate.parentId) : undefined
+        if (!candidate) return false
+      }
     }
   }
   for (const [id, node] of Object.entries(value.nodes)) {

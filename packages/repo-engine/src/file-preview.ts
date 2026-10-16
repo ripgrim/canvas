@@ -26,10 +26,10 @@ export type ThemeDiagnostic = { nodeId: string; reason: 'missing-theme' | 'ambig
 const isThemeContext = (value: SourcePalette | ThemeProjectionContext): value is ThemeProjectionContext => typeof (value as ThemeProjectionContext).palette === 'function' && Array.isArray((value as ThemeProjectionContext).themes)
 const baseTheme: DesignTheme = { id: defaultDesignThemeId, name: 'Default', selector: ':root', attribute: null, colorScheme: 'light' }
 export type PreviewPrimitiveLayout = { mode: PositionMode; declarations: Record<string, string> }
-export type PreviewPageInteraction = { trigger: 'pointer-hover' | 'pointer-press'; appearance: PreviewAppearance; transition?: { type: 'instant' | 'smart-animate'; durationMs?: number; easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' } }
+export type PreviewPageInteraction = { trigger: 'pointer-hover' | 'pointer-press'; targetId: string; appearance: PreviewAppearance; transition?: { type: 'instant' | 'smart-animate'; durationMs?: number; easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' } }
 export type PreviewPageElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; relativeTransform: readonly [number, number, number, number, number, number]; width: number; height: number; text?: string; textStyle?: TextStyle; textSizing?: TextSizing; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance; interactions?: PreviewPageInteraction[]; layout?: PreviewPrimitiveLayout }
 export type PreviewPageAsset = Omit<ImageAssetReference, 'id'>
-export type PreviewPageDocument = { version: 2; revision: number; rootIds: string[]; nodes: Record<string, PreviewPageNode>; frame: { name?: string; width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean }; canvas: { elements: PreviewPageElement[] }; background?: string; assets?: Record<string, PreviewPageAsset> }
+export type PreviewPageDocument = { version: 3; revision: number; rootIds: string[]; nodes: Record<string, PreviewPageNode>; frame: { name?: string; width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean }; canvas: { elements: PreviewPageElement[] }; background?: string; assets?: Record<string, PreviewPageAsset> }
 export type PreviewLayoutEntry = { nodeId: string; mode: DocumentNodeLayout['mode']; x: number; y: number; order: number; width?: number; height?: number; declarations?: Record<string, string> }
 const kebab = (name: string) => name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)
 const componentProps = (file: FileDocument, nodeId: string, stored: Record<string, DocumentValue>): Record<string, DocumentValue> => {
@@ -170,7 +170,7 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
     const projected = projectedAppearance(nodeAppearance(file.nodes[id]), sources)
     return projected ? { appearance: projected } : {}
   }
-  type AuthoredInteraction = Readonly<{ trigger: 'pointer-hover' | 'pointer-press'; appearance: Appearance; transition?: { type: 'instant' | 'smart-animate'; durationMs?: number; easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' } }>
+  type AuthoredInteraction = Readonly<{ trigger: 'pointer-hover' | 'pointer-press'; targetId: string; appearance: Appearance; transition?: { type: 'instant' | 'smart-animate'; durationMs?: number; easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' } }>
   const authoredInteractions = new Map<string, AuthoredInteraction[]>()
   const addDefinitionInteractions = (definition: FileDocument['componentModel']['definitions'][string], masterRootId: string, instanceRootId: string) => {
     const nodeMap = new Map<string, string>()
@@ -191,9 +191,9 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
       const nodeId = nodeMap.get(property.binding.nodeId)
       const appearance = property.binding.appearances[interaction.valueId]
       if (!nodeId || !appearance) continue
-      const existing = authoredInteractions.get(nodeId) ?? []
-      const authored: AuthoredInteraction = { trigger: interaction.trigger, appearance, ...(interaction.transition ? { transition: interaction.transition } : {}) }
-      authoredInteractions.set(nodeId, [...existing.filter(candidate => candidate.trigger !== authored.trigger), authored])
+      const existing = authoredInteractions.get(instanceRootId) ?? []
+      const authored: AuthoredInteraction = { trigger: interaction.trigger, targetId: nodeId, appearance, ...(interaction.transition ? { transition: interaction.transition } : {}) }
+      authoredInteractions.set(instanceRootId, [...existing.filter(candidate => candidate.trigger !== authored.trigger), authored])
     }
   }
   for (const definition of Object.values(file.componentModel.definitions)) {
@@ -204,6 +204,7 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
   const interactionsOf = (id: string, sources: SourcePalette): { interactions: PreviewPageInteraction[] } | Record<string, never> => {
     const interactions = authoredInteractions.get(id)?.map(interaction => ({
       trigger: interaction.trigger,
+      targetId: interaction.targetId,
       appearance: projectedAppearance(interaction.appearance, sources) ?? {},
       ...(interaction.transition ? { transition: interaction.transition } : {}),
     }))
@@ -251,5 +252,5 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
     if (child?.type === 'component') { rootIds.push(childId); visitComponent(childId, componentOrder++, null) }
     else visitPrimitive(childId, null, null)
   }
-  return { document: { version: 2, revision: file.revision, rootIds, nodes, frame: { ...flowHost, name: page.name }, canvas: { elements }, ...(resolvedBackground ? { background: colorToCss(resolvedBackground) } : {}), ...(Object.keys(assets).length ? { assets } : {}) }, layout, themeDiagnostics }
+  return { document: { version: 3, revision: file.revision, rootIds, nodes, frame: { ...flowHost, name: page.name }, canvas: { elements }, ...(resolvedBackground ? { background: colorToCss(resolvedBackground) } : {}), ...(Object.keys(assets).length ? { assets } : {}) }, layout, themeDiagnostics }
 }

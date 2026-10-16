@@ -8,19 +8,27 @@ import { fixtureRegistry } from './fixture-registry.js'
 
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
 const previewDocument = {
-  version: 2,
+  version: 3,
   revision: 1,
   rootIds: [],
   nodes: {},
   frame: { width: 400, height: 300, direction: 'column', gap: 0, padding: 0, clip: false },
   canvas: {
     elements: [{
-      id: 'interactive-card', kind: 'rectangle', name: 'Interactive card', relativeTransform: [1, 0, 0, 1, -60, -30], width: 120, height: 60, parentId: null,
-      appearance: { fills: [{ type: 'solid', color: '#202124' }] },
+      id: 'interactive-card', kind: 'frame', name: 'Interactive card', relativeTransform: [1, 0, 0, 1, -80, -50], width: 160, height: 100, parentId: null,
       interactions: [
-        { trigger: 'pointer-hover', appearance: { fills: [{ type: 'solid', color: '#ff0000' }] }, transition: { type: 'smart-animate', durationMs: 180, easing: 'ease-out' } },
-        { trigger: 'pointer-press', appearance: { fills: [{ type: 'solid', color: '#0000ff' }] } },
+        { trigger: 'pointer-hover', targetId: 'card-face', appearance: { fills: [{ type: 'solid', color: '#ff0000' }] }, transition: { type: 'smart-animate', durationMs: 180, easing: 'ease-out' } },
+        { trigger: 'pointer-press', targetId: 'card-face', appearance: { fills: [{ type: 'solid', color: '#0000ff' }] } },
       ],
+    }, {
+      id: 'card-face', kind: 'rectangle', name: 'Card face', relativeTransform: [1, 0, 0, 1, 40, 30], width: 80, height: 40, parentId: 'interactive-card',
+      appearance: { fills: [{ type: 'solid', color: '#8844aa' }] },
+    }, {
+      id: 'nested-component', kind: 'frame', name: 'Nested component', relativeTransform: [1, 0, 0, 1, 110, 8], width: 40, height: 24, parentId: 'interactive-card',
+      interactions: [{ trigger: 'pointer-hover', targetId: 'nested-face', appearance: { fills: [{ type: 'solid', color: '#00ff00' }] } }],
+    }, {
+      id: 'nested-face', kind: 'rectangle', name: 'Nested face', relativeTransform: [1, 0, 0, 1, 4, 4], width: 32, height: 16, parentId: 'nested-component',
+      appearance: { fills: [{ type: 'solid', color: '#404348' }] },
     }],
   },
 }
@@ -34,15 +42,15 @@ let dispose: (() => Promise<void>) | undefined
 
 const post = async (payload: Record<string, unknown>) => page.evaluate(([data, origin]) => {
   document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string)
-}, [{ channel: 'design-editor-preview', version: 9, generation, ...payload }, previewOrigin] as const)
+}, [{ channel: 'design-editor-preview', version: 10, generation, ...payload }, previewOrigin] as const)
 
-const background = () => frame.locator('[data-preview-canvas="interactive-card"]').evaluate(element => getComputedStyle(element).backgroundColor)
-const expectBackground = async (color: string) => {
+const background = (id = 'card-face') => frame.locator(`[data-preview-canvas="${id}"]`).evaluate(element => getComputedStyle(element).backgroundColor)
+const expectBackground = async (color: string, id = 'card-face') => {
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (await background() === color) return
+    if (await background(id) === color) return
     await new Promise(resolveWait => setTimeout(resolveWait, 10))
   }
-  expect(await background()).toBe(color)
+  expect(await background(id)).toBe(color)
 }
 
 beforeAll(async () => {
@@ -77,29 +85,66 @@ beforeAll(async () => {
 
 afterAll(async () => { await dispose?.() }, 30_000)
 
-describe('COMP-V2-UI-009 component interactions in the real preview runtime', () => {
+describe('COMP-V2-UI-073/074 component-root interactions in the real preview runtime', () => {
   it('acknowledges the exact document only after its DOM render completes', async () => {
     const messages = await page.evaluate(() => (window as unknown as { previewMessages: unknown[] }).previewMessages)
     expect(messages).toContainEqual(expect.objectContaining({ type: 'document-applied', renderSequence: 12, documentRevision: 1 }))
   })
 
-  it('renders hover and press states in Interact mode and leaves them inert in Select mode', async () => {
+  it('owns hover and press at the component root, isolates a nested owner, and restores configured appearance', async () => {
     const card = frame.locator('[data-preview-canvas="interactive-card"]')
-    await expectBackground('rgb(32, 33, 36)')
+    const face = frame.locator('[data-preview-canvas="card-face"]')
+    const nested = frame.locator('[data-preview-canvas="nested-component"]')
+    await expectBackground('rgb(136, 68, 170)')
 
-    await card.hover()
+    await card.hover({ position: { x: 10, y: 50 } })
     await expectBackground('rgb(255, 0, 0)')
-    expect(await card.evaluate(element => (element as HTMLElement).style.transition)).toBe('180ms ease-out')
+    expect(await face.evaluate(element => (element as HTMLElement).style.transition)).toBe('180ms ease-out')
 
-    await card.dispatchEvent('pointerdown')
+    await card.dispatchEvent('pointerdown', { pointerId: 1 })
     await expectBackground('rgb(0, 0, 255)')
-    await card.dispatchEvent('pointerup')
+    await card.dispatchEvent('pointerup', { pointerId: 1 })
     await expectBackground('rgb(255, 0, 0)')
 
     await page.mouse.move(5, 5)
-    await expectBackground('rgb(32, 33, 36)')
+    await expectBackground('rgb(136, 68, 170)')
+    await card.hover({ position: { x: 10, y: 50 } })
+    await expectBackground('rgb(255, 0, 0)')
+
+    await nested.hover()
+    await expectBackground('rgb(136, 68, 170)')
+    await expectBackground('rgb(0, 255, 0)', 'nested-face')
+    await card.hover({ position: { x: 10, y: 50 } })
+    await expectBackground('rgb(255, 0, 0)')
+    await expectBackground('rgb(64, 67, 72)', 'nested-face')
+
+    await card.dispatchEvent('pointerdown', { pointerId: 2 })
+    await expectBackground('rgb(0, 0, 255)')
+    await card.dispatchEvent('pointercancel', { pointerId: 2 })
+    await expectBackground('rgb(136, 68, 170)')
+
+    await page.mouse.move(5, 5)
+    await card.hover({ position: { x: 10, y: 50 } })
+    await expectBackground('rgb(255, 0, 0)')
+    await frame.evaluate(() => window.dispatchEvent(new Event('blur')))
+    await expectBackground('rgb(136, 68, 170)')
+
+    await page.mouse.move(5, 5)
+    await card.hover({ position: { x: 10, y: 50 } })
+    await expectBackground('rgb(255, 0, 0)')
+    await post({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: { ...previewDocument, revision: 2 }, theme: { attribute: null, colorScheme: 'light' }, renderSequence: 13 })
+    await page.waitForFunction(() => (window as unknown as { previewMessages: { type?: string; renderSequence?: number }[] }).previewMessages.some(message => message.type === 'document-applied' && message.renderSequence === 13))
+    await expectBackground('rgb(136, 68, 170)')
+
+    await page.mouse.move(5, 5)
+    await expectBackground('rgb(136, 68, 170)')
     await post({ type: 'set-interaction-mode', mode: 'select' })
     await card.hover()
-    await expectBackground('rgb(32, 33, 36)')
+    await expectBackground('rgb(136, 68, 170)')
+
+    await page.mouse.move(5, 5)
+    await post({ type: 'set-interaction-mode', mode: 'pan' })
+    await card.hover()
+    await expectBackground('rgb(136, 68, 170)')
   })
 })

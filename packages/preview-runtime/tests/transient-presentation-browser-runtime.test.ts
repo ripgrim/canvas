@@ -9,7 +9,7 @@ import { fixtureRegistry } from './fixture-registry.js'
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
 const image = { fills: [{ type: 'image' as const, assetId: 'photo', fit: 'cover' as const }] }
 const previewDocument = (revision = 12, includePrimitive = true) => ({
-  version: 2 as const,
+  version: 3 as const,
   revision,
   rootIds: ['button-1'],
   nodes: {
@@ -37,12 +37,12 @@ async function waitFor<T>(read: () => Promise<T>, predicate: (value: T) => boole
 }
 
 const send = async (payload: Record<string, unknown>) => {
-  const command = { channel: 'design-editor-preview', version: 9, generation, ...payload }
+  const command = { channel: 'design-editor-preview', version: 10, generation, ...payload }
   await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
 }
 
 const sendForGeneration = async (commandGeneration: number, payload: Record<string, unknown>) => {
-  const command = { channel: 'design-editor-preview', version: 9, generation: commandGeneration, ...payload }
+  const command = { channel: 'design-editor-preview', version: 10, generation: commandGeneration, ...payload }
   await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
 }
 
@@ -88,7 +88,7 @@ beforeAll(async () => {
 
 afterAll(async () => { await dispose?.() }, 30_000)
 
-describe('PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 v9 browser presentation runtime', () => {
+describe('PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 protocol-v10 browser presentation runtime', () => {
   it('applies one parent-padding projection, preserves transforms and assets, rejects stale samples, and restores every lifecycle edge', async () => {
     await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument(), theme: { attribute: null, colorScheme: 'light' } })
     await send({ type: 'set-camera', sequence: 1, camera: { x: -400, y: -300, zoom: 1, width: 800, height: 600 } })
@@ -259,7 +259,7 @@ describe('PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 v9 browser pres
     await page.evaluate(([origin, activeGeneration, activeFence]) => {
       const target = document.querySelector('iframe')!.contentWindow!
       for (let index = 0; index < 501; index += 1) target.postMessage({
-        channel: 'design-editor-preview', version: 9, generation: activeGeneration, type: 'set-transient-presentations',
+        channel: 'design-editor-preview', version: 10, generation: activeGeneration, type: 'set-transient-presentations',
         presentations: [{ kind: 'move-world', coordinateSpace: 'world', interactionId: `bounded-${index}`, sampleSequence: 0, fence: activeFence, items: [{ nodeId: 'selected', dx: index, dy: 0 }] }],
       }, origin as string)
     }, [previewOrigin, generation, fence] as const)

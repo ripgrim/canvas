@@ -44,7 +44,7 @@ try {
   process.stderr.write('selection phase: preview DOM ready\n')
   const generation = Number(generationText)
   const send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 9, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 10, generation, ...payload }
     await window.webContents.executeJavaScript(`document.querySelector('iframe').contentWindow.postMessage(${JSON.stringify(command)},${JSON.stringify(new URL(previewUrl).origin)})`)
   }
   const observe = () => frame.executeJavaScript(`(() => {
@@ -55,7 +55,7 @@ try {
   await new Promise(resolve => setTimeout(resolve, 40))
   assert.equal((await observe()).count, 0)
   const document = {
-    version: 2, revision: 1, rootIds: ['card-1', 'button-1'], nodes: {
+    version: 3, revision: 1, rootIds: ['card-1', 'button-1'], nodes: {
       'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: { heading: 'Sign in' }, children: { children: ['input-1'] } },
       'input-1': { id: 'input-1', componentId: 'atom-input', exportName: 'Input', theme: lightTheme, props: { id: 'native-email', type: 'email' }, children: {} },
       'button-1': { id: 'button-1', componentId: 'atom-button', exportName: 'Button', theme: lightTheme, props: { children: 'Go', type: 'button' }, children: {} },

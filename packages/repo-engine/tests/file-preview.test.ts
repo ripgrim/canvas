@@ -63,7 +63,7 @@ const ramp = (end: string) => ({ fills: [{ type: 'gradient', shape: 'linear', an
 describe('preview projection', () => {
   it('lists component children of the root in order as root ids, with slot children per slot and instance appearance', () => {
     const { document } = projectPreviewPage(fixture(), 'page-1')!
-    expect(document.version).toBe(2)
+    expect(document.version).toBe(3)
     expect(document.revision).toBe(9)
     expect(document.rootIds).toEqual(['card', 'solo'])
     const red = { color: '#ff0000', width: 2, style: 'solid' }
@@ -131,7 +131,7 @@ describe('preview projection', () => {
     const { document } = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!
     const byId = Object.fromEntries(document.canvas.elements.map(element => [element.id, element]))
 
-    expect(document.version).toBe(2)
+    expect(document.version).toBe(3)
     expect(byId.outer!.layout).toStrictEqual({
       mode: 'freeform',
       declarations: { display: 'flex', 'flex-direction': 'row', 'flex-wrap': 'wrap', 'justify-content': 'flex-start', 'align-items': 'center', 'column-gap': '8px', 'row-gap': '10px', 'padding-top': '16px', 'padding-right': '12px', 'padding-bottom': '16px', 'padding-left': '12px' },
@@ -186,7 +186,7 @@ describe('preview projection', () => {
   })
 
   it('projects an empty page and returns null for an unknown page', () => {
-    expect(projectPreviewPage(fixture(), 'page-2')).toStrictEqual({ document: { version: 2, revision: 9, rootIds: [], nodes: {}, frame: { name: 'Empty', width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [] } }, layout: [], themeDiagnostics: [] })
+    expect(projectPreviewPage(fixture(), 'page-2')).toStrictEqual({ document: { version: 3, revision: 9, rootIds: [], nodes: {}, frame: { name: 'Empty', width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [] } }, layout: [], themeDiagnostics: [] })
     expect(projectPreviewPage(fixture(), 'page-x')).toBeNull()
   })
 
@@ -212,7 +212,7 @@ describe('preview projection', () => {
     expect(document.nodes['btn-2']!.props).toEqual({ variant: 'primary', children: 'Default label' })
   })
 
-  it('COMP-V2-UI-009 projects authored hover and press states onto the bound canvas layer', () => {
+  it('COMP-V2-UI-073 projects authored hover and press ownership onto the component root with the bound layer as target', () => {
     const file = fixture()
     const white = { fills: [solid('default-fill', lit('#ffffff'))] }
     const red = { fills: [solid('hover-fill', lit('#ff0000'))] }
@@ -235,11 +235,12 @@ describe('preview projection', () => {
       },
       instances: {},
     }
-    const projected = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!.document.canvas.elements.find(element => element.id === 'inner')
-    expect(projected?.interactions).toStrictEqual([
-      { trigger: 'pointer-hover', appearance: flat('#ff0000'), transition: { type: 'smart-animate', durationMs: 180, easing: 'ease-out' } },
-      { trigger: 'pointer-press', appearance: flat('#0000ff') },
+    const elements = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!.document.canvas.elements
+    expect(elements.find(element => element.id === 'outer')?.interactions).toStrictEqual([
+      { trigger: 'pointer-hover', targetId: 'inner', appearance: flat('#ff0000'), transition: { type: 'smart-animate', durationMs: 180, easing: 'ease-out' } },
+      { trigger: 'pointer-press', targetId: 'inner', appearance: flat('#0000ff') },
     ])
-    expect(projected?.appearance).toStrictEqual(flat('#abcdef'))
+    expect(elements.find(element => element.id === 'inner')?.interactions).toBeUndefined()
+    expect(elements.find(element => element.id === 'inner')?.appearance).toStrictEqual(flat('#abcdef'))
   })
 })

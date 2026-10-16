@@ -32,7 +32,7 @@ const registry = fixtureRegistry
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false }
 const labels = ['label-a', 'label-b', 'label-c', 'label-d']
 const previewDocument = {
-  version: 2, revision: 1, rootIds: ['card-1'], frame: frameSize,
+  version: 3, revision: 1, rootIds: ['card-1'], frame: frameSize,
   nodes: {
     'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: {}, children: { children: labels } },
     ...Object.fromEntries(labels.map(id => [id, { id, componentId: 'atom-label', exportName: 'Label', theme: lightTheme, props: { children: id.slice(-1).toUpperCase() }, children: {} }])),
@@ -123,7 +123,7 @@ beforeAll(async () => {
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
   send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 9, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 10, generation, ...payload }
     await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
   await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument })

@@ -10,7 +10,7 @@ import { documentStore } from './document-store'
 import { editorStore } from './store'
 
 const document: PreviewDocument = {
-  version: 2,
+  version: 3,
   revision: 1,
   rootIds: [],
   nodes: {},

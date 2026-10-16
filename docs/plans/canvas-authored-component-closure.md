@@ -36,26 +36,35 @@ Finish and verify the canvas-authored component system before beginning reposito
    - Preserve stable identities, bindings, sparse overrides, materials, parts, interactions, nested slot instances, and master/instance separation.
    - Gate the slice with `COMP-V2-PERSIST-001`, `COMP-V2-PERSIST-NEG-001`, `COMP-V2-AUTHOR-001`, `COMP-V2-HISTORY-001`, `COMP-V2-INSTANCE-002`, `COMP-V2-INSTANCE-HISTORY-001`, `CLOUD-SYNC-COMPONENT-001`, and `CLOUD-SYNC-LIFECYCLE-003`.
 
-## Active slice
+## Closed slice: component-root interaction runtime
 
-Hosted collaboration and persistence closure is the only active implementation slice. Start with a failing two-client real-WebSocket test, add stale-command negative controls, then extend PostgreSQL restart persistence. Production changes are allowed only when those boundary tests expose a defect. Repository scanning, GitHub, Blume generation, source writes, schema expansion, and new component UI are excluded.
+Hover and Pressed now belong to the exact component boundary, may project onto a nested bound layer, isolate nested components through nearest-owner precedence, and restore the configured instance state after every terminal pointer or preview interruption. Repository scanning, GitHub, Blume generation, source writes, new inspector controls, persistent interaction state, and new trigger types remain excluded.
 
 Owned implementation paths:
 
-- `apps/sync-room-core/tests/network.test.ts`
-- `packages/database/tests/collaboration-postgres-acceptance.mjs`
-- `apps/web/src/adapters/cloud.test.ts`
-- `apps/web/src/adapters/cloud.ts`
-- `packages/sync-client/tests/collaboration-client.test.ts`
-- `packages/sync-client/src/collaboration-client.ts`
+- `packages/repo-engine/src/file-preview.ts`
+- `packages/repo-engine/tests/file-preview.test.ts`
+- `packages/preview-runtime/src/protocol.ts`
+- `packages/preview-runtime/src/browser-runtime.mjs`
+- `packages/preview-runtime/tests/scene-protocol.test.ts`
+- `packages/preview-runtime/tests/protocol-negative-controls.test.ts`
+- `packages/preview-runtime/tests/component-interaction-browser-runtime.test.ts`
 
-If the boundary proves defective, changes may extend only to `apps/sync-room-core/src/projector.ts`, `apps/sync-room-core/src/room-core.ts`, or `packages/database/src/collaboration.ts`. A required schema or component-semantic change stops this slice and becomes a separately reviewed migration.
+The orchestrator owns the protocol-version integration cutover in `apps/desktop/src/main/index.ts`, the editor preview-connection fixtures, and the remaining preview-runtime protocol fixtures. Those consumers change only from envelope version 9 to 10 or preview-document version 2 to 3.
+
+Evidence updates extend only to `tests/pr-evidence/scenarios/component-system.spec.ts`, `tests/pr-evidence/registry.json`, and `ACCEPTANCE-TESTS.md`.
+
+## Next slice
+
+No new implementation surface is active. The next component-system slice must have a separate reviewed plan, disjoint owned paths, acceptance IDs, and explicit exclusions before edits begin.
 
 ## Current status
 
-- The prior dirty tree is clean and split into nine reversible commits on `staging` through `685918a`.
+- The prior dirty tree is clean and split into reversible commits on `staging` through `771515d`.
 - Theme-token deletion uses one reference-aware path for editor and context-menu actions.
 - The complete component browser workflow passes, including a centered configured-preview assertion.
 - The hosted collaboration boundary now has a complete two-client real-WebSocket graph test, stale-write and mutation-id negative controls, and room restart recovery.
+- Component-root Hover and Pressed ownership, nested target projection, nearest-owner isolation, cancellation restoration, Select and Pan inertness, and root-padding browser evidence are complete under `COMP-V2-UI-073`, `COMP-V2-UI-074`, and `PR-EVIDENCE-014`.
+- The interaction wire cutover is explicit at preview envelope version 10 and preview document version 3. Stale version 9 envelopes and version 2 documents fail closed.
 - PostgreSQL component graph persistence coverage is implemented and type-checked, but the real disposable-database run remains open because this shell does not provide `COLLABORATION_TEST_DATABASE_URL` or `COLLABORATION_TEST_ALLOW_DISPOSABLE=1`.
 - Repository source sync remains deferred.

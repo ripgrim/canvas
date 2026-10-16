@@ -245,7 +245,7 @@
       "capabilities": ["editor.component-system", "evidence.infrastructure"],
       "adapters": ["browser"],
       "assertions": ["component.created-once", "component.creation-opens-details", "component.properties-authored", "component.materials-projected", "component.docs-visible", "component.instance-placed", "component.instance-isolated", "component.interactions-previewed", "component.variant-sheet-generated", "component.undo-restores-semantics"],
-      "screenshots": ["materials", "docs", "instance", "variant-sheet"],
+      "screenshots": ["materials", "docs", "instance", "variant-sheet", "interaction-hover", "interaction-pressed"],
       "video": true
     },
     {

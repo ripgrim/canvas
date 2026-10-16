@@ -90,7 +90,7 @@ function harness(options: Parameters<typeof createPreviewConnection>[0] = {}) {
   flushAllFrames()
   const deliver = (data: unknown) => messageListener?.({ data, origin: 'https://preview.test', source: target } as unknown as MessageEvent)
   deliver({
-    channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration, measurementRevision: 9, root: null,
+    channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration, measurementRevision: 9, root: null,
     camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 },
     items: [{ instanceId: 'frame', source: 'canvas', canvasKind: 'frame', bounds: { x: 410, y: 320, width: 100, height: 50 }, worldAabb: { x: 410, y: 320, width: 100, height: 50 }, offset: { x: 10, y: 20, width: 100, height: 50, origin: { x: 50, y: 25 } }, offsetParentNodeId: null, directChild: true }],
   })
@@ -121,7 +121,7 @@ describe('AT-CAN-005/006 and PAPER-FLEX-006 strict resize preview bridge', () =>
     expect(h.connection.publishResizePresentation(input)).toBe(true)
 
     expect(commands(h, 'set-transient-presentations')).toStrictEqual([{
-      channel: 'design-editor-preview', version: 9, generation: 1, type: 'set-transient-presentations',
+      channel: 'design-editor-preview', version: 10, generation: 1, type: 'set-transient-presentations',
       presentations: [{
         kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'resize-1', sampleSequence: 1,
         fence: { documentRevision: 0, layoutGeneration: h.start.layoutGeneration, measurementRevision: 9 },
@@ -249,7 +249,7 @@ describe('AT-CAN-005/006 and PAPER-FLEX-006 strict resize preview bridge', () =>
     h.connection.connect(h.target as unknown as Window)
     editorStore.set({ previewReady: true })
     h.connection.sync()
-    h.deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: h.start.layoutGeneration, measurementRevision: 9, root: null, items: [] })
+    h.deliver({ channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: h.start.layoutGeneration, measurementRevision: 9, root: null, items: [] })
     expect(h.connection.publishResizePresentation(old)).toBe(false)
     expect(commands(h, 'set-transient-presentations').some(command => command.presentations.length)).toBe(false)
   })

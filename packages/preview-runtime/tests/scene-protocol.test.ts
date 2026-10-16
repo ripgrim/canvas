@@ -3,14 +3,14 @@ import { acceptPreviewCommand, acceptPreviewEvent, isPreviewDocument } from '../
 import { canvasElementStyle, hostOrigin } from '../src/scene-styles.mjs'
 
 const source = {} as Window
-const envelope = { channel: 'design-editor-preview', version: 9, generation: 3 }
+const envelope = { channel: 'design-editor-preview', version: 10, generation: 3 }
 const solid = (color: string) => ({ fills: [{ type: 'solid', color }] })
 const gradient = { fills: [{ type: 'gradient', shape: 'linear', angle: 135, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'srgb', stops: [{ color: 'oklch(0.62 0.19 259.8)', position: 0 }, { color: '#000000', position: 1 }] }] }
 const legacyTextProperties = {
   textStyle: { fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false },
   textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
 }
-const document = { version: 2, revision: 0, rootIds: [], nodes: {}, frame: { width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [{ id: 'frame', kind: 'frame', name: 'Frame', relativeTransform: [1, 0, 0, 1, -213, -276], width: 438, height: 560, appearance: solid('#ffffff'), parentId: null }, { id: 'text', kind: 'text', name: 'Text', relativeTransform: [1, 0, 0, 1, 12, 13.5], width: 200, height: 21, appearance: solid('#64748b'), text: 'you@example.com', ...legacyTextProperties, parentId: 'frame' }, { id: 'glow', kind: 'shader', name: 'Glow', relativeTransform: [0.965925826289, 0.258819045103, -0.258819045103, 0.965925826289, 57.573593128807, 66.515307716505], width: 120, height: 120, appearance: gradient, parentId: 'frame' }] } }
+const document = { version: 3, revision: 0, rootIds: [], nodes: {}, frame: { width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [{ id: 'frame', kind: 'frame', name: 'Frame', relativeTransform: [1, 0, 0, 1, -213, -276], width: 438, height: 560, appearance: solid('#ffffff'), parentId: null }, { id: 'text', kind: 'text', name: 'Text', relativeTransform: [1, 0, 0, 1, 12, 13.5], width: 200, height: 21, appearance: solid('#64748b'), text: 'you@example.com', ...legacyTextProperties, parentId: 'frame' }, { id: 'glow', kind: 'shader', name: 'Glow', relativeTransform: [0.965925826289, 0.258819045103, -0.258819045103, 0.965925826289, 57.573593128807, 66.515307716505], width: 120, height: 120, appearance: gradient, parentId: 'frame' }] } }
 const withElement = (index: number, patch: Record<string, unknown>) => ({ ...document, canvas: { elements: document.canvas.elements.map((element, position) => position === index ? { ...element, ...patch } : element) } })
 
 describe('scene protocol', () => {
@@ -44,14 +44,17 @@ describe('scene protocol', () => {
 
   it('COMP-V2-UI-009 admits only bounded declarative canvas interactions', () => {
     const interactions = [
-      { trigger: 'pointer-hover', appearance: solid('#ff0000'), transition: { type: 'smart-animate', durationMs: 180, easing: 'ease-out' } },
-      { trigger: 'pointer-press', appearance: solid('#0000ff') },
+      { trigger: 'pointer-hover', targetId: 'text', appearance: solid('#ff0000'), transition: { type: 'smart-animate', durationMs: 180, easing: 'ease-out' } },
+      { trigger: 'pointer-press', targetId: 'text', appearance: solid('#0000ff') },
     ]
     expect(isPreviewDocument(withElement(0, { interactions }))).toBe(true)
     expect(isPreviewDocument(withElement(0, { interactions: [...interactions, interactions[0]] }))).toBe(false)
     expect(isPreviewDocument(withElement(0, { interactions: [interactions[0], interactions[0]] }))).toBe(false)
-    expect(isPreviewDocument(withElement(0, { interactions: [{ trigger: 'click', appearance: solid('#ff0000') }] }))).toBe(false)
-    expect(isPreviewDocument(withElement(0, { interactions: [{ trigger: 'pointer-hover', appearance: solid('url(x)') }] }))).toBe(false)
+    expect(isPreviewDocument(withElement(0, { interactions: [{ trigger: 'click', targetId: 'text', appearance: solid('#ff0000') }] }))).toBe(false)
+    expect(isPreviewDocument(withElement(0, { interactions: [{ trigger: 'pointer-hover', targetId: 'text', appearance: solid('url(x)') }] }))).toBe(false)
+    expect(isPreviewDocument(withElement(0, { interactions: [{ trigger: 'pointer-hover', targetId: 'missing', appearance: solid('#ff0000') }] }))).toBe(false)
+    expect(isPreviewDocument(withElement(1, { interactions: [{ trigger: 'pointer-hover', targetId: 'frame', appearance: solid('#ff0000') }] }))).toBe(false)
+    expect(isPreviewDocument(withElement(0, { interactions: [{ trigger: 'pointer-hover', appearance: solid('#ff0000') }] }))).toBe(false)
     expect(isPreviewDocument(withElement(0, { interactions: [{ ...interactions[0], transition: { type: 'smart-animate', durationMs: 60_001 } }] }))).toBe(false)
   })
 

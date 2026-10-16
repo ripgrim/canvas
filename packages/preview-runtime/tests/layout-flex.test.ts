@@ -20,7 +20,7 @@ const registry = fixtureRegistry
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false }
 const ids = ['item-a', 'item-b', 'item-c'] as const
 const documentWith = (order: readonly string[]) => ({
-  version: 2, revision: 1, rootIds: ['card-1'], frame: frameSize,
+  version: 3, revision: 1, rootIds: ['card-1'], frame: frameSize,
   nodes: {
     'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: {}, children: { children: [...order] } },
     ...Object.fromEntries(ids.map(id => [id, { id, componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: {}, children: {} }])),
@@ -100,7 +100,7 @@ beforeAll(async () => {
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
   send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 9, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 10, generation, ...payload }
     await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
   await setOrder(ids)

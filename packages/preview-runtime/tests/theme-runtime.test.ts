@@ -71,7 +71,7 @@ async function openPreview(binding: PreviewBinding, ready: string): Promise<Prev
   await frame.waitForSelector(ready)
   const target = page
   const send = async (payload: Record<string, unknown>) => {
-    const command = { channel: 'design-editor-preview', version: 9, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 10, generation, ...payload }
     await target.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
   return { page, frame, send, close }
@@ -125,7 +125,7 @@ describe('per-node theme layer in composition mode', () => {
   let preview: Preview
   // card-1 holds a nested card-2 and button-1; card-3 is a light sibling control. card-1 may move under card-3 (remount).
   const compose = (themes: Partial<Record<'card-1' | 'card-2' | 'card-3' | 'button-1', PreviewNodeTheme>> = {}, options: { moved?: boolean; cardAppearance?: boolean } = {}): PreviewDocument => ({
-    version: 2, revision: 1, rootIds: options.moved ? ['card-3'] : ['card-1', 'card-3'], frame: frameSize,
+    version: 3, revision: 1, rootIds: options.moved ? ['card-3'] : ['card-1', 'card-3'], frame: frameSize,
     nodes: {
       'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', props: {}, children: { children: ['card-2', 'button-1'] }, theme: themes['card-1'] ?? light, ...(options.cardAppearance ? { appearance: { opacity: 0.5 } } : {}) },
       'card-2': { id: 'card-2', componentId: 'atom-card', exportName: 'Card', props: { heading: 'Nested' }, children: {}, theme: themes['card-2'] ?? light },
@@ -295,7 +295,7 @@ describe('portal ownership through the verified adapter in source mode', () => {
   let preview: Preview
   // The bound PreviewLogin: one Card holding two labelled inputs and the Sign in button that opens the dialog portal.
   const source = (themes: Partial<Record<'card-1' | 'button-1', PreviewNodeTheme>> = {}, rest: PreviewNodeTheme = light): PreviewDocument => ({
-    version: 2, revision: 1, rootIds: ['card-1'], frame: frameSize,
+    version: 3, revision: 1, rootIds: ['card-1'], frame: frameSize,
     nodes: {
       'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', props: {}, children: { children: ['label-email', 'input-email', 'label-password', 'input-password', 'button-1'] }, theme: themes['card-1'] ?? light },
       'label-email': { id: 'label-email', componentId: 'atom-label', exportName: 'Label', props: { htmlFor: 'email', children: 'Email' }, children: {}, theme: rest },

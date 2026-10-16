@@ -10,7 +10,7 @@ import { fixtureRegistry } from './fixture-registry.js'
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
 const policy = 'preserve-matching-committed-handoff'
 const document = (revision = 1) => ({
-  version: 2 as const, revision, rootIds: [], nodes: {},
+  version: 3 as const, revision, rootIds: [], nodes: {},
   frame: { width: 800, height: 600, direction: 'column' as const, gap: 0, padding: 0, clip: false },
   canvas: { elements: [
     { id: 'absolute', kind: 'rectangle' as const, name: 'Absolute', relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 20, parentId: null, appearance: { fills: [{ type: 'solid' as const, color: '#ff0000' }] }, layout: { mode: 'absolute' as const, declarations: { position: 'absolute' } } },
@@ -35,7 +35,7 @@ async function waitFor<T>(read: () => Promise<T>, predicate: (value: T) => boole
 }
 const send = async (payload: Record<string, unknown>) => page.evaluate(([data, origin]) => {
   document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string)
-}, [{ channel: 'design-editor-preview', version: 9, generation, ...payload }, previewOrigin] as const)
+}, [{ channel: 'design-editor-preview', version: 10, generation, ...payload }, previewOrigin] as const)
 const measurement = async () => {
   let previous = -1
   for (let attempt = 0; attempt < 20; attempt += 1) {

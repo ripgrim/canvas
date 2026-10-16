@@ -87,9 +87,9 @@ describe('FILE-ASSET-001 and ERROR-VISIBILITY-001 preview connection hydration',
     expect(cameras).toStrictEqual([expect.objectContaining({ sequence: expect.any(Number), camera: { x: 24, y: 31, zoom: 1, width: 0, height: 0 } })])
     const pending = { generation: 1, sentSequence: cameras[0]!.sequence, appliedSequence: -1, camera: null, settled: false }
     expect(previewCameraStore.getSnapshot()).toStrictEqual(pending)
-    deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'camera-applied', sequence: cameras[0]!.sequence, camera: { x: 10, y: 15, zoom: 1, width: 0, height: 0 } })
+    deliver({ channel: 'design-editor-preview', version: 10, generation: 1, type: 'camera-applied', sequence: cameras[0]!.sequence, camera: { x: 10, y: 15, zoom: 1, width: 0, height: 0 } })
     expect(previewCameraStore.getSnapshot()).toStrictEqual(pending)
-    deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'camera-applied', sequence: cameras[0]!.sequence, camera: cameras[0]!.camera })
+    deliver({ channel: 'design-editor-preview', version: 10, generation: 1, type: 'camera-applied', sequence: cameras[0]!.sequence, camera: cameras[0]!.camera })
     expect(previewCameraStore.getSnapshot()).toStrictEqual({ generation: 1, sentSequence: cameras[0]!.sequence, appliedSequence: cameras[0]!.sequence, camera: cameras[0]!.camera, settled: true })
     documentStore.setTransient(null)
     flushAllFrames()
@@ -156,11 +156,11 @@ describe('FILE-ASSET-001 and ERROR-VISIBILITY-001 preview connection hydration',
     flushAllFrames()
     const before = sceneGeometry.getSnapshot().revision
     deliver({
-      channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 1, layoutGeneration: 0, measurementRevision: 40, root: null, items: [],
+      channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 1, layoutGeneration: 0, measurementRevision: 40, root: null, items: [],
     })
     expect(sceneGeometry.getSnapshot().revision).toBe(before)
     const acceptedPayload = {
-      channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 41, root: null,
+      channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 41, root: null,
       camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 },
       items: [{ instanceId: 'photo', source: 'canvas', canvasKind: 'rectangle', bounds: { x: 400, y: 300, width: 80, height: 60 }, worldAabb: { x: 400, y: 300, width: 80, height: 60 }, offset: { x: 0, y: 0, width: 80, height: 60, origin: { x: 40, y: 30 } }, offsetParentNodeId: null, directChild: true }],
     }
@@ -173,7 +173,7 @@ describe('FILE-ASSET-001 and ERROR-VISIBILITY-001 preview connection hydration',
     setAsset({ mime: 'image/png', data: 'AAAA' })
     flushAllFrames()
     deliver({
-      channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 51, root: null,
+      channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 51, root: null,
       camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 },
       items: [{ instanceId: 'photo', source: 'canvas', canvasKind: 'rectangle', bounds: { x: 400, y: 300, width: 80, height: 60 }, worldAabb: { x: 400, y: 300, width: 80, height: 60 }, offset: { x: 0, y: 0, width: 80, height: 60, origin: { x: 40, y: 30 } }, offsetParentNodeId: null, directChild: true }],
     })
@@ -188,7 +188,7 @@ describe('FILE-ASSET-001 and ERROR-VISIBILITY-001 preview connection hydration',
     expect(target.postMessage.mock.calls.some(([command]) => command.type === 'set-layout')).toBe(true)
 
     deliver({
-      channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 52, root: null,
+      channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 52, root: null,
       camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 },
       items: [{ instanceId: 'photo', source: 'canvas', canvasKind: 'rectangle', bounds: { x: 400, y: 300, width: 80, height: 60 }, worldAabb: { x: 400, y: 300, width: 80, height: 60 }, offset: { x: 0, y: 0, width: 80, height: 60, origin: { x: 40, y: 30 } }, offsetParentNodeId: null, directChild: true }],
     })
@@ -200,7 +200,7 @@ describe('FILE-ASSET-001 and ERROR-VISIBILITY-001 preview connection hydration',
     const { connection, deliver, flushAllFrames, setAsset, target } = harness()
     setAsset({ mime: 'image/png', data: 'AAAA' })
     flushAllFrames()
-    deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 73, root: null, items: [] })
+    deliver({ channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 73, root: null, items: [] })
     expect(sceneGeometry.getSnapshot()).toMatchObject({ revision: 73, documentRevision: 0, layoutGeneration: 0 })
     connection.disconnect()
     expect(sceneGeometry.getSnapshot()).toMatchObject({ revision: 0, documentRevision: null, layoutGeneration: null, nodes: {} })
@@ -208,12 +208,12 @@ describe('FILE-ASSET-001 and ERROR-VISIBILITY-001 preview connection hydration',
     const current = editorStore.getSnapshot().snapshot!
     editorStore.set({ snapshot: { ...current, preview: { ...current.preview, currentGeneration: 2, activeGeneration: 2 } } })
     connection.connect(target as unknown as Window)
-    deliver({ channel: 'design-editor-preview', version: 9, generation: 2, type: 'ready', componentId: 'preview-assets' })
-    deliver({ channel: 'design-editor-preview', version: 9, generation: 2, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 1, root: null, items: [] })
+    deliver({ channel: 'design-editor-preview', version: 10, generation: 2, type: 'ready', componentId: 'preview-assets' })
+    deliver({ channel: 'design-editor-preview', version: 10, generation: 2, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 1, root: null, items: [] })
     expect(sceneGeometry.getSnapshot()).toMatchObject({ revision: 0, documentRevision: null, layoutGeneration: null, nodes: {}, gap: 'temporary' })
 
     flushAllFrames()
-    deliver({ channel: 'design-editor-preview', version: 9, generation: 2, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 1, root: null, items: [] })
+    deliver({ channel: 'design-editor-preview', version: 10, generation: 2, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 1, root: null, items: [] })
     expect(sceneGeometry.getSnapshot()).toMatchObject({ revision: 1, documentRevision: 0, layoutGeneration: 0, nodes: {} })
   })
 
@@ -221,13 +221,13 @@ describe('FILE-ASSET-001 and ERROR-VISIBILITY-001 preview connection hydration',
     const { connection, deliver, flushAllFrames, setAsset, target } = harness()
     setAsset({ mime: 'image/png', data: 'AAAA' })
     flushAllFrames()
-    deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 8, root: null, items: [] })
+    deliver({ channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 8, root: null, items: [] })
     expect(sceneGeometry.getSnapshot().revision).toBe(8)
 
     connection.connect(target as unknown as Window)
-    deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'ready', componentId: 'preview-assets' })
+    deliver({ channel: 'design-editor-preview', version: 10, generation: 1, type: 'ready', componentId: 'preview-assets' })
     deliver({
-      channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 1, root: null,
+      channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 1, root: null,
       camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 },
       items: [{ instanceId: 'photo', source: 'canvas', canvasKind: 'rectangle', bounds: { x: 400, y: 300, width: 80, height: 60 }, worldAabb: { x: 400, y: 300, width: 80, height: 60 } }],
     })
@@ -237,7 +237,7 @@ describe('FILE-ASSET-001 and ERROR-VISIBILITY-001 preview connection hydration',
     expect(target.postMessage.mock.calls.some(([command]) => command.type === 'set-camera')).toBe(true)
     expect(target.postMessage.mock.calls.some(([command]) => command.type === 'set-document')).toBe(true)
     deliver({
-      channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 2, root: null,
+      channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: 0, measurementRevision: 2, root: null,
       camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 },
       items: [{ instanceId: 'photo', source: 'canvas', canvasKind: 'rectangle', bounds: { x: 400, y: 300, width: 80, height: 60 }, worldAabb: { x: 400, y: 300, width: 80, height: 60 } }],
     })

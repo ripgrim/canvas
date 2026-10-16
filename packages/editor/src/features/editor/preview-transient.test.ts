@@ -95,7 +95,7 @@ describe('AT-CAN-005 preview transient move projection', () => {
 
 describe('PAPER-FLEX-006, PAPER-FLEX-007, and AT-CAN-006 coordinate-explicit resize adapter', () => {
   const preview: PreviewDocument = {
-    version: 2 as const,
+    version: 3 as const,
     revision: 12,
     rootIds: ['component'],
     nodes: {

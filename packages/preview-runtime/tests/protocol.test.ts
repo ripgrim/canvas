@@ -5,10 +5,10 @@ import { BuildGenerations } from '../src/generation.js'
 const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, colorScheme: 'light', explicit: false } as const
 
 const parent = {} as Window
-const command = { channel: 'design-editor-preview', version: 9, generation: 4, type: 'set-props', props: { variant: 'quiet' } }
+const command = { channel: 'design-editor-preview', version: 10, generation: 4, type: 'set-props', props: { variant: 'quiet' } }
 const onePixelAvif = 'AAAAHGZ0eXBhdmlmAAAAAG1pZjFhdmlmbWlhZgAAANZtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAAA5waXRtAAAAAAABAAAAImlsb2MAAAAAREAAAQABAAAAAAD6AAEAAAAAAAAAHwAAACNpaW5mAAAAAAABAAAAFWluZmUCAAAAAAEAAGF2MDEAAAAAVmlwcnAAAAA4aXBjbwAAAAxhdjFDgUBsAAAAABRpc3BlAAAAAAAAAAEAAAABAAAAEHBpeGkAAAAAAwwMDAAAABZpcG1hAAAAAAAAAAEAAQOBAgMAAAAnbWRhdBIACghYAAY0BDQbhDIRGAAOOOOEAACwE1TtMKTrDPw='
 const fixtureDocument = (): PreviewDocument => ({
-  version: 2, revision: 2, rootIds: ['card-1'],
+  version: 3, revision: 2, rootIds: ['card-1'],
   nodes: {
     'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: { heading: 'Sign in' }, children: { children: ['label-1', 'input-1', 'button-1'] } },
     'label-1': { id: 'label-1', componentId: 'atom-label', exportName: 'Label', theme: lightTheme, props: { children: 'Email', htmlFor: 'email' }, children: {} },
@@ -54,11 +54,11 @@ describe('AT-SEC-003 narrow preview protocol', () => {
     expect(acceptPreviewCommand({ origin: 'http://127.0.0.1:4319', source: parent, data: { ...data, fonts: [{ ...font, unicodeRange: 'U+0-5; color:red' }] } }, 'http://127.0.0.1:4319', parent, 4)).toBeNull()
   })
   it('validates preview event origin, source, generation and exact fields', () => {
-    const data = { channel: 'design-editor-preview', version: 9, generation: 4, type: 'selected', componentId: 'fixture-login', bounds: { x: 1, y: 2, width: 340, height: 440 } }
+    const data = { channel: 'design-editor-preview', version: 10, generation: 4, type: 'selected', componentId: 'fixture-login', bounds: { x: 1, y: 2, width: 340, height: 440 } }
     expect(acceptPreviewEvent({ origin: 'http://127.0.0.1:4400', source: parent, data }, 'http://127.0.0.1:4400', parent, 4)).toEqual(data)
     expect(acceptPreviewEvent({ origin: 'http://127.0.0.1:4401', source: parent, data }, 'http://127.0.0.1:4400', parent, 4)).toBeNull()
     expect(acceptPreviewEvent({ origin: 'http://127.0.0.1:4400', source: parent, data: { ...data, bounds: { ...data.bounds, width: -1 } } }, 'http://127.0.0.1:4400', parent, 4)).toBeNull()
-    const applied = { channel: 'design-editor-preview', version: 9, generation: 4, type: 'document-applied', renderSequence: 7, documentRevision: 2 }
+    const applied = { channel: 'design-editor-preview', version: 10, generation: 4, type: 'document-applied', renderSequence: 7, documentRevision: 2 }
     expect(acceptPreviewEvent({ origin: 'http://127.0.0.1:4400', source: parent, data: applied }, 'http://127.0.0.1:4400', parent, 4)).toEqual(applied)
     expect(acceptPreviewEvent({ origin: 'http://127.0.0.1:4400', source: parent, data: { ...applied, renderSequence: -1 } }, 'http://127.0.0.1:4400', parent, 4)).toBeNull()
     expect(acceptPreviewEvent({ origin: 'http://127.0.0.1:4400', source: parent, data: { ...applied, extra: true } }, 'http://127.0.0.1:4400', parent, 4)).toBeNull()
@@ -67,7 +67,7 @@ describe('AT-SEC-003 narrow preview protocol', () => {
 
 describe('AT-PRV-005 document atom protocol', () => {
   const deliver = (data: unknown, document: PreviewDocument | null = null) => acceptPreviewCommand({ origin: 'http://127.0.0.1:4319', source: parent, data }, 'http://127.0.0.1:4319', parent, 4, document, fixtureRegistry)
-  const envelope = { channel: 'design-editor-preview', version: 9, generation: 4 }
+  const envelope = { channel: 'design-editor-preview', version: 10, generation: 4 }
   it('accepts typed atom documents and both concrete themes', () => {
     const doc = fixtureDocument()
     doc.background = '#123456'
@@ -157,7 +157,7 @@ describe('AT-PRV-005 document atom protocol', () => {
 })
 
 describe('AT-PRV-006 selection annotation protocol', () => {
-  const selection = { channel: 'design-editor-preview', version: 9, generation: 4, type: 'set-selection', nodeIds: ['input-1', 'button-1'], color: '#009ff0' }
+  const selection = { channel: 'design-editor-preview', version: 10, generation: 4, type: 'set-selection', nodeIds: ['input-1', 'button-1'], color: '#009ff0' }
   const deliver = (data: unknown, document: PreviewDocument | null = fixtureDocument(), origin = 'http://127.0.0.1:4319', source = parent) => acceptPreviewCommand({ origin, source, data }, 'http://127.0.0.1:4319', parent, 4, document)
   it('accepts current document instances and an empty clear in original component mode', () => {
     expect(deliver(selection)).toEqual(selection)
@@ -264,7 +264,7 @@ describe('AT-APP-003 and AT-SEC-003 appearance protocol', () => {
   const element = (appearance: unknown, kind = 'rectangle') => ({ id: 'box', kind, name: 'Box', relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 80, parentId: null, ...(kind === 'text' ? { text: 'Hi', textStyle: { fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false }, textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } } } : {}), appearance })
   const documentWith = (appearance: unknown, assets: unknown = { 'photo-1': { mime: 'image/png', data: png } }, kind = 'rectangle') => ({ ...fixtureDocument(), canvas: { elements: [element(appearance, kind)] }, ...(assets === null ? {} : { assets }) })
   const withNode = (appearance: unknown) => { const document = fixtureDocument(); return { ...document, nodes: { ...document.nodes, 'button-1': { ...document.nodes['button-1']!, appearance } }, assets: { 'photo-1': { mime: 'image/png', data: png } } } }
-  const setDocument = (document: unknown) => ({ channel: 'design-editor-preview', version: 9, generation: 4, type: 'set-document', document, flowDragTerminalPolicy: 'preserve-matching-committed-handoff' })
+  const setDocument = (document: unknown) => ({ channel: 'design-editor-preview', version: 10, generation: 4, type: 'set-document', document, flowDragTerminalPolicy: 'preserve-matching-committed-handoff' })
 
   it('accepts a fully populated appearance on a primitive and on a component instance, through the real command boundary', () => {
     expect(isPreviewDocument(documentWith(full()))).toBe(true)

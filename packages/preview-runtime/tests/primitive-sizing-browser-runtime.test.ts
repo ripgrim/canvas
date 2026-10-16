@@ -23,7 +23,7 @@ const child = (id: string, parentId: string) => ({
   layout: { mode: 'flow', declarations: {} },
 })
 const previewDocument = (width: number, height: number, semantic = true, revision = 1) => ({
-  version: 2,
+  version: 3,
   revision,
   rootIds: [],
   nodes: {},
@@ -68,7 +68,7 @@ const observe = (id: string): Promise<Observation> => frame.evaluate(nodeId => {
 }, id)
 
 const postDocument = async (preview: ReturnType<typeof previewDocument>) => {
-  const command = { channel: 'design-editor-preview', version: 9, generation, type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: preview, theme: { attribute: null, colorScheme: 'light' } }
+  const command = { channel: 'design-editor-preview', version: 10, generation, type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: preview, theme: { attribute: null, colorScheme: 'light' } }
   await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
 }
 

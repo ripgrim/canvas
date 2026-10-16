@@ -134,7 +134,7 @@ function disposeServices(): Promise<void> {
 function previewBinding(snapshot: ProjectSnapshot): PreviewBinding {
   // The bound composition document never carries drawn primitives; source bindings only read its component nodes.
   const { canvas: _canvas, ...legacySourceDocument } = createDocument(snapshot.atoms, snapshot.composition)
-  const sourceDocument = { ...legacySourceDocument, version: 2 as const }
+  const sourceDocument = { ...legacySourceDocument, version: 3 as const }
   const promoted = snapshot.atoms.find((atom) => atom.componentId === snapshot.composition.componentId && atom.status === 'bound')
   const selectedBinding = {
     componentId: promoted?.componentId ?? snapshot.composition.id,

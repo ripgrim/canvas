@@ -4,7 +4,7 @@ import { collectPreviewGeometry, createGeometryObserver } from '../src/geometry-
 
 const source = {} as Window
 const bounds = { x: -12, y: 30, width: 140, height: 48 }
-const payload = { channel: 'design-editor-preview', version: 9, generation: 7, type: 'geometry', items: [{ instanceId: 'button-1', source: 'component', componentId: 'atom-button', bounds, worldAabb: bounds }], root: null, documentRevision: 1, layoutGeneration: 0, measurementRevision: 1 }
+const payload = { channel: 'design-editor-preview', version: 10, generation: 7, type: 'geometry', items: [{ instanceId: 'button-1', source: 'component', componentId: 'atom-button', bounds, worldAabb: bounds }], root: null, documentRevision: 1, layoutGeneration: 0, measurementRevision: 1 }
 const accept = (data: unknown, origin = 'https://preview.test', sender = source, generation = 7) => acceptPreviewEvent({ data, origin, source: sender }, 'https://preview.test', source, generation)
 describe('ED-CAN06 validated preview geometry', () => {
   it('accepts signed viewport coordinates and explicit original-root geometry', () => {
@@ -50,7 +50,7 @@ describe('ED-CAN06 validated preview geometry', () => {
     { ...payload, items: Array.from({ length: 501 }, (_, i) => ({ ...payload.items[0], instanceId: `id-${i}` })) },
   ])('rejects malformed or unbounded geometry as negative controls', data => expect(accept(data)).toBeNull())
   it('accepts optional disabled source chrome without loosening other commands', () => {
-    const command = { channel: 'design-editor-preview', version: 9, generation: 7, type: 'set-selection', nodeIds: [], color: '#009ff0', renderChrome: false }
+    const command = { channel: 'design-editor-preview', version: 10, generation: 7, type: 'set-selection', nodeIds: [], color: '#009ff0', renderChrome: false }
     expect(acceptPreviewCommand({ origin: 'https://editor.test', source, data: command }, 'https://editor.test', source, 7)).toEqual(command)
     expect(acceptPreviewCommand({ origin: 'https://editor.test', source, data: { ...command, renderChrome: 'false' } }, 'https://editor.test', source, 7)).toBeNull()
   })

@@ -10,11 +10,11 @@ const lightTheme = { mode: 'light', designThemeId: 'default', attribute: null, c
 
 const editorOrigin = 'http://127.0.0.1:4319'
 const parent = {} as Window
-const envelope = { channel: 'design-editor-preview', version: 9, generation: 7 } as const
+const envelope = { channel: 'design-editor-preview', version: 10, generation: 7 } as const
 const deliver = (data: unknown, document: PreviewDocument | null = null) => acceptPreviewCommand({ origin: editorOrigin, source: parent, data }, editorOrigin, parent, 7, document)
 
 const document = (): PreviewDocument => ({
-  version: 2, revision: 3, rootIds: ['card-1'],
+  version: 3, revision: 3, rootIds: ['card-1'],
   nodes: {
     'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: {}, children: { children: ['button-1'] } },
     'button-1': { id: 'button-1', componentId: 'atom-button', exportName: 'Button', theme: lightTheme, props: { children: 'Go' }, children: {} },
@@ -62,15 +62,15 @@ describe('LAY-SEC-001 unknown top-level fields', () => {
     expect(deliver(noChannel, doc)).toBeNull()
     expect(deliver(noVersion, doc)).toBeNull()
     expect(deliver(noGeneration, doc)).toBeNull()
-    expect(deliver({ ...data, version: 1 }, doc)).toBeNull()
-    expect(deliver({ ...data, version: 2 }, doc)).toBeNull()
-    expect(deliver({ ...data, version: 3 }, doc)).toBeNull()
-    expect(deliver({ ...data, version: 4 }, doc)).toBeNull()
-    expect(deliver({ ...data, version: 5 }, doc)).toBeNull()
-    expect(deliver({ ...data, version: 6 }, doc)).toBeNull()
-    expect(deliver({ ...data, version: 7 }, doc)).toBeNull()
-    expect(deliver({ ...data, version: '7' }, doc)).toBeNull()
+    for (const staleVersion of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+      expect(deliver({ ...data, version: staleVersion }, doc)).toBeNull()
+    }
+    expect(deliver({ ...data, version: '10' }, doc)).toBeNull()
     expect(deliver({ ...data, generation: '7' }, doc)).toBeNull()
+  })
+
+  it('rejects the previous preview document schema even inside a current envelope', () => {
+    expect(deliver({ ...envelope, type: 'set-document', document: { ...document(), version: 2 }, flowDragTerminalPolicy: 'preserve-matching-committed-handoff' })).toBeNull()
   })
 
   it('rejects an unknown command type and a command that is not a plain record', () => {
