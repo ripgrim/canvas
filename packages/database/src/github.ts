@@ -9,6 +9,7 @@ import type {
   ProjectRepositoryOperation,
   RepositoryJob,
   RepositoryJobStore,
+  RepositoryScanArtifact,
   RepositoryGrant,
   WebhookDeliveryStore,
 } from '@canvas/github-app'
@@ -37,6 +38,7 @@ type InstallationRow = QueryResultRow & Readonly<{
 }>
 
 type RepositoryRow = QueryResultRow & Readonly<{
+  grant_id: string
   tenant_id: string
   project_id: string
   installation_id: string
@@ -58,13 +60,19 @@ type StateRow = QueryResultRow & Readonly<{
   purpose: 'authorize-user' | 'install-app'
   installation_id: string | null
   code_verifier_ciphertext: string | null
+  return_to_url: string | null
   expires_at_ms: string | number
 }>
 
 type JobRow = QueryResultRow & Readonly<{
   id: string; actor_account_id: string; actor_provider_user_id: string; tenant_id: string; project_id: string
   operation: 'scan' | 'pull' | 'prepare-patch' | 'write'; installation_id: string; repository_id: string
-  status: 'queued' | 'running'; created_at: Date | string
+  status: 'queued' | 'running' | 'completed' | 'failed'; created_at: Date | string; attempt: number
+  repository_linked_at: Date | string; next_attempt_at_ms: string | number | null
+  repository_grant_id: string
+  lease_id: string | null; lease_expires_at_ms: string | number | null
+  source_revision: string | null; scan_result: unknown; registry_request: unknown; completed_at_ms: string | number | null
+  error_id: string | null; failed_at_ms: string | number | null
 }>
 
 export function roleAllowsProjectOperation(role: ProjectMembershipRole, operation: ProjectRepositoryOperation): boolean {
@@ -77,15 +85,15 @@ export function createPostgresGitHubPersistence(pool: Pool): GitHubPersistence {
   const states: InstallationStateStore = {
     async put(record) {
       await pool.query(
-        'INSERT INTO app_github_installation_state (digest, account_id, tenant_id, purpose, installation_id, code_verifier_ciphertext, expires_at) VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0))',
-        [record.digest, record.accountId, record.tenantId, record.purpose, record.installationId, record.codeVerifierCiphertext, record.expiresAt],
+        'INSERT INTO app_github_installation_state (digest, account_id, tenant_id, purpose, installation_id, code_verifier_ciphertext, return_to_url, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8 / 1000.0))',
+        [record.digest, record.accountId, record.tenantId, record.purpose, record.installationId, record.codeVerifierCiphertext, record.returnToUrl, record.expiresAt],
       )
     },
     async consume(input) {
       const result = await pool.query<StateRow>(
         `DELETE FROM app_github_installation_state
          WHERE digest = $1 AND account_id = $2 AND purpose = $3 AND expires_at > to_timestamp($4 / 1000.0)
-         RETURNING digest, account_id, tenant_id, purpose, installation_id, code_verifier_ciphertext, floor(extract(epoch FROM expires_at) * 1000)::bigint AS expires_at_ms`,
+         RETURNING digest, account_id, tenant_id, purpose, installation_id, code_verifier_ciphertext, return_to_url, floor(extract(epoch FROM expires_at) * 1000)::bigint AS expires_at_ms`,
         [input.digest, input.accountId, input.purpose, input.now],
       )
       const row = result.rows[0]
@@ -123,8 +131,8 @@ export function createPostgresGitHubPersistence(pool: Pool): GitHubPersistence {
     async saveRepositoryGrant(grant) {
       const result = await pool.query(
         `INSERT INTO app_github_repository_grant
-          (project_id, tenant_id, installation_id, repository_id, owner_id, owner_login, repository_name, full_name, is_private, contents_permission, linked_by_account_id, linked_at, invalidated_at, invalidation_reason)
-         SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, to_timestamp($12 / 1000.0), NULL, NULL
+          (project_id, tenant_id, installation_id, repository_id, owner_id, owner_login, repository_name, full_name, is_private, contents_permission, linked_by_account_id, linked_at, grant_id, invalidated_at, invalidation_reason)
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, to_timestamp($12 / 1000.0), $13::uuid, NULL, NULL
          FROM app_project AS project
          JOIN app_project_member AS member ON member.project_id = project.id
          JOIN app_github_installation_grant AS installation ON installation.tenant_id = $2 AND installation.installation_id = $3 AND installation.invalidated_at IS NULL
@@ -144,15 +152,16 @@ export function createPostgresGitHubPersistence(pool: Pool): GitHubPersistence {
           contents_permission = EXCLUDED.contents_permission,
           linked_by_account_id = EXCLUDED.linked_by_account_id,
           linked_at = EXCLUDED.linked_at,
+          grant_id = EXCLUDED.grant_id,
           invalidated_at = NULL,
           invalidation_reason = NULL`,
-        [grant.projectId, grant.tenantId, grant.installationId, grant.repository.id, grant.repository.ownerId, grant.repository.ownerLogin, grant.repository.name, grant.repository.fullName, grant.repository.isPrivate, grant.repository.contentsPermission, grant.linkedByAccountId, grant.linkedAt],
+        [grant.projectId, grant.tenantId, grant.installationId, grant.repository.id, grant.repository.ownerId, grant.repository.ownerLogin, grant.repository.name, grant.repository.fullName, grant.repository.isPrivate, grant.repository.contentsPermission, grant.linkedByAccountId, grant.linkedAt, grant.grantId],
       )
       if (result.rowCount !== 1) throw new Error('Project repository grant is not authorized.')
     },
     async getRepositoryGrant(input) {
       const result = await pool.query<RepositoryRow>(
-        `SELECT tenant_id, project_id, installation_id, repository_id, owner_id, owner_login, repository_name, full_name, is_private, contents_permission, linked_by_account_id, linked_at
+        `SELECT grant_id, tenant_id, project_id, installation_id, repository_id, owner_id, owner_login, repository_name, full_name, is_private, contents_permission, linked_by_account_id, linked_at
          FROM app_github_repository_grant
          WHERE tenant_id = $1 AND project_id = $2 AND invalidated_at IS NULL`,
         [input.tenantId, input.projectId],
@@ -162,7 +171,7 @@ export function createPostgresGitHubPersistence(pool: Pool): GitHubPersistence {
     async getAuthorizedRepositoryAccess(input) {
       const roles = allowedRoles(input.operation)
       const result = await pool.query<RepositoryRow & InstallationRow>(
-        `SELECT repository.tenant_id, repository.project_id, repository.installation_id, repository.repository_id,
+        `SELECT repository.grant_id, repository.tenant_id, repository.project_id, repository.installation_id, repository.repository_id,
                 repository.owner_id, repository.owner_login, repository.repository_name, repository.full_name,
                 repository.is_private, repository.contents_permission, repository.linked_by_account_id, repository.linked_at,
                 installation.account_id, installation.account_login, installation.account_type,
@@ -250,18 +259,132 @@ export function createPostgresGitHubPersistence(pool: Pool): GitHubPersistence {
 
   const jobs: RepositoryJobStore = {
     async enqueue(job) {
+      if (job.status !== 'queued') throw new Error('Repository job must be queued.')
       await pool.query(
         `INSERT INTO app_github_repository_job
-          (id, actor_account_id, actor_provider_user_id, tenant_id, project_id, operation, installation_id, repository_id, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', to_timestamp($9 / 1000.0))`,
-        [job.id, job.actor.accountId, job.actor.providerUserId, job.tenantId, job.projectId, job.operation, job.installationId, job.repositoryId, job.createdAt],
+          (id, actor_account_id, actor_provider_user_id, tenant_id, project_id, operation, installation_id, repository_id, repository_linked_at, repository_grant_id, status, created_at, next_attempt_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, to_timestamp($9 / 1000.0), $10::uuid, 'queued', to_timestamp($11 / 1000.0), to_timestamp($12 / 1000.0))`,
+        [job.id, job.actor.accountId, job.actor.providerUserId, job.tenantId, job.projectId, job.operation, job.installationId, job.repositoryId, job.repositoryLinkedAt, job.repositoryGrantId, job.createdAt, job.nextAttemptAt],
       )
     },
     async get(id) {
-      const result = await pool.query<JobRow>('SELECT id, actor_account_id, actor_provider_user_id, tenant_id, project_id, operation, installation_id, repository_id, status, created_at FROM app_github_repository_job WHERE id = $1', [id])
+      const result = await pool.query<JobRow>(`${jobColumns} FROM app_github_repository_job WHERE id = $1`, [id])
       return result.rows[0] ? jobFromRow(result.rows[0]) : null
     },
-    async markRunning(id) { await pool.query("UPDATE app_github_repository_job SET status = 'running' WHERE id = $1", [id]) },
+    async getAuthorized(id, actorAccountId) {
+      const result = await pool.query<JobRow>(
+        `${authorizedJobColumns}
+         FROM app_github_repository_job AS job
+         JOIN app_github_repository_grant AS repository
+           ON repository.tenant_id = job.tenant_id AND repository.project_id = job.project_id
+          AND repository.installation_id = job.installation_id AND repository.repository_id = job.repository_id
+          AND repository.linked_at = job.repository_linked_at AND repository.grant_id = job.repository_grant_id
+         JOIN app_github_installation_grant AS installation
+           ON installation.tenant_id = repository.tenant_id AND installation.installation_id = repository.installation_id
+         JOIN app_project_member AS member
+           ON member.project_id = repository.project_id AND member.user_id = $2
+         WHERE job.id = $1
+           AND (member.role IN ('owner', 'editor')
+             OR member.role = 'reviewer' AND job.operation IN ('scan', 'pull', 'prepare-patch')
+             OR member.role = 'viewer' AND job.operation IN ('scan', 'pull'))
+           AND repository.invalidated_at IS NULL AND installation.invalidated_at IS NULL`,
+        [id, actorAccountId],
+      )
+      return result.rows[0] ? jobFromRow(result.rows[0]) : null
+    },
+    async latestCompletedScan(scope) {
+      const result = await pool.query<JobRow>(
+        `${authorizedJobColumns}
+         FROM app_github_repository_job AS job
+         JOIN app_github_repository_grant AS repository
+           ON repository.tenant_id = job.tenant_id AND repository.project_id = job.project_id
+          AND repository.installation_id = job.installation_id AND repository.repository_id = job.repository_id
+          AND repository.linked_at = job.repository_linked_at AND repository.grant_id = job.repository_grant_id
+         JOIN app_github_installation_grant AS installation
+           ON installation.tenant_id = repository.tenant_id AND installation.installation_id = repository.installation_id
+         JOIN app_project_member AS member
+           ON member.project_id = repository.project_id AND member.user_id = $7
+         WHERE job.tenant_id = $1 AND job.project_id = $2 AND job.installation_id = $3 AND job.repository_id = $4
+           AND job.repository_linked_at = to_timestamp($5 / 1000.0) AND job.repository_grant_id = $6::uuid
+           AND job.operation = 'scan' AND job.status = 'completed'
+           AND member.role = ANY($8::text[])
+           AND repository.invalidated_at IS NULL AND installation.invalidated_at IS NULL
+         ORDER BY job.completed_at DESC, job.created_at DESC, job.id DESC LIMIT 1`,
+        [scope.tenantId, scope.projectId, scope.installationId, scope.repositoryId, scope.repositoryLinkedAt, scope.repositoryGrantId, scope.actorAccountId, allowedRoles('scan')],
+      )
+      return result.rows[0] ? jobFromRow(result.rows[0]) : null
+    },
+    async claimScan(input) {
+      const result = await pool.query<JobRow>(
+        `UPDATE app_github_repository_job
+         SET status = 'running', lease_id = $2, lease_expires_at = to_timestamp($4 / 1000.0), next_attempt_at = NULL, attempt = attempt + 1
+         WHERE id = $1 AND operation = 'scan' AND ((status = 'queued' AND next_attempt_at <= to_timestamp($3 / 1000.0)) OR (status = 'running' AND lease_expires_at <= to_timestamp($3 / 1000.0)))
+         RETURNING id, actor_account_id, actor_provider_user_id, tenant_id, project_id, operation, installation_id, repository_id, repository_linked_at, repository_grant_id, status, created_at, attempt, lease_id, floor(extract(epoch FROM lease_expires_at) * 1000)::bigint AS lease_expires_at_ms, NULL::bigint AS next_attempt_at_ms, source_revision, scan_result, registry_request, NULL::bigint AS completed_at_ms, error_id, NULL::bigint AS failed_at_ms`,
+        [input.id, input.leaseId, input.now, input.leaseExpiresAt],
+      )
+      return result.rows[0] ? jobFromRow(result.rows[0]) : null
+    },
+    async claimNextScan(input) {
+      const result = await pool.query<JobRow>(
+        `WITH candidate AS (
+           SELECT id FROM app_github_repository_job
+           WHERE operation = 'scan' AND ((status = 'queued' AND next_attempt_at <= to_timestamp($2 / 1000.0)) OR (status = 'running' AND lease_expires_at <= to_timestamp($2 / 1000.0)))
+           ORDER BY created_at, id FOR UPDATE SKIP LOCKED LIMIT 1
+         )
+         UPDATE app_github_repository_job AS job
+         SET status = 'running', lease_id = $1, lease_expires_at = to_timestamp($3 / 1000.0), next_attempt_at = NULL, attempt = attempt + 1
+         FROM candidate WHERE job.id = candidate.id
+         RETURNING job.id, job.actor_account_id, job.actor_provider_user_id, job.tenant_id, job.project_id, job.operation, job.installation_id, job.repository_id, job.repository_linked_at, job.repository_grant_id, job.status, job.created_at, job.attempt, job.lease_id, floor(extract(epoch FROM job.lease_expires_at) * 1000)::bigint AS lease_expires_at_ms, NULL::bigint AS next_attempt_at_ms, job.source_revision, job.scan_result, job.registry_request, NULL::bigint AS completed_at_ms, job.error_id, NULL::bigint AS failed_at_ms`,
+        [input.leaseId, input.now, input.leaseExpiresAt],
+      )
+      return result.rows[0] ? jobFromRow(result.rows[0]) : null
+    },
+    async isCurrentLease(input) {
+      const result = await pool.query(
+        `SELECT 1 FROM app_github_repository_job
+         WHERE id = $1 AND operation = 'scan' AND status = 'running' AND lease_id = $2 AND lease_expires_at > to_timestamp($3 / 1000.0)`,
+        [input.id, input.leaseId, input.now],
+      )
+      return result.rowCount === 1
+    },
+    async completeScan(input) {
+      const result = await pool.query(
+        `UPDATE app_github_repository_job AS job
+         SET status = 'completed', lease_id = NULL, lease_expires_at = NULL,
+             source_revision = $4, scan_result = $5::jsonb, registry_request = $6::jsonb,
+             completed_at = to_timestamp($3 / 1000.0)
+         WHERE job.id = $1 AND job.operation = 'scan' AND job.status = 'running'
+           AND job.lease_id = $2 AND job.lease_expires_at > to_timestamp($3 / 1000.0)
+           AND EXISTS (
+             SELECT 1 FROM app_github_repository_grant AS repository
+             JOIN app_github_installation_grant AS installation
+               ON installation.tenant_id = repository.tenant_id AND installation.installation_id = repository.installation_id
+             JOIN app_project_member AS member ON member.project_id = repository.project_id
+             WHERE repository.tenant_id = job.tenant_id AND repository.project_id = job.project_id
+               AND repository.installation_id = job.installation_id AND repository.repository_id = job.repository_id
+               AND repository.linked_at = job.repository_linked_at
+               AND repository.grant_id = job.repository_grant_id
+               AND member.user_id = job.actor_account_id AND member.role = ANY($7::text[])
+               AND repository.invalidated_at IS NULL AND installation.invalidated_at IS NULL
+           )`,
+        [input.id, input.leaseId, input.now, input.result.sourceRevision, JSON.stringify(input.result.scan), JSON.stringify(input.result.request), allowedRoles('scan')],
+      )
+      return result.rowCount === 1
+    },
+    async retry(input) {
+      await pool.query(
+        `UPDATE app_github_repository_job SET status = 'queued', lease_id = NULL, lease_expires_at = NULL, next_attempt_at = to_timestamp($3 / 1000.0)
+         WHERE id = $1 AND status = 'running' AND lease_id = $2`,
+        [input.id, input.leaseId, input.nextAttemptAt],
+      )
+    },
+    async fail(input) {
+      await pool.query(
+        `UPDATE app_github_repository_job SET status = 'failed', lease_id = NULL, lease_expires_at = NULL, error_id = $3, failed_at = to_timestamp($4 / 1000.0)
+         WHERE id = $1 AND status = 'running' AND lease_id = $2`,
+        [input.id, input.leaseId, input.errorId, input.now],
+      )
+    },
   }
 
   const projectAuthorization: ProjectAuthorizationPort = {
@@ -362,9 +485,77 @@ export function createMemoryGitHubPersistence(): GitHubPersistence & Readonly<{
     },
   }
   const jobStore: RepositoryJobStore = {
-    async enqueue(job) { if (jobs.has(job.id)) throw new Error('Repository job already exists.'); jobs.set(job.id, Object.freeze({ ...job, actor: Object.freeze({ ...job.actor }) })) },
+    async enqueue(job) { if (job.status !== 'queued') throw new Error('Repository job must be queued.'); if (jobs.has(job.id)) throw new Error('Repository job already exists.'); jobs.set(job.id, Object.freeze({ ...job, actor: Object.freeze({ ...job.actor }) })) },
     async get(id) { return jobs.get(id) ?? null },
-    async markRunning(id) { const job = jobs.get(id); if (job) jobs.set(id, Object.freeze({ ...job, status: 'running' })) },
+    async getAuthorized(id, actorAccountId) {
+      const job = jobs.get(id)
+      return job && isAuthorizedCurrentJob(job, actorAccountId) ? job : null
+    },
+    async latestCompletedScan(scope) {
+      const membership = memberships.get(grantKey(scope.projectId, scope.actorAccountId))
+      if (membership?.tenantId !== scope.tenantId || !roleAllowsProjectOperation(membership.role, 'scan')) return null
+      const grant = repositoryGrants.get(grantKey(scope.tenantId, scope.projectId))
+      if (!grant || grant.installationId !== scope.installationId || grant.repository.id !== scope.repositoryId
+        || grant.linkedAt !== scope.repositoryLinkedAt || grant.grantId !== scope.repositoryGrantId
+        || !installationGrants.has(grantKey(scope.tenantId, scope.installationId))) return null
+      return [...jobs.values()].flatMap(job => job.status === 'completed' ? [job] : []).filter(job => job.tenantId === scope.tenantId
+        && job.projectId === scope.projectId
+        && job.installationId === scope.installationId
+        && job.repositoryId === scope.repositoryId
+        && job.repositoryLinkedAt === scope.repositoryLinkedAt
+        && job.repositoryGrantId === scope.repositoryGrantId)
+        .sort((left, right) => right.completedAt - left.completedAt || right.createdAt - left.createdAt || right.id.localeCompare(left.id))[0] ?? null
+    },
+    async claimScan(input) {
+      const job = jobs.get(input.id)
+      if (!job || job.operation !== 'scan' || job.status === 'queued' && job.nextAttemptAt > input.now || job.status === 'running' && job.leaseExpiresAt > input.now || job.status === 'completed' || job.status === 'failed') return null
+      const claimed = Object.freeze({ ...job, status: 'running' as const, leaseId: input.leaseId, leaseExpiresAt: input.leaseExpiresAt, attempt: job.attempt + 1 })
+      jobs.set(input.id, claimed)
+      return claimed
+    },
+    async claimNextScan(input) {
+      const queued = [...jobs.values()]
+        .filter(job => job.operation === 'scan' && (job.status === 'queued' && job.nextAttemptAt <= input.now || job.status === 'running' && job.leaseExpiresAt <= input.now))
+        .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id))[0]
+      return queued ? jobStore.claimScan({ ...input, id: queued.id }) : null
+    },
+    async isCurrentLease(input) {
+      const job = jobs.get(input.id)
+      return Boolean(job?.operation === 'scan' && job.status === 'running' && job.leaseId === input.leaseId && job.leaseExpiresAt > input.now)
+    },
+    async completeScan(input) {
+      const job = jobs.get(input.id)
+      if (job?.status !== 'running' || job.leaseId !== input.leaseId || job.leaseExpiresAt <= input.now || !isAuthorizedCurrentJob(job, job.actor.accountId)) return false
+      const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job
+      jobs.set(input.id, Object.freeze({ ...base, status: 'completed' as const, result: input.result, completedAt: input.now }))
+      return true
+    },
+    async retry(input) {
+      const job = jobs.get(input.id)
+      if (job?.status === 'running' && job.leaseId === input.leaseId) {
+        const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job
+        jobs.set(input.id, Object.freeze({ ...base, status: 'queued' as const, nextAttemptAt: input.nextAttemptAt }))
+      }
+    },
+    async fail(input) {
+      const job = jobs.get(input.id)
+      if (job?.status === 'running' && job.leaseId === input.leaseId) {
+        const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job
+        jobs.set(input.id, Object.freeze({ ...base, status: 'failed' as const, errorId: input.errorId, failedAt: input.now }))
+      }
+    },
+  }
+
+  function isAuthorizedCurrentJob(job: RepositoryJob, actorAccountId: string): boolean {
+    const membership = memberships.get(grantKey(job.projectId, actorAccountId))
+    if (membership?.tenantId !== job.tenantId || !roleAllowsProjectOperation(membership.role, job.operation)) return false
+    const grant = repositoryGrants.get(grantKey(job.tenantId, job.projectId))
+    return Boolean(grant
+      && grant.installationId === job.installationId
+      && grant.repository.id === job.repositoryId
+      && grant.linkedAt === job.repositoryLinkedAt
+      && grant.grantId === job.repositoryGrantId
+      && installationGrants.has(grantKey(job.tenantId, job.installationId)))
   }
   const projectAuthorization: ProjectAuthorizationPort = {
     async authorizeProjectOperation(input) {
@@ -397,7 +588,7 @@ function authorizationDecision(role: ProjectMembershipRole | undefined, operatio
 function stateFromRow(row: StateRow): InstallationStateRecord {
   const expiresAt = Number(row.expires_at_ms)
   if (!Number.isSafeInteger(expiresAt)) throw new Error('Database returned an invalid GitHub installation state expiry.')
-  return Object.freeze({ digest: row.digest, accountId: row.account_id, tenantId: row.tenant_id, purpose: row.purpose, installationId: row.installation_id, codeVerifierCiphertext: row.code_verifier_ciphertext, expiresAt })
+  return Object.freeze({ digest: row.digest, accountId: row.account_id, tenantId: row.tenant_id, purpose: row.purpose, installationId: row.installation_id, codeVerifierCiphertext: row.code_verifier_ciphertext, returnToUrl: row.return_to_url, expiresAt })
 }
 
 function installationFromRow(row: InstallationRow): InstallationGrant {
@@ -411,6 +602,7 @@ function installationFromRow(row: InstallationRow): InstallationGrant {
 
 function repositoryFromRow(row: RepositoryRow): RepositoryGrant {
   return Object.freeze({
+    grantId: row.grant_id,
     tenantId: row.tenant_id,
     projectId: row.project_id,
     installationId: row.installation_id,
@@ -430,7 +622,8 @@ function repositoryFromRow(row: RepositoryRow): RepositoryGrant {
 }
 
 function jobFromRow(row: JobRow): RepositoryJob {
-  return Object.freeze({
+  if (!Number.isSafeInteger(row.attempt) || row.attempt < 0) throw new Error('Database returned an invalid repository job attempt.')
+  const base = {
     id: row.id,
     actor: Object.freeze({ accountId: row.actor_account_id, providerUserId: row.actor_provider_user_id }),
     tenantId: row.tenant_id,
@@ -438,9 +631,38 @@ function jobFromRow(row: JobRow): RepositoryJob {
     operation: row.operation,
     installationId: row.installation_id,
     repositoryId: row.repository_id,
-    status: row.status,
+    repositoryLinkedAt: timestamp(row.repository_linked_at),
+    repositoryGrantId: row.repository_grant_id,
     createdAt: timestamp(row.created_at),
-  })
+    attempt: row.attempt,
+  }
+  if (row.status === 'queued') {
+    const nextAttemptAt = Number(row.next_attempt_at_ms)
+    if (!Number.isSafeInteger(nextAttemptAt)) throw new Error('Database returned an invalid repository job retry time.')
+    return Object.freeze({ ...base, status: 'queued', nextAttemptAt })
+  }
+  if (row.status === 'completed') {
+    const completedAt = Number(row.completed_at_ms)
+    if (!row.source_revision || !/^[a-f0-9]{40}$/.test(row.source_revision) || !Number.isSafeInteger(completedAt)) throw new Error('Database returned an invalid repository scan result.')
+    return Object.freeze({ ...base, status: 'completed', result: scanArtifact(row.source_revision, row.scan_result, row.registry_request), completedAt })
+  }
+  if (row.status === 'failed') {
+    const failedAt = Number(row.failed_at_ms)
+    if (!row.error_id || !/^[a-z0-9-]{3,64}$/.test(row.error_id) || !Number.isSafeInteger(failedAt)) throw new Error('Database returned an invalid repository job failure.')
+    return Object.freeze({ ...base, status: 'failed', errorId: row.error_id, failedAt })
+  }
+  if (!row.lease_id || row.lease_expires_at_ms === null) throw new Error('Database returned an invalid repository job lease.')
+  const leaseExpiresAt = Number(row.lease_expires_at_ms)
+  if (!Number.isSafeInteger(leaseExpiresAt)) throw new Error('Database returned an invalid repository job lease expiry.')
+  return Object.freeze({ ...base, status: 'running', leaseId: row.lease_id, leaseExpiresAt })
+}
+
+const jobColumns = 'SELECT id, actor_account_id, actor_provider_user_id, tenant_id, project_id, operation, installation_id, repository_id, repository_linked_at, repository_grant_id, status, created_at, attempt, lease_id, CASE WHEN lease_expires_at IS NULL THEN NULL ELSE floor(extract(epoch FROM lease_expires_at) * 1000)::bigint END AS lease_expires_at_ms, CASE WHEN next_attempt_at IS NULL THEN NULL ELSE floor(extract(epoch FROM next_attempt_at) * 1000)::bigint END AS next_attempt_at_ms, source_revision, scan_result, registry_request, CASE WHEN completed_at IS NULL THEN NULL ELSE floor(extract(epoch FROM completed_at) * 1000)::bigint END AS completed_at_ms, error_id, CASE WHEN failed_at IS NULL THEN NULL ELSE floor(extract(epoch FROM failed_at) * 1000)::bigint END AS failed_at_ms'
+const authorizedJobColumns = 'SELECT job.id, job.actor_account_id, job.actor_provider_user_id, job.tenant_id, job.project_id, job.operation, job.installation_id, job.repository_id, job.repository_linked_at, job.repository_grant_id, job.status, job.created_at, job.attempt, job.lease_id, CASE WHEN job.lease_expires_at IS NULL THEN NULL ELSE floor(extract(epoch FROM job.lease_expires_at) * 1000)::bigint END AS lease_expires_at_ms, CASE WHEN job.next_attempt_at IS NULL THEN NULL ELSE floor(extract(epoch FROM job.next_attempt_at) * 1000)::bigint END AS next_attempt_at_ms, job.source_revision, job.scan_result, job.registry_request, CASE WHEN job.completed_at IS NULL THEN NULL ELSE floor(extract(epoch FROM job.completed_at) * 1000)::bigint END AS completed_at_ms, job.error_id, CASE WHEN job.failed_at IS NULL THEN NULL ELSE floor(extract(epoch FROM job.failed_at) * 1000)::bigint END AS failed_at_ms'
+
+function scanArtifact(sourceRevision: string, scan: unknown, request: unknown): RepositoryScanArtifact {
+  if (!scan || typeof scan !== 'object' || Array.isArray(scan) || !request || typeof request !== 'object' || Array.isArray(request)) throw new Error('Database returned an invalid repository scan result.')
+  return Object.freeze({ sourceRevision, scan: scan as Readonly<Record<string, unknown>>, request: request as Readonly<Record<string, unknown>> })
 }
 
 function allowedRoles(operation: ProjectRepositoryOperation): readonly ProjectMembershipRole[] {

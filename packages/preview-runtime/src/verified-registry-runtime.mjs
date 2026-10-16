@@ -70,13 +70,13 @@ function verifiedProps(value) {
   if (!plain(value) || Object.keys(value).length > 100) throw new Error('Invalid component prop rules')
   const output = {}
   for (const [name, rule] of Object.entries(value)) {
-    if (!identifier.test(name) || !exact(rule, ['kind'], ['values']) || !['string', 'number', 'boolean', 'enum'].includes(rule.kind)) throw new Error('Invalid component prop rule')
+    if (!identifier.test(name) || !exact(rule, ['kind'], ['values', 'optional']) || !['string', 'number', 'boolean', 'enum'].includes(rule.kind) || (Object.hasOwn(rule, 'optional') && typeof rule.optional !== 'boolean')) throw new Error('Invalid component prop rule')
     if (rule.kind === 'enum') {
       if (!Array.isArray(rule.values) || rule.values.length < 1 || rule.values.length > 100 || rule.values.some(item => !['string', 'number', 'boolean'].includes(typeof item) || typeof item === 'number' && !Number.isFinite(item))) throw new Error('Invalid component enum prop rule')
-      output[name] = Object.freeze({ kind: 'enum', values: Object.freeze([...rule.values]) })
+      output[name] = Object.freeze({ kind: 'enum', values: Object.freeze([...rule.values]), ...(Object.hasOwn(rule, 'optional') ? { optional: rule.optional } : {}) })
     } else {
       if (Object.hasOwn(rule, 'values')) throw new Error('Invalid component prop rule')
-      output[name] = Object.freeze({ kind: rule.kind })
+      output[name] = Object.freeze({ kind: rule.kind, ...(Object.hasOwn(rule, 'optional') ? { optional: rule.optional } : {}) })
     }
   }
   return Object.freeze(output)
@@ -320,6 +320,21 @@ async function verifyDependencyGraph(root, roots, aliases) {
   })
 }
 
+export async function verifyRegistryDependencyClosure(repositoryRoot, request) {
+  const root = await realpath(repositoryRoot)
+  if (!exact(request, ['roots'], ['aliases']) || !Array.isArray(request.roots) || request.roots.length < 1 || request.roots.length > 10_000) throw new Error('Invalid registry dependency roots')
+  const aliases = await verifyAliases(root, request.aliases)
+  const roots = []
+  const paths = new Set()
+  for (const item of request.roots) {
+    if (!exact(item, ['path', 'integrity']) || paths.has(item.path)) throw new Error('Invalid registry dependency root')
+    paths.add(item.path)
+    roots.push(await verifiedFile(root, item.path, dependencyExtensions, item.integrity, 'Registry dependency root'))
+  }
+  const graph = await verifyDependencyGraph(root, roots, aliases)
+  return Object.freeze({ dependencies: graph.dependencies, resolutions: graph.resolutions })
+}
+
 function verifiedAliasRule(pattern, target) {
   if (typeof pattern !== 'string' || typeof target !== 'string' || !pattern || !target || isAbsolute(target)) throw new Error('Invalid repository path alias')
   const patternWildcards = [...pattern].filter(character => character === '*').length
@@ -514,7 +529,7 @@ async function verifyPreviewEvidence(root, evidence) {
  */
 export async function verifyComponentRegistry(repositoryRoot, request) {
   const root = await realpath(repositoryRoot)
-  if (!exact(request, ['version', 'entry', 'components'], ['styles', 'provider', 'themeAdapters', 'aliases', 'dependencies', 'assets', 'fonts']) || request.version !== 1) throw new Error('Invalid verified component registry')
+  if (!exact(request, ['version', 'entry', 'components'], ['styles', 'provider', 'themeAdapters', 'aliases', 'dependencies', 'resolutions', 'assets', 'fonts']) || request.version !== 1) throw new Error('Invalid verified component registry')
   const aliases = await verifyAliases(root, request.aliases)
   if (!Array.isArray(request.components) || request.components.length > 500 || request.components.length < 1) throw new Error('A verified component registry needs at least one component')
   if (!exact(request.entry, ['componentId'])) throw new Error('Invalid registry entry')
@@ -603,6 +618,15 @@ export async function verifyComponentRegistry(repositoryRoot, request) {
     const discovered = dependencies.map(({ path, integrity }) => ({ path, integrity }))
     if (canonicalJson(pins) !== canonicalJson(discovered)) throw new Error('Verified dependency graph changed after the registry was generated')
   }
+  if (request.resolutions !== undefined) {
+    if (!Array.isArray(request.resolutions) || request.resolutions.length > 50_000) throw new Error('Invalid verified import resolutions')
+    const requested = request.resolutions.map(item => {
+      if (!exact(item, ['importer', 'specifier', 'path']) || typeof item.importer !== 'string' || typeof item.specifier !== 'string' || typeof item.path !== 'string') throw new Error('Invalid verified import resolution')
+      return item
+    })
+    const discovered = graph.resolutions.map(({ importer, specifier, path }) => ({ importer, specifier, path }))
+    if (canonicalJson(requested) !== canonicalJson(discovered)) throw new Error('Verified import resolutions changed after the registry was generated')
+  }
   const staticallyReferenced = new Set([
     ...graph.cssReferences.map(reference => reference.specifier),
     ...graph.resolutions.map(resolution => resolution.path),
@@ -639,6 +663,7 @@ export function registryRequestFromPreviewBinding(binding) {
     ...(binding.themeAdapters ? { themeAdapters: binding.themeAdapters } : {}),
     ...(binding.aliases ? { aliases: binding.aliases } : {}),
     ...(binding.dependencies ? { dependencies: binding.dependencies } : {}),
+    ...(binding.resolutions ? { resolutions: binding.resolutions } : {}),
     ...(binding.assets ? { assets: binding.assets } : {}),
     ...(binding.fonts ? { fonts: binding.fonts } : {}),
   }

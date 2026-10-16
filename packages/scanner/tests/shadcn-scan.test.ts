@@ -168,6 +168,13 @@ export { Button, buttonVariants }
     expect(verified.fingerprint).toMatch(/^sha256-/)
     expect(generated.request.components.map(component => component.exportName)).toEqual(['Badge', 'Button', 'Dialog'])
     expect(generated.request.components.find(component => component.exportName === 'Badge')).toEqual(expect.objectContaining({ props: {}, slots: ['children'] }))
+    expect(generated.request.components.find(component => component.exportName === 'Button')).toEqual(expect.objectContaining({
+      props: {
+        disabled: { kind: 'boolean', optional: true },
+        variant: { kind: 'enum', values: ['default', 'quiet'], optional: true },
+      },
+      slots: ['children'],
+    }))
     expect(generated.request.components.find(component => component.exportName === 'Dialog')).toEqual(expect.objectContaining({ props: {}, slots: ['children', 'trigger'] }))
     expect(generated.request.styles).toEqual([expect.objectContaining({ path: 'src/globals.css', integrity: expect.stringMatching(/^sha256-/) })])
     expect(generated.request.aliases).toEqual([{
@@ -190,6 +197,55 @@ export { Button, buttonVariants }
     const refreshed = await scanShadcnPreviewRegistry(root)
     const current = await verifyComponentRegistry(root, refreshed.request)
     expect(current.fingerprint).not.toBe(prior.fingerprint)
+  })
+
+  it('[COMP-V2-CODE-010] pins the complete local import closure', async () => {
+    const root = await fixture()
+    await mkdir(path.join(root, 'src/lib'), { recursive: true })
+    await mkdir(path.join(root, 'src/specific'), { recursive: true })
+    await writeFile(path.join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['./src/*'], '@/lib/*': ['./src/specific/*'] } } }), 'utf8')
+    await writeFile(path.join(root, 'src/lib/label.ts'), `export const label = 'Wrong broad alias'\n`, 'utf8')
+    await writeFile(path.join(root, 'src/specific/label.ts'), `export const label = 'Verified label'\n`, 'utf8')
+    await writeFile(path.join(root, 'src/components/ui/button.tsx'), `import { label } from '@/lib/label'\nexport const Button = () => <button>{label}</button>\n`, 'utf8')
+
+    const generated = await scanShadcnPreviewRegistry(root)
+
+    expect(generated.request.dependencies).toContainEqual(expect.objectContaining({ path: 'src/specific/label.ts' }))
+    expect(generated.request.dependencies).not.toContainEqual(expect.objectContaining({ path: 'src/lib/label.ts' }))
+    expect(generated.request.resolutions).toContainEqual({ importer: 'src/components/ui/button.tsx', specifier: '@/lib/label', path: 'src/specific/label.ts' })
+    expect(generated.scan.sourceHashes['src/specific/label.ts']).toMatch(/^[a-f0-9]{64}$/)
+    await expect(verifyComponentRegistry(root, generated.request)).resolves.toMatchObject({
+      dependencies: [expect.objectContaining({ path: 'src/specific/label.ts' })],
+    })
+
+    await writeFile(path.join(root, 'src/specific/label.ts'), `export const label = 'Changed label'\n`, 'utf8')
+    await expect(verifyComponentRegistry(root, generated.request)).rejects.toThrow('changed after the registry was generated')
+  })
+
+  it('[COMP-V2-CODE-010] resolves overlapping aliases in the owning workspace', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'design-editor-scoped-aliases-'))
+    temporary.push(root)
+    for (const workspace of ['apps/web', 'packages/ui']) {
+      await mkdir(path.join(root, workspace, 'src/components/ui'), { recursive: true })
+      await writeFile(path.join(root, workspace, 'package.json'), JSON.stringify({ name: `@acme/${path.basename(workspace)}`, private: true }), 'utf8')
+      await writeFile(path.join(root, workspace, 'tsconfig.json'), JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['./src/*'] } } }), 'utf8')
+      await writeFile(path.join(root, workspace, 'src/styles.css'), ':root { --surface: #fff; }\n', 'utf8')
+      await writeFile(path.join(root, workspace, 'src/label.ts'), `export const label = '${workspace}'\n`, 'utf8')
+    }
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ private: true, workspaces: ['apps/*', 'packages/*'] }), 'utf8')
+    await writeFile(path.join(root, 'apps/web/src/components/ui/button.tsx'), `import { label } from '@/label'\nexport function Button() { return <button>{label}</button> }\n`, 'utf8')
+    await writeFile(path.join(root, 'packages/ui/src/components/ui/card.tsx'), `import { label } from '@/label'\nexport function Card() { return <section>{label}</section> }\n`, 'utf8')
+
+    const generated = await scanShadcnPreviewRegistry(root)
+
+    expect(generated.request.resolutions).toEqual(expect.arrayContaining([
+      { importer: 'apps/web/src/components/ui/button.tsx', specifier: '@/label', path: 'apps/web/src/label.ts' },
+      { importer: 'packages/ui/src/components/ui/card.tsx', specifier: '@/label', path: 'packages/ui/src/label.ts' },
+    ]))
+    expect(generated.request.dependencies).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'apps/web/src/label.ts' }),
+      expect.objectContaining({ path: 'packages/ui/src/label.ts' }),
+    ]))
   })
 
   it('[AT-COMP-001] reports unsupported component props instead of approximating them', async () => {

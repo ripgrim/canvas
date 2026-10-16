@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { createBlankFile } from '@canvas/repo-engine/file-document'
 import type { EditorProjectApi, EditorRepositoryConnection } from '../../capabilities'
+import { documentStore } from './document-store'
 import { repositoryConnectionService as service } from './repository-service'
 
 const connection: EditorRepositoryConnection = {
@@ -19,7 +21,10 @@ function waitFor(status: 'idle' | 'busy' | 'ready' | 'error') {
   })
 }
 
-afterEach(() => service.dispose())
+afterEach(() => {
+  service.dispose()
+  documentStore.dispose()
+})
 
 describe('repository connection service', () => {
   it('restores and exposes a persisted read-only scan', async () => {
@@ -27,6 +32,22 @@ describe('repository connection service', () => {
     service.load()
     expect(service.getSnapshot()).toMatchObject({ status: 'busy', operation: 'loading' })
     expect(await waitFor('ready')).toMatchObject({ connection, operation: null, error: null })
+  })
+
+  it('COMP-V2-CODE-001 reapplies the verified registry after a file opens', async () => {
+    service.configure({ getConnectedRepository: async () => connection } as unknown as EditorProjectApi)
+    service.load()
+    await waitFor('ready')
+
+    documentStore.load(createBlankFile('file', 'page', 'root'), [], { replace: true })
+
+    expect(documentStore.getSnapshot().file?.componentModel.definitions['shadcn:Button:1234567890abcdef']).toMatchObject({
+      source: { kind: 'code', bindingId: 'shadcn:Button:1234567890abcdef' },
+      properties: [
+        { id: 'property:variant', name: 'variant', type: 'text', defaultValue: '', optional: true },
+        { id: 'property:children', name: 'children', type: 'slot', optional: true },
+      ],
+    })
   })
 
   it('keeps the previous scan when the folder picker is cancelled', async () => {

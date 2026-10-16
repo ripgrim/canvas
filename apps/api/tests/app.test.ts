@@ -3,13 +3,22 @@ import { describe, expect, it, vi } from 'vitest'
 import type { HostedAuth, HostedSessionUser } from '@canvas/auth/server'
 import { createMemoryGitHubPersistence } from '@canvas/database/github'
 import { createMemoryControlPlane } from '@canvas/database/memory'
-import { GitHubGrantService, GitHubWebhookService, InstallationStateService, RepositoryJobService, type GitHubActor, type GitHubProviderPort } from '@canvas/github-app'
+import { GitHubGrantService, GitHubWebhookService, InstallationStateService, RepositoryDocsReviewService, RepositoryJobService, type GitHubActor, type GitHubProviderPort, type RepositoryDocsReview, type RepositoryDocsReviewStore } from '@canvas/github-app'
+import { verifyHostedPreviewCapability } from '@canvas/preview-runtime/hosted-capability'
+import { verifyHostedPreviewWriteCapability } from '@canvas/preview-runtime/hosted-write-capability'
 import { createApiApp } from '../src/app'
 import { parseGitHubUserTokenPayload, type GitHubApiServices } from '../src/github'
 
 const serviceToken = '0123456789abcdef0123456789abcdef'
+const repositoryJobServiceToken = 'repository-job-0123456789abcdef0123456789'
+const hostedPreviewBuildServiceToken = 'hosted-preview-build-0123456789abcdef012345'
+const hostedPreviewWriteSecret = 'hosted-preview-write-0123456789abcdef012345'
+const assetsOrigin = 'https://assets.canvas.test'
 const thumbnailServiceToken = 'abcdef0123456789abcdef0123456789'
 const registryFingerprint = `sha256-${'A'.repeat(43)}=`
+const hostedPreviewPublisherToken = 'hosted-preview-publisher-token-0123456789abcdef'
+const hostedPreviewCapabilitySecret = 'hosted-preview-capability-secret-0123456789abcdef'
+const hostedPreviewOrigin = 'https://preview.canvas.test'
 const users = Object.freeze({
   alpha: Object.freeze({ id: 'user-alpha', name: 'Alpha', email: 'alpha@example.test', image: null }),
   beta: Object.freeze({ id: 'user-beta', name: 'Beta', email: 'beta@example.test', image: null }),
@@ -33,20 +42,25 @@ const signed = (user: 'alpha' | 'beta', method = 'GET', body?: object): RequestI
 })
 const body = async (response: Response) => response.json() as Promise<Record<string, any>>
 const fileDocument = (fileId: string, revision = 0): Record<string, any> => ({
-  schemaVersion: 9,
+  schemaVersion: 12,
   fileId,
   revision,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: { 'root-1': { id: 'root-1', type: 'root' } },
   relationships: {},
   theme: { tokens: {} },
+  componentModel: { definitions: {}, instances: {} },
 })
+const legacyFileDocument = (fileId: string, revision: number, schemaVersion: number): Record<string, any> => {
+  const { componentModel: _componentModel, ...document } = fileDocument(fileId, revision)
+  return { ...document, schemaVersion }
+}
 
 const githubInstallation = Object.freeze({ id: '2001', account: Object.freeze({ id: '3001', login: 'canvas-team', type: 'Organization' as const }), contentsPermission: 'write' as const })
 const githubRepository = Object.freeze({ id: '4001', installationId: '2001', ownerId: '3001', ownerLogin: 'canvas-team', name: 'design-system', fullName: 'canvas-team/design-system', isPrivate: true, contentsPermission: 'write' as const })
 const githubWebhookSecret = 'github-webhook-secret-with-enough-entropy'
 
-function githubServices(input: Readonly<{ provider?: GitHubProviderPort }> = {}) {
+function githubServices(input: Readonly<{ provider?: GitHubProviderPort; beforeInstallationToken?: () => Promise<void> }> = {}) {
   const persistence = createMemoryGitHubPersistence()
   const providerCalls = { installations: 0, repositories: 0 }
   const provider: GitHubProviderPort = input.provider ?? Object.freeze({
@@ -58,14 +72,69 @@ function githubServices(input: Readonly<{ provider?: GitHubProviderPort }> = {})
       providerCalls.repositories += 1
       return actor.providerUserId === '1001' ? githubRepository : null
     },
+    async listRepositoriesForInstallation({ actor }: Readonly<{ actor: GitHubActor; installationId: string }>) {
+      providerCalls.repositories += 1
+      return actor.providerUserId === '1001' ? [githubRepository] : []
+    },
   })
   const states = new InstallationStateService(persistence.states)
   const grants = new GitHubGrantService(provider, persistence.grants, states, persistence.projectAuthorization)
+  let docsReview: RepositoryDocsReview | null = null
+  const docsStore: RepositoryDocsReviewStore = {
+    async enqueuePrepare(review) {
+      docsReview = Object.freeze({ ...review, approvedByAccountId: null, preparedBundle: null, approvalDigest: null, status: 'queued_prepare', attempt: 0, leaseId: null, leaseExpiresAt: null, nextAttemptAt: review.createdAt, errorId: null, preparedAt: null, approvedAt: null, proposedCommitSha: null, committedSha: null, completedAt: null, failedAt: null })
+      return docsReview
+    },
+    async get() { return docsReview },
+    async getAuthorized() { return docsReview },
+    async getLatestAuthorized(projectId, fileId) { return docsReview?.projectId === projectId && docsReview.fileId === fileId ? docsReview : null },
+    async claimNextPrepare(input) {
+      if (!docsReview || docsReview.status !== 'queued_prepare') return null
+      docsReview = Object.freeze({ ...docsReview, status: 'preparing', attempt: docsReview.attempt + 1, leaseId: input.leaseId, leaseExpiresAt: input.leaseExpiresAt, nextAttemptAt: null })
+      return docsReview
+    },
+    async isCurrentLease(input) { return Boolean(docsReview?.id === input.id && docsReview.status === input.status && docsReview.leaseId === input.leaseId && (docsReview.leaseExpiresAt ?? 0) > input.now) },
+    async completePrepare(input) {
+      if (!docsReview || docsReview.status !== 'preparing' || docsReview.leaseId !== input.leaseId) return false
+      docsReview = Object.freeze({ ...docsReview, status: 'prepared', leaseId: null, leaseExpiresAt: null, preparedBundle: input.preparedBundle, approvalDigest: input.approvalDigest, preparedAt: input.now })
+      return true
+    },
+    async approveSave(input) {
+      if (!docsReview || docsReview.status !== 'prepared' || docsReview.approvalDigest !== input.approvalDigest) return false
+      docsReview = Object.freeze({ ...docsReview, status: 'queued_save', approvedByAccountId: input.actorAccountId, approvedAt: input.now, nextAttemptAt: input.now })
+      return true
+    },
+    async claimNextSave(input) {
+      if (!docsReview || docsReview.status !== 'queued_save') return null
+      docsReview = Object.freeze({ ...docsReview, status: 'saving', attempt: docsReview.attempt + 1, leaseId: input.leaseId, leaseExpiresAt: input.leaseExpiresAt, nextAttemptAt: null })
+      return docsReview
+    },
+    async setProposedCommit(input) {
+      if (!docsReview || docsReview.status !== 'saving' || docsReview.leaseId !== input.leaseId) return false
+      docsReview = Object.freeze({ ...docsReview, proposedCommitSha: input.proposedCommitSha })
+      return true
+    },
+    async completeSave(input) {
+      if (!docsReview || docsReview.status !== 'saving' || docsReview.leaseId !== input.leaseId || docsReview.proposedCommitSha !== input.committedSha) return false
+      docsReview = Object.freeze({ ...docsReview, status: 'saved', committedSha: input.committedSha, completedAt: input.now, leaseId: null, leaseExpiresAt: null })
+      return true
+    },
+    async markTerminal(input) {
+      if (!docsReview || docsReview.leaseId !== input.leaseId) return false
+      docsReview = Object.freeze({ ...docsReview, status: input.status, errorId: input.errorId, failedAt: input.now, leaseId: null, leaseExpiresAt: null, nextAttemptAt: null })
+      return true
+    },
+  }
+  const installationTokens = { async mint(tokenInput: Readonly<{ contentsPermission: 'read' | 'write' }>) {
+    await input.beforeInstallationToken?.()
+    return { token: `ghs_test_${tokenInput.contentsPermission}`, expiresAt: Date.now() + 60_000, contentsPermission: tokenInput.contentsPermission }
+  } }
   const services: GitHubApiServices = Object.freeze({
     states,
     grants,
     webhooks: new GitHubWebhookService(githubWebhookSecret, persistence.deliveries, persistence.grants),
-    jobs: new RepositoryJobService(grants, persistence.jobs, { async mint(input) { return { token: `ghs_test_${input.contentsPermission}`, expiresAt: Date.now() + 60_000, contentsPermission: input.contentsPermission } } }),
+    jobs: new RepositoryJobService(grants, persistence.jobs, installationTokens),
+    docs: new RepositoryDocsReviewService(grants, docsStore, installationTokens),
     async resolveActor(user) {
       return user.id === 'user-alpha'
         ? { accountId: user.id, providerUserId: '1001' }
@@ -73,16 +142,116 @@ function githubServices(input: Readonly<{ provider?: GitHubProviderPort }> = {})
     },
     async authorizeUser(input) { return input.accountId === 'user-alpha' ? { accountId: input.accountId, providerUserId: '1001' } : { accountId: input.accountId, providerUserId: '1002' } },
     async issueAuthorization(input) {
-      const issued = await states.issue({ accountId: input.accountId, tenantId: input.tenantId, purpose: 'authorize-user', installationId: input.installationId, codeVerifierCiphertext: 'encrypted-verifier' })
+      const issued = await states.issue({ accountId: input.accountId, tenantId: input.tenantId, purpose: 'authorize-user', installationId: input.installationId, codeVerifierCiphertext: 'encrypted-verifier', returnToUrl: input.returnToUrl })
       return { authorizationUrl: `https://github.com/login/oauth/authorize?state=${encodeURIComponent(issued.state)}`, expiresAt: issued.expiresAt }
     },
     resolveProjectTenant(projectId, userId) { return persistence.projectTenancy.resolveTenantForMember(projectId, userId) },
     installationUrl(state) { return `https://github.com/apps/comp-canvas/installations/new?state=${encodeURIComponent(state)}` },
+    async resolveRepositoryBase(input) { return { baseRef: 'refs/heads/main', baseCommitSha: input.expectedSourceRevision, baseTreeSha: 'e'.repeat(40) } },
+    async readRepositoryTextFile() { return JSON.stringify({ version: 1, renderer: 'blume', layout: { docsDirectory: 'apps/docs/content/docs/components', examplesDirectory: 'apps/docs/registry/comp', metaPath: 'apps/docs/content/docs/components/meta.ts', manifestPath: 'apps/docs/registry/comp/components.json' }, components: [] }) },
+    async downloadRepositoryArchive() { return new Response(new Uint8Array([1]), { headers: { 'Content-Type': 'application/gzip', 'Content-Length': '1' } }) },
   })
   return { persistence, providerCalls, services }
 }
 
 describe('hosted control-plane API', () => {
+  it('COMP-V2-CODE-007 registers one immutable file-revision artifact and mints only authorized capabilities', async () => {
+    const store = createMemoryControlPlane()
+    const file = await store.createFile(users.alpha.id, 'Preview', null)
+    const artifactId = '00000000-0000-4000-8000-000000000701'
+    const artifact = {
+      artifactId,
+      fileId: file.id,
+      fileRevision: 0,
+      sourceRevision: 'a'.repeat(40),
+      registryFingerprint: `sha256:${'b'.repeat(64)}`,
+      entrypoint: 'index.html',
+    }
+    const app = createApiApp({
+      auth: auth(), store, serviceToken, registryFingerprint,
+      hostedPreviewPublisherServiceToken: hostedPreviewPublisherToken,
+      hostedPreviewCapabilitySecret,
+      hostedPreviewOrigin,
+      hostedPreviewNow: () => 1_800_000_000,
+    })
+    const rejectedRegistration = await app(request('/internal/hosted-previews/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(artifact) }))
+    expect(rejectedRegistration.status).toBe(403)
+    const registration = await app(request('/internal/hosted-previews/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Canvas-Hosted-Preview-Publisher-Token': hostedPreviewPublisherToken },
+      body: JSON.stringify(artifact),
+    }))
+    expect(registration.status).toBe(201)
+    expect(await body(registration)).toEqual({ artifact })
+
+    const owner = await app(request(`/api/files/${file.id}/hosted-preview-capability`, signed('alpha', 'POST', { artifactId })))
+    expect(owner.status).toBe(201)
+    const preview = (await body(owner)).preview
+    expect(preview).toMatchObject({ artifactId, expiresAt: 1_800_000_120 })
+    const previewUrl = new URL(preview.url)
+    const capability = previewUrl.pathname.split('/')[3]!
+    await expect(verifyHostedPreviewCapability({ token: capability, artifactId, audience: hostedPreviewOrigin, secret: hostedPreviewCapabilitySecret, now: 1_800_000_001 })).resolves.toMatchObject({ artifactId })
+
+    const privateViewer = await app(request(`/api/files/${file.id}/hosted-preview-capability`, signed('beta', 'POST', { artifactId })))
+    expect(privateViewer.status).toBe(404)
+    await store.setFileShare(users.alpha.id, file.id, 'view')
+    const sharedViewer = await app(request(`/api/files/${file.id}/hosted-preview-capability`, signed('beta', 'POST', { artifactId })))
+    expect(sharedViewer.status).toBe(201)
+
+    await store.saveFileDocument(users.alpha.id, file.id, 0, fileDocument(file.id, 1))
+    const stale = await app(request(`/api/files/${file.id}/hosted-preview-capability`, signed('alpha', 'POST', { artifactId })))
+    expect(stale.status).toBe(404)
+  })
+
+  it('COMP-V2-CODE-007 refuses artifact identity rebinding and stale publication', async () => {
+    const store = createMemoryControlPlane()
+    const first = await store.createFile(users.alpha.id, 'First', null)
+    const second = await store.createFile(users.alpha.id, 'Second', null)
+    const app = createApiApp({
+      auth: auth(), store, serviceToken, registryFingerprint,
+      hostedPreviewPublisherServiceToken: hostedPreviewPublisherToken,
+      hostedPreviewCapabilitySecret,
+      hostedPreviewOrigin,
+    })
+    const headers = { 'Content-Type': 'application/json', 'X-Canvas-Hosted-Preview-Publisher-Token': hostedPreviewPublisherToken }
+    const artifact = {
+      artifactId: '00000000-0000-4000-8000-000000000702',
+      fileId: first.id,
+      fileRevision: 0,
+      sourceRevision: 'c'.repeat(40),
+      registryFingerprint: `sha256:${'d'.repeat(64)}`,
+      entrypoint: 'index.html',
+    }
+    expect((await app(request('/internal/hosted-previews/register', { method: 'POST', headers, body: JSON.stringify(artifact) }))).status).toBe(201)
+    expect((await app(request('/internal/hosted-previews/register', { method: 'POST', headers, body: JSON.stringify(artifact) }))).status).toBe(200)
+    expect((await app(request('/internal/hosted-previews/register', { method: 'POST', headers, body: JSON.stringify({ ...artifact, fileId: second.id }) }))).status).toBe(409)
+    await store.saveFileDocument(users.alpha.id, second.id, 0, fileDocument(second.id, 1))
+    expect((await app(request('/internal/hosted-previews/register', { method: 'POST', headers, body: JSON.stringify({ ...artifact, artifactId: '00000000-0000-4000-8000-000000000703', fileId: second.id }) }))).status).toBe(409)
+  })
+
+  it('COMP-V2-CODE-007 requires complete separated hosted preview credentials', () => {
+    const base = { auth: auth(), store: createMemoryControlPlane(), serviceToken, registryFingerprint }
+    expect(() => createApiApp({ ...base, hostedPreviewOrigin })).toThrow('configuration must be complete')
+    expect(() => createApiApp({
+      ...base,
+      hostedPreviewPublisherServiceToken: serviceToken,
+      hostedPreviewCapabilitySecret,
+      hostedPreviewOrigin,
+    })).toThrow('must differ')
+    expect(() => createApiApp({
+      ...base,
+      hostedPreviewPublisherServiceToken: hostedPreviewPublisherToken,
+      hostedPreviewCapabilitySecret: hostedPreviewPublisherToken,
+      hostedPreviewOrigin,
+    })).toThrow('HOSTED_PREVIEW_CAPABILITY_SECRET must differ from HOSTED_PREVIEW_PUBLISHER_SERVICE_TOKEN')
+    expect(() => createApiApp({
+      ...base,
+      hostedPreviewPublisherServiceToken: hostedPreviewPublisherToken,
+      hostedPreviewCapabilitySecret: serviceToken,
+      hostedPreviewOrigin,
+    })).toThrow('HOSTED_PREVIEW_CAPABILITY_SECRET must differ from API_SERVICE_TOKEN')
+  })
+
   it('DEPLOY-STAGING-001 reports the exact deployed revision without authentication', async () => {
     const revision = 'a'.repeat(40)
     const app = createApiApp({ auth: auth(), store: createMemoryControlPlane(), serviceToken, registryFingerprint, deploymentRevision: revision })
@@ -111,6 +280,17 @@ describe('hosted control-plane API', () => {
     expect(() => parseGitHubUserTokenPayload({ ...payload, access_token: 'gho_oauth' }, 1_800_000_000_000)).toThrow('invalid user token')
     expect(() => parseGitHubUserTokenPayload({ ...payload, access_token: 'ghs_installation' }, 1_800_000_000_000)).toThrow('invalid user token')
     expect(parseGitHubUserTokenPayload({ ...payload, access_token: 'ghu_user' }, 1_800_000_000_000).accessToken).toBe('ghu_user')
+    expect(() => createApiApp({ auth: auth(), store: createMemoryControlPlane(), serviceToken, repositoryJobServiceToken: 'too-short', registryFingerprint })).toThrow('REPOSITORY_JOB_SERVICE_TOKEN')
+    expect(() => createApiApp({ auth: auth(), store: createMemoryControlPlane(), serviceToken, repositoryJobServiceToken: serviceToken, registryFingerprint })).toThrow('must differ')
+    expect(() => createApiApp({ auth: auth(), store: createMemoryControlPlane(), serviceToken, hostedPreviewBuildServiceToken: 'too-short', registryFingerprint })).toThrow('HOSTED_PREVIEW_BUILD_SERVICE_TOKEN')
+    expect(() => createApiApp({ auth: auth(), store: createMemoryControlPlane(), serviceToken, repositoryJobServiceToken, hostedPreviewBuildServiceToken: repositoryJobServiceToken, hostedPreviewWriteSecret, assetsOrigin, registryFingerprint })).toThrow('must differ')
+  })
+
+  it('AT-GHAPP-LOCAL-001 reports missing GitHub App configuration without disguising it as a missing route', async () => {
+    const app = createApiApp({ auth: auth(), store: createMemoryControlPlane(), serviceToken, registryFingerprint, allowedOrigins: ['https://editor.canvas.test'] })
+    const response = await app(request('/api/github/installations/start', signed('alpha', 'POST', { returnTo: 'https://editor.canvas.test/file/current' })))
+    expect(response.status).toBe(503)
+    expect(await body(response)).toEqual({ error: { code: 'github_not_configured', message: 'Repository connection is not configured for this environment.' } })
   })
   it('AUTH-HOST-001 delegates provider endpoints and protects session state', async () => {
     const app = createApiApp({ auth: auth(), store: createMemoryControlPlane(), serviceToken, registryFingerprint })
@@ -163,7 +343,7 @@ describe('hosted control-plane API', () => {
 
     const initial = await body(await app(request(`/api/files/${file.id}/document`, signed('alpha'))))
     expect(Object.keys(initial).sort()).toEqual(['document', 'fileId', 'revision'])
-    expect(initial).toMatchObject({ fileId: file.id, revision: 0, document: { schemaVersion: 9, fileId: file.id, revision: 0, pages: [{ name: 'Page 1' }], theme: { tokens: {} } } })
+    expect(initial).toMatchObject({ fileId: file.id, revision: 0, document: { schemaVersion: 12, fileId: file.id, revision: 0, pages: [{ name: 'Page 1' }], theme: { tokens: {} }, componentModel: { definitions: {}, instances: {} } } })
     const nextDocument = fileDocument(file.id)
     nextDocument.pages.push({ id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' })
     nextDocument.nodes['root-2'] = { id: 'root-2', type: 'root' }
@@ -191,14 +371,14 @@ describe('hosted control-plane API', () => {
   it('CLOUD-SYNC-SCHEMA-001 upgrades an asset-free version 6 document before returning it', async () => {
     const store = createMemoryControlPlane()
     const file = await store.createFile(users.alpha.id, 'Legacy', null)
-    const legacy = { ...fileDocument(file.id, 1), schemaVersion: 6 }
+    const legacy = legacyFileDocument(file.id, 1, 6)
     expect((await store.saveFileDocument(users.alpha.id, file.id, 0, legacy)).status).toBe('saved')
     const app = createApiApp({ auth: auth(), store, serviceToken, registryFingerprint })
 
     const response = await app(request(`/api/files/${file.id}/document`, signed('alpha')))
 
     expect(response.status).toBe(200)
-    expect(await body(response)).toMatchObject({ fileId: file.id, revision: 1, document: { schemaVersion: 9, fileId: file.id, revision: 1 } })
+    expect(await body(response)).toMatchObject({ fileId: file.id, revision: 1, document: { schemaVersion: 12, fileId: file.id, revision: 1 } })
   })
 
   it('rejects legacy saves after collaboration becomes authoritative', async () => {
@@ -260,7 +440,7 @@ describe('hosted control-plane API', () => {
       { ...fileDocument(file.id), revision: 1 },
       { ...fileDocument(file.id), pages: [] },
       { ...fileDocument(file.id), extra: true },
-      { ...fileDocument(file.id), nodes: { 'root-1': { id: 'root-1', type: 'root' }, box: { id: 'box', type: 'rectangle', name: 'Box', styles: { left: 0, top: 0, width: -1, height: 10 } } }, relationships: { box: { parentId: 'root-1', orderKey: 'V' } } },
+      { ...fileDocument(file.id), nodes: { 'root-1': { id: 'root-1', type: 'root' }, box: { id: 'box', type: 'rectangle', name: 'Box', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: -1, height: 10 } } }, relationships: { box: { parentId: 'root-1', orderKey: 'V' } } },
     ]
     for (const document of cases) {
       const response = await app(request(`/api/files/${file.id}/document`, signed('alpha', 'PUT', { expectedRevision: 0, document })))
@@ -397,7 +577,7 @@ describe('hosted control-plane API', () => {
     expect(source.status).toBe(200)
     const sourceBody = await body(source)
     expect(Object.keys(sourceBody).sort()).toEqual(['document', 'fileId', 'pageId', 'registryFingerprint', 'revision'])
-    expect(sourceBody).toMatchObject({ fileId: file.id, revision: 0, registryFingerprint, document: { schemaVersion: 9, fileId: file.id, revision: 0 } })
+    expect(sourceBody).toMatchObject({ fileId: file.id, revision: 0, registryFingerprint, document: { schemaVersion: 12, fileId: file.id, revision: 0 } })
     expect(sourceBody.pageId).toBe(sourceBody.document.pages[0].id)
 
     const serviceCall = (path: string, payload: object, token = thumbnailServiceToken) => app(request(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Canvas-Thumbnail-Service-Token': token }, body: JSON.stringify(payload) }))
@@ -441,13 +621,43 @@ describe('hosted control-plane API', () => {
 
   it('AT-GHAPP-001 and AT-REPO-LINK-001 persist verified grants and deny hidden repositories', async () => {
     const store = createMemoryControlPlane()
-    const github = githubServices()
-    const app = createApiApp({ auth: auth(), store, serviceToken, registryFingerprint, github: github.services })
+    let authorizationPause: Promise<void> | null = null
+    let signalAuthorizationStarted: (() => void) | null = null
+    let installationTokenFailure: Error | null = null
+    const github = githubServices({ beforeInstallationToken: async () => {
+      if (installationTokenFailure) throw installationTokenFailure
+      const pause = authorizationPause
+      if (!pause) return
+      signalAuthorizationStarted?.()
+      await pause
+    } })
+    let hostedBuildNow = Date.now()
+    const editorOrigin = 'https://editor.canvas.test'
+    const returnTo = `${editorOrigin}/file/current?pageId=page-1`
+    const app = createApiApp({
+      auth: auth(),
+      store,
+      serviceToken,
+      repositoryJobServiceToken,
+      hostedPreviewBuildServiceToken,
+      hostedPreviewWriteSecret,
+      assetsOrigin,
+      registryFingerprint,
+      github: github.services,
+      allowedOrigins: [editorOrigin],
+      hostedPreviewPublisherServiceToken: hostedPreviewPublisherToken,
+      hostedPreviewCapabilitySecret,
+      hostedPreviewOrigin,
+      hostedPreviewNow: () => hostedBuildNow,
+    })
+    const rejectedReturn = await app(request('/api/github/installations/start', signed('alpha', 'POST', { returnTo: 'https://attacker.test/file/current' })))
+    expect(rejectedReturn.status).toBe(400)
+    expect(await body(rejectedReturn)).toEqual({ error: { code: 'invalid_return_url', message: 'Return location is invalid.' } })
     const project = (await body(await app(request('/api/projects', signed('alpha', 'POST', { name: 'Source' }))))).project
     github.persistence.setProjectMembership(project.id, 'user-alpha', 'user-alpha', 'owner')
 
     const start = async (user: 'alpha' | 'beta') => {
-      const response = await app(request('/api/github/installations/start', signed(user, 'POST')))
+      const response = await app(request('/api/github/installations/start', signed(user, 'POST', { returnTo })))
       expect(response.status).toBe(201)
       const result = await body(response)
       const state = new URL(result.installationUrl).searchParams.get('state')
@@ -456,8 +666,8 @@ describe('hosted control-plane API', () => {
     }
     const callback = (user: 'alpha' | 'beta', state: string, installationId: string) => app(request(`/api/github/installations/callback?setup_action=install&installation_id=${installationId}&state=${encodeURIComponent(state)}`, signed(user)))
     const authorize = async (user: 'alpha' | 'beta', setup: Response) => {
-      expect(setup.status).toBe(200)
-      const state = new URL((await body(setup)).authorizationUrl).searchParams.get('state')!
+      expect(setup.status).toBe(303)
+      const state = new URL(setup.headers.get('Location')!).searchParams.get('state')!
       return app(request(`/api/github/authorization/callback?code=temporary-code-123&state=${encodeURIComponent(state)}`, signed(user)))
     }
 
@@ -474,8 +684,15 @@ describe('hosted control-plane API', () => {
 
     const validState = await start('alpha')
     const connected = await authorize('alpha', await callback('alpha', validState, '2001'))
-    expect(connected.status).toBe(200)
-    expect(await body(connected)).toEqual({ installation: { id: '2001', account: githubInstallation.account } })
+    expect(connected.status).toBe(303)
+    expect(connected.headers.get('Location')).toBe(`${returnTo}&github=connected&installationId=2001`)
+
+    const choices = await app(request(`/api/projects/${project.id}/repositories?installationId=2001`, signed('alpha')))
+    expect(choices.status).toBe(200)
+    expect(await body(choices)).toEqual({ installationId: '2001', repositories: [{ id: '4001', ownerLogin: 'canvas-team', name: 'design-system', fullName: 'canvas-team/design-system', isPrivate: true }] })
+    const beforeHiddenChoices = { ...github.providerCalls }
+    expect((await app(request(`/api/projects/${project.id}/repositories?installationId=2001`, signed('beta')))).status).toBe(404)
+    expect(github.providerCalls).toEqual(beforeHiddenChoices)
 
     const beforeDenied = { ...github.providerCalls }
     const denied = await app(request(`/api/projects/${project.id}/repository`, signed('beta', 'PUT', { installationId: '2001', repositoryId: '4001' })))
@@ -493,15 +710,214 @@ describe('hosted control-plane API', () => {
 
     expect((await app(request(`/api/projects/${project.id}/repository/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operation: 'write' }) }))).status).toBe(401)
     expect((await app(request(`/api/projects/${project.id}/repository/jobs`, signed('beta', 'POST', { operation: 'write' })))).status).toBe(404)
-    const enqueued = await app(request(`/api/projects/${project.id}/repository/jobs`, signed('alpha', 'POST', { operation: 'write' })))
+    const unavailableOperation = await app(request(`/api/projects/${project.id}/repository/jobs`, signed('alpha', 'POST', { operation: 'write' })))
+    expect(unavailableOperation.status).toBe(400)
+    expect(await body(unavailableOperation)).toEqual({ error: { code: 'invalid_repository_job', message: 'Repository operation is invalid.' } })
+    const enqueued = await app(request(`/api/projects/${project.id}/repository/jobs`, signed('alpha', 'POST', { operation: 'scan' })))
     expect(enqueued.status).toBe(202)
     const jobId = (await body(enqueued)).job.id
-    const internalJob = (path: string, token = serviceToken) => app(request(path, { method: 'POST', headers: { 'X-Canvas-Service-Token': token } }))
-    expect((await internalJob(`/internal/repository-jobs/${jobId}/start`, 'wrong-but-deliberately-similar-token')).status).toBe(403)
-    const started = await internalJob(`/internal/repository-jobs/${jobId}/start`)
-    expect(await body(started)).toMatchObject({ job: { id: jobId, status: 'running' }, access: { contentsPermission: 'read' } })
-    const writeAccess = await internalJob(`/internal/repository-jobs/${jobId}/authorize-write`)
-    expect(await body(writeAccess)).toMatchObject({ access: { contentsPermission: 'write' }, repository: { installationId: '2001', repositoryId: '4001' } })
+    expect(await body(await app(request(`/api/projects/${project.id}/repository/scan`, signed('alpha'))))).toEqual({ job: null })
+    const internalJob = (path: string, token = repositoryJobServiceToken, payload?: object) => app(request(path, { method: 'POST', headers: { 'X-Canvas-Service-Token': token, ...(payload ? { 'Content-Type': 'application/json' } : {}) }, ...(payload ? { body: JSON.stringify(payload) } : {}) }))
+    expect((await internalJob('/internal/repository-jobs/claim', 'wrong-but-deliberately-similar-token', {})).status).toBe(403)
+    expect((await internalJob(`/internal/repository-jobs/${jobId}/start`, serviceToken)).status).toBe(403)
+    const started = await internalJob('/internal/repository-jobs/claim', repositoryJobServiceToken, {})
+    const startedBody = await body(started)
+    expect(startedBody).toMatchObject({ job: { id: jobId, status: 'running', attempt: 1 }, lease: { id: expect.any(String), expiresAt: expect.any(Number) }, access: { contentsPermission: 'read' } })
+    expect(await body(await internalJob('/internal/repository-jobs/claim', repositoryJobServiceToken, {}))).toEqual({ job: null })
+    expect((await internalJob(`/internal/repository-jobs/${jobId}/authorize-write`, serviceToken)).status).toBe(401)
+    const sourceHash = 'b'.repeat(64)
+    const componentId = 'shadcn:Button:8f9171d59b1041d3'
+    const artifact = {
+      sourceRevision: 'a'.repeat(40),
+      scan: { adapterId: 'shadcn-v1', configs: [], components: [{ path: 'src/button.tsx', exportName: 'Button', declarationKind: 'function', props: [], slots: [], sourceHash, fingerprint: 'c'.repeat(64) }], tokens: [], sourceHashes: { 'src/button.tsx': sourceHash }, diagnostics: [] },
+      request: { version: 1, entry: { componentId }, components: [{ componentId, entryPath: 'src/button.tsx', exportName: 'Button', integrity: `sha256-${Buffer.from(sourceHash, 'hex').toString('base64')}`, props: {}, slots: [] }], styles: [] },
+    }
+    expect((await internalJob(`/internal/repository-jobs/${jobId}/complete`, repositoryJobServiceToken, { leaseId: startedBody.lease.id, result: { sourceRevision: 'a'.repeat(40), scan: { adapterId: 'shadcn-v1' }, request: { version: 1 } } })).status).toBe(400)
+    expect((await internalJob(`/internal/repository-jobs/${jobId}/complete`, repositoryJobServiceToken, { leaseId: crypto.randomUUID(), result: artifact })).status).toBe(404)
+    const completed = await internalJob(`/internal/repository-jobs/${jobId}/complete`, repositoryJobServiceToken, { leaseId: startedBody.lease.id, result: artifact })
+    expect(completed.status).toBe(200)
+    expect(await body(completed)).toEqual({ job: { id: jobId, operation: 'scan', status: 'completed', attempt: 1 } })
+    const visibleResult = await app(request(`/api/repository-jobs/${jobId}`, signed('alpha')))
+    expect(visibleResult.status).toBe(200)
+    expect(await body(visibleResult)).toMatchObject({ job: { id: jobId, status: 'completed', result: artifact } })
+    const latestResult = await app(request(`/api/projects/${project.id}/repository/scan`, signed('alpha')))
+    expect(latestResult.status).toBe(200)
+    expect(await body(latestResult)).toMatchObject({ job: { id: jobId, status: 'completed', result: artifact } })
+    expect((await app(request(`/api/projects/${project.id}/repository/scan`, signed('beta')))).status).toBe(404)
+    expect((await app(request(`/api/repository-jobs/${jobId}`, signed('beta')))).status).toBe(404)
+
+    const file = (await body(await app(request('/api/files', signed('alpha', 'POST', { name: 'Hosted preview', projectId: project.id }))))).file
+    expect((await app(request(`/api/files/${file.id}/hosted-preview-builds`, signed('beta', 'POST', {})))).status).toBe(404)
+    const docsAdapter = {
+      version: 1,
+      renderer: 'blume',
+      layout: { docsDirectory: 'apps/docs/content/docs/components', examplesDirectory: 'apps/docs/registry/comp', metaPath: 'apps/docs/content/docs/components/meta.ts', manifestPath: 'apps/docs/registry/comp/components.json' },
+      components: [],
+    }
+    const docsReview = await app(request(`/api/projects/${project.id}/repository/docs/reviews`, signed('alpha', 'POST', { fileId: file.id, fileRevision: 0, scanJobId: jobId })))
+    expect(docsReview.status).toBe(202)
+    const docsReviewBody = await body(docsReview)
+    expect(docsReviewBody).toMatchObject({ review: { projectId: project.id, fileId: file.id, fileRevision: 0, status: 'queued_prepare', baseRef: 'refs/heads/main', baseCommitSha: artifact.sourceRevision, approvalDigest: null, preparedBundle: null, committedSha: null } })
+    const docsReviewId = docsReviewBody.review.id
+    expect(await body(await app(request(`/api/repository-doc-reviews/${docsReviewId}`, signed('alpha'))))).toEqual(docsReviewBody)
+    expect(await body(await app(request(`/api/projects/${project.id}/repository/docs/reviews?fileId=${file.id}`, signed('alpha'))))).toEqual(docsReviewBody)
+    expect((await app(request(`/api/projects/${project.id}/repository/docs/reviews`, signed('alpha', 'POST', { fileId: file.id, fileRevision: 0, scanJobId: jobId, adapter: docsAdapter })))).status).toBe(400)
+    expect((await internalJob('/internal/repository-doc-reviews/claim-prepare', 'wrong-but-deliberately-similar-token', {})).status).toBe(403)
+    const docsClaim = await body(await internalJob('/internal/repository-doc-reviews/claim-prepare', repositoryJobServiceToken, {}))
+    expect(docsClaim).toMatchObject({ review: { id: docsReviewId, fileId: file.id, scanJobId: jobId, leaseId: expect.any(String), document: { schemaVersion: 12 }, scan: artifact } })
+    const docsLeaseId = docsClaim.review.leaseId
+    const sourceResponse = await internalJob(`/internal/repository-doc-reviews/${docsReviewId}/source`, repositoryJobServiceToken, { leaseId: docsLeaseId })
+    expect(sourceResponse.status).toBe(200)
+    expect(sourceResponse.headers.get('Content-Type')).toBe('application/gzip')
+    const docsBundle = {
+      version: 1,
+      projectId: project.id,
+      fileId: file.id,
+      fileRevision: 0,
+      fileDocumentSha256: docsClaim.review.fileDocumentSha256,
+      scanJobId: jobId,
+      installationId: '2001',
+      repositoryId: '4001',
+      repositoryGrantId: docsClaim.review.repositoryGrantId,
+      repositoryLinkedAt: docsClaim.review.repositoryLinkedAt,
+      baseRef: 'refs/heads/main',
+      baseCommitSha: artifact.sourceRevision,
+      baseTreeSha: 'e'.repeat(40),
+      adapter: docsAdapter,
+      files: [{ path: 'apps/docs/content/docs/components/meta.ts', beforeSha256: null, after: 'export default {}\n', diff: '+export default {}\n' }],
+      omissions: [],
+      validation: [{ name: 'Documentation build', detail: 'The staged documentation candidate built successfully.' }],
+    }
+    const docsCompleted = await body(await internalJob(`/internal/repository-doc-reviews/${docsReviewId}/complete-prepare`, repositoryJobServiceToken, { leaseId: docsLeaseId, bundle: docsBundle }))
+    expect(docsCompleted).toMatchObject({ review: { id: docsReviewId, status: 'prepared', approvalDigest: expect.stringMatching(/^[a-f0-9]{64}$/) } })
+    expect((await app(request(`/api/repository-doc-reviews/${docsReviewId}/save`, signed('alpha', 'POST', { approvalDigest: 'f'.repeat(64) })))).status).toBe(404)
+    const docsApproved = await app(request(`/api/repository-doc-reviews/${docsReviewId}/save`, signed('alpha', 'POST', { approvalDigest: docsCompleted.review.approvalDigest })))
+    expect(docsApproved.status).toBe(202)
+    expect(await body(docsApproved)).toMatchObject({ review: { id: docsReviewId, status: 'queued_save', approvalDigest: docsCompleted.review.approvalDigest } })
+    expect((await internalJob('/internal/repository-doc-reviews/claim-save', 'wrong-but-deliberately-similar-token', {})).status).toBe(403)
+    const docsSaveClaim = await body(await internalJob('/internal/repository-doc-reviews/claim-save', repositoryJobServiceToken, {}))
+    expect(docsSaveClaim).toMatchObject({
+      review: { id: docsReviewId, leaseId: expect.any(String), repositoryId: '4001', baseCommitSha: artifact.sourceRevision, preparedBundle: docsBundle },
+      access: { contentsPermission: 'write', token: 'ghs_test_write' },
+    })
+    const docsSaveLeaseId = docsSaveClaim.review.leaseId
+    const proposedCommitSha = 'f'.repeat(40)
+    expect(await body(await internalJob(`/internal/repository-doc-reviews/${docsReviewId}/proposed-commit`, repositoryJobServiceToken, { leaseId: docsSaveLeaseId, proposedCommitSha }))).toEqual({ review: { id: docsReviewId, status: 'saving', proposedCommitSha } })
+    expect((await internalJob(`/internal/repository-doc-reviews/${docsReviewId}/complete-save`, repositoryJobServiceToken, { leaseId: docsSaveLeaseId, committedSha: '0'.repeat(40) })).status).toBe(404)
+    expect(await body(await internalJob(`/internal/repository-doc-reviews/${docsReviewId}/complete-save`, repositoryJobServiceToken, { leaseId: docsSaveLeaseId, committedSha: proposedCommitSha }))).toEqual({ review: { id: docsReviewId, status: 'saved', committedSha: proposedCommitSha } })
+    expect(await body(await app(request(`/api/repository-doc-reviews/${docsReviewId}`, signed('alpha'))))).toMatchObject({ review: { id: docsReviewId, status: 'saved', committedSha: proposedCommitSha } })
+    for (const suppliedIdentity of [
+      { repositoryId: githubRepository.id },
+      { scanJobId: jobId },
+      { fileRevision: 0 },
+      { artifactId: crypto.randomUUID() },
+      { stagingId: crypto.randomUUID() },
+      { leaseId: crypto.randomUUID() },
+    ]) {
+      expect((await app(request(`/api/files/${file.id}/hosted-preview-builds`, signed('alpha', 'POST', suppliedIdentity)))).status).toBe(400)
+    }
+    const buildEnqueued = await app(request(`/api/files/${file.id}/hosted-preview-builds`, signed('alpha', 'POST', {})))
+    expect(buildEnqueued.status).toBe(202)
+    const buildJob = (await body(buildEnqueued)).job
+    expect(buildJob).toMatchObject({ fileId: file.id, fileRevision: 0, status: 'queued', attempts: 0 })
+    expect(buildJob).not.toHaveProperty('artifactId')
+    const sameBuild = await body(await app(request(`/api/files/${file.id}/hosted-preview-builds`, signed('alpha', 'POST', {}))))
+    expect(sameBuild.job.id).toBe(buildJob.id)
+
+    expect((await internalJob('/internal/hosted-preview-builds/claim', repositoryJobServiceToken, {})).status).toBe(403)
+    expect((await internalJob('/internal/repository-jobs/claim', hostedPreviewBuildServiceToken, {})).status).toBe(403)
+    let releaseAuthorization!: () => void
+    authorizationPause = new Promise<void>(resolve => { releaseAuthorization = resolve })
+    const authorizationStarted = new Promise<void>(resolve => { signalAuthorizationStarted = resolve })
+    const staleClaimPromise = internalJob('/internal/hosted-preview-builds/claim', hostedPreviewBuildServiceToken, {})
+    await authorizationStarted
+    hostedBuildNow += 5 * 60_000
+    authorizationPause = null
+    signalAuthorizationStarted = null
+    const buildClaim = await body(await internalJob('/internal/hosted-preview-builds/claim', hostedPreviewBuildServiceToken, {}))
+    releaseAuthorization()
+    expect(await body(await staleClaimPromise)).toEqual({ job: null })
+    expect(buildClaim).toMatchObject({
+      job: {
+        id: buildJob.id,
+        fileId: file.id,
+        fileRevision: 0,
+        projectId: project.id,
+        scanJobId: jobId,
+        artifactId: expect.any(String),
+        stagingId: expect.any(String),
+        status: 'leased',
+        attempts: 2,
+      },
+      lease: { id: expect.any(String), expiresAt: expect.any(String) },
+      repository: { repositoryId: githubRepository.id },
+      access: { contentsPermission: 'read' },
+      scan: artifact,
+      artifactAccess: { origin: assetsOrigin, token: expect.any(String), expiresAt: expect.any(Number) },
+    })
+    await expect(verifyHostedPreviewWriteCapability({
+      jobId: buildClaim.job.id,
+      leaseId: buildClaim.lease.id,
+      artifactId: buildClaim.job.artifactId,
+      stagingId: buildClaim.job.stagingId,
+      audience: assetsOrigin,
+      secret: hostedPreviewWriteSecret,
+      token: buildClaim.artifactAccess.token,
+      now: Math.floor(hostedBuildNow / 1000),
+    })).resolves.toMatchObject({ artifactId: buildClaim.job.artifactId, stagingId: buildClaim.job.stagingId })
+    expect((await internalJob(`/internal/hosted-preview-builds/${buildJob.id}/complete`, repositoryJobServiceToken, { leaseId: buildClaim.lease.id })).status).toBe(403)
+    expect((await internalJob(`/internal/hosted-preview-builds/${buildJob.id}/complete`, hostedPreviewBuildServiceToken, { leaseId: crypto.randomUUID() })).status).toBe(404)
+    expect((await internalJob(`/internal/hosted-preview-builds/${buildJob.id}/complete`, hostedPreviewBuildServiceToken, { leaseId: buildClaim.lease.id })).status).toBe(404)
+    expect((await app(request('/internal/hosted-previews/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Canvas-Hosted-Preview-Publisher-Token': hostedPreviewPublisherToken },
+      body: JSON.stringify({
+        artifactId: buildClaim.job.artifactId,
+        fileId: file.id,
+        fileRevision: 0,
+        sourceRevision: artifact.sourceRevision,
+        registryFingerprint: `sha256:${'d'.repeat(64)}`,
+        entrypoint: 'index.html',
+      }),
+    }))).status).toBe(201)
+    expect((await internalJob(`/internal/hosted-preview-builds/${buildJob.id}/complete`, hostedPreviewBuildServiceToken, { leaseId: buildClaim.lease.id })).status).toBe(200)
+    const completedBuild = await body(await app(request(`/api/hosted-preview-builds/${buildJob.id}`, signed('alpha'))))
+    expect(completedBuild.job).toMatchObject({ id: buildJob.id, status: 'completed', artifactId: expect.any(String), completedAt: expect.any(String) })
+    expect((await app(request(`/api/hosted-preview-builds/${buildJob.id}`, signed('beta')))).status).toBe(404)
+    const transientFile = (await body(await app(request('/api/files', signed('alpha', 'POST', { name: 'Transient preview', projectId: project.id }))))).file
+    const transientJob = (await body(await app(request(`/api/files/${transientFile.id}/hosted-preview-builds`, signed('alpha', 'POST', {}))))).job
+    installationTokenFailure = new TypeError('fetch failed')
+    expect((await internalJob('/internal/hosted-preview-builds/claim', hostedPreviewBuildServiceToken, {})).status).toBe(500)
+    expect((await body(await app(request(`/api/hosted-preview-builds/${transientJob.id}`, signed('alpha'))))).job).toMatchObject({ id: transientJob.id, status: 'queued', attempts: 1 })
+    installationTokenFailure = null
+    hostedBuildNow += 2_000
+    const recoveredTransientClaim = await body(await internalJob('/internal/hosted-preview-builds/claim', hostedPreviewBuildServiceToken, {}))
+    expect(recoveredTransientClaim.job).toMatchObject({ id: transientJob.id, status: 'leased', attempts: 2 })
+    expect((await internalJob(`/internal/hosted-preview-builds/${transientJob.id}/fail`, hostedPreviewBuildServiceToken, { leaseId: recoveredTransientClaim.lease.id, errorId: 'test-finished' })).status).toBe(200)
+    const retryFile = (await body(await app(request('/api/files', signed('alpha', 'POST', { name: 'Retry preview', projectId: project.id }))))).file
+    const retryBuildJob = (await body(await app(request(`/api/files/${retryFile.id}/hosted-preview-builds`, signed('alpha', 'POST', {}))))).job
+    const retryClaim = await body(await internalJob('/internal/hosted-preview-builds/claim', hostedPreviewBuildServiceToken, {}))
+    expect(retryClaim.job.id).toBe(retryBuildJob.id)
+    expect((await internalJob(`/internal/hosted-preview-builds/${retryBuildJob.id}/fail`, hostedPreviewBuildServiceToken, { leaseId: retryClaim.lease.id, errorId: 'builder-failed' })).status).toBe(200)
+    const requeued = await body(await app(request(`/api/files/${retryFile.id}/hosted-preview-builds`, signed('alpha', 'POST', {}))))
+    expect(requeued.job).toMatchObject({ id: retryBuildJob.id, status: 'queued', attempts: 1 })
+    const secondRetryClaim = await body(await internalJob('/internal/hosted-preview-builds/claim', hostedPreviewBuildServiceToken, {}))
+    expect(secondRetryClaim.job).toMatchObject({ id: retryBuildJob.id, status: 'leased', attempts: 2 })
+    expect((await app(request('/internal/hosted-previews/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Canvas-Hosted-Preview-Publisher-Token': hostedPreviewPublisherToken },
+      body: JSON.stringify({
+        artifactId: secondRetryClaim.job.artifactId,
+        fileId: retryFile.id,
+        fileRevision: 0,
+        sourceRevision: artifact.sourceRevision,
+        registryFingerprint: `sha256:${'e'.repeat(64)}`,
+        entrypoint: 'index.html',
+      }),
+    }))).status).toBe(201)
+    expect((await internalJob(`/internal/hosted-preview-builds/${retryBuildJob.id}/complete`, hostedPreviewBuildServiceToken, { leaseId: secondRetryClaim.lease.id })).status).toBe(200)
+    const secondFile = (await body(await app(request('/api/files', signed('alpha', 'POST', { name: 'Revoked preview', projectId: project.id }))))).file
+    const revokedBuildJob = (await body(await app(request(`/api/files/${secondFile.id}/hosted-preview-builds`, signed('alpha', 'POST', {}))))).job
 
     const webhookBody = JSON.stringify({ action: 'suspend', installation: { id: 2001 } })
     const signature = `sha256=${createHmac('sha256', githubWebhookSecret).update(webhookBody).digest('hex')}`
@@ -515,6 +931,10 @@ describe('hosted control-plane API', () => {
     expect((await webhook(signature)).status).toBe(409)
     const invalidated = await app(request(`/api/projects/${project.id}/repository`, signed('alpha')))
     expect(invalidated.status).toBe(404)
+    expect((await app(request(`/api/projects/${project.id}/repository/scan`, signed('alpha')))).status).toBe(404)
+    expect((await internalJob('/internal/hosted-preview-builds/claim', hostedPreviewBuildServiceToken, {})).status).toBe(404)
+    const revokedBuild = await body(await app(request(`/api/hosted-preview-builds/${revokedBuildJob.id}`, signed('alpha'))))
+    expect(revokedBuild.job).toMatchObject({ status: 'failed', errorId: 'repository-access-changed', failedAt: expect.any(String) })
     expect(JSON.stringify(await body(invalidated))).not.toContain(githubRepository.fullName)
   })
 

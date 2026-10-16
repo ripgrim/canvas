@@ -98,8 +98,9 @@ describe('legacy hosted asset migration', () => {
     const store = createMemoryControlPlane()
     const file = await store.createFile('owner', 'Legacy image', null)
     const initial = (await store.getFileDocumentForCapture(file.id))!
+    const { componentModel: _componentModel, ...legacyDocument } = initial.document
     const source = {
-      ...initial.document,
+      ...legacyDocument,
       schemaVersion: 6,
       assets: { photo: { id: 'photo', name: 'photo.png', mime: 'image/png', width: 1, height: 1, bytes: 3, data: 'AAAA' } },
     }
@@ -112,7 +113,7 @@ describe('legacy hosted asset migration', () => {
     expect(upload).toHaveBeenCalledTimes(1)
     expect(await store.getFileDocumentForCapture(file.id)).toMatchObject({
       revision: 1,
-      document: { schemaVersion: 9, revision: 1, assets: { photo: { sha256: 'a'.repeat(64) } } },
+      document: { schemaVersion: 12, revision: 1, assets: { photo: { sha256: 'a'.repeat(64) } } },
     })
     expect((await store.getFile('owner', file.id))?.headRevision).toBe(1)
   })
@@ -121,7 +122,8 @@ describe('legacy hosted asset migration', () => {
     const store = createMemoryControlPlane()
     const file = await store.createFile('owner', 'Invalid image', null)
     const initial = (await store.getFileDocumentForCapture(file.id))!
-    const source = { ...initial.document, schemaVersion: 6, relationships: { ghost: { parentId: 'missing', orderKey: 'V' } }, assets: { photo: { id: 'photo', name: 'photo.png', mime: 'image/png', width: 1, height: 1, bytes: 3, data: 'AAAA' } } }
+    const { componentModel: _componentModel, ...legacyDocument } = initial.document
+    const source = { ...legacyDocument, schemaVersion: 6, relationships: { ghost: { parentId: 'missing', orderKey: 'V' } }, assets: { photo: { id: 'photo', name: 'photo.png', mime: 'image/png', width: 1, height: 1, bytes: 3, data: 'AAAA' } } }
     expect((await store.saveFileDocument('owner', file.id, 0, { ...source, revision: 1 })).status).toBe('saved')
     const upload = vi.fn()
     const externalizer = createLegacyDocumentExternalizer({ store, upload })
@@ -137,8 +139,9 @@ describe('legacy hosted asset migration', () => {
     const store = createMemoryControlPlane()
     const file = await store.createFile('owner', 'Mismatched legacy image', null)
     const initial = (await store.getFileDocumentForCapture(file.id))!
+    const { componentModel: _componentModel, ...legacyDocument } = initial.document
     const source = {
-      ...initial.document,
+      ...legacyDocument,
       fileId: 'other-file',
       schemaVersion: 6,
       assets: { photo: { id: 'photo', name: 'photo.png', mime: 'image/png', width: 1, height: 1, bytes: 3, data: 'AAAA' } },
@@ -158,8 +161,9 @@ describe('legacy hosted asset migration', () => {
     const store = createMemoryControlPlane({ isCollaborationAuthoritative: () => collaborationAuthoritative })
     const file = await store.createFile('owner', 'Legacy room image', null)
     const initial = (await store.getFileDocumentForCapture(file.id))!
+    const { componentModel: _componentModel, ...legacyDocument } = initial.document
     const source = {
-      ...initial.document,
+      ...legacyDocument,
       schemaVersion: 6,
       assets: { photo: { id: 'photo', name: 'photo.png', mime: 'image/png', width: 1, height: 1, bytes: 3, data: 'AAAA' } },
     }
@@ -174,5 +178,36 @@ describe('legacy hosted asset migration', () => {
     })
     expect(upload).toHaveBeenCalledTimes(1)
     expect((await store.getFileDocumentForCapture(file.id))!.document).toMatchObject({ schemaVersion: 6 })
+  })
+
+  it('COMP-V2-PERSIST-ORPHAN-001 repairs orphaned instance metadata before room admission', async () => {
+    const store = createMemoryControlPlane()
+    const file = await store.createFile('owner', 'Historic component deletion', null)
+    const initial = (await store.getFileDocumentForCapture(file.id))!
+    const rootId = ((initial.document.pages as readonly Readonly<Record<string, unknown>>[])[0]!.rootNodeId) as string
+    const source = {
+      ...initial.document,
+      revision: 1,
+      nodes: {
+        ...initial.document.nodes as Record<string, unknown>,
+        master: { id: 'master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 120, height: 40 } },
+      },
+      relationships: { master: { parentId: rootId, orderKey: 'V' } },
+      componentModel: {
+        definitions: { button: { id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'master' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] } },
+        instances: { ghost: { id: 'ghost', componentId: 'button', values: {} } },
+      },
+    }
+    expect((await store.saveFileDocument('owner', file.id, 0, source)).status).toBe('saved')
+    const upload = vi.fn()
+    const externalizer = createLegacyDocumentExternalizer({ store, upload })
+
+    await externalizer.prepare(file.id, requestId, { authorization: 'Bearer owner', cookie: null })
+
+    const repaired = (await store.getFileDocumentForCapture(file.id))!
+    expect(repaired.revision).toBe(1)
+    expect(repaired.document.componentModel).toMatchObject({ definitions: { button: expect.any(Object) }, instances: {} })
+    expect(repaired.document.nodes).toHaveProperty('master')
+    expect(upload).not.toHaveBeenCalled()
   })
 })

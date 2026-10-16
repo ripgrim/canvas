@@ -58,11 +58,13 @@ export type ShadcnScan = Readonly<{
   tokens: readonly ShadcnToken[]
   sourceHashes: Readonly<Record<string, string>>
   diagnostics: readonly ShadcnDiagnostic[]
+  previewDependencies?: readonly Readonly<{ path: string; integrity: string }>[]
+  previewResolutions?: readonly Readonly<{ importer: string; specifier: string; path: string }>[]
 }>
 
 export type ShadcnPreviewPropRule =
-  | Readonly<{ kind: 'string' | 'number' | 'boolean' }>
-  | Readonly<{ kind: 'enum'; values: readonly (string | number | boolean)[] }>
+  | Readonly<{ kind: 'string' | 'number' | 'boolean'; optional: boolean }>
+  | Readonly<{ kind: 'enum'; values: readonly (string | number | boolean)[]; optional: boolean }>
 
 export type ShadcnPreviewRegistryComponent = Readonly<{
   componentId: string
@@ -85,6 +87,7 @@ export type ShadcnPreviewRegistryRequest = Readonly<{
     paths: readonly Readonly<{ pattern: string; target: string }>[]
   }>[]
   dependencies?: readonly Readonly<{ path: string; integrity: string }>[]
+  resolutions?: readonly Readonly<{ importer: string; specifier: string; path: string }>[]
   provider?: Readonly<ShadcnPreviewProviderConfig & { integrity: string; evidence: Readonly<{ configPath: string; integrity: string }> }>
   themeAdapters?: readonly Readonly<ShadcnThemeAdapterConfig & { integrity: string; evidence: Readonly<{ configPath: string; integrity: string }> }>[]
 }>

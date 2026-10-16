@@ -4,7 +4,7 @@ import type { JsonValue, PreviewPropRule, PreviewRegistryBinding } from './proto
 // @ts-ignore
 import * as runtime from './verified-registry-runtime.mjs'
 
-const { loadVerifiedRegistryManifest: loadManifest, registryRequestFromPreviewBinding: requestFromBinding, verifyComponentRegistry: verifyRegistry } = runtime
+const { loadVerifiedRegistryManifest: loadManifest, registryRequestFromPreviewBinding: requestFromBinding, verifyComponentRegistry: verifyRegistry, verifyRegistryDependencyClosure: verifyDependencyClosure } = runtime
 
 export type VerifiedPropRule = PreviewPropRule
 
@@ -103,11 +103,16 @@ export type VerifiedRegistryRequest = Readonly<{
   themeAdapters?: readonly Readonly<{ entryPath: string; exportName: string; integrity?: string; evidence?: Readonly<{ configPath: string; integrity?: string }> }>[]
   aliases?: readonly Readonly<{ configPath: string; integrity?: string; baseUrl: string; paths: readonly Readonly<{ pattern: string; target: string }>[] }>[]
   dependencies?: readonly Readonly<{ path: string; integrity: string }>[]
+  resolutions?: readonly Readonly<{ importer: string; specifier: string; path: string }>[]
   assets?: readonly Readonly<{ assetId: string; sourcePath: string; publicPath: string; mime: string; integrity?: string }>[]
   fonts?: readonly Readonly<{ family: string; assetId: string; weight?: string; style?: 'normal' | 'italic' | 'oblique'; display?: 'auto' | 'block' | 'swap' | 'fallback' | 'optional' }>[]
 }>
 
 export const verifyComponentRegistry = verifyRegistry as (repositoryRoot: string, request: VerifiedRegistryRequest) => Promise<VerifiedComponentRegistry>
+export const verifyRegistryDependencyClosure = verifyDependencyClosure as (repositoryRoot: string, request: Readonly<{
+  roots: readonly Readonly<{ path: string; integrity: string }>[]
+  aliases?: VerifiedRegistryRequest['aliases']
+}>) => Promise<Readonly<{ dependencies: readonly VerifiedRegistryFile[]; resolutions: readonly VerifiedRegistryResolution[] }>>
 export const registryRequestFromPreviewBinding = requestFromBinding as (binding: Readonly<{
   componentId: string
   entryPath: string
@@ -117,6 +122,7 @@ export const registryRequestFromPreviewBinding = requestFromBinding as (binding:
   themeAdapters?: VerifiedRegistryRequest['themeAdapters']
   aliases?: VerifiedRegistryRequest['aliases']
   dependencies?: VerifiedRegistryRequest['dependencies']
+  resolutions?: VerifiedRegistryRequest['resolutions']
   assets?: VerifiedRegistryRequest['assets']
   fonts?: VerifiedRegistryRequest['fonts']
   registry?: readonly PreviewRegistryBinding[]

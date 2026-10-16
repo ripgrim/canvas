@@ -1,10 +1,12 @@
 import { createCipheriv, createDecipheriv, createHash, createPrivateKey, randomBytes, sign } from 'node:crypto'
 import type { HostedSessionUser } from '@canvas/auth/server'
 import { createPostgresGitHubPersistence } from '@canvas/database/github'
+import { createPostgresRepositoryDocsReviewStore } from '@canvas/database/github-docs'
 import {
   GitHubGrantService,
   GitHubWebhookService,
   InstallationStateService,
+  RepositoryDocsReviewService,
   RepositoryJobService,
   type GitHubActor,
   type GitHubInstallationIdentity,
@@ -21,11 +23,15 @@ export type GitHubApiServices = Readonly<{
   grants: GitHubGrantService
   webhooks: GitHubWebhookService
   jobs: RepositoryJobService
+  docs: RepositoryDocsReviewService
   resolveActor(user: HostedSessionUser): Promise<GitHubActor | null>
   authorizeUser(input: Readonly<{ accountId: string; code: string; codeVerifierCiphertext: string }>): Promise<GitHubActor>
-  issueAuthorization(input: Readonly<{ accountId: string; tenantId: string; installationId: string }>): Promise<Readonly<{ authorizationUrl: string; expiresAt: number }>>
+  issueAuthorization(input: Readonly<{ accountId: string; tenantId: string; installationId: string; returnToUrl: string }>): Promise<Readonly<{ authorizationUrl: string; expiresAt: number }>>
   resolveProjectTenant(projectId: string, userId: string): Promise<string | null>
   installationUrl(state: string): string
+  resolveRepositoryBase(input: Readonly<{ installationId: string; repositoryId: string; expectedSourceRevision: string }>): Promise<Readonly<{ baseRef: string; baseCommitSha: string; baseTreeSha: string }>>
+  readRepositoryTextFile(input: Readonly<{ installationId: string; repositoryId: string; sourceRevision: string; path: string; maximumBytes: number }>): Promise<string | null>
+  downloadRepositoryArchive(input: Readonly<{ installationId: string; repositoryId: string; sourceRevision: string }>): Promise<Response>
 }>
 
 export type GitHubRuntimeOptions = Readonly<{
@@ -58,6 +64,7 @@ export function createPostgresGitHubApiServices(pool: Pool, options: GitHubRunti
   const cipher = credentialCipher(options.credentialEncryptionKey)
   const credentials = createCredentialStore(pool, cipher, request, options, now)
   const persistence = createPostgresGitHubPersistence(pool)
+  const docsPersistence = createPostgresRepositoryDocsReviewStore(pool)
   const provider = createGitHubUserProvider(credentials, request)
   const states = new InstallationStateService(persistence.states, { now })
   const grants = new GitHubGrantService(provider, persistence.grants, states, persistence.projectAuthorization, now)
@@ -67,6 +74,7 @@ export function createPostgresGitHubApiServices(pool: Pool, options: GitHubRunti
     grants,
     webhooks: new GitHubWebhookService(options.webhookSecret, persistence.deliveries, persistence.grants, now),
     jobs: new RepositoryJobService(grants, persistence.jobs, tokens, now),
+    docs: new RepositoryDocsReviewService(grants, docsPersistence, tokens, now),
     async resolveActor(user) {
       const credential = await credentials.getFresh(user.id)
       return credential ? Object.freeze({ accountId: user.id, providerUserId: credential.providerUserId }) : null
@@ -83,7 +91,7 @@ export function createPostgresGitHubApiServices(pool: Pool, options: GitHubRunti
     async issueAuthorization(input) {
       const verifier = randomBytes(48).toString('base64url')
       const challenge = createHash('sha256').update(verifier).digest('base64url')
-      const issued = await states.issue({ accountId: input.accountId, tenantId: input.tenantId, purpose: 'authorize-user', installationId: input.installationId, codeVerifierCiphertext: cipher.encrypt(verifier) })
+      const issued = await states.issue({ accountId: input.accountId, tenantId: input.tenantId, purpose: 'authorize-user', installationId: input.installationId, codeVerifierCiphertext: cipher.encrypt(verifier), returnToUrl: input.returnToUrl })
       const url = new URL('https://github.com/login/oauth/authorize')
       url.searchParams.set('client_id', options.clientId)
       url.searchParams.set('redirect_uri', options.authorizationCallbackUrl)
@@ -99,6 +107,54 @@ export function createPostgresGitHubApiServices(pool: Pool, options: GitHubRunti
       const url = new URL(`https://github.com/apps/${options.appSlug}/installations/new`)
       url.searchParams.set('state', state)
       return url.toString()
+    },
+    async resolveRepositoryBase(input) {
+      if (!/^[1-9][0-9]{0,31}$/.test(input.installationId) || !/^[1-9][0-9]{0,31}$/.test(input.repositoryId) || !/^[a-f0-9]{40}$/.test(input.expectedSourceRevision)) throw new Error('Repository base is invalid.')
+      const access = await tokens.mint({ installationId: input.installationId, repositoryId: input.repositoryId, contentsPermission: 'read' })
+      const repository = record(await githubJson(request, access.token, `/repositories/${input.repositoryId}`))
+      if (githubId(repository.id) !== input.repositoryId || typeof repository.default_branch !== 'string' || !/^(?!.*(?:^|\/)\.\.?$)[A-Za-z0-9][A-Za-z0-9._\/-]{0,254}$/.test(repository.default_branch)) throw new Error('GitHub returned an invalid repository base.')
+      const branchName = repository.default_branch
+      const reference = record(await githubJson(request, access.token, `/repositories/${input.repositoryId}/git/ref/heads/${encodeURIComponent(branchName)}`))
+      const object = record(reference.object)
+      const baseCommitSha = typeof object.sha === 'string' && /^[a-f0-9]{40}$/.test(object.sha) ? object.sha : ''
+      if (baseCommitSha !== input.expectedSourceRevision) throw new Error('Repository source changed after scanning.')
+      const commit = record(await githubJson(request, access.token, `/repositories/${input.repositoryId}/git/commits/${baseCommitSha}`))
+      const tree = record(commit.tree)
+      if (typeof tree.sha !== 'string' || !/^[a-f0-9]{40}$/.test(tree.sha)) throw new Error('GitHub returned an invalid repository tree.')
+      return Object.freeze({ baseRef: `refs/heads/${branchName}`, baseCommitSha, baseTreeSha: tree.sha })
+    },
+    async readRepositoryTextFile(input) {
+      if (!/^[1-9][0-9]{0,31}$/.test(input.installationId) || !/^[1-9][0-9]{0,31}$/.test(input.repositoryId)
+        || !/^[a-f0-9]{40}$/.test(input.sourceRevision) || !/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*\\)[A-Za-z0-9._\/-]{1,512}$/.test(input.path)
+        || !Number.isSafeInteger(input.maximumBytes) || input.maximumBytes < 1 || input.maximumBytes > 1024 * 1024) throw new Error('Repository file request is invalid.')
+      const access = await tokens.mint({ installationId: input.installationId, repositoryId: input.repositoryId, contentsPermission: 'read' })
+      const response = await githubJson(request, access.token, `/repositories/${input.repositoryId}/contents/${input.path.split('/').map(encodeURIComponent).join('/')}?ref=${input.sourceRevision}`, true)
+      if (response === null) return null
+      const file = record(response)
+      if (file.type !== 'file' || file.path !== input.path || file.encoding !== 'base64' || typeof file.content !== 'string' || !Number.isSafeInteger(file.size) || (file.size as number) < 0 || (file.size as number) > input.maximumBytes) throw new Error('GitHub returned an invalid repository file.')
+      const encoded = file.content.replace(/[\r\n]/g, '')
+      if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error('GitHub returned an invalid repository file.')
+      const bytes = Buffer.from(encoded, 'base64')
+      if (bytes.byteLength !== file.size || bytes.byteLength > input.maximumBytes || bytes.toString('base64') !== encoded) throw new Error('GitHub returned an invalid repository file.')
+      try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
+      catch { throw new Error('GitHub returned an invalid repository file.') }
+    },
+    async downloadRepositoryArchive(input) {
+      if (!/^[1-9][0-9]{0,31}$/.test(input.installationId) || !/^[1-9][0-9]{0,31}$/.test(input.repositoryId) || !/^[a-f0-9]{40}$/.test(input.sourceRevision)) throw new Error('Repository archive request is invalid.')
+      const access = await tokens.mint({ installationId: input.installationId, repositoryId: input.repositoryId, contentsPermission: 'read' })
+      const repository = record(await githubJson(request, access.token, `/repositories/${input.repositoryId}`))
+      if (githubId(repository.id) !== input.repositoryId || typeof repository.full_name !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository.full_name)) throw new Error('GitHub returned an invalid repository archive identity.')
+      const redirect = await request(`https://api.github.com/repositories/${input.repositoryId}/tarball/${input.sourceRevision}`, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(15_000), headers: githubHeaders(access.token) })
+      const location = redirect.headers.get('location')
+      if (redirect.status < 300 || redirect.status >= 400 || !location) throw new Error('GitHub repository archive is unavailable.')
+      const archiveUrl = new URL(location)
+      const expectedPath = `/${repository.full_name}/legacy.tar.gz/${input.sourceRevision}`
+      if (archiveUrl.protocol !== 'https:' || archiveUrl.hostname !== 'codeload.github.com' || archiveUrl.pathname !== expectedPath || archiveUrl.username || archiveUrl.password || archiveUrl.hash) throw new Error('GitHub returned an invalid repository archive redirect.')
+      const archive = await request(archiveUrl, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(60_000), headers: { Accept: 'application/octet-stream', 'User-Agent': 'Canvas documentation preparer' } })
+      const contentType = (archive.headers.get('content-type') ?? '').split(';', 1)[0]?.trim().toLowerCase()
+      const length = Number(archive.headers.get('content-length'))
+      if (!archive.ok || archive.status >= 300 || !contentType || !['application/gzip', 'application/octet-stream', 'application/x-gzip'].includes(contentType) || !Number.isSafeInteger(length) || length < 1 || length > 50 * 1024 * 1024) throw new Error('GitHub returned an invalid repository archive.')
+      return archive
     },
   })
 }
@@ -166,6 +222,18 @@ function createGitHubUserProvider(credentials: ReturnType<typeof createCredentia
           if (repository.id === input.repositoryId) return repository
         }
         if (values.length < 100) return null
+      }
+      throw new Error('GitHub repository result exceeded the supported page limit.')
+    },
+    async listRepositoriesForInstallation(input: Readonly<{ actor: GitHubActor; installationId: string }>) {
+      const credential = await credentialForActor(credentials, input.actor)
+      const repositories: GitHubRepositoryIdentity[] = []
+      for (let page = 1; page <= 100; page += 1) {
+        const payload = record(await githubJson(request, credential.accessToken, `/user/installations/${input.installationId}/repositories?per_page=100&page=${page}`))
+        const values = payload.repositories
+        if (!Array.isArray(values)) throw new Error('GitHub returned invalid repository data.')
+        repositories.push(...values.map(value => readRepository(value, input.installationId)))
+        if (values.length < 100) return Object.freeze(repositories)
       }
       throw new Error('GitHub repository result exceeded the supported page limit.')
     },

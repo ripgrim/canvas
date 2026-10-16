@@ -167,7 +167,7 @@ function previewBinding(snapshot: ProjectSnapshot): PreviewBinding {
     const props = Object.fromEntries(atom.props.flatMap(prop => {
       if (!usedNames.has(prop.name) || slotNames.has(prop.name)) return []
       const values = [...(usedValuesByComponent.get(atom.componentId)?.get(prop.name) ?? [])]
-      const rule = shadcnPreviewPropRule(prop.type) ?? (values.length ? { kind: 'enum' as const, values } : null)
+      const rule = shadcnPreviewPropRule(prop.type, prop.optional) ?? (values.length ? { kind: 'enum' as const, values, optional: prop.optional } : null)
       if (!rule) throw new Error(`The preview cannot represent ${atom.exportName}.${prop.name}.`)
       return [[prop.name, rule]]
     }))

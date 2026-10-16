@@ -91,7 +91,7 @@ describe('connected desktop preview', () => {
       type: 'node.insert',
       node: {
         id: 'frame-image', type: 'frame', name: 'Frame',
-        styles: { left: 0, top: 0, width: 100, height: 100 },
+        styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 },
         appearance: { fills: [{ id: 'fill-image', type: 'image', assetId: 'photo', fit: 'cover' }] },
       },
       placement: { parentId: 'root-image' },

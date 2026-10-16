@@ -1,5 +1,5 @@
 import type { ControlPlaneStore, JsonValue } from '@canvas/database'
-import { externalizeHostedFileDocument, validateHostedFileDocument } from '@canvas/cloud-document'
+import { externalizeHostedFileDocument, repairHostedFileDocument, validateHostedFileDocument } from '@canvas/cloud-document'
 import type { LegacyHostedAssetUploader } from '@canvas/cloud-document'
 
 export type LegacyDocumentPreparationFailure = 'invalid-document' | 'service-unavailable'
@@ -150,7 +150,7 @@ async function readBoundedText(response: Response, limit: number): Promise<strin
 }
 
 export function createLegacyDocumentExternalizer(options: Readonly<{
-  store: Pick<ControlPlaneStore, 'getFileDocumentForCapture' | 'externalizeLegacyFileDocument'>
+  store: Pick<ControlPlaneStore, 'getFileDocumentForCapture' | 'externalizeLegacyFileDocument' | 'repairFileDocumentInvariant'>
   upload: CorrelatedLegacyAssetUploader
 }>): LegacyDocumentExternalizer {
   return Object.freeze({
@@ -168,6 +168,23 @@ export function createLegacyDocumentExternalizer(options: Readonly<{
           result = await externalizeHostedFileDocument(stored.document, input => options.upload(input, requestId, credentials))
         } catch (error) {
           if (error instanceof LegacyDocumentPreparationError) throw error
+          const repair = repairHostedFileDocument(stored.document)
+          if (repair.status === 'repaired') {
+            let saved
+            try {
+              saved = await options.store.repairFileDocumentInvariant(
+                fileId,
+                stored.revision,
+                repair.source as Readonly<Record<string, JsonValue>>,
+                repair.document as unknown as Readonly<Record<string, JsonValue>>,
+              )
+            } catch (repairError) {
+              throw new LegacyDocumentPreparationError('service-unavailable', repairError)
+            }
+            if (saved.status === 'saved' || saved.status === 'unchanged') return
+            if (saved.status === 'conflict') continue
+            if (saved.status === 'collaboration-active') throw new LegacyDocumentPreparationError('service-unavailable')
+          }
           throw new LegacyDocumentPreparationError('invalid-document', error)
         }
         if (result.status === 'current') return
@@ -251,10 +268,9 @@ function equalJson(left: unknown, right: unknown): boolean {
 }
 
 function isPersistedCurrentDocument(value: unknown): boolean {
-  if (!record(value) || value.schemaVersion !== 9) return false
+  if (!record(value)) return false
   try {
-    validateHostedFileDocument(value)
-    return true
+    return validateHostedFileDocument(value).schemaVersion === value.schemaVersion
   } catch {
     return false
   }

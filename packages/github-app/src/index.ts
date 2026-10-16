@@ -1,4 +1,5 @@
 export * from './contracts.js'
+export * from './docs.js'
 export * from './grants.js'
 export * from './jobs.js'
 export * from './state.js'

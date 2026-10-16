@@ -9,7 +9,7 @@ import {
 import type { PreviewBinding } from '@canvas/preview-runtime'
 import type { RepositoryConnection } from '@canvas/repository'
 import type { ShadcnComponentCatalog, ShadcnPreviewRegistryRequest, ShadcnScan } from '@canvas/scanner/contracts'
-import { shadcnPreviewComponentId } from '@canvas/scanner/preview-registry'
+import { componentCatalogFromShadcnScan } from '@canvas/scanner/component-catalog'
 
 export type ConnectedRepositoryRegistry = Readonly<{
   repositoryRoot: string
@@ -46,23 +46,6 @@ function previewBinding(request: ShadcnPreviewRegistryRequest): ConnectedPreview
       props: props ?? {},
       slots: slots ?? [],
     })),
-  }
-}
-
-function componentCatalog(scan: ShadcnScan, request: ShadcnPreviewRegistryRequest, fingerprint: string): ShadcnComponentCatalog {
-  const scanned = new Map(scan.components.map(component => [shadcnPreviewComponentId(component), component]))
-  return {
-    fingerprint,
-    components: request.components.map(component => {
-      const source = scanned.get(component.componentId)
-      if (!source || source.path !== component.entryPath || source.exportName !== component.exportName) throw new Error('The verified registry component is missing from the scanner result.')
-      const propNames = new Set(Object.keys(component.props ?? {}))
-      const slots = [...(component.slots ?? [])]
-      const slotNames = new Set(slots)
-      const props = source.props.filter(prop => propNames.has(prop.name) || slotNames.has(prop.name))
-      if (props.length !== propNames.size + slotNames.size) throw new Error('The verified component schema does not match the scanner result.')
-      return { componentId: component.componentId, path: source.path, exportName: source.exportName, sourceHash: source.sourceHash, props, slots }
-    }),
   }
 }
 
@@ -114,6 +97,6 @@ export class ConnectedRegistryStore {
     }
     const loaded = await loadVerifiedRegistryManifest(manifestPath)
     if (!loaded || loaded.fingerprint !== verified.fingerprint) throw new Error('The persisted component registry could not be verified.')
-    return { repositoryRoot: loaded.repositoryRoot, manifestPath, fingerprint: loaded.fingerprint, binding, catalog: componentCatalog(scan, pinnedRequest, loaded.fingerprint) }
+    return { repositoryRoot: loaded.repositoryRoot, manifestPath, fingerprint: loaded.fingerprint, binding, catalog: componentCatalogFromShadcnScan(scan, pinnedRequest, loaded.fingerprint) }
   }
 }
