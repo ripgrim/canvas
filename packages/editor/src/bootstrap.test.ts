@@ -96,7 +96,7 @@ describe('CLOUD-SYNC-READONLY-001 project file binding', () => {
 describe('AT-AUTH-003 authenticated file boundary', () => {
   it('clears the rendered file before the browser reloads after sign-out', async () => {
     const file: FileDocument = {
-      schemaVersion: 9,
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
       fileId: 'file-auth',
       revision: 1,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

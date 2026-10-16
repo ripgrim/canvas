@@ -10,6 +10,7 @@ export const authCopy = {
   desktopBody: 'Please sign in with your browser to continue.',
   browserBody: 'Finish signing in in your browser.',
   signInAgain: 'Sign in again',
+  tryAgain: 'Try again',
   signOut: 'Sign out',
   github: 'Continue with GitHub',
   unavailable: 'Account sign-in is not configured for this build.',

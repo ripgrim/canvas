@@ -10,6 +10,7 @@ export const applicationCopy = {
   missingPageBody: 'The page may have been removed, or the link points at another file. The saved page can still be opened.',
   unavailableTitle: 'File URLs are not available here',
   errorTitle: 'The file could not be opened',
+  openSlow: 'This is taking longer than usual.',
   invalidFileId: 'The file id in this address is not valid.',
   errorReference: (reference: string) => `Error ID ${reference}`,
 } as const

@@ -1,14 +1,25 @@
 import { documentStore } from '../editor/document-store'
 import { editorStore, withEditorStoreConfiguration } from '../editor/store'
+import { failureDetails } from './failure'
+import { applicationCopy } from './application-copy'
+import { trackCanvasEvent } from '@canvas/tracking'
 export type { FileLocationResult } from '../editor/store'
 export { applicationCopy as fileRouteCopy } from './application-copy'
 
+const failedLocation = (error: unknown) => {
+  const failure = failureDetails(error, applicationCopy.errorTitle)
+  trackCanvasEvent('operation_failed', { operation: 'open_route', error_code: failure.code, error_reference: failure.reference })
+  return { status: 'error' as const, message: failure.message, reference: failure.reference }
+}
+
 export const fileLocationStore = Object.freeze({
-  async openLocation(fileId: string, pageId: string | null, nodeId: string | null = null) {
-    return withEditorStoreConfiguration(() => editorStore.openLocation(fileId, pageId, nodeId))
+  async openLocation(fileId: string, pageId: string | null, nodeId: string | null = null, signal?: AbortSignal) {
+    try { return await withEditorStoreConfiguration(() => editorStore.openLocation(fileId, pageId, nodeId, signal), signal) }
+    catch (error) { return failedLocation(error) }
   },
-  async openSharedLocation(fileId: string, pageId: string | null, nodeId: string | null = null) {
-    return withEditorStoreConfiguration(() => editorStore.openSharedLocation(fileId, pageId, nodeId))
+  async openSharedLocation(fileId: string, pageId: string | null, nodeId: string | null = null, signal?: AbortSignal) {
+    try { return await withEditorStoreConfiguration(() => editorStore.openSharedLocation(fileId, pageId, nodeId, signal), signal) }
+    catch (error) { return failedLocation(error) }
   },
 })
 

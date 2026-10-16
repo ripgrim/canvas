@@ -7,10 +7,12 @@ import { documentStore } from './features/editor/document-store'
 import { createCanvasInputService } from './features/editor/canvas-input-service'
 import { canvasViewportService } from './features/editor/canvas-viewport-service'
 import { createEditorKeyboardService } from './features/editor/keyboard-service'
+import { createEditorClipboardService } from './features/editor/editor-clipboard-service'
 import { canvasHudPainter } from './features/editor/canvas-hud-painter'
 import { homeStore } from './features/home/store'
 import { designSourcePalette, themeProjectionContext } from './features/editor/design-theme'
 import { repositoryConnectionService } from './features/editor/repository-service'
+import { hostedRepositoryService } from './features/editor/hosted-repository-service'
 import { authSessionService } from './features/application/auth-service'
 import { editorToast } from './design-system/toast-atoms'
 import { collaborationService } from './features/collaboration/collaboration-service'
@@ -100,6 +102,7 @@ export function startEditorServices(api: EditorProjectApi): () => void {
     configureEditorStore(api)
     homeStore.configure(api)
     repositoryConnectionService.configure(api)
+    hostedRepositoryService.configure(api)
     collaborationService.configure(api.collaboration)
     const stopShareAuthority = bindShareAuthority(api)
     const stopProjectFailures = bindProjectFailures(api)
@@ -125,6 +128,8 @@ export function startEditorServices(api: EditorProjectApi): () => void {
     collaborationService.start()
     const keyboard = createEditorKeyboardService(window)
     keyboard.start()
+    const clipboard = createEditorClipboardService(window)
+    clipboard.start()
     homeStore.start()
     const stopFileSubscription = bindProjectFileUpdates(api)
     stopWorkspace = () => {
@@ -137,10 +142,12 @@ export function startEditorServices(api: EditorProjectApi): () => void {
       stopProjectFailures()
       collaborationService.stop()
       keyboard.stop()
+      clipboard.stop()
       previewConnection.stop()
       documentStore.dispose()
       homeStore.dispose()
       repositoryConnectionService.dispose()
+      hostedRepositoryService.dispose()
       editorStore.dispose()
       editorToast.close()
       configureEditorStore(undefined)
