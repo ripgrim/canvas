@@ -1,0 +1,126 @@
+packages/repo-engine/src/file-document.ts
+  s_012c57818fbf95::t_cf672d65e2d714 216
+  s_012c57818fbf95::t_7682e684d1c043 139-140
+  s_012c57818fbf95::t_1b3dec64b7855f 6-7,128-133,141,215,217,280,1005,1029-1031,1033,2195,2198
+packages/editor/src/features/editor/hosted-component-admission-service.ts
+  s_012c57818fbf95::t_b3e49ad33ddc49 52-67,118,122,125,128,130,155
+  s_012c57818fbf95::t_7940e0019752a5 76,169-170,183-184
+  s_012c57818fbf95::t_cf048c78b98093 1-32,34-51,68-75,79-112,115-117,119-121,123-124,126-127,129,131-141,144-149,151-154,156-157,165-168,171-174,177-182,191-198
+  s_012c57818fbf95::t_1571a45eb4c433 33,113-114,150
+  s_012c57818fbf95::t_1c16dcf12a9009 77-78,142-143,158-164,175-176,185-190
+packages/editor/src/features/editor/component-registry.test.ts
+  s_012c57818fbf95::t_66745d29133519 5,158
+  s_012c57818fbf95::t_0626991b4fdf9b 90-91
+  s_012c57818fbf95::t_6ef3f6b8afb417 56,64-65
+  s_012c57818fbf95::t_afd78d5fcd2bb5 7-8,20-49,51-55,57-63,66-89,92-98
+  s_012c57818fbf95::t_3ac4e7cc512aaf 175-182
+packages/repo-engine/src/document.ts
+  s_012c57818fbf95::t_62341ee6347424 1-2,129-130,176,211,243-244
+  s_012c57818fbf95::t_7f5fe41d54c5cd 83
+packages/repo-engine/tests/engine.test.ts
+  s_012c57818fbf95::t_9d249217d20ba8 63-68,70-73,94-95
+  s_012c57818fbf95::t_249f1c812b9f35 69,77-93
+  s_012c57818fbf95::t_468890304c7aae 62,74-76
+packages/editor/src/features/editor/ComponentKitPanel.tsx
+  s_012c57818fbf95::t_b461ca6e33809f 18,135,152
+packages/editor/src/features/editor/component-registry.ts
+  s_012c57818fbf95::t_9143003f8cf582 9,11-23,33-73,76,78,84,86-87,92-107
+  s_012c57818fbf95::t_3ac4e7cc512aaf 2,167-173,175
+  s_012c57818fbf95::t_fd56fab7e9d078 3,109,123,127,144,150
+  s_012c57818fbf95::t_6ef3f6b8afb417 74-75,77,79-83,85,88-91
+  s_012c57818fbf95::t_0626991b4fdf9b 24-32
+  s_012c57818fbf95::t_19eb618699bd8a 108
+packages/editor/src/features/editor/NodeContextMenu.tsx
+  s_012c57818fbf95::t_065e53d3a58fac 20,59
+packages/repo-engine/src/types.ts
+  s_012c57818fbf95::t_aa71d65c0cca58 28-32
+  s_012c57818fbf95::t_15870958555964 15-16,19,23-27,33-42
+packages/editor/src/features/editor/flow-drag-target.test.ts
+  s_012c57818fbf95::t_843736d3f53124 4,85,161
+packages/repo-engine/tests/file-command.test.ts
+  s_012c57818fbf95::t_5fe55364162ffa 6
+  s_012c57818fbf95::t_c42589f573704b 209
+  s_012c57818fbf95::t_f62ade4169ae61 216
+  s_012c57818fbf95::t_cf672d65e2d714 2,191,193-196,200
+  s_012c57818fbf95::t_1b0a4c7d39d4f1 180
+packages/editor/src/features/editor/Editor.tsx
+  s_012c57818fbf95::t_66745d29133519 89
+packages/editor/src/features/editor/flow-drag-target.ts
+  s_012c57818fbf95::t_b461ca6e33809f 11,62
+packages/editor/src/features/editor/document-store.ts
+  s_012c57818fbf95::t_065e53d3a58fac 1103,1807,1856
+  s_012c57818fbf95::t_7f41e715c0b239 1384-1385
+  s_012c57818fbf95::t_b8bd47039c0788 30,62-63,141-150
+  s_012c57818fbf95::t_fdf05191cd0c2c 1377-1383,1386-1402,1404-1424,1426-1430
+  s_012c57818fbf95::t_8d7a99493e8ee3 1403,1425
+packages/editor/src/features/editor/hosted-component-admission-service.test.ts
+  s_012c57818fbf95::t_8e002e458e6b33 112,137
+  s_012c57818fbf95::t_3459eda97b27e0 253-270
+  s_012c57818fbf95::t_736d02accd0fd8 1,3,5-95,135-136,138-217,219-229,232-252,271-297
+  s_012c57818fbf95::t_a7299721700859 2,4,96-111,113-134
+  s_012c57818fbf95::t_2ab4c1d09229db 218,230-231
+packages/repo-engine/src/discovery.ts
+  s_012c57818fbf95::t_df32db45517a69 5,54,56,78,80
+packages/repo-engine/src/contracts.ts
+  s_012c57818fbf95::t_5fe55364162ffa 1-2
+packages/repo-engine/src/document.test.ts
+  s_012c57818fbf95::t_772f60c67ed204 13,40-54
+packages/editor/src/features/editor/ComponentModelProperties.tsx
+  s_012c57818fbf95::t_b461ca6e33809f 14,57
+  s_012c57818fbf95::t_065e53d3a58fac 24
+packages/editor/src/bootstrap.test.ts
+  s_012c57818fbf95::t_014eaff33d8526 5,64-69
+  s_012c57818fbf95::t_4826e1e62ed072 70-74
+packages/repo-engine/src/document-promotion.ts
+  s_012c57818fbf95::t_62341ee6347424 10-11,57,73,76
+packages/repo-engine/src/index.ts
+  s_012c57818fbf95::t_aa71d65c0cca58 363
+  s_012c57818fbf95::t_d5e492ccef24f7 422
+  s_012c57818fbf95::t_d17059043d23f9 64-150,191-193,197-198
+  s_012c57818fbf95::t_85c21f31d6fced 41,58-59,239-240,243,247,329-330,362,396,451,519
+  s_012c57818fbf95::t_6987314cbdbe77 42
+  s_012c57818fbf95::t_468890304c7aae 57,294,296-300,303-304,353,366,509
+packages/repo-engine/tests/file-remove-flex.test.ts
+  s_012c57818fbf95::t_1b0a4c7d39d4f1 5,60-61
+packages/editor/src/features/editor/code-output.ts
+  s_012c57818fbf95::t_b461ca6e33809f 3,147-148
+packages/editor/src/features/editor/document-store.test.ts
+  s_012c57818fbf95::t_065e53d3a58fac 3,15-16,577,600,626,2567
+  s_012c57818fbf95::t_18ba55fc683a2b 467-496,498-510,520-522,524-531,533-535,544-545,547-568,570-573
+  s_012c57818fbf95::t_1083f151f83eea 13,73-86
+  s_012c57818fbf95::t_ce06aa11253348 536-541
+  s_012c57818fbf95::t_e518fde6be2cb5 542,569
+  s_012c57818fbf95::t_de2a4502fb60c7 511-519
+  s_012c57818fbf95::t_502e1ce5591f6b 497,523,532,543,546
+  s_012c57818fbf95::t_6b149247c39eec 466
+packages/editor/src/features/editor/code-output.test.ts
+  s_012c57818fbf95::t_6b149247c39eec 173
+  s_012c57818fbf95::t_82a8edf206c41f 175-184
+  s_012c57818fbf95::t_065e53d3a58fac 3,14,18
+apps/web/src/adapters/browser.test.ts
+  s_012c57818fbf95::t_731b06d207e76a 3,115
+packages/editor/src/bootstrap.tsx
+  s_012c57818fbf95::t_7f259ff7068578 17,112-123,149-150,176
+packages/editor/src/features/editor/repository-service.test.ts
+  s_012c57818fbf95::t_3ac4e7cc512aaf 6,54-72
+  s_012c57818fbf95::t_778acb941a281f 73-75
+apps/desktop/src/main/index.ts
+  s_012c57818fbf95::t_ee32ea1e7bf064 14,140
+  s_012c57818fbf95::t_65f67e337f9ee8 15,163,181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "64d88896e936d9a4129949f675ae78f7625573cd",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
