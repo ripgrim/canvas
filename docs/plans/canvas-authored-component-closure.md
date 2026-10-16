@@ -54,9 +54,30 @@ The orchestrator owns the protocol-version integration cutover in `apps/desktop/
 
 Evidence updates extend only to `tests/pr-evidence/scenarios/component-system.spec.ts`, `tests/pr-evidence/registry.json`, and `ACCEPTANCE-TESTS.md`.
 
-## Next slice
+## Closed slice: configured Slot playground
 
-No new implementation surface is active. The next component-system slice must have a separate reviewed plan, disjoint owned paths, acceptance IDs, and explicit exclusions before edits begin.
+The Kit playground will configure bound Slot content before placement. Text, Frame, and eligible canvas components become transient draft recipes, render in the isolated configured preview without changing the authoritative file, and place with the outer instance as one checked transaction and one Undo leaf.
+
+Owned implementation paths:
+
+- `packages/editor/src/features/editor/component-configured-instance.ts`
+- `packages/editor/src/features/editor/component-configured-instance.test.ts`
+- `packages/editor/src/features/editor/component-configured-preview.ts`
+- `packages/editor/src/features/editor/component-configured-preview.test.ts`
+- `packages/editor/src/features/editor/component-docs-preview-service.ts`
+- `packages/editor/src/features/editor/component-docs-preview-service.test.ts`
+- `packages/editor/src/features/editor/ComponentKitPanel.tsx`
+- `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`
+- `packages/editor/src/features/editor/component-kit-copy.ts`
+- `packages/editor/src/features/editor/document-store.ts`
+- `packages/editor/src/features/editor/document-store.test.ts`
+- `tests/pr-evidence/scenarios/component-system.spec.ts`
+- `tests/pr-evidence/registry.json`
+- `ACCEPTANCE-TESTS.md`
+
+The slice is gated by `COMP-V2-UI-075`, `COMP-V2-UI-NEG-002`, and the extended `PR-EVIDENCE-014`. It excludes repository or source sync, source writes, persistence or protocol migrations, persisted playground drafts, arbitrary child editing, instance-swap properties, compound Variant composition, preview drag/reorder, and new styling primitives.
+
+The Kit now owns transient Slot recipes separately from scalar instance values. One pure planner validates and materializes Text, Frame, and eligible canvas-component children for both the isolated preview scratch file and the final placement transaction. Stale bindings, unavailable code components, duplicate draft identities, and recursive component graphs fail closed. Browser evidence proves draft changes leave the stored file untouched, Place writes the complete tree, and one Undo removes it.
 
 ## Current status
 
@@ -65,6 +86,7 @@ No new implementation surface is active. The next component-system slice must ha
 - The complete component browser workflow passes, including a centered configured-preview assertion.
 - The hosted collaboration boundary now has a complete two-client real-WebSocket graph test, stale-write and mutation-id negative controls, and room restart recovery.
 - Component-root Hover and Pressed ownership, nested target projection, nearest-owner isolation, cancellation restoration, Select and Pan inertness, and root-padding browser evidence are complete under `COMP-V2-UI-073`, `COMP-V2-UI-074`, and `PR-EVIDENCE-014`.
+- Configured Slot drafts, isolated preview rendering, atomic placement, recursive-nesting rejection, and one-step Undo are complete under `COMP-V2-UI-075`, `COMP-V2-UI-NEG-002`, and `PR-EVIDENCE-014`.
 - The interaction wire cutover is explicit at preview envelope version 10 and preview document version 3. Stale version 9 envelopes and version 2 documents fail closed.
 - PostgreSQL component graph persistence coverage is implemented and type-checked, but the real disposable-database run remains open because this shell does not provide `COLLABORATION_TEST_DATABASE_URL` or `COLLABORATION_TEST_ALLOW_DISPOSABLE=1`.
 - Repository source sync remains deferred.

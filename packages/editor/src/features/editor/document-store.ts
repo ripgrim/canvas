@@ -54,6 +54,8 @@ import { planValidatedInternalPaste, planValidatedInternalReplace } from './clip
 import type { InternalPastePlacement, InternalReplaceGeometry, VerifiedCrossFileAssets } from './clipboard-internal'
 import type { InternalClipboardAssetPreviews } from './clipboard-internal-buffer'
 import type { InternalClipboardPayload } from './clipboard-codec'
+import { planComponentSlotDrafts } from './component-configured-instance'
+import type { ComponentSlotDraft } from './component-configured-instance'
 
 export type Viewport = Camera
 export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text' | 'rectangle' | 'shape' | 'interact'
@@ -1630,7 +1632,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           commands.push(...componentPropertyProjectionCommands(projected, insertedDefinition, nestedInstance, insertedDefinition.properties))
           return executeBatch(commands, [nestedId])
         },
-        place: (componentId: string, values: ComponentInstanceValues = {}) => {
+        place: (componentId: string, values: ComponentInstanceValues = {}, slotDrafts: readonly ComponentSlotDraft[] = []) => {
           const state = backing.getState()
           const definition = state.file?.componentModel.definitions[componentId]
           if (!state.file || !state.pageId || !definition) return false
@@ -1650,10 +1652,16 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
             if (state.file.relationships[master.id]?.parentId !== targetRoot) commands.push({ type: 'node.reparent', nodeId: instanceId, placement: { parentId: targetRoot }, preserveWorldPosition: true })
             const instance = { id: instanceId, componentId, values }
             commands.push({ type: 'component.instance.create', instance })
-            const projected = applyFileCommand(state.file, { type: 'batch', commands }, state.atoms, { allowUnavailableBindings: true })
-            commands.push(...componentPropertyProjectionCommands(projected, definition, instance, definition.properties))
+            let projected = applyFileCommand(state.file, { type: 'batch', commands }, state.atoms, { allowUnavailableBindings: true })
+            const propertyCommands = componentPropertyProjectionCommands(projected, definition, instance, definition.properties)
+            commands.push(...propertyCommands)
+            if (propertyCommands.length) projected = applyFileCommand(projected, { type: 'batch', commands: propertyCommands }, state.atoms, { allowUnavailableBindings: true })
+            const slotPlan = planComponentSlotDrafts({ file: projected, owner: definition, ownerRootId: instanceId, drafts: slotDrafts, atoms: state.atoms, makeId, editorMode: options.editorMode?.() ?? 'light' })
+            if (!slotPlan) return false
+            commands.push(...slotPlan.commands)
             return executeBatch(commands, [instanceId])
           }
+          if (slotDrafts.length) return false
           const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
           if (!atom) return false
           const id = makeId()

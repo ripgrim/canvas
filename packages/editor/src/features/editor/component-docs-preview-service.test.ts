@@ -21,8 +21,15 @@ const document: PreviewDocument = {
 function componentFile(): FileDocument {
   const file = createBlankFile('component-preview-service', 'page', 'root')
   file.nodes.master = { id: 'master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 50 } }
+  file.nodes.host = { id: 'host', type: 'frame', name: 'Content', styles: { relativeTransform: [1, 0, 0, 1, 4, 4], width: 92, height: 42 } }
+  file.nodes.badge = { id: 'badge', type: 'frame', name: 'Badge', styles: { relativeTransform: [1, 0, 0, 1, 160, 0], width: 40, height: 20 } }
   file.relationships.master = { parentId: 'root', orderKey: 'A' }
-  file.componentModel = { definitions: { button: { id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'master' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] } }, instances: {} }
+  file.relationships.host = { parentId: 'master', orderKey: 'A' }
+  file.relationships.badge = { parentId: 'root', orderKey: 'B' }
+  file.componentModel = { definitions: {
+    button: { id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'master' }, revision: 0, properties: [{ id: 'content', name: 'Content', type: 'slot', binding: { kind: 'slot', nodeId: 'host' } }], materials: [], parts: [], interactions: [] },
+    badge: { id: 'badge', name: 'Badge', source: { kind: 'canvas', masterRootId: 'badge' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+  }, instances: {} }
   return file
 }
 
@@ -113,5 +120,28 @@ describe('COMP-V2-UI-035 component docs preview connection', () => {
     expect(service.getSnapshot().status).toBe('ready')
     expect(target.postMessage.mock.calls.some(([command]) => command.type === 'set-document')).toBe(true)
     service.disconnect()
+  })
+
+  it('keeps Slot drafts transient and reconciles them when the binding disappears', () => {
+    const file = componentFile()
+    documentStore.load(file, [], { replace: true, pageId: 'page' })
+    const service = createComponentDocsPreviewService('button', { addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as Pick<Window, 'addEventListener' | 'removeEventListener'>)
+
+    expect(service.addSlotContent('content', 'text')).toBe(true)
+    expect(service.addSlotComponent('content', 'badge')).toBe(true)
+    expect(service.getSnapshot().slotDrafts).toHaveLength(2)
+    expect(documentStore.getSnapshot().file).toEqual(file)
+    expect(documentStore.getSnapshot().dirty).toBe(false)
+
+    expect(documentStore.commands.insertCanvas('rectangle', { x: 240, y: 0 })).toBe(true)
+    service.resetValue('missing')
+    expect(service.getSnapshot().slotDrafts).toHaveLength(2)
+
+    const withoutSlot = structuredClone(documentStore.getSnapshot().file!)
+    withoutSlot.componentModel = { ...withoutSlot.componentModel, definitions: { ...withoutSlot.componentModel.definitions, button: { ...withoutSlot.componentModel.definitions.button!, revision: 1, properties: [] } } }
+    documentStore.load(withoutSlot, [], { replace: true, pageId: 'page' })
+    service.resetValue('missing')
+    expect(service.getSnapshot().slotDrafts).toEqual([])
+    expect(service.addSlotContent('content', 'frame')).toBe(false)
   })
 })

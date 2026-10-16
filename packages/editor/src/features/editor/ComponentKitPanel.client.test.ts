@@ -3,12 +3,13 @@
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createBlankFile } from '@canvas/repo-engine/file-document'
+import { childrenOf, createBlankFile } from '@canvas/repo-engine/file-document'
 import { ComponentDocsPreview } from '../../design-system/component-kit-atoms'
 import { ComponentKitPanel } from './ComponentKitPanel'
 import { RepositoryDocsReviewDialog, repositoryCommitUrl, repositoryDocsReviewPresentation } from './ComponentRepositoryPanel'
 import { documentStore } from './document-store'
 import { discoveredRegistryAtoms, discoveredRegistryDefinitions } from './component-registry'
+import { mapParallelComponentSubtrees } from './component-canvas-link'
 
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 let root: ReturnType<typeof createRoot> | null = null
@@ -187,6 +188,55 @@ describe('COMP-V2-UI-015 component names', () => {
 
     await act(async () => { documentStore.commands.insertCanvas('rectangle', { x: 80, y: 0 }) })
     expect(host.querySelector<HTMLInputElement>(`#component-docs-${definition.id}-${propertyId}`)?.value).toBe('Draft label')
+  })
+
+  it('COMP-V2-UI-075 configures Slot content in Kit and places it atomically', async () => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    documentStore.load(createBlankFile('component-slot-playground', 'page', 'root'), [], { replace: true, pageId: 'page' })
+    expect(documentStore.commands.insertCanvas('frame', { x: 0, y: 0 })).toBe(true)
+    expect(documentStore.commands.components.createFromSelection('Notice')).toBe(true)
+    const notice = Object.values(documentStore.getSnapshot().file!.componentModel.definitions).find(definition => definition.name === 'Notice')!
+    const propertyId = documentStore.commands.components.addProperty(notice.id, 'slot')!
+    const property = documentStore.getSnapshot().file!.componentModel.definitions[notice.id]!.properties.find(candidate => candidate.id === propertyId)!
+    expect(documentStore.commands.components.setProperty(notice.id, { ...property, name: 'Content' })).toBe(true)
+    expect(documentStore.commands.insertCanvas('rectangle', { x: 400, y: 0 })).toBe(true)
+    expect(documentStore.commands.components.createFromSelection('Badge')).toBe(true)
+
+    const host = document.createElement('div')
+    host.className = 'editor-root theme-light'
+    document.body.append(host)
+    root = createRoot(host)
+    await act(async () => { root?.render(createElement(ComponentKitPanel, { atoms: [], onOpenCanvas: () => undefined })) })
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Open Notice component details"]')?.click() })
+    const before = documentStore.getSnapshot().file
+    const revision = before!.revision
+
+    const openAddMenu = async () => act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Add content to Content"]')?.click() })
+    await openAddMenu()
+    await act(async () => { [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(item => item.textContent === 'Text')?.click() })
+    await openAddMenu()
+    await act(async () => { [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(item => item.textContent === 'Badge')?.click() })
+
+    expect(host.textContent).toContain('2 layers')
+    expect(host.querySelector('[aria-label="Reset playground"]')).not.toBeNull()
+    expect(documentStore.getSnapshot().file).toBe(before)
+    expect(documentStore.getSnapshot().file!.revision).toBe(revision)
+    expect(documentStore.getHistory().past.at(-1)?.file.revision).not.toBe(revision + 1)
+
+    await act(async () => { [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Place')?.click() })
+    const placedFile = documentStore.getSnapshot().file!
+    const outer = Object.values(placedFile.componentModel.instances).find(instance => instance.componentId === notice.id)!
+    const nested = Object.values(placedFile.componentModel.instances).find(instance => instance.componentId !== notice.id)!
+    const outerMap = mapParallelComponentSubtrees(placedFile, notice.source.kind === 'canvas' ? notice.source.masterRootId : '', outer.id)!
+    const placedProperty = placedFile.componentModel.definitions[notice.id]!.properties.find(candidate => candidate.id === propertyId)
+    if (placedProperty?.type !== 'slot' || !placedProperty.binding) throw new Error('Expected bound Slot')
+    const slotHost = outerMap.get(placedProperty.binding.nodeId)!
+    expect(childrenOf(placedFile, slotHost, propertyId)).toHaveLength(2)
+    expect(placedFile.relationships[nested.id]).toMatchObject({ parentId: slotHost, slot: propertyId })
+    expect(documentStore.getSnapshot().selection).toEqual([outer.id])
+
+    await act(async () => { expect(documentStore.undo()).toBe(true) })
+    expect(documentStore.getSnapshot().file!.componentModel.instances).toEqual({})
   })
 
   it('COMP-V2-UI-058 omits unbound canvas properties from the playground and Variant sheet', async () => {

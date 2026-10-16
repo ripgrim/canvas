@@ -476,6 +476,42 @@ test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
   expect((await storedNode(page, slotChildren[0]!)).type).toBe("frame")
 
   await automation.components.openKit()
+  await automation.components.inspect("Evidence card")
+  const storedBeforeSlotDrafts = JSON.stringify(await storedFile(page))
+  await page.getByRole("button", { name: "Add content to Content", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: "Evidence card", exact: true })).toHaveCount(0)
+  await page.getByRole("menuitem", { name: "Text", exact: true }).click()
+  await page.getByRole("button", { name: "Add content to Content", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Slot badge", exact: true }).click()
+  await expect(page.getByText("2 layers", { exact: true })).toBeVisible()
+  const slotPreview = page.frameLocator('iframe[title="Configured component preview"]')
+  await expect.poll(async () => slotPreview.locator('[data-preview-canvas^="configured-preview:"]').count()).toBeGreaterThanOrEqual(2)
+  expect(JSON.stringify(await storedFile(page))).toBe(storedBeforeSlotDrafts)
+  await automation.evidence.screenshot("slot-playground", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
+
+  const outerIdsBeforeConfiguredPlace = new Set(Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).map(candidate => candidate.id))
+  await page.getByRole("button", { name: "Place", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).length).toBe(outerIdsBeforeConfiguredPlace.size + 1)
+  const slotPlacementFile = await storedFile(page)
+  const configuredOuter = Object.values(slotPlacementFile.componentModel.instances).find(candidate => candidate.componentId === definition.id && !outerIdsBeforeConfiguredPlace.has(candidate.id))!
+  const configuredSlotHost = slotProperty.binding?.nodeId === master.id
+    ? configuredOuter.id
+    : await storedDirectChildNamed(page, configuredOuter.id, (await storedNode(page, slotProperty.binding!.nodeId)).name!)
+  expect(configuredSlotHost).toBeDefined()
+  const configuredSlotChildren = await storedSlotChildren(page, configuredSlotHost!, slotProperty.id)
+  expect(configuredSlotChildren).toHaveLength(2)
+  const configuredNested = Object.values(slotPlacementFile.componentModel.instances).find(candidate => candidate.componentId === slotBadgeDefinition.id && slotPlacementFile.relationships[candidate.id]?.parentId === configuredSlotHost && slotPlacementFile.relationships[candidate.id]?.slot === slotProperty.id)!
+  expect(configuredNested).toBeDefined()
+  await automation.evidence.screenshot("slot-placed", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
+  await page.getByRole("button", { name: "Undo document edit", exact: true }).click()
+  await expect.poll(async () => (await storedComponentModel(page)).instances[configuredOuter.id]).toBeUndefined()
+  expect((await storedComponentModel(page)).instances[configuredNested.id]).toBeUndefined()
+  expect((await storedComponentModel(page)).definitions[slotBadgeDefinition.id]).toBeDefined()
+  for (const childId of configuredSlotChildren) expect((await storedFile(page)).nodes[childId]).toBeUndefined()
+  await page.getByRole("button", { name: "Reset playground", exact: true }).click()
+  await expect(page.getByText("Empty", { exact: true })).toBeVisible()
+
+  await openComponentInventory(page)
   await automation.components.inspect("Slot badge")
   await page.getByRole("button", { name: "Remove Slot badge as a component", exact: true }).click()
   await expect.poll(async () => (await storedComponentModel(page)).definitions[slotBadgeDefinition.id]).toBeUndefined()

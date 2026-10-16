@@ -4,7 +4,7 @@ import type { ComponentDefinition, ComponentInstanceValues, ComponentScalarValue
 import { pageNodes, pageOfNode } from '@canvas/repo-engine/file-document'
 import type { Atom } from './types'
 import { Button, Icon, Text } from '../../design-system/atoms'
-import { ComponentAuthoringDialog, ComponentAuthoringError, ComponentCombinationList, ComponentCombinationRow, ComponentDocsActions, ComponentDocsHeader, ComponentDocsPreview, ComponentKitEmpty, ComponentKitList, ComponentKitRow, ComponentKitSection, ComponentPlaygroundControl, ComponentUseRow } from '../../design-system/component-kit-atoms'
+import { ComponentAuthoringDialog, ComponentAuthoringError, ComponentCombinationList, ComponentCombinationRow, ComponentDefinitionList, ComponentDefinitionRow, ComponentDocsActions, ComponentDocsHeader, ComponentDocsPreview, ComponentKitEmpty, ComponentKitList, ComponentKitRow, ComponentKitSection, ComponentPlaygroundControl, ComponentPropertyTypeMenu, ComponentPropertyValueRow, ComponentUseRow } from '../../design-system/component-kit-atoms'
 import { PropertyField, PropertyGroup, PropertyHint, PropertySelect, PropertyToggle, PropertyValue } from '../../design-system/property-atoms'
 import { documentStore } from './document-store'
 import { componentKitCopy as copy } from './component-kit-copy'
@@ -12,6 +12,7 @@ import { componentKitNavigation } from './component-kit-navigation'
 import { createComponentDocsPreviewService, validComponentPreviewValues } from './component-docs-preview-service'
 import { editorStore } from './store'
 import { componentConfigurableDefinition } from './component-property-projection'
+import { eligibleSlotDraftComponents } from './component-configured-instance'
 
 const defaultFor = (property: ComponentDefinition['properties'][number]): ComponentScalarValue | undefined => property.type === 'variant' ? property.defaultValueId : property.type === 'text' || property.type === 'boolean' ? property.defaultValue : undefined
 
@@ -38,6 +39,8 @@ function ComponentDocsView({ definition, uses, available, blocked, previewUrl, o
   const [previewService] = useState(() => createComponentDocsPreviewService(definition.id))
   const preview = useSyncExternalStore(previewService.subscribe, previewService.getSnapshot, previewService.getSnapshot)
   const resolvedValues = resolveComponentInstanceValues(configurableDefinition, validComponentPreviewValues(configurableDefinition, preview.values))
+  const currentFile = documentStore.getSnapshot().file
+  const slotComponents = currentFile ? eligibleSlotDraftComponents(currentFile, configurableDefinition) : []
   const [draftDetails, setDraftDetails] = useState<Readonly<{ name: string; description: string; container: HTMLElement | null }> | null>(null)
   const detailsError = draftDetails && Object.values(documentStore.getSnapshot().file?.componentModel.definitions ?? {}).some(candidate => candidate.id !== definition.id && candidate.name.localeCompare(draftDetails.name.trim(), undefined, { sensitivity: 'accent' }) === 0) ? copy.nameExists : undefined
   const update = (propertyId: string, value: ComponentScalarValue) => previewService.setValue(propertyId, value)
@@ -46,7 +49,7 @@ function ComponentDocsView({ definition, uses, available, blocked, previewUrl, o
     previewService.connect(element.contentWindow, { width: element.clientWidth, height: element.clientHeight })
   }, [previewService])
   const readyPreview = useCallback(() => previewService.ping(), [previewService])
-  const place = (next: ComponentInstanceValues) => documentStore.commands.components.place(definition.id, next)
+  const place = (next: ComponentInstanceValues) => documentStore.commands.components.place(definition.id, next, preview.slotDrafts)
   return <>
     <ComponentDocsHeader name={definition.name} source={definition.source.kind === 'code' ? copy.fromKit : copy.fromCanvas} {...(manifest.description ? { description: manifest.description } : {})} backLabel={copy.backToComponents} onBack={onBack} />
     <ComponentDocsActions>
@@ -57,7 +60,7 @@ function ComponentDocsView({ definition, uses, available, blocked, previewUrl, o
     </ComponentDocsActions>
     {!available && <PropertyHint>{copy.unavailable}</PropertyHint>}
     {previewUrl && definition.source.kind === 'canvas' && <ComponentDocsPreview key={previewUrl} src={previewUrl} title={copy.configuredPreview} status={preview.status} statusText={preview.status === 'error' ? copy.previewUnavailable : copy.previewConnecting} {...(preview.status === 'error' ? { action: <Button variant="ghost" onClick={() => previewService.retry()}>{copy.retryPreview}</Button> } : {})} attach={attachPreview} onReady={readyPreview} />}
-    {hasProperties && <PropertyGroup title={copy.playground} {...(Object.keys(preview.values).length ? { action: <Button label={copy.resetPlayground} variant="ghost" disabled={blocked} onClick={() => previewService.reset()}><Icon name="refresh" /></Button> } : {})}>
+    {hasProperties && <PropertyGroup title={copy.playground} {...(Object.keys(preview.values).length || preview.slotDrafts.length ? { action: <Button label={copy.resetPlayground} variant="ghost" disabled={blocked} onClick={() => previewService.reset()}><Icon name="refresh" /></Button> } : {})}>
       {configurableDefinition.properties.map(property => {
         const id = `component-docs-${definition.id}-${property.id}`
         const overridden = Object.hasOwn(preview.values, property.id)
@@ -69,7 +72,24 @@ function ComponentDocsView({ definition, uses, available, blocked, previewUrl, o
               ? <PropertySelect id={id} label={property.name} value={overridden ? String(resolvedValues[property.id]) : ''} options={[{ value: '', label: copy.componentDefault }, { value: 'true', label: copy.on }, { value: 'false', label: copy.off }]} disabled={blocked} onChange={value => value === '' ? previewService.resetValue(property.id) : update(property.id, value === 'true')} />
               : property.type === 'boolean'
                 ? <PropertyToggle id={id} label={property.name} checked={Boolean(resolvedValues[property.id])} disabled={blocked} onChange={value => update(property.id, value)} />
-              : <PropertyValue label={property.name} value={copy.slotValue} />
+              : property.type === 'slot' && definition.source.kind === 'canvas'
+                ? (() => {
+                    const drafts = preview.slotDrafts.filter(draft => draft.propertyId === property.id)
+                    const options = [...copy.slotOptions, ...slotComponents.map(candidate => ({ value: `component:${candidate.id}`, label: candidate.name, icon: 'component' as const, group: copy.slotComponents }))]
+                    return <>
+                      <ComponentPropertyValueRow action={<ComponentPropertyTypeMenu label={copy.addSlotContent(property.name)} disabled={blocked || !property.binding} options={options} onSelect={kind => kind.startsWith('component:') ? previewService.addSlotComponent(property.id, kind.slice('component:'.length)) : previewService.addSlotContent(property.id, kind as 'text' | 'frame')} />}>
+                        <PropertyValue label={property.name} value={copy.slotCount(drafts.length)} />
+                      </ComponentPropertyValueRow>
+                      {drafts.length > 0 && <ComponentDefinitionList>{drafts.map(draft => {
+                        const nested = draft.content.kind === 'component' ? currentFile?.componentModel.definitions[draft.content.componentId] : undefined
+                        const name = draft.content.kind === 'component' ? nested?.name ?? copy.component : draft.content.kind === 'text' ? copy.textLayer : copy.frameLayer
+                        const type = draft.content.kind === 'component' ? copy.component : copy.layer
+                        const icon = draft.content.kind === 'component' ? 'component' as const : draft.content.kind === 'text' ? 'text' as const : 'frame' as const
+                        return <ComponentDefinitionRow key={draft.id} name={name} type={type} typeIcon={icon} editLabel={copy.removeSlotDraft(name)} editText={copy.remove} disabled={blocked} onEdit={() => previewService.removeSlotDraft(draft.id)} />
+                      })}</ComponentDefinitionList>}
+                    </>
+                  })()
+                : <PropertyValue label={property.name} value={copy.slotValue} />
         return <ComponentPlaygroundControl key={property.id} {...(property.description ? { description: property.description } : {})}>{control}</ComponentPlaygroundControl>
       })}
     </PropertyGroup>}

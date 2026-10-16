@@ -75,6 +75,11 @@ export const componentKitCopy = {
   detachInstance: 'Detach instance',
   slotOptions: [{ value: 'text', label: 'Text', icon: 'text', group: 'Layers' }, { value: 'frame', label: 'Frame', icon: 'frame', group: 'Layers' }],
   slotComponents: 'Components',
+  slotCount: (count: number) => count === 0 ? 'Empty' : `${count} ${count === 1 ? 'layer' : 'layers'}`,
+  textLayer: 'Text',
+  frameLayer: 'Frame',
+  component: 'Component',
+  removeSlotDraft: (name: string) => `Remove ${name} from Slot`,
   propertyType: { variant: 'Variant', text: 'Text', boolean: 'Boolean', slot: 'Slot' },
   variantOptionCount: (count: number) => `${count} ${count === 1 ? 'option' : 'options'}`,
   propertyOptions: [

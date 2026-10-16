@@ -126,6 +126,7 @@
         "packages/editor/src/features/editor/ComponentMasterProperties.tsx",
         "packages/editor/src/features/editor/ComponentModelProperties.tsx",
         "packages/editor/src/features/editor/component-canvas-link.ts",
+        "packages/editor/src/features/editor/component-configured*.ts",
         "packages/editor/src/features/editor/component-kit-copy.ts",
         "packages/editor/src/features/editor/component-property-projection.ts",
         "packages/editor/src/features/editor/component-registry*.ts",
@@ -245,7 +246,7 @@
       "capabilities": ["editor.component-system", "evidence.infrastructure"],
       "adapters": ["browser"],
       "assertions": ["component.created-once", "component.creation-opens-details", "component.properties-authored", "component.materials-projected", "component.docs-visible", "component.instance-placed", "component.instance-isolated", "component.interactions-previewed", "component.variant-sheet-generated", "component.undo-restores-semantics"],
-      "screenshots": ["materials", "docs", "instance", "variant-sheet", "interaction-hover", "interaction-pressed"],
+      "screenshots": ["materials", "docs", "instance", "variant-sheet", "slot-playground", "slot-placed", "interaction-hover", "interaction-pressed"],
       "video": true
     },
     {

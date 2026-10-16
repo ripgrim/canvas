@@ -4,6 +4,8 @@ import type { PreviewCommand, PreviewDocument, PreviewFontFace, PreviewLayoutIte
 import { acceptPreviewEvent, isPreviewDocument, protocolVersion } from '@canvas/preview-runtime/protocol'
 import { fontCatalogService } from '../fonts/font-catalog-service'
 import { configuredCanvasComponentPreview } from './component-configured-preview'
+import { validComponentSlotDrafts } from './component-configured-instance'
+import type { ComponentSlotDraft } from './component-configured-instance'
 import { activeDesignTheme, previewThemeMessage, themeProjectionContext } from './design-theme'
 import { documentStore } from './document-store'
 import { hydratePreviewDocument } from './preview-service'
@@ -13,7 +15,7 @@ type PreviewViewport = Readonly<{ width: number; height: number }>
 type PreviewContext = Readonly<{ target: Window; viewport: PreviewViewport; ready: boolean }>
 type PreviewMessageHost = Pick<Window, 'addEventListener' | 'removeEventListener'>
 
-export type ComponentDocsPreviewSnapshot = Readonly<{ values: ComponentInstanceValues; status: 'connecting' | 'ready' | 'error' }>
+export type ComponentDocsPreviewSnapshot = Readonly<{ values: ComponentInstanceValues; slotDrafts: readonly ComponentSlotDraft[]; status: 'connecting' | 'ready' | 'error' }>
 
 function fitCamera(frame: Readonly<{ width: number; height: number }>, viewport: PreviewViewport) {
   const padding = 24
@@ -62,19 +64,28 @@ function validValues(componentId: string, previous: ComponentInstanceValues): Co
   return definition ? validComponentPreviewValues(definition, previous) : {}
 }
 
+function validSlotDrafts(componentId: string, previous: readonly ComponentSlotDraft[]): ComponentSlotDraft[] {
+  const file = documentStore.getSnapshot().file
+  const definition = file?.componentModel.definitions[componentId]
+  return file && definition ? validComponentSlotDrafts(file, definition, previous) : []
+}
+
 export function createComponentDocsPreviewService(componentId: string, messageHost: PreviewMessageHost = window) {
-  let snapshot: ComponentDocsPreviewSnapshot = { values: validValues(componentId, {}), status: 'connecting' }
+  let snapshot: ComponentDocsPreviewSnapshot = { values: validValues(componentId, {}), slotDrafts: [], status: 'connecting' }
   let context: PreviewContext | null = null
   let signature = ''
   let cameraSequence = 0
   let renderSequence = 0
   let pendingRenderSequence: number | null = null
+  let draftSequence = 0
   let stops: (() => void)[] = []
   const listeners = new Set<() => void>()
   const publish = (next: ComponentDocsPreviewSnapshot) => { snapshot = next; for (const listener of listeners) listener() }
   const sync = () => {
     const values = validValues(componentId, snapshot.values)
     if (JSON.stringify(values) !== JSON.stringify(snapshot.values)) publish({ ...snapshot, values })
+    const slotDrafts = validSlotDrafts(componentId, snapshot.slotDrafts)
+    if (JSON.stringify(slotDrafts) !== JSON.stringify(snapshot.slotDrafts)) publish({ ...snapshot, slotDrafts })
     const file = documentStore.getSnapshot().file
     const state = editorStore.getSnapshot()
     const definition = file?.componentModel.definitions[componentId]
@@ -84,7 +95,7 @@ export function createComponentDocsPreviewService(componentId: string, messageHo
       const node = file.nodes[nodeId]
       if (node?.type === 'text' && node.textStyle) fontCatalogService.require(node.textStyle.fontFamily, { style: node.textStyle.fontStyle, weight: node.textStyle.fontWeight })
     }
-    const projection = configuredCanvasComponentPreview(file, definition, values, themeProjectionContext(state.snapshot, state.previewThemeId))
+    const projection = configuredCanvasComponentPreview(file, definition, values, themeProjectionContext(state.snapshot, state.previewThemeId), { drafts: slotDrafts, atoms: documentStore.getSnapshot().atoms, editorMode: globalThis.document?.documentElement.classList.contains('theme-dark') ? 'dark' : 'light' })
     if (!projection) { publish({ ...snapshot, status: 'error' }); return }
     let document
     try { document = hydratePreviewDocument(projection.document, documentStore.assetPreview) } catch { publish({ ...snapshot, status: 'error' }); return }
@@ -113,7 +124,23 @@ export function createComponentDocsPreviewService(componentId: string, messageHo
     setValue(propertyId: string, value: ComponentScalarValue) { publish({ ...snapshot, values: { ...snapshot.values, [propertyId]: value } }); sync() },
     resetValue(propertyId: string) { const values = { ...snapshot.values }; delete values[propertyId]; publish({ ...snapshot, values }); sync() },
     setValues(values: ComponentInstanceValues) { publish({ ...snapshot, values: { ...snapshot.values, ...values } }); sync() },
-    reset() { publish({ ...snapshot, values: {} }); sync() },
+    addSlotContent(propertyId: string, kind: 'text' | 'frame') {
+      const draft: ComponentSlotDraft = { id: `slot-draft:${++draftSequence}`, propertyId, content: { kind } }
+      const slotDrafts = validSlotDrafts(componentId, [...snapshot.slotDrafts, draft])
+      if (slotDrafts.length !== snapshot.slotDrafts.length + 1) return false
+      publish({ ...snapshot, slotDrafts }); sync(); return true
+    },
+    addSlotComponent(propertyId: string, nestedComponentId: string) {
+      const draft: ComponentSlotDraft = { id: `slot-draft:${++draftSequence}`, propertyId, content: { kind: 'component', componentId: nestedComponentId } }
+      const slotDrafts = validSlotDrafts(componentId, [...snapshot.slotDrafts, draft])
+      if (slotDrafts.length !== snapshot.slotDrafts.length + 1) return false
+      publish({ ...snapshot, slotDrafts }); sync(); return true
+    },
+    removeSlotDraft(draftId: string) {
+      if (!snapshot.slotDrafts.some(draft => draft.id === draftId)) return false
+      publish({ ...snapshot, slotDrafts: snapshot.slotDrafts.filter(draft => draft.id !== draftId) }); sync(); return true
+    },
+    reset() { publish({ ...snapshot, values: {}, slotDrafts: [] }); sync() },
     connect(target: Window, viewport: PreviewViewport) {
       stop()
       context = { target, viewport, ready: false }

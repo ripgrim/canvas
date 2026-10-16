@@ -1365,6 +1365,56 @@ describe('component model editor commands', () => {
     }
   })
 
+  it('COMP-V2-UI-075 places configured Slot drafts as one undoable component transaction', () => {
+    let id = 0
+    const source = fixture()
+    source.componentModel = { definitions: {
+      notice: { id: 'notice', name: 'Notice', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 0, properties: [{ id: 'content', name: 'Content', type: 'slot', binding: { kind: 'slot', nodeId: 'inner' } }], materials: [], parts: [], interactions: [] },
+      badge: { id: 'badge', name: 'Badge', source: { kind: 'canvas', masterRootId: 'box' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+    }, instances: { nestedBadge: { id: 'nestedBadge', componentId: 'badge', values: {} } } }
+    source.nodes.nestedBadge = { id: 'nestedBadge', type: 'rectangle', name: 'Nested badge', styles: { relativeTransform: [1, 0, 0, 1, 12, 12], width: 20, height: 20 } }
+    source.relationships.nestedBadge = { parentId: 'outer', orderKey: 'Z' }
+    const store = createDocumentStore(() => `configured-slot-${++id}`)
+    store.load(source, atoms)
+    const drafts = [
+      { id: 'text', propertyId: 'content', content: { kind: 'text' as const } },
+      { id: 'frame', propertyId: 'content', content: { kind: 'frame' as const } },
+      { id: 'badge', propertyId: 'content', content: { kind: 'component' as const, componentId: 'badge' } },
+    ]
+
+    expect(store.commands.components.place('notice', {}, drafts)).toBe(true)
+    const notice = Object.values(file(store).componentModel.instances).find(instance => instance.componentId === 'notice')!
+    const map = mapParallelComponentSubtrees(file(store), 'outer', notice.id)!
+    const host = map.get('inner')!
+    const content = childrenOf(file(store), host, 'content')
+    expect(content).toHaveLength(3)
+    expect(content.map(nodeId => file(store).nodes[nodeId]?.type)).toEqual(['text', 'frame', 'rectangle'])
+    const nested = Object.values(file(store).componentModel.instances).find(instance => instance.componentId === 'badge' && file(store).relationships[instance.id]?.slot === 'content')!
+    expect(content).toContain(nested.id)
+    expect(store.getSnapshot().selection).toEqual([notice.id])
+    expect(store.getHistory().past).toHaveLength(1)
+
+    expect(store.undo()).toBe(true)
+    expect(file(store).componentModel.instances).toEqual({ nestedBadge: { id: 'nestedBadge', componentId: 'badge', values: {} } })
+    expect(content.every(nodeId => file(store).nodes[nodeId] === undefined)).toBe(true)
+    expect(file(store).componentModel.definitions).toHaveProperty('badge')
+  })
+
+  it('COMP-V2-UI-NEG-002 rejects invalid Slot drafts without a partial placement', () => {
+    let id = 0
+    const source = fixture()
+    source.componentModel = { definitions: {
+      notice: { id: 'notice', name: 'Notice', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 0, properties: [{ id: 'content', name: 'Content', type: 'slot', binding: { kind: 'slot', nodeId: 'inner' } }], materials: [], parts: [], interactions: [] },
+    }, instances: {} }
+    const store = createDocumentStore(() => `invalid-slot-${++id}`)
+    store.load(source, atoms)
+    const before = structuredClone(file(store))
+
+    expect(store.commands.components.place('notice', {}, [{ id: 'recursive', propertyId: 'content', content: { kind: 'component', componentId: 'notice' } }])).toBe(false)
+    expect(file(store)).toEqual(before)
+    expect(store.getHistory().past).toEqual([])
+  })
+
   it('COMP-V2-UI-009 keeps each variant option appearance independent', () => {
     let id = 0
     const source = fixture()
