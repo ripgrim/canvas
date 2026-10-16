@@ -30,10 +30,31 @@ Finish and verify the canvas-authored component system before beginning reposito
    - Verify configured previews, Variant and Material projection, Hover and Pressed interactions, nested component parts, and honest unavailable behavior.
 5. UI evidence and closure
    - Run `PR-EVIDENCE-014`, capture the required external evidence, verify reload and Undo, then run focused component tests, type checks, and contract checks.
+6. Hosted collaboration and persistence closure
+   - Prove a complete, non-empty component graph converges across two real WebSocket clients and survives PostgreSQL persistence, room restart, reconnect, and reload.
+   - Reject stale component replacements and stale history inverses without mutating the authoritative projection.
+   - Preserve stable identities, bindings, sparse overrides, materials, parts, interactions, nested slot instances, and master/instance separation.
+   - Gate the slice with `COMP-V2-PERSIST-001`, `COMP-V2-PERSIST-NEG-001`, `COMP-V2-AUTHOR-001`, `COMP-V2-HISTORY-001`, `COMP-V2-INSTANCE-002`, `COMP-V2-INSTANCE-HISTORY-001`, `CLOUD-SYNC-COMPONENT-001`, and `CLOUD-SYNC-LIFECYCLE-003`.
+
+## Active slice
+
+Hosted collaboration and persistence closure is the only active implementation slice. Start with a failing two-client real-WebSocket test, add stale-command negative controls, then extend PostgreSQL restart persistence. Production changes are allowed only when those boundary tests expose a defect. Repository scanning, GitHub, Blume generation, source writes, schema expansion, and new component UI are excluded.
+
+Owned implementation paths:
+
+- `apps/sync-room-core/tests/network.test.ts`
+- `packages/database/tests/collaboration-postgres-acceptance.mjs`
+- `apps/web/src/adapters/cloud.test.ts`
+- `apps/web/src/adapters/cloud.ts`
+- `packages/sync-client/tests/collaboration-client.test.ts`
+- `packages/sync-client/src/collaboration-client.ts`
+
+If the boundary proves defective, changes may extend only to `apps/sync-room-core/src/projector.ts`, `apps/sync-room-core/src/room-core.ts`, or `packages/database/src/collaboration.ts`. A required schema or component-semantic change stops this slice and becomes a separately reviewed migration.
 
 ## Current status
 
-- Dirty-tree cleanup and reversible staging commits are in progress.
-- Theme-token deletion now uses one reference-aware path for editor and context-menu actions.
-- The complete component browser workflow currently passes, including a centered configured-preview assertion.
+- The prior dirty tree is clean and split into nine reversible commits on `staging` through `685918a`.
+- Theme-token deletion uses one reference-aware path for editor and context-menu actions.
+- The complete component browser workflow passes, including a centered configured-preview assertion.
+- Hosted collaboration and persistence closure is planned and has not started implementation.
 - Repository source sync remains deferred.
