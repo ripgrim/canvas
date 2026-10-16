@@ -1,0 +1,48 @@
+packages/editor/src/features/editor/hosted-source-binding-service.test.ts
+  s_012c57818fbf95::t_57387efc8aee9c 71-76,177,195,198,200,213,229,233,248
+  s_012c57818fbf95::t_e4713242ee22ef 267
+  s_012c57818fbf95::t_7cbf1d591aabdb 275-329,346-386,406-447,466-467
+  s_012c57818fbf95::t_1c596e24c7b1b1 330-345,448-465
+  s_012c57818fbf95::t_9e1894261e6cca 387-405
+apps/web/src/adapters/cloud.test.ts
+  s_012c57818fbf95::t_ddc83e66e4ceee 1356-1419,1426-1427,1438,1442,1449,1452,1454
+packages/editor/src/features/editor/hosted-repository-service.test.ts
+  s_012c57818fbf95::t_42758dcd175f25 522
+  s_012c57818fbf95::t_fa52ccec84a33e 5,57-58,60-66,81,93-94,101,133,169,184,200,211,213-214,362,375,400,414,429,460,496,531,557,577,600
+  s_012c57818fbf95::t_05174843c91756 322,325-328,330-351
+  s_012c57818fbf95::t_a60bd35e49d62a 275-298
+  s_012c57818fbf95::t_c00d64a66984b0 224,251,329
+  s_012c57818fbf95::t_55d0c451556047 218,246,274,299,324
+  s_012c57818fbf95::t_38af726154b602 35-40,102-103,106,115-117,199,212,219-223,225-245,247-250,252-273,300-321
+  s_012c57818fbf95::t_f30e36523a0fc7 323
+packages/editor/src/capabilities.ts
+  s_012c57818fbf95::t_874b60df572fda 5,173-176,202
+packages/editor/src/features/editor/hosted-source-binding-service.ts
+  s_012c57818fbf95::t_0c714b1d1d240c 1,17-20,55-60,62-64,78-132,135,141-169,172-178,180,183-187,189,191-199,206,227
+  s_012c57818fbf95::t_1c596e24c7b1b1 170-171
+  s_012c57818fbf95::t_9e1894261e6cca 179,181-182
+apps/web/src/adapters/cloud.ts
+  s_012c57818fbf95::t_874b60df572fda 238-251
+  s_012c57818fbf95::t_1ed79b8abe09b8 2,237
+packages/editor/src/features/editor/hosted-repository-service.ts
+  s_012c57818fbf95::t_c00d64a66984b0 120-121,131-132
+  s_012c57818fbf95::t_f2619c4b9b7c8b 88-119,122-130,133-165
+  s_012c57818fbf95::t_8fc15d464649d8 5-6,12,24-28,59-64,74
+  s_012c57818fbf95::t_97e4a3982cd63c 206,212-233,238-239,253,271,274,276-277,283,285,287-288,376
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a5d27d2141ea7e37d9d2f59c5d315c82fe2f7159",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
