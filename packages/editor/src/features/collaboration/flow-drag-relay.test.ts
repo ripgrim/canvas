@@ -8,15 +8,15 @@ import type { RemoteFlowPresentationKey } from './flow-drag-relay'
 const absent = Object.freeze({ presence: 'absent' as const })
 
 const file = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 4,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
-    'source-frame': { id: 'source-frame', type: 'frame', name: 'Source', styles: { left: 0, top: 0, width: 200, height: 200 }, layout: { item: { position: { mode: 'absolute' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
-    'target-frame': { id: 'target-frame', type: 'frame', name: 'Target', styles: { left: 300, top: 0, width: 200, height: 200 }, layout: { item: { position: { mode: 'absolute' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
-    source: { id: 'source', type: 'frame', name: 'Source child', styles: { left: 0, top: 0, width: 40, height: 30 }, layout: { item: { position: { mode: 'flow' } }, container: { display: 'freeform' } } },
+    'source-frame': { id: 'source-frame', type: 'frame', name: 'Source', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 200, height: 200 }, layout: { item: { position: { mode: 'absolute' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+    'target-frame': { id: 'target-frame', type: 'frame', name: 'Target', styles: { relativeTransform: [1, 0, 0, 1, 300, 0], width: 200, height: 200 }, layout: { item: { position: { mode: 'absolute' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+    source: { id: 'source', type: 'frame', name: 'Source child', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 30 }, layout: { item: { position: { mode: 'flow' } }, container: { display: 'freeform' } } },
   },
   relationships: {
     'source-frame': { parentId: 'root-1', orderKey: 'V' },

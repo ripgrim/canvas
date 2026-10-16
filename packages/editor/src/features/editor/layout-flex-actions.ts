@@ -87,6 +87,7 @@ export function executePaperFlexAction(action: PaperFlexAction): PaperFlexExecut
 
   let measured: Record<string, DisplayMeasurement> | null = null
   if (action === 'add-flex-to-node') {
+    if (geometry.gap || geometry.documentRevision !== file.revision || geometry.layoutGeneration !== captured.layoutGeneration) return { status: 'unavailable', action, message: paperFlexActionCopy.add }
     const id = candidate.targetIds[0]!
     const node = file.nodes[id]!
     const display = nodeChildDisplay(node)
@@ -129,6 +130,7 @@ function captureLegacyDirectAdd(): Readonly<{ availability: DirectAddFlexAvailab
   const selected = new Set(ids)
   if (ids.some(id => ancestorsOf(file, id).some(ancestor => selected.has(ancestor)))) return { availability: { status: 'unavailable', message: directAddFlexCopy.nested } }
   const geometry = sceneGeometry.getSnapshot()
+  if (geometry.gap || geometry.documentRevision !== file.revision || geometry.layoutGeneration !== state.layoutGeneration) return { availability: { status: 'unavailable', message: directAddFlexCopy.unavailable } }
   const measured = Object.fromEntries(ids.map(id => [id, { boxes: null, flexInput: null, directAdd: paperDirectAddGeometry(file, geometry, id, state.layoutGeneration) }]))
   if (Object.values(measured).some(value => value.directAdd === null)) return { availability: { status: 'unavailable', message: directAddFlexCopy.unavailable } }
   return { availability: { status: 'eligible', ids, measured }, file, selection: ids, layoutGeneration: state.layoutGeneration }

@@ -16,7 +16,7 @@ const measurementRevision = 19
 const selectedLayout = { item: { position: { mode: 'freeform' as const } } }
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'resize-store-file',
   revision,
   pages: [
@@ -26,14 +26,14 @@ const fixture = (): FileDocument => ({
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
     'root-2': { id: 'root-2', type: 'root' },
-    selected: { id: 'selected', type: 'rectangle', name: 'Selected', styles: { left: 10, top: 20, width: 100, height: 80 }, layout: structuredClone(selectedLayout) },
-    other: { id: 'other', type: 'rectangle', name: 'Other', styles: { left: 160, top: 20, width: 30, height: 30 } },
+    selected: { id: 'selected', type: 'rectangle', name: 'Selected', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 100, height: 80 }, layout: structuredClone(selectedLayout) },
+    other: { id: 'other', type: 'rectangle', name: 'Other', styles: { relativeTransform: [1, 0, 0, 1, 160, 20], width: 30, height: 30 } },
     text: {
-      id: 'text', type: 'text', name: 'Text', text: 'Edit me', styles: { left: 20, top: 140, width: 90, height: 24 },
+      id: 'text', type: 'text', name: 'Text', text: 'Edit me', styles: { relativeTransform: [1, 0, 0, 1, 20, 140], width: 90, height: 24 },
       textStyle: { fontFamily: 'Inter', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false },
       textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
     },
-    'page-2-node': { id: 'page-2-node', type: 'rectangle', name: 'Second page', styles: { left: 0, top: 0, width: 20, height: 20 } },
+    'page-2-node': { id: 'page-2-node', type: 'rectangle', name: 'Second page', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 20, height: 20 } },
   },
   relationships: {
     selected: { parentId: 'root-1', orderKey: 'A7' },
@@ -110,11 +110,11 @@ const expectedCommand = (): Extract<FileCommand, { type: 'node.resizePresentatio
   entries: [{
     expected: {
       nodeId: 'selected', relationship: { parentId: 'root-1', orderKey: 'A7' },
-      primitiveGeometry: { left: 10, top: 20, width: 100, height: 80 }, layout: structuredClone(selectedLayout),
+      primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 100, height: 80 }, layout: structuredClone(selectedLayout),
     },
     source: {
       nodeId: 'selected', relationship: { parentId: 'root-1', orderKey: 'A7' },
-      primitiveGeometry: { left: -5, top: 12, width: 140, height: 96 }, layout: structuredClone(selectedLayout),
+      primitiveGeometry: { relativeTransform: [1, 0, 0, 1, -5, 12], width: 140, height: 96 }, layout: structuredClone(selectedLayout),
     },
   }],
 })
@@ -122,7 +122,7 @@ const expectedCommand = (): Extract<FileCommand, { type: 'node.resizePresentatio
 const expectedPostFile = (): FileDocument => {
   const file = fixture()
   file.revision = revision + 1
-  ;(file.nodes.selected as PrimitiveNode).styles = { left: -5, top: 12, width: 140, height: 96 }
+  ;(file.nodes.selected as PrimitiveNode).styles = { relativeTransform: [1, 0, 0, 1, -5, 12], width: 140, height: 96 }
   return file
 }
 
@@ -275,7 +275,7 @@ describe('resize gesture document-store transaction prerequisites', () => {
     expect(store.commands.commitGesture(snapshot, [intent])).toStrictEqual({ committed: false, persistence: null })
     expect(persist).not.toHaveBeenCalled()
     expect(stable(store.getSnapshot().file)).toStrictEqual(stable(changedContent(fixture())))
-    expect((store.getSnapshot().file!.nodes.selected as PrimitiveNode).styles).toStrictEqual({ left: 10, top: 20, width: 100, height: 80 })
+    expect((store.getSnapshot().file!.nodes.selected as PrimitiveNode).styles).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 10, 20], width: 100, height: 80 })
     expect(store.getHistory()).toStrictEqual({ past: [], future: [] })
   })
 
@@ -296,7 +296,7 @@ describe('resize gesture document-store transaction prerequisites', () => {
       expect(store.commands.commitGesture(snapshot, [intent]), name).toStrictEqual({ committed: false, persistence: null })
       assertMutation(store)
       expect(persist, name).not.toHaveBeenCalled()
-      expect((store.getSnapshot().file!.nodes.selected as PrimitiveNode).styles, name).toStrictEqual({ left: 10, top: 20, width: 100, height: 80 })
+      expect((store.getSnapshot().file!.nodes.selected as PrimitiveNode).styles, name).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 10, 20], width: 100, height: 80 })
       expect(store.getHistory(), name).toStrictEqual({ past: [], future: [] })
     }
   })
@@ -342,7 +342,7 @@ describe('resize gesture document-store transaction prerequisites', () => {
 
       expect(store.commands.commitGesture(snapshot, [intent]), name).toStrictEqual({ committed: false, persistence: null })
       assertMutation(store)
-      expect((store.getSnapshot().file!.nodes.selected as PrimitiveNode).styles, name).toStrictEqual({ left: 10, top: 20, width: 100, height: 80 })
+      expect((store.getSnapshot().file!.nodes.selected as PrimitiveNode).styles, name).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 10, 20], width: 100, height: 80 })
       expect(store.getHistory(), name).toStrictEqual({ past: [], future: [] })
       expect(persist, name).not.toHaveBeenCalled()
       expect(JSON.stringify(snapshot), name).toBe(sourceInputs.snapshot)
@@ -356,7 +356,7 @@ describe('resize gesture document-store transaction prerequisites', () => {
     const intent = resizeIntent(snapshot)
     const persist = vi.fn()
     store.configure({ persist })
-    store.setEditPolicy(candidate => { (candidate.nodes.selected as PrimitiveNode).styles.left = 999 })
+    store.setEditPolicy(candidate => { const node = candidate.nodes.selected as PrimitiveNode; const matrix = node.styles.relativeTransform; node.styles.relativeTransform = [matrix[0], matrix[1], matrix[2], matrix[3], 999, matrix[5]] })
     const before = stateRecord(store)
     expect(store.commands.commitGesture(snapshot, [intent])).toStrictEqual({ committed: false, persistence: null })
     expect(persist).not.toHaveBeenCalled()

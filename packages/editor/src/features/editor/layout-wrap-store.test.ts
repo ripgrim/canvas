@@ -3,9 +3,9 @@ import type { FileDocument, PrimitiveNode } from '@canvas/repo-engine/file-docum
 import type { LayoutGeometry } from './layout-measure'
 import { createDocumentStore } from './document-store'
 
-const rectangle = (id: string, left: number): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { left, top: 10, width: 20, height: 10 } })
+const rectangle = (id: string, left: number): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { relativeTransform: [1, 0, 0, 1, left, 10], width: 20, height: 10 } })
 const fixture = (): FileDocument => ({
-  schemaVersion: 9, fileId: 'wrap-store', revision: 0,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'wrap-store', revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: { root: { id: 'root', type: 'root' }, a: rectangle('a', 80), b: rectangle('b', 10) },
   relationships: { a: { parentId: 'root', orderKey: 'V' }, b: { parentId: 'root', orderKey: 'W' } },
@@ -15,7 +15,7 @@ const geometry = (file: FileDocument, layoutGeneration: number): LayoutGeometry 
   documentRevision: file.revision, layoutGeneration, unsupported: {},
   nodes: Object.fromEntries(['a', 'b'].map(id => {
     const node = file.nodes[id] as PrimitiveNode
-    return [id, { canvasKind: 'rectangle' as const, documentRevision: file.revision, layoutGeneration, rect: { x: node.styles.left, y: node.styles.top, width: 20, height: 10 }, worldAabb: { x: node.styles.left, y: node.styles.top, width: 20, height: 10 }, offset: { x: node.styles.left, y: node.styles.top, width: 20, height: 10, origin: { x: 10, y: 5 } }, offsetParentNodeId: null, offsetParentToRoot: [1, 0, 0, 1, 0, 0] as const, directChild: true }]
+    return [id, { canvasKind: 'rectangle' as const, documentRevision: file.revision, layoutGeneration, rect: { x: node.styles.relativeTransform[4], y: node.styles.relativeTransform[5], width: 20, height: 10 }, worldAabb: { x: node.styles.relativeTransform[4], y: node.styles.relativeTransform[5], width: 20, height: 10 }, offset: { x: node.styles.relativeTransform[4], y: node.styles.relativeTransform[5], width: 20, height: 10, origin: { x: 10, y: 5 } }, offsetParentNodeId: null, offsetParentToRoot: [1, 0, 0, 1, 0, 0] as const, directChild: true }]
   })),
 })
 

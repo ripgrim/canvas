@@ -110,7 +110,7 @@ beforeAll(async () => {
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
   send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 9, generation, ...payload }
     await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
 
@@ -147,7 +147,7 @@ beforeAll(async () => {
 
   const canvasDocument = (revision: number, width: number) => ({
     ...previewDocument(revision),
-    canvas: { elements: [{ id: 'canvas-frame', kind: 'frame', name: 'Frame', x: 0, y: 0, width, height: 80, rotation: 0, appearance: { fills: [{ type: 'solid', color: '#ff0000' }] }, parentId: null }] },
+    canvas: { elements: [{ id: 'canvas-frame', kind: 'frame', name: 'Frame', relativeTransform: [1, 0, 0, 1, 0, 0], width, height: 80, appearance: { fills: [{ type: 'solid', color: '#ff0000' }] }, parentId: null }] },
   })
   await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: canvasDocument(4, 100) })
   await frame.waitForSelector('[data-preview-canvas="canvas-frame"]')

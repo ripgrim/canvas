@@ -18,6 +18,7 @@ import type { MeasuredNode, SceneGeometry } from './scene-geometry'
 import { validFlowDragState } from './flow-drag-state'
 import type { FlowDragSourceRelationship, PaperFlowDragState } from './flow-drag-state'
 import { resolveFlowDragTarget } from './flow-drag-target'
+import { resizedGeometry } from './matrix-style'
 
 export type GestureStartFence = Readonly<{
   fileId: string
@@ -255,8 +256,10 @@ function absolutePresentationEntry(file: FileDocument, nodeId: string, rect: Par
   expected.layout = node.layout === undefined ? null : structuredClone(node.layout)
   source.layout = rootPrimitive ? cleanRootFreeformLayout(node) : cleanAbsoluteLayout(node, rect)
   if (node.type !== 'component') {
-    expected.primitiveGeometry = { left: node.styles.left, top: node.styles.top, width: node.styles.width, height: node.styles.height }
-    source.primitiveGeometry = { left: rootPrimitive ? rect.x : node.styles.left, top: rootPrimitive ? rect.y : node.styles.top, width: rect.width, height: rect.height }
+    expected.primitiveGeometry = { relativeTransform: node.styles.relativeTransform, width: node.styles.width, height: node.styles.height }
+    source.primitiveGeometry = rootPrimitive
+      ? resizedGeometry(node.styles, rect)
+      : { relativeTransform: node.styles.relativeTransform, width: rect.width, height: rect.height }
     if (node.type === 'text') {
       if (!node.textStyle || !node.textSizing) return null
       const textStyle = structuredClone(node.textStyle)
@@ -375,13 +378,10 @@ function resizeEntry(snapshot: GestureCommandSnapshot, presentation: ResizePrese
     source.layout = layout
   } else {
     if (mode !== 'flow' && mode !== 'freeform' && mode !== 'absolute') return null
-    expected.primitiveGeometry = { left: node.styles.left, top: node.styles.top, width: node.styles.width, height: node.styles.height }
-    source.primitiveGeometry = {
-      left: mode === 'flow' ? node.styles.left : item.rect.x,
-      top: mode === 'flow' ? node.styles.top : item.rect.y,
-      width: item.rect.width,
-      height: item.rect.height,
-    }
+    expected.primitiveGeometry = { relativeTransform: node.styles.relativeTransform, width: node.styles.width, height: node.styles.height }
+    source.primitiveGeometry = mode === 'flow'
+      ? { relativeTransform: node.styles.relativeTransform, width: item.rect.width, height: item.rect.height }
+      : resizedGeometry(node.styles, item.rect)
     if (mode === 'flow') {
       const layout = resizeFlowLayout(snapshot, node, relationship.parentId, item, widthChanged, heightChanged)
       if (!layout) return null

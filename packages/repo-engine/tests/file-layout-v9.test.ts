@@ -5,11 +5,11 @@ import type { LayoutContainer } from '../src/layout.js'
 import type { Atom } from '../src/types.js'
 
 const card: Atom = { name: 'Card', kind: 'atom', componentId: 'sample-card', exportName: 'Card', path: 'src/atoms/Card.tsx', fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props: [] }
-const frame = (id: string): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { left: 0, top: 0, width: 300, height: 200 } })
-const rectangle = (id: string): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { left: 10, top: 20, width: 80, height: 60 } })
+const frame = (id: string): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 300, height: 200 } })
+const rectangle = (id: string): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 80, height: 60 } })
 const component = (id: string): ComponentNode => ({ id, type: 'component', componentId: card.componentId, exportName: card.exportName, props: {} })
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -42,7 +42,9 @@ describe('PAPER-FLEX-001: schema v9 primitive layout contract', () => {
     const mutations: Array<[string, (file: FileDocument) => void, string]> = [
       ['frame container overflow', file => { file.nodes.frame = { ...frame('frame'), layout: { item: { position: { mode: 'freeform' } }, container: { display: 'freeform', overflow: 'clip' } } } }, 'Frame layout cannot override clipping'],
       ['non-frame container', file => { file.nodes.child = { ...rectangle('child'), layout: { item: { position: { mode: 'freeform' } }, container: { display: 'block' } } } }, 'Only frames can carry a layout container'],
-      ['primitive transform', file => { file.nodes.child = { ...rectangle('child'), layout: { item: { position: { mode: 'absolute' }, transform: { rotate: 20 } } } } }, 'Primitive layout cannot override its transform'],
+      ['primitive transform', file => {
+        file.nodes.child = { ...rectangle('child'), layout: { item: { position: { mode: 'absolute' }, transform: { matrix: [1, 0, 0, 1, 0, 0] } } } }
+      }, 'Primitive layout cannot override its transform'],
       ['duplicate fixed primitive sizing', file => { file.nodes.child = { ...rectangle('child'), layout: { item: { position: { mode: 'freeform' }, width: { value: { kind: 'px', value: 80 } } } } } }, 'Fixed primitive sizing belongs in node styles'],
       ['freeform component', file => { file.nodes.card = { ...component('card'), layout: { item: { position: { mode: 'freeform' } } } } }, 'Components cannot use freeform layout'],
     ]
@@ -53,7 +55,7 @@ describe('PAPER-FLEX-001: schema v9 primitive layout contract', () => {
     }
 
     const text = fixture()
-    text.nodes.child = { id: 'child', type: 'text', name: 'Text', styles: { left: 10, top: 20, width: 80, height: 24 }, text: 'Text', ...legacyTextProperties(), layout: { item: { position: { mode: 'absolute' }, width: { value: { kind: 'px', value: 80 } } } } }
+    text.nodes.child = { id: 'child', type: 'text', name: 'Text', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 80, height: 24 }, text: 'Text', ...legacyTextProperties(), layout: { item: { position: { mode: 'absolute' }, width: { value: { kind: 'px', value: 80 } } } } }
     expect(() => checked(text)).toThrow('Text layout cannot override text sizing')
   })
 

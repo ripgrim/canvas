@@ -7,7 +7,7 @@ import type { CanvasTransient, DocumentState, MoveCommit, PersistenceCommit } fr
 import { sceneGeometry } from './scene-geometry'
 import { ancestors, buildScene, childrenOf, containingFrameAt, descendants, symmetricDifference } from './canvas-scene'
 import type { Scene, SceneNode } from './canvas-scene'
-import { currentCanvasHitFrame, projectedClickTarget, projectedDrillTarget, projectedFrameMatchesScene, projectedMarqueeTargets } from './canvas-hud-hit-testing'
+import { currentCanvasHitFrameForDocument, projectedClickTarget, projectedDrillTarget, projectedFrameMatchesScene, projectedMarqueeTargets } from './canvas-hud-hit-testing'
 import type { CanvasHudProjectionSource } from './canvas-hud-hit-testing'
 import { canvasHudProjectionService } from './canvas-hud-projection-service'
 import type { HudProjectionFrame } from './canvas-hud-projection'
@@ -39,6 +39,8 @@ import type { LocalFlowClaimToken } from '../collaboration/collaboration-service
 import { projectRotationPresentation, rotationDegreesFromPointer } from './rotation-projection'
 import type { RotationCorner } from './rotation-projection'
 import { setTransformRotation } from './layout-commands'
+import { rotatedPatch } from './matrix-style'
+import { decompose } from '@canvas/repo-engine/layout-matrix'
 import { cornerRadiusHandlePoses, radiusFromPointer, resolveAmbiguousCorner } from './corner-radius-handles'
 import type { CornerRadiusHandlePose } from './corner-radius-handles'
 
@@ -105,6 +107,7 @@ type RotationBase = Base & {
   startRotation: number
   targetRotation: number
   presentationId: string
+  sampleSequence: number
   phaseActive: boolean
 }
 type RadiusBase = Base & {
@@ -144,8 +147,6 @@ type ResizePreviewTarget = Readonly<{
   publishResizePresentation(input: PreviewResizeSample): boolean
   clearResizePresentation(): boolean
   syncCommittedDocument(handoff: PreviewCommittedDocumentHandoff): PreviewCommittedDocumentReceipt | null
-  publishRotationPreview?: (nodeId: string, rotationDelta: number) => boolean
-  clearRotationPreview?: () => boolean
   publishFlowDragPresentation?: (presentation: FlowDragPresentation) => boolean
   clearFlowDragPresentation?: (retirement: PreviewFlowDragRetirement) => boolean
   syncCommittedFlowDrag?: (handoff: Readonly<{ commit: Readonly<{ committed: boolean }>; committedFile: NonNullable<DocumentState['file']> | null; terminalPresentation: FlowDragPresentation }>) => PreviewCommittedFlowDragReceipt | null
@@ -199,18 +200,19 @@ export function createCanvasGestures(
   let stopFlowAuthority: (() => void) | null = null
   const viewportPoint = (event: Pick<PointerLike, 'clientX' | 'clientY'>): Point => { const rect = element?.getBoundingClientRect(); return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) } }
   const currentScene = () => { const state = store.getSnapshot(); return buildScene(state.file, state.pageId, geometry.getSnapshot().nodes, state.layoutGeneration) }
-  const snapshot = (event: PointerLike, state: DocumentState = store.getSnapshot(), scene: Scene = currentScene()): Base => {
+  const snapshot = (event: PointerLike, state: DocumentState = store.getSnapshot(), scene: Scene = currentScene(), camera: Camera = state.viewport, size: Size = state.viewportSize): Base => {
     const client = viewportPoint(event)
-    return { pointerId: event.pointerId, startClient: { x: event.clientX, y: event.clientY }, startViewport: client, startWorld: screenToWorld(client, state.viewport, state.viewportSize), camera: state.viewport, size: state.viewportSize, scene, selection: [...state.selection], moved: false }
+    return { pointerId: event.pointerId, startClient: { x: event.clientX, y: event.clientY }, startViewport: client, startWorld: screenToWorld(client, camera, size), camera, size, scene, selection: [...state.selection], moved: false }
   }
   const currentHitContext = (): { state: DocumentState; scene: Scene; frame: HudProjectionFrame } | null => {
     const state = store.getSnapshot(), measured = geometry.getSnapshot()
     if (!state.file || !state.pageId || measured.documentRevision === null || measured.layoutGeneration === null) return null
     const scene = buildScene(state.file, state.pageId, measured.nodes, state.layoutGeneration)
-    const frame = currentCanvasHitFrame(projections, {
+    const frame = currentCanvasHitFrameForDocument(projections, {
       fileId: state.file.fileId, pageId: state.pageId, fileRevision: state.file.revision,
       measurementRevision: measured.revision, documentRevision: measured.documentRevision, layoutGeneration: measured.layoutGeneration,
-      camera: state.viewport, size: state.viewportSize, selection: state.selection, tool: state.tool, readOnly: state.readOnly,
+      targetCamera: state.viewport, targetSize: state.viewportSize,
+      selection: state.selection, tool: state.tool, readOnly: state.readOnly,
     })
     return frame && projectedFrameMatchesScene(scene, frame) ? { state, scene, frame } : null
   }
@@ -408,7 +410,7 @@ export function createCanvasGestures(
     }
   }
   const clearRotationPresentation = (current?: RotationBase) => {
-    resizePreview.clearRotationPreview?.()
+    resizePreview.clearResizePresentation()
     projections.clearResizePresentation?.()
     const transient = store.getSnapshot().transient
     if (!current || (transient?.kind === 'resize' && transient.interactionId === current.presentationId)) setTransient(null)
@@ -419,12 +421,20 @@ export function createCanvasGestures(
     const presentation = projectRotationPresentation(current.resizeAuthority, targetRotation)
     if (!presentation || !interactions.updateInteraction(current.claimId, [{ nodeId: current.id, dx: 0, dy: 0 }])) return false
     current.targetRotation = targetRotation
+    current.sampleSequence += 1
     if (!current.phaseActive) {
       current.phaseActive = true
       setTransient({ kind: 'resize', interactionId: current.presentationId })
     }
-    return (projections.publishResizePresentation?.(presentation, current.authority.start) ?? true)
-      && (resizePreview.publishRotationPreview?.(current.id, targetRotation - current.startRotation) ?? true)
+    const hudPublished = projections.publishResizePresentation?.(presentation, current.authority.start) ?? true
+    const previewPublished = resizePreview.publishResizePresentation({
+      presentation,
+      start: current.authority.start,
+      interactionId: current.presentationId,
+      sampleSequence: current.sampleSequence,
+      pageRootNodeId: current.resizeAuthority.pageRootId,
+    })
+    return hudPublished && previewPublished
   }
   const activateRotation = (id: string, corner: RotationCorner, event: PointerLike, claimId: string, lockedIds: readonly string[], captured = captureResizeAuthority(id)): RotationBase | null => {
     if (!captured) return null
@@ -432,6 +442,7 @@ export function createCanvasGestures(
     if (!world) return null
     const center = world.quad.reduce((sum, point) => ({ x: sum.x + point.x / 4, y: sum.y + point.y / 4 }), { x: 0, y: 0 })
     const base = resizeBase(captured.authority, event)
+    const startRotation = decompose(captured.resize.nodeTransform).rotateDegrees
     const current: RotationBase = {
       ...base,
       kind: 'rotation', id, corner, claimId, lockedIds, atoms: captured.atoms,
@@ -440,9 +451,10 @@ export function createCanvasGestures(
       authority: captured.authority,
       resizeAuthority: captured.resize,
       center,
-      startRotation: captured.resize.rotationDegrees,
-      targetRotation: captured.resize.rotationDegrees,
+      startRotation,
+      targetRotation: startRotation,
       presentationId: nextRotationPresentationId(),
+      sampleSequence: -1,
       phaseActive: false,
     }
     stopResizeLock?.()
@@ -942,7 +954,7 @@ export function createCanvasGestures(
     if (!node || node.type === 'root') { interactions.endInteraction(current.claimId); return }
     const normalized = ((current.targetRotation % 360) + 360) % 360
     if (node.type === 'component') store.commands.layout.set(node.id, setTransformRotation(node.layout, normalized))
-    else store.commands.setStyles(node.id, { rotation: normalized })
+    else store.commands.setStyles(node.id, rotatedPatch(node.styles, normalized))
     interactions.endInteraction(current.claimId)
   }
   return {
@@ -964,7 +976,7 @@ export function createCanvasGestures(
       if (!poses.some(pose => pose.corner === corner)) return false
       store.commands.appearance.gesture.begin()
       gesture = {
-        ...snapshot(event, state, context.scene),
+        ...snapshot(event, state, context.scene, context.frame.key.camera, context.frame.key.size),
         kind: 'radius', id, pressedCorner: corner, activeCorner: corner,
         startAppearance, startRadii, poses, fileRevision: state.file.revision,
       }
@@ -980,7 +992,7 @@ export function createCanvasGestures(
       if (state.readOnly) {
         const context = currentHitContext()
         if (!context) return false
-        const base = snapshot(event, context.state, context.scene)
+        const base = snapshot(event, context.state, context.scene, context.frame.key.camera, context.frame.key.size)
         const target = projectedClickTarget(base.scene, context.frame, base.startViewport, context.state.selection, deep(event))
         if (target) store.select(target.id, { additive: event.shiftKey })
         else store.selectMany([])
@@ -994,7 +1006,7 @@ export function createCanvasGestures(
       const context = currentHitContext()
       if (!context) return false
       state = context.state
-      const base = snapshot(event, state, context.scene)
+      const base = snapshot(event, state, context.scene, context.frame.key.camera, context.frame.key.size)
       const target = projectedClickTarget(base.scene, context.frame, base.startViewport, state.selection, deep(event))
       if (!target) { gesture = { ...base, kind: 'marquee' }; return true }
       const selectedContainer = !event.shiftKey && !deep(event) && state.selection.length === 1

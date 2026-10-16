@@ -10,16 +10,16 @@ const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component
 const solid = (color: string) => ({ fills: [{ type: 'solid', color }] })
 const semanticLayout = { mode: 'freeform', declarations: { width: '100%', height: '50%' } } as const
 const leaf = (id: string, kind: 'frame' | 'rectangle' | 'shape' | 'shader', color: string, semantic: boolean) => ({
-  id, kind, name: id, x: 10, y: 20, width: 77, height: 66, rotation: 0, parentId: 'parent', appearance: solid(color),
+  id, kind, name: id, relativeTransform: [1, 0, 0, 1, 10, 20], width: 77, height: 66, parentId: 'parent', appearance: solid(color),
   ...(kind === 'frame' ? { clip: false } : {}),
   ...(semantic ? { layout: semanticLayout } : {}),
 })
 const intrinsicFrame = (id: string, x: number, size: 'fit-content' | 'auto') => ({
-  id, kind: 'frame', name: id, x, y: 80, width: 310, height: 210, rotation: 0, parentId: null, clip: false, appearance: solid('#29292c'),
+  id, kind: 'frame', name: id, relativeTransform: [1, 0, 0, 1, x, 80] as const, width: 310, height: 210, parentId: null, clip: false, appearance: solid('#29292c'),
   layout: { mode: 'freeform', declarations: { display: 'flex', 'flex-direction': 'row', width: size, height: size, 'padding-top': '10px', 'padding-right': '10px', 'padding-bottom': '10px', 'padding-left': '10px' } },
 })
 const child = (id: string, parentId: string) => ({
-  id, kind: 'rectangle', name: id, x: 999, y: 999, width: 80, height: 30, rotation: 0, parentId, appearance: solid('#60a5fa'),
+  id, kind: 'rectangle', name: id, relativeTransform: [1, 0, 0, 1, 999, 999], width: 80, height: 30, parentId, appearance: solid('#60a5fa'),
   layout: { mode: 'flow', declarations: {} },
 })
 const previewDocument = (width: number, height: number, semantic = true, revision = 1) => ({
@@ -30,7 +30,7 @@ const previewDocument = (width: number, height: number, semantic = true, revisio
   frame: { width: 800, height: 700, direction: 'column', gap: 0, padding: 0, clip: false },
   canvas: {
     elements: [
-      { id: 'parent', kind: 'frame', name: 'Parent', x: -340, y: -260, width, height, rotation: 0, parentId: null, clip: false, appearance: solid('#111827') },
+      { id: 'parent', kind: 'frame', name: 'Parent', relativeTransform: [1, 0, 0, 1, -340, -260] as const, width, height, parentId: null, clip: false, appearance: solid('#111827') },
       leaf('free-frame', 'frame', '#f472b6', semantic),
       leaf('free-rectangle', 'rectangle', '#fb7185', semantic),
       leaf('free-shape', 'shape', '#4ade80', semantic),
@@ -68,7 +68,7 @@ const observe = (id: string): Promise<Observation> => frame.evaluate(nodeId => {
 }, id)
 
 const postDocument = async (preview: ReturnType<typeof previewDocument>) => {
-  const command = { channel: 'design-editor-preview', version: 8, generation, type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: preview, theme: { attribute: null, colorScheme: 'light' } }
+  const command = { channel: 'design-editor-preview', version: 9, generation, type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: preview, theme: { attribute: null, colorScheme: 'light' } }
   await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
 }
 

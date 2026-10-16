@@ -1,6 +1,9 @@
-import { childrenOf, nodeIsLocked, nodePositionMode, pageRoot, worldRect } from '@canvas/repo-engine/file-document'
+import { childrenOf, nodeIsLocked, nodePositionMode, nodeWorldTransform, pageRoot, worldRect } from '@canvas/repo-engine/file-document'
 import type { FileDocument, PrimitiveKind } from '@canvas/repo-engine/file-document'
 import { legacyLayout } from '@canvas/repo-engine/layout'
+import { legacyPoseFromMatrix } from '@canvas/repo-engine/layout-pose'
+import { containsTransformedPoint, decomposeTransform, identityTransform, multiplyTransforms, transformedBounds, translationTransform } from '@canvas/repo-engine/transform-matrix'
+import type { TransformMatrix } from '@canvas/repo-engine/transform-matrix'
 import { pointInRect, rectsIntersect } from './canvas-math'
 import type { Point, Rect } from './canvas-math'
 import type { MeasuredNode } from './scene-geometry'
@@ -18,6 +21,8 @@ export type SceneNode = {
   rect: Rect
   /** Authored clockwise rotation in degrees. Selection chrome uses it to follow the rendered face. */
   rotation: number
+  transform?: TransformMatrix
+  size?: { width: number; height: number }
   clip: boolean
   depth: number
   order: number
@@ -30,9 +35,15 @@ export type Scene = { nodes: SceneNode[]; byId: Map<string, SceneNode> }
 const emptyScene: Scene = { nodes: [], byId: new Map() }
 
 function primitiveRect(file: FileDocument, id: string, measurement: MeasuredNode | undefined, layoutGeneration: number | null): Rect | null {
-  const authored = worldRect(file, id)!
   const node = file.nodes[id]
   if (!node || node.type === 'root' || node.type === 'component') return null
+  const pose = legacyPoseFromMatrix(node.styles.relativeTransform, node.styles)
+  const relationship = file.relationships[id]
+  const parent = relationship ? file.nodes[relationship.parentId] : undefined
+  const parentWorld = parent?.type === 'root' ? identityTransform : relationship ? nodeWorldTransform(file, relationship.parentId) : null
+  const authored = pose && parentWorld
+    ? transformedBounds(multiplyTransforms(parentWorld, translationTransform(pose.left, pose.top)), node.styles)
+    : worldRect(file, id)!
   const mode = nodePositionMode(node)
   const currentMeasurement = measurement?.canvasKind === node.type && measurement.documentRevision === file.revision && measurement.layoutGeneration === layoutGeneration ? measurement : undefined
   const browserSized = node.layout?.item.width !== undefined
@@ -45,14 +56,7 @@ function primitiveRect(file: FileDocument, id: string, measurement: MeasuredNode
   const widthFits = node.textSizing.width.mode === 'fit'
   const heightFits = node.textSizing.height.mode === 'fit'
   if (!widthFits && !heightFits) return authored
-  const width = widthFits ? currentMeasurement.offset.width : authored.width
-  const height = heightFits ? currentMeasurement.offset.height : authored.height
-  const x = widthFits && node.textStyle.horizontalAlign === 'center'
-    ? authored.x + (authored.width - width) / 2
-    : widthFits && node.textStyle.horizontalAlign === 'right'
-      ? authored.x + authored.width - width
-      : authored.x
-  return { x, y: authored.y, width, height }
+  return currentMeasurement.rect
 }
 
 export function displayName(file: FileDocument, id: string): string {
@@ -76,10 +80,13 @@ export function buildScene(file: FileDocument | null, pageId: string | null, mea
       const measurement = measured[id]
       const generationMatches = measurement?.layoutGeneration === layoutGeneration || layoutGeneration === null && measurement?.layoutGeneration === undefined
       const rect = measurement?.componentId === node.componentId && generationMatches ? measurement.rect : null
-      if (rect) nodes.push({ id, kind: 'component', name: displayName(file, id), parentId, rect, rotation: node.layout?.item.transform?.rotate ?? 0, clip: false, depth, order: order++, flow: parentId !== null && legacyLayout(node.layout).mode !== 'absolute', locked: nodeIsLocked(file, id) })
+      if (rect) nodes.push({ id, kind: 'component', name: displayName(file, id), parentId, rect, rotation: decomposeTransform(node.layout?.item.transform?.matrix ?? identityTransform).rotateDegrees, clip: false, depth, order: order++, flow: parentId !== null && legacyLayout(node.layout).mode !== 'absolute', locked: nodeIsLocked(file, id) })
     } else {
       const rect = primitiveRect(file, id, measured[id], layoutGeneration)
-      if (rect) nodes.push({ id, kind: node.type, name: displayName(file, id), parentId, rect, rotation: node.styles.rotation ?? 0, clip: node.type === 'frame' && node.styles.overflow !== 'visible', depth, order: order++, flow: nodePositionMode(node) === 'flow', locked: nodeIsLocked(file, id) })
+      if (rect) {
+        const transform = nodeWorldTransform(file, id)
+        nodes.push({ id, kind: node.type, name: displayName(file, id), parentId, rect, rotation: decomposeTransform(transform).rotateDegrees, transform, size: { width: node.styles.width, height: node.styles.height }, clip: node.type === 'frame' && node.styles.overflow !== 'visible', depth, order: order++, flow: nodePositionMode(node) === 'flow', locked: nodeIsLocked(file, id) })
+      }
       else return
     }
     for (const child of childrenOf(file, id)) visit(child, id, depth + 1)
@@ -100,9 +107,13 @@ export function descendants(scene: Scene, id: string): SceneNode[] {
   return scene.nodes.filter(node => node.id !== id && ancestors(scene, node.id).some(ancestor => ancestor.id === id))
 }
 
+function contains(node: SceneNode, point: Point): boolean {
+  return node.transform && node.size ? containsTransformedPoint(node.transform, node.size, point) : pointInRect(point, node.rect)
+}
+
 function visibleAt(scene: Scene, node: SceneNode, point: Point): boolean {
-  if (!pointInRect(point, node.rect)) return false
-  return ancestors(scene, node.id).every(ancestor => ancestor.id === node.id || !ancestor.clip || pointInRect(point, ancestor.rect))
+  if (!contains(node, point)) return false
+  return ancestors(scene, node.id).every(ancestor => ancestor.id === node.id || !ancestor.clip || contains(ancestor, point))
 }
 
 /** Nodes under a world point, top-most first. Children paint above parents and later siblings above earlier ones. */

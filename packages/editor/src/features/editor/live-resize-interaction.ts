@@ -60,7 +60,7 @@ export function beginLiveResizeInteraction(
   return Object.freeze({
     authority,
     resizeAuthority,
-    state: freezeResizeState(beginResizeGesture(resizeAuthority.startRect, handle, start, resizeAuthority.rotationDegrees)),
+    state: freezeResizeState(beginResizeGesture(resizeAuthority.startRect, handle, start, resizeAuthority.nodeTransform)),
     presentationId,
     sampleSequence: -1,
   })

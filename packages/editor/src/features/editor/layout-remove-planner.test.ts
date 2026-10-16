@@ -14,7 +14,7 @@ const textStyle = (): TextStyle => ({
 
 function frameFixture(): { file: FileDocument; geometry: LayoutGeometry } {
   const parent: PrimitiveNode = {
-    id: 'parent', type: 'frame', name: 'Parent', styles: { left: 10, top: 20, width: 300, height: 180, overflow: 'clip' },
+    id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 300, height: 180, overflow: 'clip' },
     layout: {
       item: {
         position: { mode: 'absolute', left: px(10), top: px(20) },
@@ -27,20 +27,20 @@ function frameFixture(): { file: FileDocument; geometry: LayoutGeometry } {
     },
   }
   const fill: PrimitiveNode = {
-    id: 'fill', type: 'rectangle', name: 'Fill', styles: { left: 0, top: 0, width: 30, height: 20 },
+    id: 'fill', type: 'rectangle', name: 'Fill', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 30, height: 20 },
     layout: { item: { position: { mode: 'flow' }, width: { value: { kind: 'percent', value: 100 } }, flex: { grow: 1 } } },
   }
   const absolute: PrimitiveNode = {
-    id: 'absolute', type: 'shape', name: 'Absolute', styles: { left: 200, top: 120, width: 30, height: 20, rotation: 12 },
+    id: 'absolute', type: 'shape', name: 'Absolute', styles: { relativeTransform: [0.978147600734, 0.207911690818, -0.207911690818, 0.978147600734, 202.40690289717, 117.099848630396], width: 30, height: 20 },
     layout: { item: { position: { mode: 'absolute', left: px(200), top: px(120), zIndex: 3 } } },
   }
   const copy: PrimitiveNode = {
-    id: 'copy', type: 'text', name: 'Copy', text: 'Two lines', styles: { left: 0, top: 0, width: 80, height: 40 },
+    id: 'copy', type: 'text', name: 'Copy', text: 'Two lines', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 80, height: 40 },
     textStyle: textStyle(), textSizing: { width: { mode: 'fill' }, height: { mode: 'fill' } },
     layout: { item: { position: { mode: 'flow' }, flex: { shrink: 0 } } },
   }
   const file: FileDocument = {
-    schemaVersion: 9, fileId: 'remove-flex', revision: 9,
+    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-flex', revision: 9,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: { root: { id: 'root', type: 'root' }, parent, absolute, copy, fill },
     relationships: {
@@ -81,7 +81,7 @@ function frameFixture(): { file: FileDocument; geometry: LayoutGeometry } {
 function emptyFrame(id: string, orderKey: string, x: number): { node: PrimitiveNode; relationship: FileDocument['relationships'][string]; measurement: LayoutGeometry['nodes'][string] } {
   return {
     node: {
-      id, type: 'frame', name: id, styles: { left: x, top: 0, width: 100, height: 80 },
+      id, type: 'frame', name: id, styles: { relativeTransform: [1, 0, 0, 1, x, 0], width: 100, height: 80 },
       layout: { item: { position: { mode: 'absolute', left: px(x), top: px(0) } }, container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } } },
     },
     relationship: { parentId: 'root', orderKey },
@@ -135,14 +135,14 @@ describe('Paper Remove Flex planner', () => {
     const applied = applyFileCommand(file, result.command, [])
     expect(applied.relationships).toStrictEqual(file.relationships)
     expect(applied.nodes.absolute).toStrictEqual(file.nodes.absolute)
-    expect(applied.nodes.parent).toMatchObject({ styles: { left: 10, top: 20, width: 320, height: 210, overflow: 'clip' } })
+    expect(applied.nodes.parent).toMatchObject({ styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 320, height: 210, overflow: 'clip' } })
     expect((applied.nodes.parent as PrimitiveNode).layout).toStrictEqual(result.command.groups[0]!.parent.layout)
   })
 
   it('PAPER-FLEX-001 orders multiple empty parents by the tree and invokes geometry once per parent', () => {
     const first = emptyFrame('first', 'V', 0), second = emptyFrame('second', 'W', 200)
     const file: FileDocument = {
-      schemaVersion: 9, fileId: 'multi', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'multi', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: { root: { id: 'root', type: 'root' }, second: second.node, first: first.node },
       relationships: { second: second.relationship, first: first.relationship }, theme: { tokens: {} },
     }
@@ -163,7 +163,7 @@ describe('Paper Remove Flex planner', () => {
     }
     const child: ComponentNode = { id: 'child', type: 'component', componentId: 'label-source', exportName: 'Label', props: {}, layout: { item: { position: { mode: 'flow' }, width: { value: { kind: 'percent', value: 100 } } } } }
     const file: FileDocument = {
-      schemaVersion: 9, fileId: 'components', revision: 4, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'components', revision: 4, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: { root: { id: 'root', type: 'root' }, card, child }, relationships: { card: { parentId: 'root', orderKey: 'V' }, child: { parentId: 'card', orderKey: 'V', slot: 'children' } }, theme: { tokens: {} },
     }
     const geometry: LayoutGeometry = {
@@ -184,7 +184,7 @@ describe('Paper Remove Flex planner', () => {
   it('PAPER-FLEX-001 rejects nested selection before any geometry call', () => {
     const { file, geometry } = frameFixture()
     const inner: PrimitiveNode = {
-      id: 'inner', type: 'frame', name: 'Inner', styles: { left: 0, top: 0, width: 40, height: 30 },
+      id: 'inner', type: 'frame', name: 'Inner', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 30 },
       layout: { item: { position: { mode: 'flow' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } },
     }
     file.nodes.inner = inner

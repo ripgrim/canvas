@@ -96,6 +96,20 @@ type FrameInputs = Readonly<{
   activeFlowDrag: ActiveFlowDrag | null
 }>
 
+type HudContinuityContext = Readonly<{
+  fileId: string
+  fileRevision: number
+  pageId: string
+  atoms: GestureAuthorityDocumentState['atoms']
+  layoutGeneration: number
+  viewport: Readonly<{ x: number; y: number; zoom: number }>
+  viewportSize: Readonly<{ width: number; height: number }>
+  selection: readonly string[]
+  tool: FrameInputs['tool']
+  readOnly: boolean
+  mobile: boolean
+}>
+
 const sameAuthorityInputs = (left: AuthorityInputs | null, right: AuthorityInputs): boolean => Boolean(left
   && left.file === right.file
   && left.pageId === right.pageId
@@ -117,6 +131,23 @@ const sameFrameInputs = (left: FrameInputs | null, right: FrameInputs): boolean 
   && left.activeMove === right.activeMove
   && left.activeResize === right.activeResize
   && left.activeFlowDrag === right.activeFlowDrag)
+
+const sameHudContinuityContext = (left: HudContinuityContext | null, right: HudContinuityContext | null): boolean => Boolean(left && right
+  && left.fileId === right.fileId
+  && left.fileRevision === right.fileRevision
+  && left.pageId === right.pageId
+  && left.atoms === right.atoms
+  && left.layoutGeneration === right.layoutGeneration
+  && left.viewport.x === right.viewport.x
+  && left.viewport.y === right.viewport.y
+  && left.viewport.zoom === right.viewport.zoom
+  && left.viewportSize.width === right.viewportSize.width
+  && left.viewportSize.height === right.viewportSize.height
+  && left.selection.length === right.selection.length
+  && left.selection.every((id, index) => id === right.selection[index])
+  && left.tool === right.tool
+  && left.readOnly === right.readOnly
+  && left.mobile === right.mobile)
 
 const freezeSnapshot = (generation: number, frame: HudProjectionFrame | null): CanvasHudProjectionSnapshot => Object.freeze({ generation, frame })
 const failureRetirementKeys = ['kind', 'interactionId', 'gestureGeneration', 'terminalSequence', 'sourceFence'] as const
@@ -174,6 +205,7 @@ export function createCanvasHudProjectionService(
   let activeFlowDrag: ActiveFlowDrag | null = null
   let committedResizeHold = false
   let committedResizeReceipt: PreviewCommittedDocumentReceipt | null = null
+  let lastFrameContext: HudContinuityContext | null = null
   let snapshot = freezeSnapshot(0, null)
   let stops: readonly (() => void)[] = []
   let disposed = false
@@ -184,11 +216,25 @@ export function createCanvasHudProjectionService(
     const state = documents.getSnapshot()
     const measured = geometry.getSnapshot()
     const presentedCamera = cameras.getSnapshot()
+    const mobileSnapshot = mobile.getSnapshot()
     const projectionState = presentedCamera?.camera ? {
       ...state,
       viewport: { x: presentedCamera.camera.x, y: presentedCamera.camera.y, zoom: presentedCamera.camera.zoom },
       viewportSize: { width: presentedCamera.camera.width, height: presentedCamera.camera.height },
     } : state
+    const continuityContext: HudContinuityContext | null = state.file && state.pageId ? {
+      fileId: state.file.fileId,
+      fileRevision: state.file.revision,
+      pageId: state.pageId,
+      atoms: state.atoms,
+      layoutGeneration: state.layoutGeneration,
+      viewport: { ...state.viewport },
+      viewportSize: { ...state.viewportSize },
+      selection: [...state.selection],
+      tool: state.tool,
+      readOnly: state.readOnly,
+      mobile: mobileSnapshot,
+    } : null
     if (activeFlowDrag?.receipt) {
       const receipt = activeFlowDrag.receipt
       const settled = state.file?.fileId === receipt.fileId
@@ -251,6 +297,7 @@ export function createCanvasHudProjectionService(
       && measured.documentRevision < state.file.revision,
     )
     if (canHoldTextEditor) return
+    if (!authority && measured.gap === 'temporary' && snapshot.frame && sameHudContinuityContext(lastFrameContext, continuityContext)) return
     const resizeActive = state.transient?.kind === 'resize'
     const activeMove = state.transient?.kind === 'move' ? state.transient : null
     if (!resizeActive) activeResize = null
@@ -259,7 +306,7 @@ export function createCanvasHudProjectionService(
       hover: state.hover,
       tool: state.tool,
       readOnly: state.readOnly,
-      mobile: mobile.getSnapshot(),
+      mobile: mobileSnapshot,
       resizeActive,
       activeMove,
       activeResize,
@@ -278,6 +325,8 @@ export function createCanvasHudProjectionService(
         layoutGeneration: authority.start.layoutGeneration,
         camera: authority.camera,
         size: authority.size,
+        targetCamera: state.viewport,
+        targetSize: state.viewportSize,
         selection: authority.selection,
         hover: state.hover,
         tool: state.tool,
@@ -293,6 +342,7 @@ export function createCanvasHudProjectionService(
       })
     }
     snapshot = freezeSnapshot(snapshot.generation + 1, frame)
+    lastFrameContext = frame ? continuityContext : null
     if (notify) for (const listener of listeners) listener()
   }
 

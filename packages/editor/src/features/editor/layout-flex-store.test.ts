@@ -22,7 +22,7 @@ const flexLayout = (flex: FlexContainer, gap?: number): NodeLayout => ({ item: {
  * panel: Block with child p. frame: Freeform with absolute children f1 f2. d: a root label.
  */
 const fixture = (cardFlex: FlexContainer = { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' }): FileDocument => ({
-  schemaVersion: 9, fileId: 'file-1', revision: 0,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -74,14 +74,14 @@ const directCapture = (file: FileDocument, containerId: string, input: FlexInfer
 }
 
 const primitiveFixture = (width = 100, height = 100, withChildren = false): FileDocument => ({
-  schemaVersion: 9, fileId: 'primitive-file', revision: 0,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'primitive-file', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
-    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width, height } },
+    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width, height } },
     ...(withChildren ? {
-      ordinary: { id: 'ordinary', type: 'rectangle' as const, name: 'Ordinary', styles: { left: 80, top: 10, width: 40, height: 20 } },
-      pinned: { id: 'pinned', type: 'rectangle' as const, name: 'Pinned', styles: { left: 8, top: 4, width: 40, height: 20 }, layout: { item: { position: { mode: 'absolute' as const, left: px(8), right: { kind: 'percent' as const, value: 12 }, top: px(4), bottom: px(6), zIndex: 7 } } } },
+      ordinary: { id: 'ordinary', type: 'rectangle' as const, name: 'Ordinary', styles: { relativeTransform: [1, 0, 0, 1, 80, 10], width: 40, height: 20 } },
+      pinned: { id: 'pinned', type: 'rectangle' as const, name: 'Pinned', styles: { relativeTransform: [1, 0, 0, 1, 8, 4], width: 40, height: 20 }, layout: { item: { position: { mode: 'absolute' as const, left: px(8), right: { kind: 'percent' as const, value: 12 }, top: px(4), bottom: px(6), zIndex: 7 } } } },
     } : {}),
   },
   relationships: {
@@ -220,12 +220,12 @@ describe('PAPER-FLEX-001/002 direct Add', () => {
 
   it('writes row multiline text layout, primitive fallback, and text sizing in one valid reversible batch without mutating the captured input', () => {
     const source: FileDocument = {
-      schemaVersion: 9, fileId: 'text-add', revision: 0,
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'text-add', revision: 0,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
-        frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 200, height: 100 } },
-        text: { id: 'text', type: 'text', name: 'Text', text: 'Two lines', styles: { left: 10, top: 10, width: 80, height: 40 }, textStyle, textSizing: { width: { mode: 'fit' }, height: { mode: 'fixed' } } },
+        frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 200, height: 100 } },
+        text: { id: 'text', type: 'text', name: 'Text', text: 'Two lines', styles: { relativeTransform: [1, 0, 0, 1, 10, 10], width: 80, height: 40 }, textStyle, textSizing: { width: { mode: 'fit' }, height: { mode: 'fixed' } } },
       },
       relationships: { frame: { parentId: 'root-1', orderKey: 'V' }, text: { parentId: 'frame', orderKey: 'V' } },
       theme: { tokens: {} },
@@ -248,7 +248,7 @@ describe('PAPER-FLEX-001/002 direct Add', () => {
     expect(store.getSnapshot().canUndo).toBe(true)
     expect(store.getSnapshot().file?.nodes.text).toEqual({
       id: 'text', type: 'text', name: 'Text', text: 'Two lines',
-      styles: { left: 10, top: 10, width: 40, height: 40 },
+      styles: { relativeTransform: [1, 0, 0, 1, 10, 10], width: 40, height: 40 },
       layout: { item: { position: flow } },
       textStyle,
       textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },

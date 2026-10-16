@@ -15,13 +15,13 @@ const version8 = () => ({
   theme: { tokens: {} },
 })
 
-describe('PAPER-FLEX-001: schema v8 to v9 migration', () => {
+describe('PAPER-FLEX-001: schema v8 to current migration', () => {
   it('changes only schemaVersion and does not materialize layout', () => {
     const input = version8()
     const before = JSON.stringify(input)
     const upgraded = upgradeFileDocument(input)
-    expect(upgraded).toStrictEqual({ ...input, schemaVersion: 9 })
-    expect(JSON.stringify({ ...(upgraded as typeof input), schemaVersion: 8 })).toBe(before)
+    expect(upgraded).toStrictEqual({ ...input, schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, nodes: { ...input.nodes, frame: { ...input.nodes.frame, styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 300, height: 200 } } } })
+    expect(JSON.stringify(input)).toBe(before)
     expect((upgraded as typeof input).nodes.frame).not.toHaveProperty('layout')
     expect(input.schemaVersion).toBe(8)
     expect(validateFileDocument(upgraded, [])).toStrictEqual(upgraded)

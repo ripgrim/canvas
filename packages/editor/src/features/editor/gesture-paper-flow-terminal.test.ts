@@ -19,15 +19,15 @@ const flex = { direction: 'row' as const, wrap: 'nowrap' as const, justify: 'sta
 
 function fixture(sameParent = false): GestureAuthoritySnapshot {
   const file: FileDocument = {
-    schemaVersion: 9, fileId: 'paper-terminal', revision,
+    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'paper-terminal', revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },
-      source: { id: 'source', type: 'frame', name: 'Source', styles: { left: 0, top: 0, width: 240, height: 80 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex } } },
-      target: { id: 'target', type: 'frame', name: 'Target', styles: { left: 300, top: 0, width: 240, height: 80 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex } } },
-      a: { id: 'a', type: 'rectangle', name: 'A', styles: { left: 0, top: 0, width: 60, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
-      b: { id: 'b', type: 'rectangle', name: 'B', styles: { left: 0, top: 0, width: 60, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
-      c: { id: 'c', type: 'rectangle', name: 'C', styles: { left: 0, top: 0, width: 60, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
+      source: { id: 'source', type: 'frame', name: 'Source', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 240, height: 80 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex } } },
+      target: { id: 'target', type: 'frame', name: 'Target', styles: { relativeTransform: [1, 0, 0, 1, 300, 0], width: 240, height: 80 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex } } },
+      a: { id: 'a', type: 'rectangle', name: 'A', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 60, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
+      b: { id: 'b', type: 'rectangle', name: 'B', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 60, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
+      c: { id: 'c', type: 'rectangle', name: 'C', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 60, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
     },
     relationships: {
       source: { parentId: 'root', orderKey: 'V' }, target: { parentId: 'root', orderKey: 'W' },
@@ -117,12 +117,12 @@ describe('Paper flow terminal semantics', () => {
         expected: {
           nodeId: 'a', relationship: { parentId: 'target', orderKey: 'Y' },
           layout: { item: { position: { mode: 'flow' } } },
-          primitiveGeometry: { left: 0, top: 0, width: 60, height: 20 },
+          primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 60, height: 20 },
         },
         source: {
           nodeId: 'a', relationship: { parentId: 'target', orderKey: 'Y' },
           layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 110 }, top: { kind: 'px', value: 10 } } } },
-          primitiveGeometry: { left: 0, top: 0, width: 60, height: 20 },
+          primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 60, height: 20 },
         },
       }] },
     ] })
@@ -144,7 +144,7 @@ describe('Paper flow terminal semantics', () => {
     expect(plan).not.toBeNull()
     const applied = applyFileCommand(authority.file, plan.command, [])
     expect(applied.relationships.a!.parentId).toBe('root')
-    expect(applied.nodes.a).toMatchObject({ layout: { item: { position: { mode: 'freeform' } } }, styles: { left: 590, top: 190, width: 60, height: 20 } })
+    expect(applied.nodes.a).toMatchObject({ layout: { item: { position: { mode: 'freeform' } } }, styles: { relativeTransform: [1, 0, 0, 1, 590, 190], width: 60, height: 20 } })
   })
 
   it('allocates an Alt duplicate only after preflight, keeps the source fixed, and selects the moved clone', () => {
@@ -208,13 +208,13 @@ describe('Paper flow terminal semantics', () => {
     authority.file.relationships.target!.orderKey = rootKeys[1]!
     for (let frameIndex = 0; frameIndex < 50; frameIndex += 1) {
       const frameId = `filler-frame-${frameIndex}`
-      authority.file.nodes[frameId] = { id: frameId, type: 'frame', name: 'Filler frame', styles: { left: 0, top: 0, width: 1, height: 1 } }
+      authority.file.nodes[frameId] = { id: frameId, type: 'frame', name: 'Filler frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 1, height: 1 } }
       authority.file.relationships[frameId] = { parentId: 'root', orderKey: rootKeys[frameIndex + 2]! }
       const childCount = frameIndex < 44 ? 99 : 98
       const childKeys = orderKeySequence(childCount)
       for (let childIndex = 0; childIndex < childCount; childIndex += 1) {
         const id = `filler-${frameIndex}-${childIndex}`
-        authority.file.nodes[id] = { id, type: 'rectangle', name: 'Filler', styles: { left: 0, top: 0, width: 1, height: 1 } }
+        authority.file.nodes[id] = { id, type: 'rectangle', name: 'Filler', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 1, height: 1 } }
         authority.file.relationships[id] = { parentId: frameId, orderKey: childKeys[childIndex]! }
       }
     }

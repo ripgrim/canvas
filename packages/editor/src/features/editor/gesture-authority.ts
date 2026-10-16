@@ -26,7 +26,8 @@ export type ResizeGeometryAuthority = Readonly<{
   startRect: Readonly<Rect>
   groupToWorld: Matrix
   worldToGroup: Matrix
-  rotationDegrees: number
+  /** Full source-authored linear transform. Translation is owned by `startRect` in parent-padding space. */
+  nodeTransform: Matrix
   transformOrigin: Readonly<Point>
 }>
 

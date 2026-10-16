@@ -15,7 +15,7 @@ const paperTextStyle = {
 } as const
 const label = (id: string, layout?: ComponentNode['layout']): ComponentNode => ({ id, type: 'component', componentId: 'sample-label', exportName: 'Label', props: {}, ...(layout ? { layout } : {}) })
 const fixture = (): FileDocument => ({
-  schemaVersion: 9, fileId: 'measure', revision: 0,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'measure', revision: 0,
   pages: [{ id: 'page-1', name: 'Page', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -171,13 +171,13 @@ describe('container measurements', () => {
 })
 
 const paperFile = (): FileDocument => ({
-  schemaVersion: 9, fileId: 'paper-measure', revision: 11,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'paper-measure', revision: 11,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 320, height: 240, rotation: 30 }, layout: { item: { position: { mode: 'absolute', left: px(0), top: px(0) } }, container: { display: 'freeform' } } },
-    a: { id: 'a', type: 'rectangle', name: 'A', styles: { left: 300, top: 5, width: 40, height: 20, rotation: 90 }, layout: { item: { position: { mode: 'absolute', left: px(300), top: px(5) } } } },
-    b: { id: 'b', type: 'rectangle', name: 'B', styles: { left: 0, top: 0, width: 30, height: 10 }, layout: { item: { position: { mode: 'absolute', right: px(10), bottom: px(20) } } } },
+    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [0.866025403784, 0.5, -0.5, 0.866025403784, 81.43593539449, -63.923048454133], width: 320, height: 240 }, layout: { item: { position: { mode: 'absolute', left: px(0), top: px(0) } }, container: { display: 'freeform' } } },
+    a: { id: 'a', type: 'rectangle', name: 'A', styles: { relativeTransform: [0, 1, -1, 0, 330, -5], width: 40, height: 20 }, layout: { item: { position: { mode: 'absolute', left: px(300), top: px(5) } } } },
+    b: { id: 'b', type: 'rectangle', name: 'B', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 30, height: 10 }, layout: { item: { position: { mode: 'absolute', right: px(10), bottom: px(20) } } } },
   },
   relationships: { frame: { parentId: 'root', orderKey: 'V' }, a: { parentId: 'frame', orderKey: 'V' }, b: { parentId: 'frame', orderKey: 'W' } },
   theme: { tokens: {} },
@@ -243,11 +243,11 @@ describe('PAPER-FLEX-001/002 strict Paper analyzer geometry', () => {
 
   it('normalizes mixed component-host and primitive-host root children before order, gap, and padding analysis', () => {
     const file: FileDocument = {
-      schemaVersion: 9, fileId: 'mixed-root', revision: 11,
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'mixed-root', revision: 11,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
-        box: { id: 'box', type: 'rectangle', name: 'Box', styles: { left: 50, top: -190, width: 40, height: 20 } },
+        box: { id: 'box', type: 'rectangle', name: 'Box', styles: { relativeTransform: [1, 0, 0, 1, 50, -190], width: 40, height: 20 } },
         card: { id: 'card', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {} },
       },
       // Deliberately put the primitive first in tree order. Authored root coordinates put the component first.
@@ -274,7 +274,7 @@ describe('PAPER-FLEX-001/002 strict Paper analyzer geometry', () => {
 
   it('preserves explicit root component leading insets while normalizing resolved far-edge offsets', () => {
     const file: FileDocument = {
-      schemaVersion: 9, fileId: 'absolute-root-components', revision: 11,
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'absolute-root-components', revision: 11,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
@@ -311,13 +311,13 @@ describe('PAPER-FLEX-001/002 strict Paper analyzer geometry', () => {
 })
 
 const textPaperFile = (locked = false): FileDocument => ({
-  schemaVersion: 9, fileId: 'paper-text-measure', revision: 21,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'paper-text-measure', revision: 21,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 240, height: 120 }, ...(locked ? { isLocked: true } : {}), layout: { item: { position: { mode: 'freeform' } }, container: { display: 'freeform' } } },
-    exact: { id: 'exact', type: 'text', name: 'Exact', text: 'Exact', styles: { left: 8, top: 10, width: 90, height: 30 }, textStyle: structuredClone(paperTextStyle), textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } } },
-    over: { id: 'over', type: 'text', name: 'Over', text: 'Over', styles: { left: 112, top: 10, width: 90, height: 30.002 }, textStyle: structuredClone(paperTextStyle), textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } } },
+    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 240, height: 120 }, ...(locked ? { isLocked: true } : {}), layout: { item: { position: { mode: 'freeform' } }, container: { display: 'freeform' } } },
+    exact: { id: 'exact', type: 'text', name: 'Exact', text: 'Exact', styles: { relativeTransform: [1, 0, 0, 1, 8, 10], width: 90, height: 30 }, textStyle: structuredClone(paperTextStyle), textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } } },
+    over: { id: 'over', type: 'text', name: 'Over', text: 'Over', styles: { relativeTransform: [1, 0, 0, 1, 112, 10], width: 90, height: 30.002 }, textStyle: structuredClone(paperTextStyle), textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } } },
   },
   relationships: { frame: { parentId: 'root', orderKey: 'V' }, exact: { parentId: 'frame', orderKey: 'V' }, over: { parentId: 'frame', orderKey: 'W' } },
   theme: { tokens: {} },
@@ -367,7 +367,7 @@ describe('PAPER-FLEX-001/002/003 authoritative sizing capture', () => {
 
   it('proves selected and child Component instance parent identities from the same projection', () => {
     const file: FileDocument = {
-      schemaVersion: 9, fileId: 'component-capture', revision: 4, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'component-capture', revision: 4, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
         card: { id: 'card', type: 'component', componentId: 'card-source', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } }, container: { display: 'freeform' } } },
@@ -420,18 +420,18 @@ describe('PAPER-FLEX-001/002/003 authoritative sizing capture', () => {
 })
 
 const removeFlexFile = (locked = false): FileDocument => ({
-  schemaVersion: 9, fileId: 'remove-flex-measure', revision: 31,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-flex-measure', revision: 31,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
     frame: {
       id: 'frame', type: 'frame', name: 'Frame', ...(locked ? { isLocked: true } : {}),
-      styles: { left: 40, top: 50, width: 300, height: 180 },
+      styles: { relativeTransform: [1, 0, 0, 1, 40, 50], width: 300, height: 180 },
       layout: { item: { position: { mode: 'absolute', left: px(40), top: px(50) } }, container: { display: 'flex', gap: 12, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'center' } }, spacing: { padding: 16 } },
     },
-    first: { id: 'first', type: 'rectangle', name: 'First', styles: { left: 0, top: 0, width: 80, height: 40, rotation: 90 }, layout: { item: { position: { mode: 'flow' } } } },
-    absolute: { id: 'absolute', type: 'shape', name: 'Absolute', styles: { left: 200, top: 120, width: 30, height: 20 }, layout: { item: { position: { mode: 'absolute', left: px(200), top: px(120) } } } },
-    copy: { id: 'copy', type: 'text', name: 'Copy', text: 'Two lines', styles: { left: 0, top: 0, width: 120, height: 42 }, textStyle: structuredClone(paperTextStyle), textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } }, layout: { item: { position: { mode: 'flow' } } } },
+    first: { id: 'first', type: 'rectangle', name: 'First', styles: { relativeTransform: [0, 1, -1, 0, 60, -20], width: 80, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
+    absolute: { id: 'absolute', type: 'shape', name: 'Absolute', styles: { relativeTransform: [1, 0, 0, 1, 200, 120], width: 30, height: 20 }, layout: { item: { position: { mode: 'absolute', left: px(200), top: px(120) } } } },
+    copy: { id: 'copy', type: 'text', name: 'Copy', text: 'Two lines', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 120, height: 42 }, textStyle: structuredClone(paperTextStyle), textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } }, layout: { item: { position: { mode: 'flow' } } } },
   },
   relationships: {
     frame: { parentId: 'root', orderKey: 'V' },
@@ -563,7 +563,7 @@ describe('PAPER-FLEX-001/002/003/008 strict Remove geometry', () => {
 
   it('proves selected and child Component parent-instance identities', () => {
     const file: FileDocument = {
-      schemaVersion: 9, fileId: 'remove-component', revision: 7, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-component', revision: 7, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
         card: { id: 'card', type: 'component', componentId: 'card-source', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } }, container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
@@ -638,8 +638,8 @@ describe('WRAP-08/09 strict selected-sibling geometry', () => {
 
   it('rejects root siblings whose source hosts do not share one verified projection', () => {
     const file: FileDocument = {
-      schemaVersion: 9, fileId: 'root-wrap', revision: 3, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
-      nodes: { root: { id: 'root', type: 'root' }, a: { id: 'a', type: 'rectangle', name: 'A', styles: { left: 0, top: 0, width: 10, height: 10 } }, b: { id: 'b', type: 'rectangle', name: 'B', styles: { left: 20, top: 0, width: 10, height: 10 } } },
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'root-wrap', revision: 3, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      nodes: { root: { id: 'root', type: 'root' }, a: { id: 'a', type: 'rectangle', name: 'A', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } }, b: { id: 'b', type: 'rectangle', name: 'B', styles: { relativeTransform: [1, 0, 0, 1, 20, 0], width: 10, height: 10 } } },
       relationships: { a: { parentId: 'root', orderKey: 'V' }, b: { parentId: 'root', orderKey: 'W' } }, theme: { tokens: {} },
     }
     const child = (id: 'a' | 'b', matrix: readonly [number, number, number, number, number, number]) => ({ canvasKind: 'rectangle' as const, documentRevision: 3, layoutGeneration: 8, rect: { x: id === 'a' ? 0 : 20, y: 0, width: 10, height: 10 }, worldAabb: { x: id === 'a' ? 0 : 20, y: 0, width: 10, height: 10 }, offset: { x: id === 'a' ? 0 : 20, y: 0, width: 10, height: 10, origin: { x: 5, y: 5 } }, offsetParentNodeId: null, offsetParentToRoot: matrix, directChild: true })
@@ -651,10 +651,10 @@ describe('WRAP-08/09 strict selected-sibling geometry', () => {
     const componentCase = (nested: boolean) => {
       const parentId = nested ? 'frame' : 'root'
       const file: FileDocument = {
-        schemaVersion: 9, fileId: `component-wrap-${parentId}`, revision: 5, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+        schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: `component-wrap-${parentId}`, revision: 5, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
         nodes: {
           root: { id: 'root', type: 'root' },
-          ...(nested ? { frame: { id: 'frame', type: 'frame' as const, name: 'Frame', styles: { left: 0, top: 0, width: 200, height: 100 } } } : {}),
+          ...(nested ? { frame: { id: 'frame', type: 'frame' as const, name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 200, height: 100 } } } : {}),
           card: { id: 'card', type: 'component', componentId: 'card-source', exportName: 'Card', props: {} },
         },
         relationships: {

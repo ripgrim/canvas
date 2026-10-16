@@ -7,7 +7,7 @@ import { acceptsChild, childrenOf, descendantsOf, flowHost, nodeChildDisplay, no
 import type { FileDocument, NodeRelationship } from '@canvas/repo-engine/file-document'
 import { validId } from '@canvas/repo-engine/document'
 import type { FlexAnalysisChild, FlexAnalysisKind, FlexInferenceInput, Point, Rect, Size } from '@canvas/repo-engine/flex-inference'
-import { aboutOrigin, apply, identity, invert, isFiniteMatrix, multiply, rotation, translation } from '@canvas/repo-engine/layout-matrix'
+import { aboutOrigin, apply, identity, invert, isFiniteMatrix, multiply, translation } from '@canvas/repo-engine/layout-matrix'
 import type { Matrix } from '@canvas/repo-engine/layout-matrix'
 import { availableSizingModes, sizingModes } from '@canvas/repo-engine/layout'
 import type { FlexDirection, LayoutLength, NodeLayout, SizingContext, SizingMode } from '@canvas/repo-engine/layout'
@@ -21,6 +21,7 @@ import type { Scene } from './canvas-scene'
 import type { GestureAuthoritySnapshot, ResizeGeometryAuthority } from './gesture-authority'
 import type { MeasuredNode, SceneGeometry } from './scene-geometry'
 import { localMatrixOf } from './layout-pose'
+import { transformedBounds } from '@canvas/repo-engine/transform-matrix'
 
 /** The measurement the inspector reads: measured roots plus the statuses of nodes without one. */
 export type LayoutGeometry = { nodes: Record<string, MeasuredNode>; unsupported: Record<string, LayoutStatus>; documentRevision?: number | null; layoutGeneration?: number | null }
@@ -336,31 +337,23 @@ function strictBorderToRoot(file: FileDocument, scene: Scene, geometry: SceneGeo
 const matrixEpsilon = 1e-6
 const close = (left: number, right: number, tolerance = matrixEpsilon) => Math.abs(left - right) <= tolerance
 const exactZero = (value: number) => Object.is(value, -0) || value === 0 ? 0 : value
-const cardinal = (value: number) => Math.abs(value) < 1e-12 ? 0 : Math.abs(Math.abs(value) - 1) < 1e-12 ? Math.sign(value) : value
-const rotationMatrix = (degrees: number): Matrix => rotation(degrees).map(cardinal) as unknown as Matrix
 const copyMatrix = (matrix: Matrix): Matrix => Object.freeze(matrix.map(exactZero)) as unknown as Matrix
 const freezePoint = (point: Readonly<Point>): Readonly<Point> => Object.freeze({ x: point.x, y: point.y })
 const freezeRect = (rect: Readonly<Rect>): Readonly<Rect> => Object.freeze({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
 
-function unitRotation(file: FileDocument, nodeId: string, measurement: MeasuredNode): number | null {
+function authoredNodeTransform(file: FileDocument, nodeId: string, measurement: MeasuredNode): Matrix | null {
   const node = file.nodes[nodeId]
   if (!node || node.type === 'root') return null
-  let degrees: number
+  let expected: Matrix
   if (node.type === 'component') {
-    const transform = node.layout?.item.transform
-    const scale = transform?.scale
-    const unitScale = scale === undefined || scale === 1 || typeof scale === 'object' && scale.x === 1 && scale.y === 1
-    if (!unitScale) return null
-    degrees = transform?.rotate ?? 0
+    expected = node.layout?.item.transform?.matrix ?? identity
   } else {
-    if (node.styles.flipX === true || node.styles.flipY === true || node.layout?.item.transform !== undefined) return null
-    degrees = node.styles.rotation ?? 0
+    if (node.layout?.item.transform !== undefined) return null
+    expected = [node.styles.relativeTransform[0], node.styles.relativeTransform[1], node.styles.relativeTransform[2], node.styles.relativeTransform[3], 0, 0]
   }
-  if (!finite(degrees)) return null
-  const expected = rotationMatrix(degrees)
   const measured = measurement.transform === undefined ? identity : measurement.transform
   if (!isFiniteMatrix(measured) || !close(measured[4], 0) || !close(measured[5], 0)) return null
-  return expected.every((value, index) => close(value, measured[index]!)) ? degrees : null
+  return expected.every((value, index) => close(value, measured[index]!)) ? copyMatrix(expected) : null
 }
 
 function resizeParentPaddingToRoot(
@@ -411,17 +404,17 @@ function quadAabb(quad: ResizeWorldQuad): Readonly<Rect> | null {
 function projectRect(
   groupToWorld: Matrix,
   rect: Readonly<Rect>,
-  rotationDegrees: number,
+  nodeTransform: Matrix,
   origin: Readonly<Point>,
 ): ResizeWorldProjection | null {
-  if (!isFiniteMatrix(groupToWorld) || !finiteRect(rect) || !finite(rotationDegrees) || !finitePoint(origin)) return null
-  const transform = multiply(groupToWorld, aboutOrigin(rotationMatrix(rotationDegrees), origin))
+  if (!isFiniteMatrix(groupToWorld) || !finiteRect(rect) || !isFiniteMatrix(nodeTransform) || !close(nodeTransform[4], 0) || !close(nodeTransform[5], 0) || !finitePoint(origin)) return null
+  const transform = multiply(groupToWorld, multiply(translation(rect.x, rect.y), aboutOrigin(nodeTransform, origin)))
   if (!isFiniteMatrix(transform)) return null
   const points = [
-    apply(transform, { x: rect.x, y: rect.y }),
-    apply(transform, { x: rect.x + rect.width, y: rect.y }),
-    apply(transform, { x: rect.x + rect.width, y: rect.y + rect.height }),
-    apply(transform, { x: rect.x, y: rect.y + rect.height }),
+    apply(transform, { x: 0, y: 0 }),
+    apply(transform, { x: rect.width, y: 0 }),
+    apply(transform, { x: rect.width, y: rect.height }),
+    apply(transform, { x: 0, y: rect.height }),
   ] as const
   if (!points.every(finitePoint)) return null
   const quad = Object.freeze(points.map(freezePoint)) as ResizeWorldQuad
@@ -448,10 +441,10 @@ export function resizeWorldDeltaToGroup(
   return freezePoint({ x: terminal.x - start.x, y: terminal.y - start.y })
 }
 
-/** Projects a resized parent-padding rectangle through its captured group matrix and one center-origin node rotation. */
+/** Projects a resized parent-padding rectangle through its captured group matrix and full affine node transform. */
 export function projectResizeRectToWorld(authority: ResizeGeometryAuthority, rect: Readonly<Rect>): ResizeWorldProjection | null {
   if (!finiteRect(rect)) return null
-  return projectRect(authority.groupToWorld, rect, authority.rotationDegrees, { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 })
+  return projectRect(authority.groupToWorld, rect, authority.nodeTransform, { x: rect.width / 2, y: rect.height / 2 })
 }
 
 /**
@@ -523,8 +516,8 @@ function deriveResizeGeometryAuthority(snapshot: GestureAuthoritySnapshot, nodeI
     || !close(origin.x, measurement.offset.width / 2, sceneRectTolerance)
     || !close(origin.y, measurement.offset.height / 2, sceneRectTolerance)
   ) return null
-  const rotationDegrees = unitRotation(file, nodeId, measurement)
-  if (rotationDegrees === null) return null
+  const nodeTransform = authoredNodeTransform(file, nodeId, measurement)
+  if (nodeTransform === null) return null
 
   const groupToWorld = resizeParentPaddingToRoot(snapshot, nodeId, relationship.parentId, pageRootId)
   if (!groupToWorld || !isFiniteMatrix(groupToWorld)) return null
@@ -532,7 +525,7 @@ function deriveResizeGeometryAuthority(snapshot: GestureAuthoritySnapshot, nodeI
   const worldToGroup = invert(groupToWorld)
   if (!worldToGroup || !isFiniteMatrix(worldToGroup)) return null
   const startRect = { x: measurement.offset.x, y: measurement.offset.y, width: measurement.offset.width, height: measurement.offset.height }
-  const projected = projectRect(groupToWorld, startRect, rotationDegrees, { x: startRect.x + origin.x, y: startRect.y + origin.y })
+  const projected = projectRect(groupToWorld, startRect, nodeTransform, origin)
   if (!projected) return null
   const measuredAabb = measurement.worldAabb
   if (
@@ -554,7 +547,7 @@ function deriveResizeGeometryAuthority(snapshot: GestureAuthoritySnapshot, nodeI
     startRect: freezeRect(startRect),
     groupToWorld: copyMatrix(groupToWorld),
     worldToGroup: copyMatrix(worldToGroup),
-    rotationDegrees,
+    nodeTransform,
     transformOrigin: freezePoint(origin),
   })
 }
@@ -659,6 +652,10 @@ export function paperFlowCrossParentAbsoluteDropGeometry(input: PaperFlowCrossPa
   const targetIsRoot = targetParentId === openRoot
   if (!child || child.type === 'root' || !sourceRelationship || !sourceParent || (sourceParent.type !== 'frame' && sourceParent.type !== 'component') || !targetParent || (!targetIsRoot && targetParent.type !== 'frame' && targetParent.type !== 'component')) return null
   if (sourceRelationship.parentId === targetParentId || targetParentId === childId || descendantsOf(file, childId).includes(targetParentId)) return null
+  const validSourceTopology = sourceParent.type === 'frame'
+    ? sourceRelationship.slot === undefined && child.type !== 'component'
+    : child.type === 'component' && validId(sourceRelationship.slot)
+  if (!validSourceTopology) return null
   if (!acceptsChild(sourceParent, child, sourceRelationship.slot, [...snapshot.atoms])) return null
   if (!acceptsChild(targetParent, child, targetSlot, [...snapshot.atoms])) return null
   if (nodeChildDisplay(sourceParent) !== 'flex' || !sourceParent.layout?.container?.flex) return null
@@ -720,7 +717,7 @@ function authoredPosition(file: FileDocument, id: string, measurement: MeasuredN
   if (!node || node.type === 'root' || !measurement.offset) return null
   const mode = nodePositionMode(node)
   if (mode === 'freeform' && node.type !== 'component') {
-    const position = { x: node.styles.left, y: node.styles.top }
+    const position = { x: node.styles.relativeTransform[4], y: node.styles.relativeTransform[5] }
     return parentToRoot ? apply(parentToRoot, position) : position
   }
   const position = node.layout?.item.position
@@ -778,7 +775,7 @@ function capturePaperFlexGeometry(file: FileDocument, geometry: LayoutGeometry, 
     const direct = relationship && exactContainer && containerMeasurement.offset && directMeasurement(file, containerId, containerMeasurement, relationship.parentId)
     if (direct) parentSnapshot = paperSizingSnapshot(file, containerId, containerMeasurement, { width: containerMeasurement.offset!.width, height: containerMeasurement.offset!.height }) ?? undefined
     else if (childIds.length === 0 && container.type === 'frame') {
-      const fallbackMeasurement: MeasuredNode = { canvasKind: 'frame', rect: { x: container.styles.left, y: container.styles.top, width: container.styles.width, height: container.styles.height } }
+      const fallbackMeasurement: MeasuredNode = { canvasKind: 'frame', rect: transformedBounds(container.styles.relativeTransform, container.styles) }
       parentSnapshot = paperSizingSnapshot(file, containerId, fallbackMeasurement, { width: container.styles.width, height: container.styles.height }) ?? undefined
     }
     if (!parentSnapshot) return null

@@ -1,6 +1,7 @@
 import type { ResizeGeometryAuthority } from './gesture-authority'
 import { projectResizeRectToWorld } from './layout-measure'
 import type { ResizePresentation } from './resize-projection'
+import { compose, decompose } from '@canvas/repo-engine/layout-matrix'
 
 export type RotationCorner = 'top-left' | 'top-right' | 'bottom-right' | 'bottom-left'
 
@@ -16,7 +17,9 @@ const freezeGraph = <T>(value: T, seen = new WeakSet<object>()): T => {
 /** Projects one live rotation sample through the same captured geometry authority used by resize. */
 export function projectRotationPresentation(authority: ResizeGeometryAuthority, rotationDegrees: number): ResizePresentation | null {
   if (!Number.isFinite(rotationDegrees)) return null
-  const world = projectResizeRectToWorld({ ...authority, rotationDegrees }, authority.startRect)
+  const parts = decompose(authority.nodeTransform)
+  const nodeTransform = compose({ ...parts, x: 0, y: 0, rotateDegrees: rotationDegrees })
+  const world = projectResizeRectToWorld({ ...authority, nodeTransform }, authority.startRect)
   if (!world) return null
   const item = {
     nodeId: authority.nodeId,
@@ -24,6 +27,8 @@ export function projectRotationPresentation(authority: ResizeGeometryAuthority, 
     coordinateSpace: 'parent-padding' as const,
     startRect: { ...authority.startRect },
     rect: { ...authority.startRect },
+    nodeTransform,
+    transformOrigin: { x: authority.startRect.width / 2, y: authority.startRect.height / 2 },
     world,
   }
   return freezeGraph({

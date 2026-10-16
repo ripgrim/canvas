@@ -18,6 +18,7 @@ import type { MobileQuickActionsPhase } from './mobile-editor'
 import { rotateTransformQuarter } from './layout-commands'
 import { cornerRadiusHandlePoses } from './corner-radius-handles'
 import { worldRectToScreen } from './canvas-math'
+import { primitiveRotation, rotateQuarterPatch } from './matrix-style'
 
 const lineHeightCss = (value: TextLineHeight): string | number => {
   if (value.kind === 'normal') return 'normal'
@@ -166,7 +167,7 @@ const MobileQuickActionsLayer = memo(function MobileQuickActionsLayer({ id, tool
     const node = documentStore.getSnapshot().file?.nodes[id]
     if (!node || node.type === 'root') return
     if (node.type === 'component') documentStore.commands.layout.set(id, rotateTransformQuarter(node.layout))
-    else documentStore.commands.setStyles(id, { rotation: ((node.styles.rotation ?? 0) + 90) % 360 })
+    else documentStore.commands.setStyles(id, rotateQuarterPatch(node.styles))
   }
   const remove = () => documentStore.commands.delete([id])
   const position = mobileQuickActionsPosition(entry.screenAabb, snapshot.projection.frame!.key.size, entry.dimension)
@@ -228,7 +229,7 @@ export function SelectionHud({ projections = canvasHudProjectionService, documen
   const textEditorPose = textEditing?.kind === 'text'
     ? canvasTextEditorPose(textEditing)
     : editingTextNode?.type === 'text' && editingTextNode.textStyle && editingTextWorldRect
-      ? canvasTextFallbackPose({ rect: editingTextWorldRect, rotation: editingTextNode.styles.rotation ?? 0, textStyle: editingTextNode.textStyle }, frame.key.camera, frame.key.size)
+      ? canvasTextFallbackPose({ rect: editingTextWorldRect, rotation: primitiveRotation(editingTextNode.styles), textStyle: editingTextNode.textStyle }, frame.key.camera, frame.key.size)
       : null
   const editableLabels = frame.entries.filter(entry => entry.policy.showLabel && !entry.policy.readOnly && !entry.policy.locked && renaming?.nodeId !== entry.nodeId)
   const namePose = renaming && renaming.kind !== 'text' && !renaming.policy.readOnly && !renaming.policy.locked

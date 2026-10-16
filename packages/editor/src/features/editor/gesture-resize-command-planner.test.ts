@@ -19,12 +19,12 @@ const textStyle = {
 } as const
 
 function rectangle(id = 'selected', left = 0, top = 0, width = 100, height = 50): PrimitiveNode {
-  return { id, type: 'rectangle', name: id, styles: { left, top, width, height }, layout: { item: { position: { mode: 'freeform' } } } }
+  return { id, type: 'rectangle', name: id, styles: { relativeTransform: [1, 0, 0, 1, left, top], width, height }, layout: { item: { position: { mode: 'freeform' } } } }
 }
 
 function fileWith(node: PrimitiveNode = rectangle()): FileDocument {
   return {
-    schemaVersion: 9, fileId: 'resize-plan-file', revision,
+    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'resize-plan-file', revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: { root: { id: 'root', type: 'root' }, [node.id]: node },
     relationships: { [node.id]: { parentId: 'root', orderKey: 'A7' } },
@@ -88,7 +88,7 @@ function deepFreeze<T>(value: T): T {
 describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequisites', () => {
   it('AT-DOC-003 emits one direct checked leaf for a freeform frame and closes exact history', () => {
     const frame: PrimitiveNode = {
-      id: 'selected', type: 'frame', name: 'Frame', styles: { left: 10, top: 20, width: 100, height: 80, rotation: 0, overflow: 'visible' },
+      id: 'selected', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 100, height: 80, overflow: 'visible' },
       layout: { item: { position: { mode: 'freeform' } }, container: { display: 'block' }, spacing: { padding: 8 } },
     }
     const source = fileWith(frame)
@@ -106,11 +106,11 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
         type: 'node.resizePresentation', entries: [{
           expected: {
             nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' },
-            primitiveGeometry: { left: 10, top: 20, width: 100, height: 80 }, layout: frame.layout,
+            primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 100, height: 80 }, layout: frame.layout,
           },
           source: {
             nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' },
-            primitiveGeometry: { left: -5, top: 12, width: 140, height: 96 }, layout: frame.layout,
+            primitiveGeometry: { relativeTransform: [1, 0, 0, 1, -5, 12], width: 140, height: 96 }, layout: frame.layout,
           },
         }],
       },
@@ -128,7 +128,7 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
     const undone = applyFileCommand(history.file, history.undo, [])
     expect(withoutRevision(undone)).toStrictEqual(withoutRevision(source))
     expect(withoutRevision(applyFileCommand(undone, history.redo, []))).toStrictEqual(withoutRevision(history.file))
-    expect(history.file.nodes.selected).toMatchObject({ styles: { left: -5, top: 12, width: 140, height: 96, rotation: 0, overflow: 'visible' }, layout: frame.layout })
+    expect(history.file.nodes.selected).toMatchObject({ styles: { relativeTransform: [1, 0, 0, 1, -5, 12], width: 140, height: 96, overflow: 'visible' }, layout: frame.layout })
 
     const drifts: FileDocument[] = [
       {
@@ -187,11 +187,11 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
     expect(plan?.command).toStrictEqual({
       type: 'node.resizePresentation', entries: [{
         expected: {
-          nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' }, primitiveGeometry: { left: 0, top: 0, width: 100, height: 50 },
+          nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 50 },
           layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 0 }, top: { kind: 'px', value: 0 } } }, spacing: { margin: { x: 3, y: 4 } } },
         },
         source: {
-          nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' }, primitiveGeometry: { left: 15, top: -8, width: 125, height: 70 },
+          nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 15, -8], width: 125, height: 70 },
           layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 15 }, top: { kind: 'px', value: -8 } } }, spacing: { margin: { x: 3, y: 4 } } },
         },
       }],
@@ -215,7 +215,7 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
     selected.offsetParentToRoot = [1, 0, 0, 1, 0, 0]
 
     const sized: PrimitiveNode = {
-      id: 'selected', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 100, height: 50 },
+      id: 'selected', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 50 },
       layout: {
       item: {
         position: { mode: 'freeform' },
@@ -237,11 +237,11 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
       entries: [{
         expected: {
           nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' },
-          primitiveGeometry: { left: 0, top: 0, width: 100, height: 50 }, layout: sized.layout,
+          primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 50 }, layout: sized.layout,
         },
         source: {
           nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' },
-          primitiveGeometry: { left: 0, top: 0, width: 140, height: 50 },
+          primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 140, height: 50 },
           layout: {
             item: { position: { mode: 'freeform' }, height: { value: { kind: 'intrinsic', value: 'fit-content' } } },
             container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'center' } },
@@ -283,11 +283,11 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
       entries: [{
         expected: {
           nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' },
-          primitiveGeometry: { left: 0, top: 0, width: 100, height: 50 }, layout: null,
+          primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 50 }, layout: null,
         },
         source: {
           nodeId: 'selected', relationship: { parentId: 'root', orderKey: 'A7' },
-          primitiveGeometry: { left: 0, top: 0, width: 120, height: 50 }, layout: null,
+          primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 120, height: 50 }, layout: null,
         },
       }],
     })
@@ -306,7 +306,7 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
 
   it('PAPER-TEXT-006 changes only locally resized text axes, preserves font size, and clears maxLines only for height', () => {
     const makeText = (): PrimitiveNode => ({
-      id: 'selected', type: 'text', name: 'Text', styles: { left: 0, top: 0, width: 100, height: 50 }, text: 'Hello', textStyle: structuredClone(textStyle),
+      id: 'selected', type: 'text', name: 'Text', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 50 }, text: 'Hello', textStyle: structuredClone(textStyle),
       textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } }, layout: { item: { position: { mode: 'freeform' } } },
     })
     const selected = measured('text', { x: 0, y: 0, width: 100, height: 50 }, { x: 0, y: 0, width: 100, height: 50 }, null)
@@ -342,7 +342,7 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
       { name: 'Button', kind: 'atom', componentId: 'button-source', path: 'Button.tsx', exportName: 'Button', fingerprint: 'button', sourceHash: 'button', status: 'bound', candidates: [], slots: [], props: [{ name: 'label', type: 'string', optional: false }] },
     ]
     const source: FileDocument = {
-      schemaVersion: 9, fileId: 'resize-plan-file', revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'resize-plan-file', revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
         parent: { id: 'parent', type: 'component', componentId: 'panel-source', exportName: 'Panel', props: {}, layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 50 }, top: { kind: 'px', value: 60 } } } } },
@@ -414,9 +414,9 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
   })
 
   it('PAPER-FLEX-006 commits nested descendants exactly once and keeps content-locked direct children world-fixed', () => {
-    const selectedFrame: PrimitiveNode = { id: 'selected', type: 'frame', name: 'Selected', styles: { left: 0, top: 0, width: 100, height: 100 }, layout: { item: { position: { mode: 'freeform' } } } }
+    const selectedFrame: PrimitiveNode = { id: 'selected', type: 'frame', name: 'Selected', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 }, layout: { item: { position: { mode: 'freeform' } } } }
     const source = fileWith(selectedFrame)
-    source.nodes.child = { id: 'child', type: 'frame', name: 'Child', styles: { left: 10, top: 20, width: 40, height: 50 }, layout: { item: { position: { mode: 'freeform' } } }, isLocked: true }
+    source.nodes.child = { id: 'child', type: 'frame', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 40, height: 50 }, layout: { item: { position: { mode: 'freeform' } } }, isLocked: true }
     source.nodes.grand = rectangle('grand', 5, 6, 10, 20)
     source.relationships.child = { parentId: 'selected', orderKey: 'C3' }
     source.relationships.grand = { parentId: 'child', orderKey: 'G7' }
@@ -429,11 +429,11 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
     const plan = planGestureCommand(captured, [intent(captured, sample({ x: 0, y: 0, width: 200, height: 200 }))], vi.fn())!
     const entries = (plan.command as Extract<typeof plan.command, { type: 'node.resizePresentation' }>).entries
     expect(entries.map(entry => [entry.source.nodeId, entry.source.primitiveGeometry])).toStrictEqual([
-      ['selected', { left: 0, top: 0, width: 200, height: 200 }],
-      ['child', { left: 22.5, top: 45, width: 90, height: 112.5 }],
-      ['grand', { left: 13.333333333333332, top: 15.375, width: 26.666666666666664, height: 51.25 }],
+      ['selected', { relativeTransform: [1, 0, 0, 1, 0, 0], width: 200, height: 200 }],
+      ['child', { relativeTransform: [1, 0, 0, 1, 22.5, 45], width: 90, height: 112.5 }],
+      ['grand', { relativeTransform: [1, 0, 0, 1, 13.333333333333332, 15.375], width: 26.666666666666664, height: 51.25 }],
     ])
-    expect(entries[2]!.source.primitiveGeometry).not.toStrictEqual({ left: 11.25, top: 13.5, width: 22.5, height: 45 })
+    expect(entries[2]!.source.primitiveGeometry).not.toStrictEqual({ relativeTransform: [1, 0, 0, 1, 11.25, 13.5], width: 22.5, height: 45 })
 
     const lockedSource = fileWith({ ...selectedFrame, layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 0 }, top: { kind: 'px', value: 0 } } } } })
     lockedSource.nodes.child = { ...rectangle('child', 10, 5, 20, 10), isLocked: true }
@@ -444,17 +444,17 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
     const lockedSnapshot = snapshot(lockedSource, { revision: measurementRevision, documentRevision: revision, layoutGeneration, nodes: { selected: rotated, child: held }, unsupported: {}, themeUnsupported: {}, unownedPortals: 0 })
     const lockedPlan = planGestureCommand(lockedSnapshot, [intent(lockedSnapshot, sample({ x: 5, y: -15, width: 35, height: 50 }, ['x', 'y'], true))], vi.fn())!
     const heldEntry = (lockedPlan.command as Extract<typeof lockedPlan.command, { type: 'node.resizePresentation' }>).entries.find(entry => entry.source.nodeId === 'child')!
-    expect(heldEntry.source.primitiveGeometry).toStrictEqual({ left: 5, top: 20, width: 20, height: 10 })
+    expect(heldEntry.source.primitiveGeometry).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 5, 20], width: 20, height: 10 })
     expect(heldEntry.source).not.toHaveProperty('textProperties')
   })
 
   it('AT-CAN-005 commits a selected flow frame as a size-only edit', () => {
     const parent: PrimitiveNode = {
-      id: 'parent', type: 'frame', name: 'Parent', styles: { left: 0, top: 0, width: 300, height: 200 },
+      id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 300, height: 200 },
       layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', justify: 'start', align: 'start', wrap: 'nowrap' } } },
     }
     const selectedNode: PrimitiveNode = {
-      id: 'selected', type: 'frame', name: 'Selected', styles: { left: 41, top: 27, width: 100, height: 50 },
+      id: 'selected', type: 'frame', name: 'Selected', styles: { relativeTransform: [1, 0, 0, 1, 41, 27], width: 100, height: 50 },
       layout: { item: { position: { mode: 'flow' } } },
     }
     const flow = fileWith(selectedNode)
@@ -474,12 +474,12 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
       entries: [{
         expected: {
           nodeId: 'selected', relationship: { parentId: 'parent', orderKey: 'V' },
-          primitiveGeometry: { left: 41, top: 27, width: 100, height: 50 },
+          primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 41, 27], width: 100, height: 50 },
           layout: { item: { position: { mode: 'flow' } } },
         },
         source: {
           nodeId: 'selected', relationship: { parentId: 'parent', orderKey: 'V' },
-          primitiveGeometry: { left: 41, top: 27, width: 110, height: 50 },
+          primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 41, 27], width: 110, height: 50 },
           layout: { item: { position: { mode: 'flow' }, flex: { shrink: 0 } } },
         },
       }],
@@ -494,7 +494,7 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
     const before = { file: JSON.stringify(source), snapshot: JSON.stringify(captured), authority: JSON.stringify(exact), sample: JSON.stringify(terminal) }
     const mutations: GestureFinalIntent[] = [
       { kind: 'resize', nodeId: 'selected', authority: deepFreeze({ ...structuredClone(exact), groupToWorld: [2, 0, 0, 2, 0, 0] }), sample: terminal },
-      { kind: 'resize', nodeId: 'selected', authority: deepFreeze({ ...structuredClone(exact), rotationDegrees: 90 }), sample: terminal },
+      { kind: 'resize', nodeId: 'selected', authority: deepFreeze({ ...structuredClone(exact), nodeTransform: [0, 1, -1, 0, 0, 0] }), sample: terminal },
       { kind: 'resize', nodeId: 'selected', authority: exact, sample: { ...terminal, coordinateSpace: 'world' } as unknown as ResizeProjectionSample },
       { kind: 'resize', nodeId: 'selected', authority: exact, sample: { ...terminal, rect: { ...terminal.rect, width: Number.NaN } } },
       { kind: 'resize', nodeId: 'selected', authority: exact, sample: { ...terminal, extra: true } as ResizeProjectionSample },

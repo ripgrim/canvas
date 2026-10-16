@@ -13,25 +13,25 @@ const atoms: Atom[] = [
   { name: 'Child', kind: 'atom', componentId: 'child-component', path: 'src/Child.tsx', exportName: 'Child', fingerprint: 'child', sourceHash: 'child', status: 'bound', candidates: [], props: [] },
 ]
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'gesture-file',
   revision: 7,
   pages: [{ id: 'page', name: 'Page 1', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    group: { id: 'group', type: 'frame', name: 'Group', styles: { left: 10, top: 20, width: 120, height: 80, overflow: 'visible' } },
-    leaf: { id: 'leaf', type: 'rectangle', name: 'Leaf', styles: { left: 5, top: 6, width: 20, height: 18 } },
+    group: { id: 'group', type: 'frame', name: 'Group', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 120, height: 80, overflow: 'visible' } },
+    leaf: { id: 'leaf', type: 'rectangle', name: 'Leaf', styles: { relativeTransform: [1, 0, 0, 1, 5, 6], width: 20, height: 18 } },
     flex: {
-      id: 'flex', type: 'frame', name: 'Flex', styles: { left: 200, top: 40, width: 300, height: 140 },
+      id: 'flex', type: 'frame', name: 'Flex', styles: { relativeTransform: [1, 0, 0, 1, 200, 40], width: 300, height: 140 },
       layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } },
     },
-    a: { id: 'a', type: 'rectangle', name: 'A', styles: { left: 0, top: 0, width: 100, height: 40, rotation: 5 }, layout: { item: { position: { mode: 'flow' } } } },
-    b: { id: 'b', type: 'rectangle', name: 'B', styles: { left: 0, top: 0, width: 60, height: 30 }, layout: { item: { position: { mode: 'flow' } } } },
+    a: { id: 'a', type: 'rectangle', name: 'A', styles: { relativeTransform: [0.996194698092, 0.087155742748, -0.087155742748, 0.996194698092, 1.933379950366, -4.281681099218], width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
+    b: { id: 'b', type: 'rectangle', name: 'B', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 60, height: 30 }, layout: { item: { position: { mode: 'flow' } } } },
     other: {
-      id: 'other', type: 'frame', name: 'Other', styles: { left: 520, top: 40, width: 200, height: 100 },
+      id: 'other', type: 'frame', name: 'Other', styles: { relativeTransform: [1, 0, 0, 1, 520, 40], width: 200, height: 100 },
       layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } },
     },
-    c: { id: 'c', type: 'rectangle', name: 'C', styles: { left: 0, top: 0, width: 50, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
+    c: { id: 'c', type: 'rectangle', name: 'C', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 50, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
     'component-parent': {
       id: 'component-parent', type: 'component', componentId: 'parent-component', exportName: 'Parent', props: {},
       layout: { item: { position: { mode: 'flow' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } },
@@ -100,8 +100,8 @@ const snapshot = (): GestureCommandSnapshot => {
 
 const compositeSnapshot = (): GestureCommandSnapshot => {
   const source = snapshot()
-  source.file.nodes.a = { id: 'a', type: 'frame', name: 'A', styles: { left: 0, top: 0, width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } }
-  source.file.nodes['a-leaf'] = { id: 'a-leaf', type: 'rectangle', name: 'Leaf', styles: { left: 7, top: 8, width: 12, height: 10 } }
+  source.file.nodes.a = { id: 'a', type: 'frame', name: 'A', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } }
+  source.file.nodes['a-leaf'] = { id: 'a-leaf', type: 'rectangle', name: 'Leaf', styles: { relativeTransform: [1, 0, 0, 1, 7, 8], width: 12, height: 10 } }
   source.file.relationships['a-leaf'] = { parentId: 'a', orderKey: 'V' }
   source.geometry.nodes.a = { ...source.geometry.nodes.a!, canvasKind: 'frame' }
   const aScene = source.scene.byId.get('a')!
@@ -155,7 +155,7 @@ describe('Phase 4 gesture command planner prerequisite', () => {
     expect(childrenOf(history.file, 'flex')).toEqual(['a', 'b'])
     expect(history.file.nodes.a!.id).toBe('a')
     expect((history.file.nodes.a as { layout?: unknown }).layout).toEqual({ item: { position: { mode: 'absolute', left: px(37), top: px(51) } } })
-    expect(history.file.nodes.a).toMatchObject({ styles: { width: 100, height: 40, rotation: 5 } })
+    expect(history.file.nodes.a).toMatchObject({ styles: { width: 100, height: 40, relativeTransform: [0.996194698092, 0.087155742748, -0.087155742748, 0.996194698092, 1.933379950366, -4.281681099218] } })
     expect(structure(applyFileCommand(history.file, history.undo, atoms))).toBe(structure(source.file))
   })
 

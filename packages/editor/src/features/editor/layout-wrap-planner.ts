@@ -168,7 +168,7 @@ export function planPaperWrap(snapshot: PaperWrapSnapshot): PaperWrapPlanResult 
       id: wrapperIds[index]!,
       type: 'frame',
       name: 'Frame',
-      styles: { left: group.placement === 'flow' ? 0 : group.origin.x, top: group.placement === 'flow' ? 0 : group.origin.y, width: container.width, height: container.height, overflow: 'visible' },
+      styles: { relativeTransform: [1, 0, 0, 1, group.placement === 'flow' ? 0 : group.origin.x, group.placement === 'flow' ? 0 : group.origin.y], width: container.width, height: container.height, overflow: 'visible' },
       layout: {
         item: { position },
         container: { display: 'flex', gap: group.inference.gap, flex: { direction: group.inference.direction, wrap: 'nowrap', justify: 'start', align: group.inference.align } },

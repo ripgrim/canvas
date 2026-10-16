@@ -7,14 +7,14 @@ import type { SceneGeometry } from './scene-geometry'
 
 const atoms = (): Atom[] => [{ name: 'Button', kind: 'atom', componentId: 'button-component', path: 'src/Button.tsx', exportName: 'Button', fingerprint: 'button-fingerprint', sourceHash: 'button-hash', status: 'bound', candidates: ['src/legacy/Button.tsx'], props: [{ name: 'tone', type: 'string', optional: true }] }]
 const file = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'authority-file',
   revision: 7,
   pages: [{ id: 'page', name: 'Page 1', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    flex: { id: 'flex', type: 'frame', name: 'Flex', styles: { left: 20, top: 30, width: 240, height: 120 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
-    child: { id: 'child', type: 'rectangle', name: 'Child', styles: { left: 0, top: 0, width: 50, height: 24 }, layout: { item: { position: { mode: 'flow' } } } },
+    flex: { id: 'flex', type: 'frame', name: 'Flex', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 240, height: 120 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+    child: { id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 50, height: 24 }, layout: { item: { position: { mode: 'flow' } } } },
   },
   relationships: {
     flex: { parentId: 'root', orderKey: 'V' },

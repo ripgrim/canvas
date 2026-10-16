@@ -1,10 +1,12 @@
 import { useState, useSyncExternalStore } from 'react'
-import { nodeChildDisplay } from '@canvas/repo-engine/file-document'
-import type { ComponentNode, FileCommand, FileDocument, PrimitiveNode } from '@canvas/repo-engine/file-document'
+import { nodeChildDisplay, resolveTokenLiteral } from '@canvas/repo-engine/file-document'
+import type { ComponentNode, FileCommand, FileDocument, PrimitiveNode, SourcePalette } from '@canvas/repo-engine/file-document'
 import { itemAlignments, maxGridTracks, sizingModes, spacingSides } from '@canvas/repo-engine/layout'
 import type { CrossAlignment, DisplayMode, FlexContainer, GridContainer, GridItem, InsetLength, ItemAlignment, LayoutContainer, LayoutGap, LayoutLength, MainDistribution, MarginSide, NodeLayout, NodeSpacing, SizingMode, SpacingSides } from '@canvas/repo-engine/layout'
 import { parseGridTemplate, tracksToCss } from '@canvas/repo-engine/grid-tracks'
 import type { GridTrack } from '@canvas/repo-engine/grid-tracks'
+import { compareOrder } from '@canvas/repo-engine/order-keys'
+import { decomposeTransform, identityTransform } from '@canvas/repo-engine/transform-matrix'
 import { InspectorAlert, InspectorAnchorGrid, InspectorCheck, InspectorFixedSlot, InspectorFlexBlock, InspectorFlexDirection, InspectorFlexEntryAction, InspectorFlexGlyph, InspectorFlexOverflow, InspectorFlexPaddingToggle, InspectorFlexPanel, InspectorFlexRemoveButton, InspectorFlexWrap, InspectorGroup, InspectorIconButton, InspectorNote, InspectorRadioGroup, InspectorRow, InspectorRowSpacer, InspectorScrubField, InspectorSection, InspectorSpacingHeading, InspectorSpacingMode, InspectorTextButton, InspectorTextField, InspectorTrackRow, InspectorTransformActions } from '../../design-system/inspector-atoms'
 import type { InspectorFlexMatrixMode, InspectorFlexOverflowAction } from '../../design-system/inspector-atoms'
 import type { InspectorAnchorCell, InspectorNumericToken, InspectorScrubSession } from '../../design-system/inspector-atoms'
@@ -12,6 +14,7 @@ import { AppearanceSelect } from '../../design-system/appearance-atoms'
 import { Icon } from '../../design-system/atoms'
 import { editorToast } from '../../design-system/toast-atoms'
 import { SizingField } from '../../design-system/sizing-field'
+import type { SizingFieldTokenGroup } from '../../design-system/sizing-field'
 import { documentStore } from './document-store'
 import { inspectorCopy as copy } from './inspector-copy'
 import { flipTransform, positionAbsolute, rotateTransformQuarter, setAxisLength, setInset, setSpacing, setTransformRotation, setZIndex, sizingModeOf } from './layout-commands'
@@ -29,7 +32,7 @@ import { redirectFlex } from './layout-flex-commands'
 
 export type FrameNode = PrimitiveNode & { type: 'frame' }
 type LayoutNode = ComponentNode | FrameNode
-type ContextBase<N extends LayoutNode> = { file: FileDocument; nodes: readonly N[]; ids: string[]; geometry: LayoutGeometry; disabled: boolean; numericTokens: readonly InspectorNumericToken[] }
+type ContextBase<N extends LayoutNode> = { file: FileDocument; nodes: readonly N[]; ids: string[]; geometry: LayoutGeometry; disabled: boolean; numericTokens: readonly InspectorNumericToken[]; sizingTokenGroups: readonly SizingFieldTokenGroup[] }
 type ComponentContext = ContextBase<ComponentNode> & { kind: 'component' }
 type FrameContext = ContextBase<FrameNode> & { kind: 'frame' }
 type ContainerContext = ComponentContext | FrameContext
@@ -61,6 +64,34 @@ export function numericLayoutTokens(tokens: readonly { name: string; value: stri
     if (!match) return []
     const value = Number(match[1])
     return Number.isFinite(value) && value >= minimum ? [{ name: token.name, value, displayValue: token.value.trim() }] : []
+  })
+}
+
+const numericToken = (name: string, value: unknown, minimum: number): InspectorNumericToken | null => {
+  if (typeof value !== 'string') return null
+  const match = /^(-?(?:\d+(?:\.\d*)?|\.\d+))px$/i.exec(value.trim())
+  if (!match) return null
+  const number = Number(match[1])
+  return Number.isFinite(number) && number >= minimum ? { name, value: number, displayValue: value.trim() } : null
+}
+
+/** Paper groups only compatible CSS-pixel tokens in sizing menus; breakpoints are meaningful only for root artboards. */
+export function sizingTokenGroups(file: FileDocument, sources: SourcePalette, includeBreakpoints: boolean, sourceSpacing: readonly InspectorNumericToken[] = []): SizingFieldTokenGroup[] {
+  const definitions = [
+    { id: 'spacing', label: 'Spacing' },
+    { id: 'container', label: 'Container' },
+    ...(includeBreakpoints ? [{ id: 'breakpoint', label: 'Breakpoint' }] : []),
+  ] as const
+  return definitions.flatMap(({ id, label }) => {
+    const local = Object.values(file.theme.tokens).filter(token => token.type === id).sort(compareOrder)
+    const tokens = local.flatMap(token => {
+      const literal = resolveTokenLiteral(file.theme, token.id, sources)
+      const option = literal && 'value' in literal ? numericToken(token.name, literal.value, 0) : null
+      return option ? [option] : []
+    })
+    const combined = id === 'spacing' ? [...sourceSpacing, ...tokens] : tokens
+    const unique = combined.filter((token, index) => combined.findIndex(candidate => candidate.name === token.name && candidate.displayValue === token.displayValue) === index)
+    return unique.length ? [{ id, label, tokens: unique }] : []
   })
 }
 
@@ -119,7 +150,8 @@ export function LayoutSections({ nodes, file, disabled }: { nodes: readonly Comp
   const geometry = useSyncExternalStore(sceneGeometry.subscribe, sceneGeometry.getSnapshot, sceneGeometry.getSnapshot)
   const sourceTokens = useSyncExternalStore(editorStore.subscribe, () => editorStore.getSnapshot().snapshot?.tokens ?? noSourceTokens, () => editorStore.getSnapshot().snapshot?.tokens ?? noSourceTokens)
   if (!nodes.length) return null
-  const context: ComponentContext = { kind: 'component', file, nodes, ids: nodes.map(node => node.id), geometry, disabled, numericTokens: numericLayoutTokens(sourceTokens, -limit) }
+  const numericTokens = numericLayoutTokens(sourceTokens, -limit)
+  const context: ComponentContext = { kind: 'component', file, nodes, ids: nodes.map(node => node.id), geometry, disabled, numericTokens, sizingTokenGroups: sizingTokenGroups(file, documentStore.sources(), nodes.every(node => isRootChild(file, node.id)), numericTokens.filter(token => token.value >= 0)) }
   const flex = nodes.every(node => node.layout?.container?.display === 'flex')
   return <>
     <ComponentLayoutSection context={context} />
@@ -134,7 +166,8 @@ export function FrameContainerSections({ nodes, file, disabled }: { nodes: reado
   const geometry = useSyncExternalStore(sceneGeometry.subscribe, sceneGeometry.getSnapshot, sceneGeometry.getSnapshot)
   const sourceTokens = useSyncExternalStore(editorStore.subscribe, () => editorStore.getSnapshot().snapshot?.tokens ?? noSourceTokens, () => editorStore.getSnapshot().snapshot?.tokens ?? noSourceTokens)
   if (!nodes.length) return null
-  const context: FrameContext = { kind: 'frame', file, nodes, ids: nodes.map(node => node.id), geometry, disabled, numericTokens: numericLayoutTokens(sourceTokens, -limit) }
+  const numericTokens = numericLayoutTokens(sourceTokens, -limit)
+  const context: FrameContext = { kind: 'frame', file, nodes, ids: nodes.map(node => node.id), geometry, disabled, numericTokens, sizingTokenGroups: sizingTokenGroups(file, documentStore.sources(), nodes.every(node => isRootChild(file, node.id)), numericTokens.filter(token => token.value >= 0)) }
   return <ContainerSection context={context} mode="embedded" />
 }
 
@@ -157,8 +190,9 @@ function ComponentLayoutSection({ context }: { context: ComponentContext }) {
   }))
   const inset = (side: 'right' | 'bottom') => agree(positions.map(position => pxOf(position[side])))
   const zIndex = agree(positions.map(position => position.zIndex))
-  const rotation = agree(nodes.map(node => node.layout?.item.transform?.rotate ?? 0))
-  const scale = (node: ComponentNode) => { const value = node.layout?.item.transform?.scale; return typeof value === 'number' ? { x: value, y: value } : value ?? { x: 1, y: 1 } }
+  const transformParts = (node: ComponentNode) => decomposeTransform(node.layout?.item.transform?.matrix ?? identityTransform)
+  const rotation = agree(nodes.map(node => transformParts(node).rotateDegrees))
+  const scale = (node: ComponentNode) => ({ x: transformParts(node).scaleX, y: transformParts(node).scaleY })
   const flipX = nodes.length > 0 && nodes.every(node => scale(node).x < 0)
   const flipY = nodes.length > 0 && nodes.every(node => scale(node).y < 0)
   const flexContainer = nodes.every(node => node.layout?.container?.display === 'flex')
@@ -196,8 +230,9 @@ function ComponentLayoutSection({ context }: { context: ComponentContext }) {
       const mode: SizingMode = next === 'fit' ? 'hug' : next as SizingMode
       layout().sizing(axis, mode, sizingTargets(file, geometry, ids, axis))
     }
-    const field = <InspectorScrubField id={`sizing-${axis}`} label={label} prefix={prefix} value={showsValue ? shown(value) ?? shown(measured) : null} placeholder={semanticSizing ? sizingField.currentLabel : mixedPlaceholder(measured)} min={0} max={relative ? 99 : limit} {...(!relative && context.numericTokens.length ? { tokens: context.numericTokens, tokenLabel: copy.numericToken(label) } : {})} {...(relative ? { suffix: copy.percentSuffix } : {})} disabled={disabled || !showsValue && !numericOverride} onCommit={next => { layout().length(axis, toLength(next), ids) }} onScrubStart={() => scrubSession(nodes, (before, next) => setAxisLength(before, axis, toLength(next)))} />
-    return semanticSizing ? <SizingField label={copy.sizingMode(label)} currentLabel={sizingField.currentLabel} options={sizingField.options} disabled={disabled} onChoose={choose} field={field} /> : field
+    const commit = (next: number) => { layout().length(axis, toLength(next), ids) }
+    const field = <InspectorScrubField id={`sizing-${axis}`} label={label} prefix={prefix} value={showsValue ? shown(value) ?? shown(measured) : null} placeholder={semanticSizing ? sizingField.currentLabel : mixedPlaceholder(measured)} min={0} max={relative ? 99 : limit} {...(relative ? { suffix: copy.percentSuffix } : {})} disabled={disabled || !showsValue && !numericOverride} onCommit={commit} onScrubStart={() => scrubSession(nodes, (before, next) => setAxisLength(before, axis, toLength(next)))} />
+    return semanticSizing ? <SizingField label={copy.sizingMode(label)} currentLabel={sizingField.currentLabel} options={sizingField.options} tokenGroups={relative ? [] : context.sizingTokenGroups} disabled={disabled} onChoose={choose} onChooseToken={commit} field={field} /> : field
   }
   return <InspectorSection id="layout" title={copy.layout}>
     <InspectorRow>
@@ -275,10 +310,11 @@ function ContainerSection({ context, mode }: { context: ContainerContext; mode: 
   const conflicts = [...new Set(reports.flatMap(report => report.conflicts))]
   const authored = containers.filter((container): container is LayoutContainer => container !== undefined)
   const store = documentStore.getSnapshot()
-  const candidates = paperFlexActionCandidates({ file, selection: ids, readOnly: store.readOnly, pointerBusy: canvasGestures.active })
+  // Pointer ownership only disables the action. It must not alter the inspector's structure mid-drag.
+  const candidates = paperFlexActionCandidates({ file, selection: ids, readOnly: store.readOnly, pointerBusy: false })
   const entry = candidates.find(candidate => candidate.action === 'add-flex-to-node' || candidate.action === 'wrap-in-flex')
   const remove = candidates.find(candidate => candidate.action === 'remove-flex')
-  const entryControl = entry ? <InspectorFlexEntryAction label={entry.action === 'add-flex-to-node' ? 'Add flex' : 'Wrap in flex'} shortcut="Shift+A" disabled={disabled} onClick={() => runInspectorFlexAction(entry.action)} /> : null
+  const entryControl = entry ? <InspectorFlexEntryAction label={entry.action === 'add-flex-to-node' ? 'Add flex' : 'Wrap in flex'} shortcut="Shift+A" disabled={disabled || canvasGestures.active} onClick={() => runInspectorFlexAction(entry.action)} /> : null
   const flexNodes = nodes.filter(node => node.layout?.container?.display === 'flex' && node.layout.container.flex)
   const flexContext = { ...context, nodes: flexNodes, ids: flexNodes.map(node => node.id) }
   if (!flexNodes.length) {

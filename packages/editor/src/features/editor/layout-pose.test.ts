@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { apply, multiply, rotation, scaling, translation } from '@canvas/repo-engine/layout-matrix'
+import { apply, decompose, identity, multiply, rotation, scaling, translation } from '@canvas/repo-engine/layout-matrix'
 import type { Matrix } from '@canvas/repo-engine/layout-matrix'
 import { layoutWithPose, localMatrixOf, poseFromLocal, reparentPose, worldMatrixOf } from './layout-pose'
 import type { MeasuredNode } from './scene-geometry'
@@ -18,7 +18,7 @@ describe('world matrices from measurement', () => {
     const nodes = { card, child: node({ x: 5, y: 7 }, 'card') }
     expect(apply(worldMatrixOf(nodes, 'child', host)!, { x: 0, y: 0 })).toEqual({ x: -148, y: -197 })
     // Moving a host-level node at the same world corner under the card lands on the same (5, 7) insets.
-    expect(reparentPose({ ...nodes, loose: node({ x: 28, y: 39 }, null) }, 'loose', 'card', host)).toEqual({ x: 5, y: 7, rotate: 0, scale: { x: 1, y: 1 } })
+    expect(reparentPose({ ...nodes, loose: node({ x: 28, y: 39 }, null) }, 'loose', 'card', host)).toEqual({ x: 5, y: 7, matrix: identity })
   })
   it('chains offset parents up to the host origin', () => {
     const nodes = { card: node({ x: 20, y: 30 }, null), child: node({ x: 5, y: 7 }, 'card') }
@@ -43,7 +43,7 @@ describe('reparent pose', () => {
     // Host-relative offsets: node (-156 - host.x, -194 - host.y) = (20, 42); parent (-174 - host.x, -221 - host.y) = (2, 15).
     const nodes = { parent: node({ x: 2, y: 15 }, null), moving: node({ x: 20, y: 42 }, null) }
     const pose = reparentPose(nodes, 'moving', 'parent', host)!
-    expect(pose).toEqual({ x: 18, y: 27, rotate: 0, scale: { x: 1, y: 1 } })
+    expect(pose).toEqual({ x: 18, y: 27, matrix: identity })
     expect(layoutWithPose(undefined, pose)).toEqual({ item: { position: { mode: 'absolute', left: { kind: 'px', value: 18 }, top: { kind: 'px', value: 27 } } } })
   })
   it('keeps the world pose within 0.5 px when the new parent is rotated and the old parent was rotated and scaled', () => {
@@ -56,14 +56,15 @@ describe('reparent pose', () => {
     // Hand check of the corner: world corner relative to host is (117.32, 110); in the new parent frame that is
     // R45 x (67.32, 60) = (67.32 cos45 - 60 sin45, 67.32 sin45 + 60 cos45) = (5.18, 90.03).
     close({ x: pose.x, y: pose.y }, { x: 5.18, y: 90.03 }, 0.01)
-    expect(pose.rotate).toBeCloseTo(75, 6)
-    expect(pose.scale.x).toBeCloseTo(2, 6)
-    expect(pose.scale.y).toBeCloseTo(2, 6)
+    const parts = decompose(pose.matrix)
+    expect(parts.rotateDegrees).toBeCloseTo(75, 6)
+    expect(parts.scaleX).toBeCloseTo(2, 6)
+    expect(parts.scaleY).toBeCloseTo(2, 6)
     // Re-measuring with the written pose reproduces the old world matrix for every corner of the 100 x 40 box.
     const written = layoutWithPose(undefined, pose)
     const position = written.item.position as { left: { value: number }; top: { value: number } }
-    const transform = written.item.transform as { rotate: number; scale: number }
-    const after = worldMatrixOf({ ...nodes, moving: node({ x: position.left.value, y: position.top.value }, 'next', multiply(rotation(transform.rotate), scaling(transform.scale, transform.scale))) }, 'moving', host)!
+    const transform = written.item.transform!.matrix
+    const after = worldMatrixOf({ ...nodes, moving: node({ x: position.left.value, y: position.top.value }, 'next', transform) }, 'moving', host)!
     for (const corner of [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 40 }, { x: 100, y: 40 }]) close(apply(after, corner), apply(before, corner))
   })
   it('respects a transform origin inside the box when splitting a local matrix into offset and transform', () => {
@@ -72,7 +73,7 @@ describe('reparent pose', () => {
     const local = multiply(translation(10, 10), multiply(translation(50, 20), multiply(rotation(90), translation(-50, -20))))
     const pose = poseFromLocal(local, origin)
     close({ x: pose.x, y: pose.y }, { x: 10, y: 10 }, 1e-9)
-    expect(pose.rotate).toBeCloseTo(90, 9)
+    expect(decompose(pose.matrix).rotateDegrees).toBeCloseTo(90, 9)
   })
   it('returns null without measurement or with a singular parent', () => {
     expect(reparentPose({ moving: node({ x: 1, y: 1 }, null) }, 'moving', 'parent', host)).toBeNull()
@@ -81,8 +82,17 @@ describe('reparent pose', () => {
   })
   it('moving back to the host keeps the world pose and omits an identity transform', () => {
     const nodes = { card: node({ x: 20, y: 30 }, null), child: node({ x: 5, y: 7 }, 'card') }
-    expect(reparentPose(nodes, 'child', null, host)).toEqual({ x: 25, y: 37, rotate: 0, scale: { x: 1, y: 1 } })
-    expect(layoutWithPose({ item: { position: { mode: 'flow' }, width: { value: { kind: 'px', value: 80 } }, transform: { rotate: 5 } } }, { x: 25, y: 37, rotate: 0, scale: { x: 1, y: 1 } })).toEqual({ item: { position: { mode: 'absolute', left: { kind: 'px', value: 25 }, top: { kind: 'px', value: 37 } }, width: { value: { kind: 'px', value: 80 } } } })
-    expect(layoutWithPose(undefined, { x: 1.234, y: 2, rotate: 12.345, scale: { x: 2, y: 3 } }).item.transform).toEqual({ rotate: 12.35, scale: { x: 2, y: 3 } })
+    expect(reparentPose(nodes, 'child', null, host)).toEqual({ x: 25, y: 37, matrix: identity })
+    expect(layoutWithPose({ item: { position: { mode: 'flow' }, width: { value: { kind: 'px', value: 80 } }, transform: { matrix: rotation(5) } } }, { x: 25, y: 37, matrix: identity })).toEqual({ item: { position: { mode: 'absolute', left: { kind: 'px', value: 25 }, top: { kind: 'px', value: 37 } }, width: { value: { kind: 'px', value: 80 } } } })
+    expect(layoutWithPose(undefined, { x: 1.234, y: 2, matrix: multiply(rotation(12.345), scaling(2, 3)) }).item.transform).toEqual({ matrix: multiply(rotation(12.345), scaling(2, 3)) })
+  })
+
+  it('preserves skew and reflection across a parent change', () => {
+    const affine: Matrix = [-1, 0.25, 0.5, 1.5, 0, 0]
+    const nodes = { parent: node({ x: 20, y: 30 }, null, rotation(15)), moving: node({ x: 10, y: 12 }, null, affine) }
+    const before = worldMatrixOf(nodes, 'moving', host)!
+    const pose = reparentPose(nodes, 'moving', 'parent', host)!
+    const after = worldMatrixOf({ ...nodes, moving: node({ x: pose.x, y: pose.y }, 'parent', pose.matrix) }, 'moving', host)!
+    for (const corner of [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 40 }, { x: 100, y: 40 }]) close(apply(after, corner), apply(before, corner), 1e-6)
   })
 })

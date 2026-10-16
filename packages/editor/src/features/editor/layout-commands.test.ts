@@ -39,12 +39,12 @@ describe('transform actions', () => {
   it('AT-CAN-002: quarter turns and reflected axes preserve each other and omit identity state', () => {
     const start: NodeLayout = { item: { position: { mode: 'flow' } } }
     const rotated = rotateTransformQuarter(start)
-    expect(rotated.item.transform).toEqual({ rotate: 90 })
+    expect(rotated.item.transform).toEqual({ matrix: [0, 1, -1, 0, 0, 0] })
     const flippedX = flipTransform(rotated, 'width')
-    expect(flippedX.item.transform).toEqual({ rotate: 90, scale: { x: -1, y: 1 } })
-    expect(flipTransform(flippedX, 'height').item.transform).toEqual({ rotate: 90, scale: -1 })
+    expect(flippedX.item.transform).toEqual({ matrix: [0, -1, -1, 0, 0, 0] })
+    expect(flipTransform(flippedX, 'height').item.transform).toEqual({ matrix: [0, -1, 1, 0, 0, 0] })
     expect(flipTransform(flipTransform(start, 'width'), 'width').item.transform).toBeUndefined()
-    expect(setTransformRotation({ ...flippedX, container: { display: 'block' } }, 360)).toEqual({ item: { position: { mode: 'flow' }, transform: { scale: { x: -1, y: 1 } } }, container: { display: 'block' } })
+    expect(setTransformRotation({ ...flippedX, container: { display: 'block' } }, 360)).toEqual({ item: { position: { mode: 'flow' }, transform: { matrix: [1, 0, 0, -1, 0, 0] } }, container: { display: 'block' } })
   })
 })
 

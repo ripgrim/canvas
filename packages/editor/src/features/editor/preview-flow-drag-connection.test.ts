@@ -11,7 +11,7 @@ import { editorStore } from './store'
 import { sceneGeometry } from './scene-geometry'
 
 const file = (revision = 0): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-flow-bridge',
   revision,
   pages: [
@@ -21,7 +21,7 @@ const file = (revision = 0): FileDocument => ({
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
     'root-2': { id: 'root-2', type: 'root' },
-    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 10, top: 20, width: 100, height: 50 } },
+    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 100, height: 50 } },
   },
   relationships: { frame: { parentId: 'root-1', orderKey: 'V' } },
   theme: { tokens: {} },
@@ -139,7 +139,7 @@ function harness() {
   flushAllFrames()
   const deliver = (data: unknown) => messageListener?.({ data, origin: 'https://preview.test', source: target } as unknown as MessageEvent)
   deliver({
-    channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration, measurementRevision: 9, root: null,
+    channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration, measurementRevision: 9, root: null,
     camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 },
     items: [{ instanceId: 'frame', source: 'canvas', canvasKind: 'frame', bounds: { x: 410, y: 320, width: 100, height: 50 }, worldAabb: { x: 410, y: 320, width: 100, height: 50 }, offset: { x: 10, y: 20, width: 100, height: 50, origin: { x: 50, y: 25 } }, offsetParentNodeId: null, directChild: true }],
   })
@@ -175,7 +175,7 @@ describe('PAPER-FLEX-006-BRIDGE-V8 and AT-CAN-005-BRIDGE-V8 live flow publicatio
 
     const posted = commands(h, 'apply-flow-drag-transaction')
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.version).toBe(8)
+    expect(posted[0]!.version).toBe(9)
     expect(posted[0]!.transaction.operation.presentation).toBe(sample)
     expect(posted[0]!.transaction.operation.presentation.original.sourceOffsetParentPose.matrix).toBe(sample.original.sourceOffsetParentPose!.matrix)
     expect(posted[0]!.transaction.operation.presentation.supportClone).toBe(sample.supportClone)
@@ -359,13 +359,13 @@ describe('PAPER-FLEX-007-BRIDGE-V8 and CLOUD-SYNC-GESTURE-001-BRIDGE-V8 committe
     const nextFence = deepFreeze<PreviewFlowDragSourceFence>({ ...h.fence, fileRevision: 1, documentRevision: 1, measurementRevision: 10 })
     const next = presentation(nextFence, { interactionId: 'flow-drag-2', sampleSequence: 1 })
 
-    h.deliver({ channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 1,
+    h.deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 1,
       layoutGeneration: h.fence.layoutGeneration, measurementRevision: 9, root: null, items: [] })
     expect(h.connection.publishFlowDragPresentation(next)).toBe(false)
-    h.deliver({ channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 1,
+    h.deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 1,
       layoutGeneration: h.fence.layoutGeneration + 1, measurementRevision: 10, root: null, items: [] })
     expect(h.connection.publishFlowDragPresentation(next)).toBe(false)
-    h.deliver({ channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 1,
+    h.deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 1,
       layoutGeneration: h.fence.layoutGeneration, measurementRevision: 10, root: null, items: [] })
     expect(h.connection.publishFlowDragPresentation(next)).toBe(true)
     expect(commands(h, 'apply-flow-drag-transaction').at(-1)!.transaction.operation.presentation).toBe(next)
@@ -375,7 +375,7 @@ describe('PAPER-FLEX-007-BRIDGE-V8 and CLOUD-SYNC-GESTURE-001-BRIDGE-V8 committe
     const h = harness()
     const terminal = presentation(h.fence, { sampleSequence: 4, terminal: true })
     expect(h.connection.publishFlowDragPresentation(terminal)).toBe(true)
-    h.deliver({ channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 0,
+    h.deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0,
       layoutGeneration: h.fence.layoutGeneration, measurementRevision: 10, root: null, items: [] })
     documentStore.load(file(1), [], { replace: true, pageId: 'page-1' })
     const committed = documentStore.getSnapshot().file!
@@ -439,7 +439,7 @@ describe('PAPER-FLEX-007-BRIDGE-V8 and CLOUD-SYNC-GESTURE-001-BRIDGE-V8 committe
     h.target.postMessage.mockImplementationOnce(() => { throw new Error('handoff failed') })
     expect(h.connection.syncCommittedFlowDrag({ commit: { committed: true }, committedFile: committed, terminalPresentation: terminal })).toBeNull()
     documentStore.load(file(), [], { replace: true, pageId: 'page-1' })
-    h.deliver({ channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 0,
+    h.deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0,
       layoutGeneration: h.fence.layoutGeneration, measurementRevision: 10, root: null, items: [] })
     const advancedFence = deepFreeze<PreviewFlowDragSourceFence>({ ...h.fence, measurementRevision: 10 })
     expect(h.connection.publishFlowDragPresentation(presentation(advancedFence, { gestureGeneration: 2, sampleSequence: 1 }))).toBe(true)
@@ -457,7 +457,7 @@ describe('PAPER-FLEX-007-BRIDGE-V8 and CLOUD-SYNC-GESTURE-001-BRIDGE-V8 committe
     h.target.postMessage.mockClear()
     h.target.postMessage.mockImplementationOnce(() => { throw new Error('handoff failed') })
     expect(h.connection.syncCommittedFlowDrag({ commit: { committed: true }, committedFile: committed, terminalPresentation: terminal })).toBeNull()
-    h.deliver({ channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 0,
+    h.deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 0,
       layoutGeneration: h.fence.layoutGeneration, measurementRevision: 10, root: null, items: [] })
     const retryStart = h.target.postMessage.mock.calls.length
     h.flushAllFrames()
@@ -492,7 +492,7 @@ describe('PAPER-FLEX-007-BRIDGE-V8 and CLOUD-SYNC-GESTURE-001-BRIDGE-V8 committe
     expect(commands(h, 'apply-flow-drag-transaction')).toEqual([expect.objectContaining({ transaction: expect.objectContaining({ operation: { kind: 'tombstone' } }) })])
     expect(h.connection.syncCommittedFlowDrag({ commit: { committed: true }, committedFile: committed, terminalPresentation: terminal })).toBeNull()
 
-    h.deliver({ channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 2,
+    h.deliver({ channel: 'design-editor-preview', version: 9, generation: 1, type: 'geometry', documentRevision: 2,
       layoutGeneration: h.fence.layoutGeneration, measurementRevision: 11, root: null, items: [] })
     const currentFence = deepFreeze<PreviewFlowDragSourceFence>({ ...h.fence, fileRevision: 2, documentRevision: 2, measurementRevision: 11 })
     expect(h.connection.publishFlowDragPresentation(presentation(currentFence, { interactionId: 'after-orphan', sampleSequence: 1 }))).toBe(true)

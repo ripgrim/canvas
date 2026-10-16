@@ -6,7 +6,7 @@ import { beginLiveResizeInteraction, sampleLiveResizeInteraction } from './live-
 import type { SceneGeometry } from './scene-geometry'
 
 const file: FileDocument = {
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'live-resize-file',
   revision: 4,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
@@ -14,7 +14,7 @@ const file: FileDocument = {
     root: { id: 'root', type: 'root' },
     selected: {
       id: 'selected', type: 'rectangle', name: 'Selected',
-      styles: { left: 0, top: 0, width: 100, height: 50 },
+      styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 50 },
       layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 0 }, top: { kind: 'px', value: 0 } } } },
     },
   },

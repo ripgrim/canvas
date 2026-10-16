@@ -100,7 +100,7 @@ beforeAll(async () => {
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
   send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 9, generation, ...payload }
     await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
   await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument })

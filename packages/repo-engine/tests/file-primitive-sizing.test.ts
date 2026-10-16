@@ -5,9 +5,9 @@ import { projectPreviewPage } from '../src/file-preview.js'
 import type { Atom } from '../src/types.js'
 
 const atom: Atom = { name: 'Card', kind: 'atom', componentId: 'card', exportName: 'Card', path: 'Card.tsx', fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props: [] }
-const frame = (id: string): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { left: 12, top: 18, width: 320, height: 180 } })
+const frame = (id: string): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { relativeTransform: [1, 0, 0, 1, 12, 18], width: 320, height: 180 } })
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'primitive-sizing-file',
   revision: 4,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -36,7 +36,7 @@ describe('PAPER-FLEX-003 primitive sizing authority', () => {
 
   it('retains Fill and Relative as semantic freeform axes while styles remain fallback geometry', () => {
     const source = fixture()
-    source.nodes.parent = { ...frame('parent'), styles: { left: 0, top: 0, width: 600, height: 400 } }
+    source.nodes.parent = { ...frame('parent'), styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 600, height: 400 } }
     source.relationships.parent = { parentId: 'root-1', orderKey: 'V' }
     source.nodes.frame = {
       ...frame('frame'),
@@ -90,7 +90,7 @@ describe('PAPER-FLEX-003 primitive sizing authority', () => {
 
   it('accepts nested width and height percentages when the parent Frame axes are fixed', () => {
     const source = fixture()
-    source.nodes.parent = { ...frame('parent'), styles: { left: 0, top: 0, width: 600, height: 400 } }
+    source.nodes.parent = { ...frame('parent'), styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 600, height: 400 } }
     source.relationships.parent = { parentId: 'root-1', orderKey: 'V' }
     source.nodes.frame = {
       ...frame('frame'),
@@ -163,7 +163,7 @@ describe('PAPER-FLEX-003 primitive sizing authority', () => {
       id: 'frame',
       type: 'text',
       name: 'Text',
-      styles: { left: 12, top: 18, width: 320, height: 40 },
+      styles: { relativeTransform: [1, 0, 0, 1, 12, 18], width: 320, height: 40 },
       text: 'Paper',
       textStyle: { fontFamily: 'Inter', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'unitless', value: 1.2 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false },
       textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
@@ -189,7 +189,7 @@ describe('PAPER-FLEX-003 primitive sizing authority', () => {
       id: 'frame',
       type: 'text',
       name: 'Text',
-      styles: { left: 12, top: 18, width: 320, height: 40 },
+      styles: { relativeTransform: [1, 0, 0, 1, 12, 18], width: 320, height: 40 },
       text: 'Paper',
       textStyle: { fontFamily: 'Inter', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'unitless', value: 1.2 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false },
       textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },

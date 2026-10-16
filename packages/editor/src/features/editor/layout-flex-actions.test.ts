@@ -1,23 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
-import { classifyPaperFlexAction, executePaperFlexAction, paperFlexActionCandidates } from './layout-flex-actions'
+import { classifyPaperFlexAction, directAddFlexAvailability, executePaperFlexAction, paperFlexActionCandidates } from './layout-flex-actions'
 import { documentStore } from './document-store'
 import { sceneGeometry } from './scene-geometry'
 import { canvasGestures } from './canvas-gestures'
 import { editorStore } from './store'
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'flex-actions',
   revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    free: { id: 'free', type: 'frame', name: 'Free', styles: { left: 0, top: 0, width: 100, height: 100 } },
-    flex: { id: 'flex', type: 'frame', name: 'Flex', styles: { left: 120, top: 0, width: 100, height: 100 }, layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 120 }, top: { kind: 'px', value: 0 } } }, container: { display: 'flex', gap: 0, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
-    nestedFlex: { id: 'nestedFlex', type: 'frame', name: 'Nested flex', styles: { left: 0, top: 0, width: 40, height: 40 }, layout: { item: { position: { mode: 'flow' } }, container: { display: 'flex', gap: 0, flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
-    rect: { id: 'rect', type: 'rectangle', name: 'Rect', styles: { left: 0, top: 0, width: 20, height: 20 } },
-    flow: { id: 'flow', type: 'rectangle', name: 'Flow', styles: { left: 0, top: 0, width: 20, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
+    free: { id: 'free', type: 'frame', name: 'Free', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 } },
+    flex: { id: 'flex', type: 'frame', name: 'Flex', styles: { relativeTransform: [1, 0, 0, 1, 120, 0], width: 100, height: 100 }, layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 120 }, top: { kind: 'px', value: 0 } } }, container: { display: 'flex', gap: 0, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+    nestedFlex: { id: 'nestedFlex', type: 'frame', name: 'Nested flex', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 40 }, layout: { item: { position: { mode: 'flow' } }, container: { display: 'flex', gap: 0, flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+    rect: { id: 'rect', type: 'rectangle', name: 'Rect', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 20, height: 20 } },
+    flow: { id: 'flow', type: 'rectangle', name: 'Flow', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 20, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
     card: { id: 'card', type: 'component', componentId: 'card', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } }, container: { display: 'grid', grid: { columns: [{ kind: 'px', value: 100 }], rows: [{ kind: 'px', value: 100 }], autoFlow: 'row' } } } },
   },
   relationships: {
@@ -29,6 +29,46 @@ const fixture = (): FileDocument => ({
 afterEach(() => { documentStore.clear(); sceneGeometry.clear(); editorStore.set({ busy: null }) })
 
 describe('Paper Flex action authority', () => {
+  const measuredDirectAdd = (generation: number, documentRevision = 0) => ({
+    free: { canvasKind: 'frame' as const, directChild: true, offsetParentNodeId: null, offsetParentToRoot: [1, 0, 0, 1, 0, 0] as const, documentRevision, layoutGeneration: generation, rect: { x: 0, y: 0, width: 100, height: 100 }, worldAabb: { x: 0, y: 0, width: 100, height: 100 }, offset: { x: 0, y: 0, width: 100, height: 100, origin: { x: 50, y: 50 } } },
+  })
+
+  const loadMeasuredDirectAdd = () => {
+    const source = fixture()
+    delete source.nodes.card
+    delete source.relationships.card
+    documentStore.load(source, [], { replace: true })
+    documentStore.select('free')
+    return documentStore.getSnapshot().layoutGeneration
+  }
+
+  const publishCurrentEmptyGeometry = () => {
+    const state = documentStore.getSnapshot()
+    sceneGeometry.update({}, { documentRevision: state.file!.revision, layoutGeneration: state.layoutGeneration, measurementRevision: 1 })
+  }
+
+  it('PAPER-FLEX-001 recovers Add flex as soon as fresh matching geometry is published', () => {
+    const generation = loadMeasuredDirectAdd()
+    sceneGeometry.clear('temporary')
+    expect(directAddFlexAvailability()).toStrictEqual({ status: 'unavailable', message: 'Add flex needs current canvas measurements. Wait for the canvas to finish updating, then try again.' })
+
+    sceneGeometry.update(measuredDirectAdd(generation), { documentRevision: 0, layoutGeneration: generation, measurementRevision: 7 })
+    const available = directAddFlexAvailability()
+    expect(available).toMatchObject({ status: 'eligible', ids: ['free'] })
+    expect(executePaperFlexAction('add-flex-to-node')).toStrictEqual({ status: 'written', action: 'add-flex-to-node' })
+    const converted = documentStore.getSnapshot().file?.nodes.free
+    expect(converted?.type === 'frame' ? converted.layout?.container?.display : null).toBe('flex')
+  })
+
+  it('PAPER-FLEX-001 rejects stale geometry without writing Add flex', () => {
+    const generation = loadMeasuredDirectAdd()
+    sceneGeometry.update(measuredDirectAdd(generation, 1), { documentRevision: 1, layoutGeneration: generation, measurementRevision: 8 })
+    expect(directAddFlexAvailability().status).toBe('unavailable')
+    expect(executePaperFlexAction('add-flex-to-node')).toStrictEqual({ status: 'unavailable', action: 'add-flex-to-node', message: 'Add flex needs current canvas measurements. Wait for the canvas to finish updating, then try again.' })
+    expect(documentStore.getSnapshot().file?.revision).toBe(0)
+    expect(documentStore.getHistory().past).toHaveLength(0)
+  })
+
   it.each([
     [[], false, false, null],
     [['missing'], false, false, null],
@@ -115,6 +155,7 @@ describe('Paper Flex action authority', () => {
     delete file.relationships.card
     documentStore.load(file, [], { replace: true })
     documentStore.select('free')
+    publishCurrentEmptyGeometry()
     const current = documentStore.getSnapshot()
     const snapshot = vi.spyOn(documentStore, 'getSnapshot').mockReturnValueOnce(current).mockReturnValueOnce(drift(current)).mockImplementation(() => current)
     expect(executePaperFlexAction('add-flex-to-node')).toStrictEqual({ status: 'unavailable', action: 'add-flex-to-node', message: 'The document or selection changed before Flex could be applied. Try again.' })
@@ -129,6 +170,7 @@ describe('Paper Flex action authority', () => {
     delete file.relationships.card
     documentStore.load(file, [], { replace: true })
     documentStore.select('free')
+    publishCurrentEmptyGeometry()
     const current = documentStore.getSnapshot()
     const original = current.file![field]
     const snapshot = vi.spyOn(documentStore, 'getSnapshot').mockReturnValueOnce(current).mockImplementationOnce(() => {
@@ -147,6 +189,7 @@ describe('Paper Flex action authority', () => {
     delete file.relationships.card
     documentStore.load(file, [], { replace: true })
     documentStore.select('free')
+    publishCurrentEmptyGeometry()
     const active = vi.spyOn(canvasGestures, 'active', 'get').mockReturnValueOnce(false).mockReturnValueOnce(true)
     const geometry = vi.spyOn(sceneGeometry, 'getSnapshot')
     expect(executePaperFlexAction('add-flex-to-node').status).toBe('unavailable')
@@ -177,6 +220,7 @@ describe('Paper Flex action authority', () => {
     delete source.relationships.card
     documentStore.load(source, [], { replace: true })
     documentStore.select('free')
+    publishCurrentEmptyGeometry()
     const capturedGeometry = sceneGeometry.getSnapshot()
     const geometry = vi.spyOn(sceneGeometry, 'getSnapshot').mockImplementationOnce(() => {
       editorStore.set({ busy: 'Saving' })

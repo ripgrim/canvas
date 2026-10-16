@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { applyFileCommand, applyFileCommandWithHistory, validateFileCommand, validateFileDocument } from '../src/file-document.js'
 import type { FileCommand, FileDocument, NodeResizePresentationEntry, NodeResizeState } from '../src/file-document.js'
 import type { Atom } from '../src/types.js'
+import { matrixFromLegacyPose } from '../src/layout-pose.js'
 
 const hostAtom: Atom = {
   componentId: 'host-component', path: 'Host.tsx', exportName: 'Host', fingerprint: 'host-fingerprint', sourceHash: 'host-hash',
@@ -24,23 +25,23 @@ const textStyle = {
 const textSizing = { width: { mode: 'fixed' }, height: { mode: 'fixed' } } as const
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'resize-presentation-history',
   revision: 41,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
     frame: {
-      id: 'frame', type: 'frame', name: 'Frame', styles: { left: -20, top: 15, width: 320, height: 180, rotation: 12, overflow: 'visible' },
+      id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: matrixFromLegacyPose({ left: -20, top: 15, rotation: 12 }, { width: 320, height: 180 }), width: 320, height: 180, overflow: 'visible' },
       layout: frameLayout,
       appearance: { opacity: 0.8, fills: [{ id: 'frame-fill', type: 'solid', color: black }] },
     },
     text: {
-      id: 'text', type: 'text', name: 'Text', styles: { left: 5, top: 7, width: 120, height: 30, rotation: -4 }, text: 'Hello',
+      id: 'text', type: 'text', name: 'Text', styles: { relativeTransform: matrixFromLegacyPose({ left: 5, top: 7, rotation: -4 }, { width: 120, height: 30 }), width: 120, height: 30 }, text: 'Hello',
       textStyle, textSizing, layout: textLayout, appearance: { opacity: 0.7 },
     },
     rectangle: {
-      id: 'rectangle', type: 'rectangle', name: 'Rectangle', styles: { left: 140, top: 7, width: 70, height: 50, flipX: true },
+      id: 'rectangle', type: 'rectangle', name: 'Rectangle', styles: { relativeTransform: matrixFromLegacyPose({ left: 140, top: 7, flipX: true }, { width: 70, height: 50 }), width: 70, height: 50 },
       layout: { item: { position: { mode: 'flow' } } }, appearance: { fills: [{ id: 'rectangle-fill', type: 'solid', color: blue }] },
     },
     host: { id: 'host', type: 'component', componentId: 'host-component', exportName: 'Host', props: {} },
@@ -61,23 +62,23 @@ const fixture = (): FileDocument => ({
 
 const frameExpected: NodeResizeState = {
   nodeId: 'frame', relationship: { parentId: 'root', orderKey: 'A7' },
-  primitiveGeometry: { left: -20, top: 15, width: 320, height: 180 }, layout: frameLayout,
+  primitiveGeometry: { relativeTransform: matrixFromLegacyPose({ left: -20, top: 15, rotation: 12 }, { width: 320, height: 180 }), width: 320, height: 180 }, layout: frameLayout,
   appearance: { opacity: 0.8, fills: [{ id: 'frame-fill', type: 'solid', color: black }] },
 }
 const frameSource: NodeResizeState = {
   nodeId: 'frame', relationship: { parentId: 'root', orderKey: 'A7' },
-  primitiveGeometry: { left: -52.5, top: 4.25, width: 412.75, height: 240.5 },
+  primitiveGeometry: { relativeTransform: matrixFromLegacyPose({ left: -52.5, top: 4.25, rotation: 12 }, { width: 412.75, height: 240.5 }), width: 412.75, height: 240.5 },
   layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'center', align: 'stretch' }, gap: 11 }, spacing: { padding: 18 } },
   appearance: { opacity: 0.55, fills: [{ id: 'frame-fill', type: 'solid', color: blue }] },
 }
 const textExpected: NodeResizeState = {
   nodeId: 'text', relationship: { parentId: 'frame', orderKey: 'mQ' },
-  primitiveGeometry: { left: 5, top: 7, width: 120, height: 30 }, layout: textLayout,
+  primitiveGeometry: { relativeTransform: matrixFromLegacyPose({ left: 5, top: 7, rotation: -4 }, { width: 120, height: 30 }), width: 120, height: 30 }, layout: textLayout,
   textProperties: { textStyle, textSizing }, appearance: { opacity: 0.7 },
 }
 const textSource: NodeResizeState = {
   nodeId: 'text', relationship: { parentId: 'frame', orderKey: 'mQ' },
-  primitiveGeometry: { left: -3, top: 9, width: 188.5, height: 44 }, layout: { item: { position: { mode: 'flow' }, flex: { grow: 0, shrink: 1 } } },
+  primitiveGeometry: { relativeTransform: matrixFromLegacyPose({ left: -3, top: 9, rotation: -4 }, { width: 188.5, height: 44 }), width: 188.5, height: 44 }, layout: { item: { position: { mode: 'flow' }, flex: { grow: 0, shrink: 1 } } },
   textProperties: {
     textStyle: { ...textStyle, fontSize: 22, lineHeight: { kind: 'px', value: 28 }, maxLines: 2 },
     textSizing: { width: { mode: 'fill' }, height: { mode: 'fit' } },
@@ -120,11 +121,11 @@ describe('AT-DOC-003 and PAPER-FLEX-006: node.resizePresentation exact checked h
       ],
     })
     expect(history.file.nodes.frame).toStrictEqual({
-      id: 'frame', type: 'frame', name: 'Frame', styles: { left: -52.5, top: 4.25, width: 412.75, height: 240.5, rotation: 12, overflow: 'visible' },
+      id: 'frame', type: 'frame', name: 'Frame', styles: { ...frameSource.primitiveGeometry!, overflow: 'visible' },
       layout: frameSource.layout, appearance: frameSource.appearance,
     })
     expect(history.file.nodes.text).toStrictEqual({
-      id: 'text', type: 'text', name: 'Text', styles: { left: -3, top: 9, width: 188.5, height: 44, rotation: -4 }, text: 'Hello',
+      id: 'text', type: 'text', name: 'Text', styles: textSource.primitiveGeometry!, text: 'Hello',
       textStyle: textSource.textProperties!.textStyle, textSizing: textSource.textProperties!.textSizing,
       layout: textSource.layout, appearance: textSource.appearance,
     })
@@ -166,7 +167,7 @@ describe('AT-DOC-003 and PAPER-FLEX-006: node.resizePresentation exact checked h
 
   it('checks every expected authority and the exact relationship before any write', () => {
     const staleEntries: NodeResizePresentationEntry[] = [
-      { expected: { ...structuredClone(frameExpected), primitiveGeometry: { left: -19, top: 15, width: 320, height: 180 } }, source: structuredClone(frameSource) },
+      { expected: { ...structuredClone(frameExpected), primitiveGeometry: { relativeTransform: [1, 0, 0, 1, -19, 15], width: 320, height: 180 } }, source: structuredClone(frameSource) },
       { expected: { ...structuredClone(frameExpected), layout: { item: { position: { mode: 'freeform' } }, container: { display: 'block' } } }, source: structuredClone(frameSource) },
       { expected: { ...structuredClone(textExpected), textProperties: { textStyle: { ...textStyle, fontSize: 17 }, textSizing } }, source: structuredClone(textSource) },
       { expected: { ...structuredClone(frameExpected), appearance: { opacity: 0.75 } }, source: structuredClone(frameSource) },
@@ -205,19 +206,19 @@ describe('AT-DOC-003 and PAPER-FLEX-006: node.resizePresentation exact checked h
     const entries: NodeResizePresentationEntry[] = []
     for (let index = 0; index < 5_000; index += 1) {
       const nodeId = `large-node-${index}`
-      nodes[nodeId] = { id: nodeId, type: 'rectangle', name: nodeId, styles: { left: index, top: 0, width: 10, height: 10 } }
+      nodes[nodeId] = { id: nodeId, type: 'rectangle', name: nodeId, styles: { relativeTransform: [1, 0, 0, 1, index, 0], width: 10, height: 10 } }
       relationships[nodeId] = { parentId: 'root', orderKey: 'K1' }
       entries.push({
-        expected: { nodeId, relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { left: index, top: 0, width: 10, height: 10 } },
-        source: { nodeId, relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { left: index + 1, top: 0, width: 10, height: 10 } },
+        expected: { nodeId, relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, index, 0], width: 10, height: 10 } },
+        source: { nodeId, relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, index + 1, 0], width: 10, height: 10 } },
       })
     }
     entries[4_999] = {
-      expected: { nodeId: 'large-node-4999', relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { left: -1, top: 0, width: 10, height: 10 } },
-      source: { nodeId: 'large-node-4999', relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { left: 5000, top: 0, width: 10, height: 10 } },
+      expected: { nodeId: 'large-node-4999', relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, -1, 0], width: 10, height: 10 } },
+      source: { nodeId: 'large-node-4999', relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 5000, 0], width: 10, height: 10 } },
     }
     const source: FileDocument = {
-      schemaVersion: 9, fileId: 'preflight-before-clone', revision: 8, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} },
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'preflight-before-clone', revision: 8, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} },
     }
     const resize: FileCommand = { type: 'node.resizePresentation', entries }
     const nativeClone = globalThis.structuredClone
@@ -239,8 +240,8 @@ describe('AT-DOC-003 and PAPER-FLEX-006: node.resizePresentation exact checked h
     const cases: FileCommand[] = [
       {
         type: 'node.resizePresentation', entries: [{
-          expected: { nodeId: 'card', relationship: { parentId: 'host', slot: 'content', orderKey: 'Q2' }, primitiveGeometry: { left: 0, top: 0, width: 10, height: 10 } },
-          source: { nodeId: 'card', relationship: { parentId: 'host', slot: 'content', orderKey: 'Q2' }, primitiveGeometry: { left: 1, top: 2, width: 20, height: 20 } },
+          expected: { nodeId: 'card', relationship: { parentId: 'host', slot: 'content', orderKey: 'Q2' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } },
+          source: { nodeId: 'card', relationship: { parentId: 'host', slot: 'content', orderKey: 'Q2' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 1, 2], width: 20, height: 20 } },
         }],
       },
       {
@@ -293,8 +294,8 @@ describe('AT-DOC-003 and PAPER-FLEX-006: node.resizePresentation exact checked h
       { type: 'node.resizePresentation', entries: [{ expected: first.expected, source: { ...first.source, nodeId: 'different-node' } }] },
       { type: 'node.resizePresentation', entries: [{ expected: first.expected, source: { ...first.source, relationship: { parentId: 'root', orderKey: 'B8' } } }] },
       { type: 'node.resizePresentation', entries: [first, structuredClone(first)] },
-      { type: 'node.resizePresentation', entries: [{ expected: { ...first.expected, primitiveGeometry: { left: 0, top: 0, width: 0, height: 10 } }, source: first.source }] },
-      { type: 'node.resizePresentation', entries: [{ expected: { ...first.expected, primitiveGeometry: { left: 0, top: 0, width: 10 } }, source: first.source }] },
+      { type: 'node.resizePresentation', entries: [{ expected: { ...first.expected, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 0, height: 10 } }, source: first.source }] },
+      { type: 'node.resizePresentation', entries: [{ expected: { ...first.expected, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10 } }, source: first.source }] },
       {
         type: 'node.resizePresentation', entries: [{
           expected: { nodeId: 'text', relationship: { parentId: 'frame', orderKey: 'mQ' }, textStyle, textSizing },
@@ -342,27 +343,27 @@ describe('AT-DOC-003 and PAPER-FLEX-006: node.resizePresentation exact checked h
     const entries: NodeResizePresentationEntry[] = []
     for (let index = 0; index < 1_001; index += 1) {
       const nodeId = `node-${index}`
-      nodes[nodeId] = { id: nodeId, type: 'rectangle', name: nodeId, styles: { left: index, top: 0, width: 10, height: 10 } }
+      nodes[nodeId] = { id: nodeId, type: 'rectangle', name: nodeId, styles: { relativeTransform: [1, 0, 0, 1, index, 0], width: 10, height: 10 } }
       relationships[nodeId] = { parentId: 'root', orderKey: 'K1' }
       entries.push({
-        expected: { nodeId, relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { left: index, top: 0, width: 10, height: 10 } },
-        source: { nodeId, relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { left: index + 0.5, top: 1, width: 12, height: 11 } },
+        expected: { nodeId, relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, index, 0], width: 10, height: 10 } },
+        source: { nodeId, relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, index + 0.5, 1], width: 12, height: 11 } },
       })
     }
     const source: FileDocument = {
-      schemaVersion: 9, fileId: 'large-resize', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} },
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'large-resize', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} },
     }
     const history = applyFileCommandWithHistory(source, { type: 'node.resizePresentation', entries }, [])
     expect(history.redo.type).toBe('node.resizePresentation')
     expect(history.undo.type).toBe('node.resizePresentation')
-    expect(history.file.nodes['node-1000']).toMatchObject({ styles: { left: 1000.5, top: 1, width: 12, height: 11 } })
+    expect(history.file.nodes['node-1000']).toMatchObject({ styles: { relativeTransform: [1, 0, 0, 1, 1000.5, 1], width: 12, height: 11 } })
     expect(withoutRevision(applyFileCommand(history.file, history.undo, []))).toStrictEqual(withoutRevision(source))
   })
 
   it('rejects an entry count above the document node limit', () => {
     const expected = Array.from({ length: 5_001 }, (_, index) => ({
-      expected: { nodeId: `node-${index}`, relationship: { parentId: 'root', orderKey: `K${index}` }, primitiveGeometry: { left: 0, top: 0, width: 10, height: 10 } },
-      source: { nodeId: `node-${index}`, relationship: { parentId: 'root', orderKey: `K${index}` }, primitiveGeometry: { left: 1, top: 0, width: 10, height: 10 } },
+      expected: { nodeId: `node-${index}`, relationship: { parentId: 'root', orderKey: `K${index}` }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } },
+      source: { nodeId: `node-${index}`, relationship: { parentId: 'root', orderKey: `K${index}` }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 1, 0], width: 10, height: 10 } },
     }))
     expect(() => validateFileCommand({ type: 'node.resizePresentation', entries: expected })).toThrow('Invalid file command')
   })

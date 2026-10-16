@@ -14,22 +14,22 @@ import { resolveFlowDragTarget } from './flow-drag-target'
 import type { MeasuredNode, SceneGeometry } from './scene-geometry'
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'gesture-store-file',
   revision: 7,
   pages: [{ id: 'page', name: 'Page 1', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    group: { id: 'group', type: 'frame', name: 'Group', styles: { left: 10, top: 20, width: 120, height: 80, overflow: 'visible' } },
-    leaf: { id: 'leaf', type: 'rectangle', name: 'Leaf', styles: { left: 5, top: 6, width: 20, height: 18 } },
+    group: { id: 'group', type: 'frame', name: 'Group', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 120, height: 80, overflow: 'visible' } },
+    leaf: { id: 'leaf', type: 'rectangle', name: 'Leaf', styles: { relativeTransform: [1, 0, 0, 1, 5, 6], width: 20, height: 18 } },
     flex: {
-      id: 'flex', type: 'frame', name: 'Flex', styles: { left: 200, top: 40, width: 300, height: 140 },
+      id: 'flex', type: 'frame', name: 'Flex', styles: { relativeTransform: [1, 0, 0, 1, 200, 40], width: 300, height: 140 },
       layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } },
     },
-    a: { id: 'a', type: 'rectangle', name: 'A', styles: { left: 0, top: 0, width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
-    b: { id: 'b', type: 'rectangle', name: 'B', styles: { left: 0, top: 0, width: 60, height: 30 }, layout: { item: { position: { mode: 'flow' } } } },
+    a: { id: 'a', type: 'rectangle', name: 'A', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
+    b: { id: 'b', type: 'rectangle', name: 'B', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 60, height: 30 }, layout: { item: { position: { mode: 'flow' } } } },
     text: {
-      id: 'text', type: 'text', name: 'Text', text: 'Edit me', styles: { left: 20, top: 160, width: 90, height: 24 },
+      id: 'text', type: 'text', name: 'Text', text: 'Edit me', styles: { relativeTransform: [1, 0, 0, 1, 20, 160], width: 90, height: 24 },
       textStyle: { fontFamily: 'Inter', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false },
       textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
     },
@@ -112,7 +112,7 @@ const expectedHistoryRedo: FileCommand = {
 const expectedPostFile = (): FileDocument => {
   const file = fixture()
   file.revision = 8
-  file.nodes['copy-a'] = { id: 'copy-a', type: 'rectangle', name: 'A', styles: { left: 0, top: 0, width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } }
+  file.nodes['copy-a'] = { id: 'copy-a', type: 'rectangle', name: 'A', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } }
   file.relationships['copy-a'] = { parentId: 'flex', orderKey: 'X' }
   return file
 }
