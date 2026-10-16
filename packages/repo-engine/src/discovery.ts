@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { Node, Project, SyntaxKind, ts } from 'ts-morph'
-import type { Atom } from './types.js'
+import type { RepositoryAtom } from './types.js'
 import { confined, readOptional } from './paths.js'
 
 export const hash = (value: string): string => createHash('sha256').update(value).digest('hex')
@@ -51,9 +51,9 @@ function fingerprint(node: Node): string {
   return hash(tokens.join('|'))
 }
 
-export function discover(root: string, files: Record<string, string>): Omit<Atom, 'componentId' | 'status' | 'candidates'>[] {
+export function discover(root: string, files: Record<string, string>): Omit<RepositoryAtom, 'componentId' | 'status' | 'candidates'>[] {
   const project = makeProject(root, files)
-  const candidates: Omit<Atom, 'componentId' | 'status' | 'candidates'>[] = []
+  const candidates: Omit<RepositoryAtom, 'componentId' | 'status' | 'candidates'>[] = []
   for (const [entry, kind] of [['src/atoms/index.ts', 'atom'], ['src/components/index.ts', 'component']] as const) {
     const barrel = project.getSourceFile(path.join(root, entry))
     if (!barrel) continue
@@ -75,9 +75,9 @@ export function discover(root: string, files: Record<string, string>): Omit<Atom
   return candidates
 }
 
-export function reconcile(previous: Atom[], candidates: ReturnType<typeof discover>): Atom[] {
+export function reconcile(previous: RepositoryAtom[], candidates: ReturnType<typeof discover>): RepositoryAtom[] {
   const remaining = new Set(candidates)
-  const bindings: Atom[] = []
+  const bindings: RepositoryAtom[] = []
   for (const old of previous) {
     const exact = candidates.filter(candidate => candidate.path === old.path && candidate.exportName === old.exportName)
     if (exact.length === 1 && old.status === 'bound') {

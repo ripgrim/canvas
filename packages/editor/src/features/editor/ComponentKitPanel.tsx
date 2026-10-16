@@ -15,6 +15,7 @@ import { editorStore } from './store'
 import { componentConfigurableDefinition } from './component-property-projection'
 import { eligibleSlotDraftComponents } from './component-configured-instance'
 import { eligibleInstanceSwapComponents } from './component-instance-swap'
+import { isPlaceableAtom } from '@canvas/repo-engine/contracts'
 
 const defaultFor = (property: ComponentDefinition['properties'][number]): ComponentScalarValue | undefined => property.type === 'variant' ? property.defaultValueId : property.type === 'text' || property.type === 'boolean' || property.type === 'instance-swap' ? property.defaultValue : undefined
 
@@ -131,7 +132,7 @@ export function ComponentKitPanel({ atoms, onOpenCanvas }: { atoms: Atom[]; onOp
   const openDefinition = openComponentId ? definitions.find(definition => definition.id === openComponentId) : undefined
   const previewService = componentKitNavigation.playground(kitLocation)
   if (openDefinition && previewService) {
-    const available = openDefinition.source.kind !== 'code' || atoms.some(atom => atom.componentId === openDefinition.id && atom.status === 'bound')
+    const available = openDefinition.source.kind !== 'code' || atoms.some(atom => atom.componentId === openDefinition.id && isPlaceableAtom(atom))
     const pageIndex = new Map(document.file!.pages.map((page, index) => [page.id, index]))
     const nodeIndex = new Map(document.file!.pages.flatMap(page => pageNodes(document.file!, page.id).map((nodeId, index) => [nodeId, index] as const)))
     const uses = Object.values(document.file!.componentModel.instances).filter(instance => instance.componentId === openDefinition.id).flatMap(instance => {
@@ -148,7 +149,7 @@ export function ComponentKitPanel({ atoms, onOpenCanvas }: { atoms: Atom[]; onOp
   }
   const content = definitions.length === 0 ? <ComponentKitEmpty title={copy.emptyTitle} /> : <ComponentKitList label={copy.label}>{definitions.map(definition => {
     const fromCode = definition.source.kind === 'code'
-    const available = !fromCode || atoms.some(atom => atom.componentId === definition.id && atom.status === 'bound')
+    const available = !fromCode || atoms.some(atom => atom.componentId === definition.id && isPlaceableAtom(atom))
     return <ComponentKitRow key={definition.id} name={definition.name} source={copy.componentSummary(fromCode ? copy.fromKit : copy.fromCanvas, instanceCounts.get(definition.id) ?? 0)} onInspect={{ label: copy.inspect(definition.name), action: () => { if (document.file) componentKitNavigation.open(document.file.fileId, definition.id) } }} disabled={!available || document.blocked} onPlace={{ label: available ? copy.place(definition.name) : copy.unavailable, action: () => documentStore.commands.components.place(definition.id) }} {...(!fromCode ? { onOpen: { label: copy.open(definition.name), action: () => { if (documentStore.commands.components.openMaster(definition.id)) onOpenCanvas() } } } : {})} />
   })}</ComponentKitList>
   return <ComponentKitSection title={copy.components}>{content}</ComponentKitSection>

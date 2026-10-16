@@ -3,7 +3,8 @@
  * one file-scoped theme. Child lists, page membership, and world geometry are derived from the relationships. Pages are
  * open workspaces whose roots render nothing; frames are ordinary nodes that may contain children.
  */
-import type { Atom } from './types.js'
+import { isHostedAtom, isPlaceableAtom, isRepositoryAtom } from './types.js'
+import type { Atom, HostedAtom } from './types.js'
 import { fields, forbiddenKeys, getNodeSlots, record, validId, validName, validateProps } from './document.js'
 import type { DocumentValue, EditorDocument } from './document.js'
 import { legacyLayout, validateLayout } from './layout.js'
@@ -124,13 +125,20 @@ function validateTokenValue(value: unknown, type?: TokenType): value is TokenVal
 const invalid = (message: string) => new Error(message)
 
 /** Parents that accept children: page roots take anything, frames take primitives, and declared component slots take any drawable layer. */
-export function acceptsChild(parent: FileNode, child: FileNode, slot: string | undefined, atoms: Atom[]): boolean {
+export function acceptsChild(parent: FileNode, child: FileNode, slot: string | undefined, atoms: Atom[], allowUnavailableBindings = false): boolean {
+  if (child.type === 'component') {
+    const binding = atoms.find(atom => atom.componentId === child.componentId)
+    const structurallyKnown = binding && (isHostedAtom(binding) || isRepositoryAtom(binding) && binding.kind === 'atom')
+    if (!binding || (!isPlaceableAtom(binding) && !(allowUnavailableBindings && structurallyKnown))) return false
+  }
   if (parent.type === 'root') return slot === undefined && child.type !== 'root'
   if (parent.type === 'frame') return slot === undefined ? child.type !== 'root' && child.type !== 'component' : child.type !== 'root'
   if (parent.type === 'component') {
     if (child.type === 'root' || slot === undefined) return false
     const atom = atoms.find(candidate => candidate.componentId === parent.componentId)
-    return Boolean(atom && getNodeSlots(atom).includes(slot))
+    const structurallyKnown = atom && (isHostedAtom(atom) || isRepositoryAtom(atom) && atom.kind === 'atom')
+    if (!atom || (!isPlaceableAtom(atom) && !(allowUnavailableBindings && structurallyKnown))) return false
+    return getNodeSlots(atom).includes(slot)
   }
   return false
 }
@@ -204,7 +212,9 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
       if (!validId(node.componentId) || typeof node.exportName !== 'string') throw invalid('Invalid component identity')
       if (own(node, 'name') && !validName(node.name)) throw invalid('Invalid component name')
       const atom = atoms.find(candidate => candidate.componentId === node.componentId)
-      if (!atom || (!options.allowUnavailableBindings && atom.status !== 'bound') || atom.kind !== 'atom' || atom.exportName !== node.exportName) throw invalid('Component binding needs review')
+      const repositoryMatch = atom && isRepositoryAtom(atom) && atom.kind === 'atom' && atom.exportName === node.exportName
+      const hostedMatch = atom && isHostedAtom(atom) && options.allowUnavailableBindings && (atom.name === null || atom.name === node.exportName)
+      if (!atom || (!options.allowUnavailableBindings && !isPlaceableAtom(atom)) || (!repositoryMatch && !hostedMatch)) throw invalid('Component binding needs review')
       if (own(node, 'layout') && !validateLayout(node.layout)) throw invalid('Invalid component layout')
       if (own(node, 'appearance')) validateAppearance(node.appearance, 'component')
       continue
@@ -267,7 +277,7 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
     if (!validId(relationship.parentId) || !isOrderKey(relationship.orderKey) || (own(relationship, 'slot') && typeof relationship.slot !== 'string')) throw invalid('Invalid relationship')
     const parent = file.nodes[relationship.parentId]
     if (!parent) throw invalid('A node parent is missing')
-    if (!acceptsChild(parent, file.nodes[nodeId]!, relationship.slot, atoms)) throw invalid('A node cannot live under that parent')
+    if (!acceptsChild(parent, file.nodes[nodeId]!, relationship.slot, atoms, Boolean(options.allowUnavailableBindings))) throw invalid('A node cannot live under that parent')
   }
   for (const instance of Object.values(file.componentModel.instances)) {
     const node = file.nodes[instance.id]
@@ -992,7 +1002,7 @@ function hostedComponentShapes(file: FileDocument): HostedComponentShape[] {
 }
 
 /** Synthetic unavailable bindings used only to validate hosted document structure, never source compatibility. */
-export function hostedFileAtoms(file: FileDocument): Atom[] {
+export function hostedFileAtoms(file: FileDocument): HostedAtom[] {
   const groups = new Map<string, HostedComponentShape[]>()
   for (const shape of hostedComponentShapes(file)) {
     const current = groups.get(shape.componentId) ?? []
@@ -1015,11 +1025,12 @@ export function hostedFileAtoms(file: FileDocument): Atom[] {
     }
     return {
       componentId,
-      exportName: shapes[0]!.exportName,
       name: shapes[0]!.exportName,
-      kind: 'atom' as const,
-      path: '', fingerprint: '', sourceHash: '', status: 'missing' as const, candidates: [],
+      kind: 'hosted' as const,
+      status: 'missing' as const,
+      candidates: [],
       props: [...propTypes].map(([name, types]) => ({ name, type: [...types].sort().join(' | '), optional: true })),
+      slots: [...new Set(shapes.flatMap(shape => shape.slots))].sort(),
     }
   })
 }
@@ -2181,10 +2192,10 @@ export function applyHostedFileCommand(input: FileDocument, command: FileCommand
   const established = hostedFileAtoms(input)
   const trustedIds = new Set<string>()
   for (const atom of trustedAtoms) {
-    if (atom.kind !== 'atom' || atom.status !== 'bound' || trustedIds.has(atom.componentId)) throw invalid('Invalid trusted component catalog')
+    if (!isPlaceableAtom(atom) || trustedIds.has(atom.componentId)) throw invalid('Invalid trusted component catalog')
     trustedIds.add(atom.componentId)
     const prior = established.find(candidate => candidate.componentId === atom.componentId)
-    if (prior && prior.exportName !== atom.exportName) throw invalid('Component binding needs review')
+    if (prior && prior.name !== atom.exportName) throw invalid('Component binding needs review')
   }
   const atoms = [...established.filter(atom => !trustedIds.has(atom.componentId)), ...trustedAtoms.map(atom => structuredClone(atom))]
   const source = validateFileDocument(input, atoms, { allowUnavailableBindings: true })

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { applyFileCommand, applyFileCommandWithHistory, applyHostedFileCommand, createBlankFile, nodeIsLocked, validateFileCommand } from '../src/file-document.js'
+import { applyFileCommand, applyFileCommandWithHistory, applyHostedFileCommand, createBlankFile, hostedFileAtoms, nodeIsLocked, validateFileCommand } from '../src/file-document.js'
 import type { FileCommand, FileDocument, NodeRemoveFlexGroup } from '../src/file-document.js'
 import { hostedComponentCatalog } from '../src/hosted-catalog.js'
 import type { Atom } from '../src/types.js'
+import { isHostedAtom, isPlaceableAtom } from '../src/contracts.js'
 
 const literal = { kind: 'literal', color: { kind: 'hex', hex: '#112233' } } as const
 const solid = { id: 'fill-1', type: 'solid', color: literal } as const
@@ -176,6 +177,7 @@ describe('hosted command component authority', () => {
   it('[COMPONENT-BINDING-SAVE-001] accepts a new component only when the hosted catalog establishes its binding', () => {
     const catalog = hostedComponentCatalog()
     for (const atom of catalog) {
+      if (!isPlaceableAtom(atom)) throw new Error('Hosted catalog returned an unavailable component')
       const empty = createBlankFile('file-1', 'page-1', 'root-1')
       const next = applyHostedFileCommand(empty, {
         type: 'node.insert',
@@ -186,14 +188,16 @@ describe('hosted command component authority', () => {
     }
   })
 
-  it('allows only component shapes already established by the persisted document', () => {
+  it('rejects placement through source-free shapes inferred from a persisted hosted document', () => {
     const file = hostedComponents()
-    const next = applyHostedFileCommand(file, {
+    const hosted = hostedFileAtoms(file)
+    expect(hosted.every(atom => isHostedAtom(atom) && !isPlaceableAtom(atom))).toBe(true)
+    expect(hosted.every(atom => !Object.hasOwn(atom, 'path') && !Object.hasOwn(atom, 'exportName') && !Object.hasOwn(atom, 'fingerprint') && !Object.hasOwn(atom, 'sourceHash'))).toBe(true)
+    expect(() => applyHostedFileCommand(file, {
       type: 'node.insert',
       node: { id: 'copy', type: 'component', componentId: 'button-component', exportName: 'Button', props: { label: 'Copy' } },
       placement: { parentId: 'root-1' },
-    })
-    expect(next.nodes.copy).toMatchObject({ componentId: 'button-component', exportName: 'Button', props: { label: 'Copy' } })
+    })).toThrow('That node cannot be placed there')
   })
 
   it('[COMPONENT-BINDING-SAVE-001] fails closed when a command proposes a new identity, export, prop, type, or slot', () => {
@@ -202,14 +206,14 @@ describe('hosted command component authority', () => {
       type: 'node.insert',
       node: { id: 'first', type: 'component', componentId: 'new-component', exportName: 'NewComponent', props: {} },
       placement: { parentId: 'root-1' },
-    })).toThrow('Component binding needs review')
+    })).toThrow('That node cannot be placed there')
 
     const file = hostedComponents()
     expect(() => applyHostedFileCommand(file, {
       type: 'node.insert',
       node: { id: 'copy', type: 'component', componentId: 'button-component', exportName: 'ForgedButton', props: { label: 'Copy' } },
       placement: { parentId: 'root-1' },
-    })).toThrow('Component binding needs review')
+    })).toThrow('That node cannot be placed there')
     expect(() => applyHostedFileCommand(file, { type: 'node.setProps', nodeId: 'peer', props: { tone: 'danger' } })).toThrow('Unsupported value for Button.tone')
     expect(() => applyHostedFileCommand(file, { type: 'node.setProps', nodeId: 'peer', props: { label: 42 } })).toThrow('Unsupported value for Button.label')
     expect(() => applyHostedFileCommand(file, { type: 'node.reparent', nodeId: 'peer', placement: { parentId: 'card', slot: 'footer' } })).toThrow('That node cannot be placed there')

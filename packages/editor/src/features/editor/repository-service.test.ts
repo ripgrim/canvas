@@ -3,6 +3,7 @@ import { createBlankFile } from '@canvas/repo-engine/file-document'
 import type { EditorProjectApi, EditorRepositoryConnection } from '../../capabilities'
 import { documentStore } from './document-store'
 import { repositoryConnectionService as service } from './repository-service'
+import type { HostedSourceBindingProjection } from './hosted-source-binding-projection'
 
 const connection: EditorRepositoryConnection = {
   repository: { id: 'repository-1', name: 'UI library', source: 'local' },
@@ -47,6 +48,28 @@ describe('repository connection service', () => {
         { id: 'property:variant', name: 'variant', type: 'text', defaultValue: '', optional: true },
         { id: 'property:children', name: 'children', type: 'slot', optional: true },
       ],
+    })
+  })
+
+  it('COMP-V2-BINDING-001 does not downgrade a hosted binding during local registry reconciliation', async () => {
+    service.configure({ getConnectedRepository: async () => connection } as unknown as EditorProjectApi)
+    service.load()
+    await waitFor('ready')
+    documentStore.load(createBlankFile('file', 'page', 'root'), [], { replace: true })
+    const projection: HostedSourceBindingProjection = {
+      authority: {
+        version: 1, projectId: 'project', repositoryId: 'repository', scanId: 'scan', sourceRevision: 'revision',
+        registryFingerprint: 'registry', grantGeneration: 1, adapterId: 'adapter', updatedAt: 1,
+      },
+      components: [{ bindingId: 'hosted:button', status: 'bound', name: 'Hosted button', props: [], slots: [] }],
+    }
+
+    expect(documentStore.commands.components.reconcileHostedProjection({
+      expectedFileId: 'file', expectedFileRevision: documentStore.getSnapshot().file!.revision, projection,
+    })).toBe('applied')
+
+    expect(documentStore.getSnapshot().atoms.find(atom => atom.componentId === 'hosted:button')).toMatchObject({
+      kind: 'hosted', status: 'bound', name: 'Hosted button',
     })
   })
 

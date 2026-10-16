@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Atom } from './types'
+import type { RepositoryAtom } from '@canvas/repo-engine/contracts'
 import type { Appearance, FileDocument, Paint, PrimitiveNode, Stroke } from '@canvas/repo-engine/file-document'
 import type { ImageAssetReference } from '@canvas/repo-engine/appearance'
 import { ancestorsOf, childrenOf, createBlankFile, descendantsOf, legacyTextProperties, nodeAppearance, nodeIsLocked, pageOfNode, worldPosition } from '@canvas/repo-engine/file-document'
@@ -9,9 +10,10 @@ import { connectedRegistryDefinitions } from './component-registry'
 import { canvasComponentNode, mapParallelComponentSubtrees } from './component-canvas-link'
 import type { Scene } from './canvas-scene'
 import type { EditorPersistenceIntent } from '../../capabilities'
+import type { HostedSourceBindingProjection, HostedSourceComponentProjection } from './hosted-source-binding-projection'
 
-const atom = (name: string, componentId: string, props: Atom['props']): Atom => ({ name, kind: 'atom', componentId, path: `src/${name}.tsx`, exportName: name, fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props })
-const atoms: Atom[] = [
+const atom = (name: string, componentId: string, props: Atom['props']): RepositoryAtom => ({ name, kind: 'atom', componentId, path: `src/${name}.tsx`, exportName: name, fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props })
+const atoms: RepositoryAtom[] = [
   { ...atom('Card', 'card-component', [{ name: 'children', type: 'ReactNode', optional: true }, { name: 'heading', type: 'ReactNode', optional: true }, { name: 'footer', type: 'ReactNode', optional: true }]), slots: ['children', 'heading', 'footer'] },
   { ...atom('Label', 'label-component', [{ name: 'children', type: 'ReactNode', optional: true }]), slots: ['children'] },
 ]
@@ -68,6 +70,20 @@ const onePixelPng = new Uint8Array([
   0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ])
 const onePixelPreview = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+const hostedProjection = (components: readonly HostedSourceComponentProjection[]): HostedSourceBindingProjection => ({
+  authority: {
+    version: 1,
+    projectId: 'project-1',
+    repositoryId: 'repository-1',
+    scanId: 'scan-1',
+    sourceRevision: 'revision-1',
+    registryFingerprint: 'registry-1',
+    grantGeneration: 1,
+    adapterId: 'adapter-1',
+    updatedAt: 1,
+  },
+  components,
+})
 
 describe('AT-CAN file loading and pages', () => {
   it('opens the requested page, falling back to the first page for unknown ids', () => {
@@ -447,10 +463,118 @@ describe('component model editor commands', () => {
     expect(file(store).componentModel.instances[instances[0]!.id]!.values).toEqual({})
   })
 
+  it('COMP-V2-ADMISSION-001 and COMP-V2-UI-NEG-001 admit a checked hosted projection without making it placeable', () => {
+    const store = createDocumentStore()
+    store.load(createBlankFile('hosted-file', 'page', 'root'), [])
+    const projection = hostedProjection([{
+      bindingId: 'binding:button',
+      status: 'bound',
+      name: 'Button',
+      props: [{ name: 'tone', type: "'quiet' | 'solid'", optional: false }],
+      slots: ['children'],
+    }])
+
+    expect(store.commands.components.reconcileHostedProjection({ expectedFileId: 'hosted-file', expectedFileRevision: 0, projection })).toBe('applied')
+    expect(file(store).componentModel.definitions['binding:button']).toMatchObject({
+      id: 'binding:button',
+      name: 'Button',
+      revision: 0,
+      source: { kind: 'code', bindingId: 'binding:button' },
+    })
+    expect(store.getSnapshot().atoms).toEqual([{
+      componentId: 'binding:button',
+      name: 'Button',
+      kind: 'hosted',
+      status: 'bound',
+      candidates: [],
+      props: [{ name: 'tone', type: "'quiet' | 'solid'", optional: false }],
+      slots: ['children'],
+    }])
+    expect(store.getSnapshot().atoms[0]).not.toHaveProperty('path')
+    expect(store.getSnapshot().atoms[0]).not.toHaveProperty('exportName')
+    expect(store.getSnapshot().atoms[0]).not.toHaveProperty('sourceHash')
+    expect(store.commands.components.place('binding:button')).toBe(false)
+    expect(store.commands.components.reconcileHostedProjection({ expectedFileId: 'hosted-file', expectedFileRevision: file(store).revision, projection })).toBe('unchanged')
+  })
+
+  it('COMP-V2-BINDING-001 preserves admitted definitions while hosted availability changes and retires only transient atoms', () => {
+    const store = createDocumentStore()
+    store.load(createBlankFile('hosted-lifecycle', 'page', 'root'), [])
+    const bound = hostedProjection([{
+      bindingId: 'binding:notice',
+      status: 'bound',
+      name: 'Notice',
+      props: [{ name: 'label', type: 'string', optional: false }],
+      slots: [],
+    }])
+    expect(store.commands.components.reconcileHostedProjection({ expectedFileId: 'hosted-lifecycle', expectedFileRevision: 0, projection: bound })).toBe('applied')
+    const updated = hostedProjection([{
+      bindingId: 'binding:notice',
+      status: 'bound',
+      name: 'Notice banner',
+      props: [{ name: 'label', type: 'string', optional: true }],
+      slots: [],
+    }])
+    expect(store.commands.components.reconcileHostedProjection({ expectedFileId: 'hosted-lifecycle', expectedFileRevision: file(store).revision, projection: updated })).toBe('applied')
+    expect(file(store).componentModel.definitions['binding:notice']).toMatchObject({ name: 'Notice banner', revision: 1 })
+    const admitted = structuredClone(file(store).componentModel.definitions['binding:notice'])
+
+    const missing = hostedProjection([{ bindingId: 'binding:notice', status: 'missing' }])
+    expect(store.commands.components.reconcileHostedProjection({ expectedFileId: 'hosted-lifecycle', expectedFileRevision: file(store).revision, projection: missing })).toBe('applied')
+    expect(file(store).componentModel.definitions['binding:notice']).toEqual(admitted)
+    expect(store.getSnapshot().atoms).toEqual([{ componentId: 'binding:notice', name: null, kind: 'hosted', status: 'missing', candidates: [], props: [] }])
+
+    const ambiguous = hostedProjection([{
+      bindingId: 'binding:notice',
+      status: 'ambiguous',
+      candidates: [{ choiceToken: 'candidate:1', name: 'Notice' }, { choiceToken: 'candidate:2', name: 'Callout' }],
+    }])
+    expect(store.commands.components.reconcileHostedProjection({ expectedFileId: 'hosted-lifecycle', expectedFileRevision: file(store).revision, projection: ambiguous })).toBe('applied')
+    expect(file(store).componentModel.definitions['binding:notice']).toEqual(admitted)
+    expect(store.getSnapshot().atoms[0]).toEqual({ componentId: 'binding:notice', name: null, kind: 'hosted', status: 'ambiguous', candidates: ['candidate:1', 'candidate:2'], props: [] })
+
+    const beforeOmission = structuredClone(store.getSnapshot())
+    expect(store.commands.components.reconcileHostedProjection({
+      expectedFileId: 'hosted-lifecycle', expectedFileRevision: file(store).revision, projection: hostedProjection([]),
+    })).toBe('invalid')
+    expect(store.getSnapshot()).toEqual(beforeOmission)
+
+    store.setReadOnly(true)
+    expect(store.commands.components.retireHostedProjection({ expectedFileId: 'hosted-lifecycle', expectedFileRevision: file(store).revision })).toBe('applied')
+    expect(store.getSnapshot().atoms).toEqual([])
+    expect(file(store).componentModel.definitions['binding:notice']).toEqual(admitted)
+    expect(store.commands.components.retireHostedProjection({ expectedFileId: 'hosted-lifecycle', expectedFileRevision: file(store).revision })).toBe('unchanged')
+  })
+
+  it('COMP-V2-ADMISSION-NEG-001 rejects stale, blocked, malformed, and colliding hosted admissions atomically', () => {
+    const store = createDocumentStore()
+    const local = atom('LocalButton', 'binding:button', [])
+    store.load(createBlankFile('hosted-negative', 'page', 'root'), [local])
+    const projection = hostedProjection([{
+      bindingId: 'binding:button', status: 'bound', name: 'Button', props: [], slots: [],
+    }])
+    const beforeFile = structuredClone(file(store))
+    const beforeAtoms = structuredClone(store.getSnapshot().atoms)
+
+    expect(store.commands.components.reconcileHostedProjection({ expectedFileId: 'another-file', expectedFileRevision: 0, projection })).toBe('stale')
+    expect(store.commands.components.reconcileHostedProjection({ expectedFileId: 'hosted-negative', expectedFileRevision: 1, projection })).toBe('stale')
+    expect(store.commands.components.reconcileHostedProjection({ expectedFileId: 'hosted-negative', expectedFileRevision: 0, projection })).toBe('invalid')
+    const removed = hostedProjection([{ bindingId: 'binding:removed', status: 'missing' }]) as unknown as { components: unknown[] }
+    removed.components = [{ bindingId: 'binding:removed', status: 'removed' }]
+    expect(store.commands.components.reconcileHostedProjection({
+      expectedFileId: 'hosted-negative', expectedFileRevision: 0, projection: removed as unknown as HostedSourceBindingProjection,
+    })).toBe('invalid')
+    store.setReadOnly(true)
+    expect(store.commands.components.reconcileHostedProjection({ expectedFileId: 'hosted-negative', expectedFileRevision: 0, projection })).toBe('blocked')
+    expect(store.commands.components.retireHostedProjection({ expectedFileId: 'hosted-negative', expectedFileRevision: 0 })).toBe('unchanged')
+    expect(file(store)).toEqual(beforeFile)
+    expect(store.getSnapshot().atoms).toEqual(beforeAtoms)
+  })
+
   it('COMP-V2-CODE-001 reconciles a verified code definition and projects model values and slots onto its real node', () => {
     let id = 0
     const source = fixture()
-    const button: Atom = {
+    const button: RepositoryAtom = {
       componentId: 'component:button', name: 'Button', exportName: 'Button', path: 'components/ui/button.tsx', fingerprint: 'registry', sourceHash: 'source', status: 'bound', candidates: [], kind: 'atom',
       props: [{ name: 'label', type: 'string', optional: false }, { name: 'tone', type: "'quiet' | 'solid'", optional: false }, { name: 'children', type: 'ReactNode', optional: true }],
       slots: ['children'],
@@ -473,7 +597,7 @@ describe('component model editor commands', () => {
 
   it('COMP-V2-UI-038 adopts existing verified code nodes into the semantic instance model', () => {
     const source = createBlankFile('legacy-code-instance', 'page', 'root', 'Page')
-    const button: Atom = {
+    const button: RepositoryAtom = {
       componentId: 'component:button', name: 'Button', exportName: 'Button', path: 'components/ui/button.tsx', fingerprint: 'registry', sourceHash: 'source', status: 'bound', candidates: [], kind: 'atom',
       props: [
         { name: 'label', type: 'string', optional: false },
@@ -499,7 +623,7 @@ describe('component model editor commands', () => {
   it('COMP-V2-CODE-001 reconciles changed code schemas without remapping variants or retaining removed props', () => {
     let id = 0
     const source = createBlankFile('code-schema-file', 'page', 'root', 'Page')
-    const button = (props: Atom['props']): Atom => ({
+    const button = (props: Atom['props']): RepositoryAtom => ({
       componentId: 'component:button', name: 'Button', exportName: 'Button', path: 'components/ui/button.tsx', fingerprint: 'registry', sourceHash: 'source', status: 'bound', candidates: [], kind: 'atom', props,
     })
     const original = button([{ name: 'label', type: 'string', optional: false }, { name: 'tone', type: "'quiet' | 'solid'", optional: false }])
@@ -2440,7 +2564,7 @@ describe('AT-CAN primitive canvas commands', () => {
 
 describe('AT-CAN component instances in slots', () => {
   it('derives defaults only for required verified scalar props and never invents slot content', () => {
-    const verified: Atom = {
+    const verified: RepositoryAtom = {
       ...atom('LoginForm', 'login-form', []),
       slots: ['children'],
       props: [

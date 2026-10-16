@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { authSessionView } from '@canvas/auth'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { EditorCollaborationSnapshot, EditorProjectFailure, EditorProjectSnapshot } from './capabilities'
-import { bindAuthFileClear, bindProjectFailures, bindProjectFileUpdates, bindShareAuthority, startHostedSourceBindingLifecycle } from './bootstrap'
+import { bindAuthFileClear, bindProjectFailures, bindProjectFileUpdates, bindShareAuthority, startHostedComponentAdmissionLifecycle, startHostedSourceBindingLifecycle } from './bootstrap'
 import { createDocumentStore } from './features/editor/document-store'
 import { createEditorStore } from './features/editor/store'
 import type { DesignEditorApi, ProjectSnapshot } from './features/editor/types'
@@ -56,6 +56,17 @@ describe('COMP-V2-BINDING-001 hosted source binding lifecycle', () => {
 
     expect(target.start).toHaveBeenCalledOnce()
     expect(target.start).toHaveBeenCalledWith(hostedRepository)
+    stop()
+    stop()
+
+    expect(target.dispose).toHaveBeenCalledOnce()
+  })
+
+  it('starts hosted admission after its stores are configured and disposes exactly once through the workspace owner', () => {
+    const target = { start: vi.fn(), dispose: vi.fn() }
+    const stop = startHostedComponentAdmissionLifecycle(target)
+
+    expect(target.start).toHaveBeenCalledOnce()
     stop()
     stop()
 

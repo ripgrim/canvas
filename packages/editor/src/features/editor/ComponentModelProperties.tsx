@@ -11,6 +11,7 @@ import { propertiesCopy as copy } from './properties-copy'
 import { canNestComponentInstance, mapParallelComponentSubtrees } from './component-canvas-link'
 import { componentConfigurableDefinition } from './component-property-projection'
 import { eligibleInstanceSwapComponents } from './component-instance-swap'
+import { isPlaceableAtom, isRepositoryAtom } from '@canvas/repo-engine/contracts'
 
 export function ComponentModelProperties() {
   const { file, selection, atoms, blocked } = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
@@ -20,7 +21,7 @@ export function ComponentModelProperties() {
   if (!instance || !definition) return null
   const values = resolveComponentInstanceValues(definition, instance.values)
   const instanceProperties = componentConfigurableDefinition(definition).properties
-  const atom = definition.source.kind === 'code' ? atoms.find(candidate => candidate.componentId === definition.id) : undefined
+  const atom = definition.source.kind === 'code' ? atoms.filter(isRepositoryAtom).find(candidate => candidate.componentId === definition.id) : undefined
   const node = definition.source.kind === 'code' ? file.nodes[instance.id] : undefined
   const modeledNames = new Set(definition.properties.map(property => property.name))
   const sourceValues = node?.type === 'component' ? Object.entries(node.props).filter(([name]) => !modeledNames.has(name)) : []
@@ -53,7 +54,7 @@ export function ComponentModelProperties() {
       const slotHost = definition.source.kind === 'canvas' ? property.binding ? nodeMap?.get(property.binding.nodeId) : undefined : instance.id
       const slotName = definition.source.kind === 'code' ? property.name : property.id
       const count = slotHost ? childrenOf(file, slotHost, slotName).length : 0
-      const components = Object.values(file.componentModel.definitions).filter(candidate => canNestComponentInstance(file, instance.id, candidate.id) && (candidate.source.kind === 'canvas' || atoms.some(atom => atom.componentId === candidate.id && atom.status === 'bound')))
+      const components = Object.values(file.componentModel.definitions).filter(candidate => canNestComponentInstance(file, instance.id, candidate.id) && (candidate.source.kind === 'canvas' || atoms.some(atom => atom.componentId === candidate.id && isPlaceableAtom(atom))))
       const options = [...componentKitCopy.slotOptions, ...components.map(candidate => ({ value: `component:${candidate.id}`, label: candidate.name, icon: 'component' as const, group: componentKitCopy.slotComponents }))]
       return <ComponentPropertyValueRow key={property.id} {...(property.description ? { description: property.description } : {})} action={<ComponentPropertyTypeMenu label={componentKitCopy.addSlotContent(property.name)} disabled={blocked || !slotHost} options={options} onSelect={kind => kind.startsWith('component:') ? documentStore.commands.components.addSlotComponent(instance.id, property.id, kind.slice('component:'.length)) : documentStore.commands.components.addSlotContent(instance.id, property.id, kind as 'text' | 'frame')} />}><PropertyValue label={property.name} value={copy.slotCount(count)} /></ComponentPropertyValueRow>
     })}</PropertyGroup>}

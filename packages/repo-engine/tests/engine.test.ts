@@ -59,6 +59,40 @@ afterEach(async () => {
 })
 
 describe('real source transactions', () => {
+  it('COMP-V2-BINDING-001 keeps unrelated repository source targets writable when metadata contains a hosted atom', async () => {
+    const root = await fixture()
+    const engine = await createValidatedEngine(root)
+    await engine.inspectFixture()
+    const identityPath = path.join(root, '.design-editor/identity.json')
+    const identity = JSON.parse(await readFile(identityPath, 'utf8'))
+    identity.atoms.push({
+      componentId: 'hosted-button', name: 'Hosted button', kind: 'hosted', status: 'bound', candidates: [],
+      props: [{ name: 'children', type: 'ReactNode', optional: true }], slots: ['children'],
+    })
+    await writeFile(identityPath, JSON.stringify(identity, null, 2))
+    const reopened = await createValidatedEngine(root)
+    await expect(reopened.prepareLabelPadding('8px')).resolves.toMatchObject({ scope: 'Shared component' })
+    await expect(reopened.prepareToken('#112233')).resolves.toMatchObject({ scope: 'Token' })
+    await expect(reopened.preparePromotion('HostedLogin')).resolves.toMatchObject({ scope: 'Instance' })
+  })
+
+  it('COMP-V2-ADMISSION-NEG-001 rejects malformed or source-bearing hosted identity metadata', async () => {
+    const root = await fixture()
+    const engine = await createValidatedEngine(root)
+    await engine.inspectFixture()
+    const identityPath = path.join(root, '.design-editor/identity.json')
+    const clean = JSON.parse(await readFile(identityPath, 'utf8'))
+    const hosted = {
+      componentId: 'hosted-button', name: 'Hosted button', kind: 'hosted', status: 'bound', candidates: [], props: [], slots: [],
+    }
+
+    await writeFile(identityPath, JSON.stringify({ ...clean, atoms: [...clean.atoms, { ...hosted, path: 'src/Button.tsx', exportName: 'Button', sourceHash: 'secret' }] }, null, 2))
+    await expect(createValidatedEngine(root)).rejects.toThrow('Unsupported identity metadata')
+
+    await writeFile(identityPath, JSON.stringify({ ...clean, atoms: [...clean.atoms, { ...hosted, kind: 'hosted-ish' }] }, null, 2))
+    await expect(createValidatedEngine(root)).rejects.toThrow('Unsupported identity metadata')
+  })
+
   it('COMP-V2-DOCS-003 reviews Blume files and rejects a stale navigation source before Save', async () => {
     const root = await fixture()
     const docs = path.join(root, 'apps/docs/docs/components')

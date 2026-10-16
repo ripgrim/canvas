@@ -27,6 +27,7 @@ import type { InsetLength, LayoutLength, NodeSpacing } from '@canvas/repo-engine
 import type { Color } from '@canvas/repo-engine/color'
 import { compareOrder, orderKeyBetween } from '@canvas/repo-engine/order-keys'
 import type { Atom } from './types'
+import { isHostedAtom, isPlaceableAtom } from '@canvas/repo-engine/contracts'
 import { validateFlowDragPresentationStructure } from '@canvas/sync-protocol/flow'
 import { canvasCopy } from './canvas-copy'
 import { clipboardCopy } from './clipboard-copy'
@@ -58,6 +59,8 @@ import { planComponentSlotDrafts } from './component-configured-instance'
 import type { ComponentSlotDraft } from './component-configured-instance'
 import { planComponentInstanceSwap } from './component-instance-swap'
 import { componentDuplicatePlanCurrent, planComponentDuplicate } from './component-duplicate'
+import { hostedProjectionAtoms, hostedProjectionDefinitions } from './component-registry'
+import type { HostedSourceBindingProjection } from './hosted-source-binding-projection'
 
 export type Viewport = Camera
 export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text' | 'rectangle' | 'shape' | 'interact'
@@ -135,6 +138,16 @@ export type LayerTreeDropTarget = InsertTarget & { duplicate?: boolean }
 export type ComponentInsertPoint = { x: number; y: number }
 export type SourceTokenImport = Readonly<{ property: string; name: string; fallback: Color }>
 export type PersistenceCommit = Readonly<{ committed: boolean; persistence: Promise<void> | null }>
+export type HostedProjectionAdmissionResult = 'applied' | 'unchanged' | 'stale' | 'blocked' | 'invalid'
+export type HostedProjectionAdmissionInput = Readonly<{
+  expectedFileId: string
+  expectedFileRevision: number
+  projection: HostedSourceBindingProjection
+}>
+export type HostedProjectionRetirementInput = Readonly<{
+  expectedFileId: string
+  expectedFileRevision: number
+}>
 /** Local gestures may omit this. A live collaboration owner supplies it so its exact terminal claim binds the already planned command. */
 export type GesturePersistenceBinder = (command: FileCommand) => EditorPersistenceIntent | null
 export type PaperWrapExecutionResult = PaperWrapFailure | Readonly<{ status: 'written'; wrapperIds: readonly string[] }>
@@ -1087,7 +1100,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   }
   const insertCodeComponent = (componentId: string, target: InsertTarget | undefined, props: Record<string, string | number | boolean>, point?: ComponentInsertPoint) => {
     const state = backing.getState()
-    const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
+    const atom = state.atoms.filter(isPlaceableAtom).find(item => item.componentId === componentId)
     const definition = state.file?.componentModel.definitions[componentId]
     if (!atom || definition?.source.kind !== 'code') return fail(new Error(canvasCopy.componentUnavailable))
     if (!state.file || !state.pageId) return fail(new Error(canvasCopy.openFileForTools))
@@ -1361,6 +1374,60 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       execute,
       executeBatch,
       components: {
+        reconcileHostedProjection: (input: HostedProjectionAdmissionInput): HostedProjectionAdmissionResult => {
+          const state = backing.getState()
+          if (!state.file || state.file.fileId !== input.expectedFileId || state.file.revision !== input.expectedFileRevision) return 'stale'
+          if (state.blocked || state.readOnly || persistenceBlocked || textSession) return 'blocked'
+          try {
+            const projectedAtoms = hostedProjectionAtoms(input.projection)
+            const projectedDefinitions = hostedProjectionDefinitions(input.projection)
+            const projectedIds = new Set(projectedAtoms.map(atom => atom.componentId))
+            if (state.atoms.some(atom => isHostedAtom(atom) && !projectedIds.has(atom.componentId))) return 'invalid'
+            const retainedAtoms = state.atoms.filter(atom => !isHostedAtom(atom))
+            const retainedIds = new Set(retainedAtoms.map(atom => atom.componentId))
+            if (projectedAtoms.some(atom => retainedIds.has(atom.componentId))) return 'invalid'
+            const nextAtoms: Atom[] = [...structuredClone(retainedAtoms), ...structuredClone(projectedAtoms)]
+            const commands = projectedDefinitions.flatMap((definition): FileCommand[] => {
+              const current = state.file!.componentModel.definitions[definition.id]
+              if (current && (current.source.kind !== 'code' || current.source.bindingId !== definition.id)) throw new Error('A hosted component binding conflicts with an existing component.')
+              const comparable = current ? { ...current, revision: 0 } : null
+              if (comparable && JSON.stringify(comparable) === JSON.stringify({ ...definition, revision: 0 })) return []
+              return current
+                ? [{ type: 'component.replace', componentId: current.id, expectedRevision: current.revision, definition: { ...definition, revision: current.revision + 1 } }]
+                : [{ type: 'component.create', definition }]
+            })
+            const atomsChanged = JSON.stringify(state.atoms) !== JSON.stringify(nextAtoms)
+            if (!commands.length) {
+              validateFileDocument(state.file, nextAtoms, { allowUnavailableBindings: true })
+              if (!atomsChanged) return 'unchanged'
+              emit({ atoms: nextAtoms })
+              return 'applied'
+            }
+            const command: FileCommand = commands.length === 1 ? commands[0]! : { type: 'batch', commands }
+            const projected = applyFileCommand(state.file, command, nextAtoms, { allowUnavailableBindings: true })
+            const next = validateFileDocument(projected, nextAtoms, { allowUnavailableBindings: true })
+            if (!permits(next)) return 'blocked'
+            past = []
+            future = []
+            changed(next, state.pageId!, state.selection.filter(id => selectable(next, state.pageId, id)), { kind: 'commands', commands: [command] }, false, { atoms: nextAtoms })
+            return 'applied'
+          } catch {
+            return 'invalid'
+          }
+        },
+        retireHostedProjection: (input: HostedProjectionRetirementInput): HostedProjectionAdmissionResult => {
+          const state = backing.getState()
+          if (!state.file || state.file.fileId !== input.expectedFileId || state.file.revision !== input.expectedFileRevision) return 'stale'
+          const nextAtoms = state.atoms.filter(atom => !isHostedAtom(atom))
+          if (nextAtoms.length === state.atoms.length) return 'unchanged'
+          try {
+            validateFileDocument(state.file, nextAtoms, { allowUnavailableBindings: true })
+            emit({ atoms: structuredClone(nextAtoms) })
+            return 'applied'
+          } catch {
+            return 'invalid'
+          }
+        },
         reconcileCodeDefinitions: (definitions: readonly ComponentDefinition[], registryAtoms?: readonly Atom[]) => {
           const state = backing.getState()
           if (!state.file || state.blocked || state.readOnly) return false
@@ -1737,7 +1804,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
             commands.push(...componentPropertyProjectionCommands(projected, insertedDefinition, nestedInstance, insertedDefinition.properties))
             return executeBatch(commands, [nestedId])
           }
-          const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
+          const atom = state.atoms.filter(isPlaceableAtom).find(item => item.componentId === componentId)
           if (!atom) return false
           const nestedId = makeId()
           const nestedInstance = { id: nestedId, componentId, values }
@@ -1786,7 +1853,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
             return swapPlan.commands.length || slotPlan.commands.length ? executePlannedComponentBatch(commands, [instanceId]) : executeBatch(commands, [instanceId])
           }
           if (slotDrafts.length) return false
-          const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
+          const atom = state.atoms.filter(isPlaceableAtom).find(item => item.componentId === componentId)
           if (!atom) return false
           const id = makeId()
           const commands: FileCommand[] = [

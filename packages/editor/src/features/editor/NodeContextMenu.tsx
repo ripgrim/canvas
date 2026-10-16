@@ -17,6 +17,7 @@ import { encodeInternalClipboardPayload } from './clipboard-codec'
 import { clipboardCopy } from './clipboard-copy'
 import { sceneGeometry } from './scene-geometry'
 import { captureInternalClipboardAssets, internalClipboardBuffer, publishInternalClipboard } from './clipboard-internal-buffer'
+import { isRepositoryAtom } from '@canvas/repo-engine/contracts'
 
 const reason = {
   empty: 'Select a layer first',
@@ -55,7 +56,7 @@ export function layoutContextMenuGroup(frame: ContextMenuAction, flex: readonly 
 
 function componentCode(file: FileDocument, pageId: string, selection: readonly string[], atoms: ReturnType<typeof store.getSnapshot>['atoms']): string | null {
   if (!selection.length || selection.some(id => file.nodes[id]?.type !== 'component')) return null
-  const paths = Object.fromEntries(atoms.filter(atom => /\.(?:tsx?|jsx?)$/.test(atom.path) && !atom.path.includes('..') && !atom.path.includes('\\')).map(atom => [atom.componentId, './' + atom.path.replace(/\.(?:tsx?|jsx?)$/, '')]))
+  const paths = Object.fromEntries(atoms.filter(isRepositoryAtom).filter(atom => /\.(?:tsx?|jsx?)$/.test(atom.path) && !atom.path.includes('..') && !atom.path.includes('\\')).map(atom => [atom.componentId, './' + atom.path.replace(/\.(?:tsx?|jsx?)$/, '')]))
   try { return serializeComponentUsage(legacyPageDocument(file, pageId), atoms, { moduleSpecifiers: paths, rootIds: [...selection] }).code }
   catch { return null }
 }

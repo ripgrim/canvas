@@ -14,6 +14,7 @@ import { designSourcePalette, themeProjectionContext } from './features/editor/d
 import { repositoryConnectionService } from './features/editor/repository-service'
 import { hostedRepositoryService } from './features/editor/hosted-repository-service'
 import { hostedSourceBindingService } from './features/editor/hosted-source-binding-service'
+import { hostedComponentAdmissionService } from './features/editor/hosted-component-admission-service'
 import { authSessionService } from './features/application/auth-service'
 import { editorToast } from './design-system/toast-atoms'
 import { collaborationService } from './features/collaboration/collaboration-service'
@@ -108,6 +109,18 @@ export function startHostedSourceBindingLifecycle(
   }
 }
 
+export function startHostedComponentAdmissionLifecycle(
+  target: Pick<typeof hostedComponentAdmissionService, 'start' | 'dispose'> = hostedComponentAdmissionService,
+): () => void {
+  target.start()
+  let active = true
+  return () => {
+    if (!active) return
+    active = false
+    target.dispose()
+  }
+}
+
 export function startEditorServices(api: EditorProjectApi): () => void {
   authSessionService.configure(api.auth)
   let stopWorkspace: (() => void) | undefined
@@ -117,7 +130,6 @@ export function startEditorServices(api: EditorProjectApi): () => void {
     homeStore.configure(api)
     repositoryConnectionService.configure(api)
     hostedRepositoryService.configure(api)
-    const stopHostedSourceBindings = startHostedSourceBindingLifecycle(api)
     collaborationService.configure(api.collaboration)
     const stopShareAuthority = bindShareAuthority(api)
     const stopProjectFailures = bindProjectFailures(api)
@@ -134,6 +146,8 @@ export function startEditorServices(api: EditorProjectApi): () => void {
       themeContext: () => { const state = editorStore.getSnapshot(); return themeProjectionContext(state.snapshot, state.previewThemeId) },
       editorMode: () => editorStore.getSnapshot().mode,
     })
+    const stopHostedSourceBindings = startHostedSourceBindingLifecycle(api)
+    const stopHostedComponentAdmission = startHostedComponentAdmissionLifecycle()
     previewConnection.start()
     const canvasInput = createCanvasInputService(window)
     canvasInput.start()
@@ -159,6 +173,7 @@ export function startEditorServices(api: EditorProjectApi): () => void {
       keyboard.stop()
       clipboard.stop()
       previewConnection.stop()
+      stopHostedComponentAdmission()
       documentStore.dispose()
       homeStore.dispose()
       repositoryConnectionService.dispose()

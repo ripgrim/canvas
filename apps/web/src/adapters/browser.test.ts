@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createDocument } from '@canvas/repo-engine/document'
+import { isRepositoryAtom } from '@canvas/repo-engine/contracts'
 import { UnavailableCapabilityError } from '@canvas/editor/capabilities'
 import { browserDraftKey, browserHollowAtoms, browserSampleComposition, browserSampleThemes, createBrowserAdapter } from './browser'
 import { browserFileKey, browserFilesIndexKey, migratedBrowserFileId } from '../features/files/service'
@@ -111,7 +112,7 @@ describe('browser local files', () => {
     const created = await adapter.createFile?.()
     const opened = await adapter.openFile(created!.id)
     expect(opened.atoms.map(atom => atom.componentId)).toEqual(['sample-button', 'sample-card', 'sample-input', 'sample-label'])
-    expect(opened.atoms.every(atom => atom.path.startsWith('Bundled sample / '))).toBe(true)
+    expect(opened.atoms.every(atom => isRepositoryAtom(atom) && atom.path.startsWith('Bundled sample / '))).toBe(true)
     expect(opened.phases).toEqual([{ name: 'Hollow browser catalog loaded', completed: 1 }])
     // Vitest stubs CSS imports, so the seed stylesheet catalog is empty here; the snapshot still carries the module's catalog and themes.
     expect(opened.tokens).toEqual([])

@@ -86,7 +86,7 @@ type SidebarKey = 'pages' | 'layers'
 type SidebarView = 'design' | 'theme' | 'kit' | 'sources'
 const sidebarViews = [{ value: 'design', label: sidebarCopy.design }, { value: 'theme', label: sidebarCopy.theme }, { value: 'kit', label: componentKitCopy.tab }, { value: 'sources', label: sidebarCopy.sources }] as const satisfies readonly { value: SidebarView; label: string }[]
 
-function Library({ state, document, atoms, header, mobile = false, onPageChange }: { state: EditorState; document: DocumentState; atoms: ReturnType<typeof connectedRegistryAtoms>; header: ReactNode; mobile?: boolean; onPageChange?: ((pageId: string) => void) | undefined }) {
+function Library({ state, document, atoms, header, mobile = false, onPageChange }: { state: EditorState; document: DocumentState; atoms: DocumentState['atoms']; header: ReactNode; mobile?: boolean; onPageChange?: ((pageId: string) => void) | undefined }) {
   const pages = document.file?.pages ?? []
   const openPage = (pageId: string) => { if (onPageChange) onPageChange(pageId); else documentStore.setPage(pageId) }
   const addPage = () => { const pageId = documentStore.commands.createPage({ activate: !onPageChange }); if (pageId && onPageChange) onPageChange(pageId) }

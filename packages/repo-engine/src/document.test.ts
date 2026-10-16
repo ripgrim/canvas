@@ -10,7 +10,7 @@ import { childrenOf, legacyPageDocument } from './file-document.js'
 import type { FileDocument } from './file-document.js'
 import { documentPromotionSource } from './document-promotion.js'
 import { discover, makeProject, sourceFiles } from './discovery.js'
-import type { Atom, Composition } from './types.js'
+import type { Atom, Composition, HostedAtom } from './types.js'
 
 const fixtureRoot = fileURLToPath(new URL('../../../fixtures/component-repo/', import.meta.url))
 let atoms: Atom[]
@@ -37,6 +37,21 @@ afterEach(async () => {
 })
 
 describe('validated editor documents', () => {
+  it('COMP-V2-BINDING-001 rejects source-free hosted atoms from direct composition and promotion', () => {
+    const hosted: HostedAtom = {
+      componentId: 'hosted-button', name: 'Button', kind: 'hosted', status: 'bound', candidates: ['opaque-candidate'],
+      props: [{ name: 'children', type: 'ReactNode', optional: true }], slots: ['children'],
+    }
+    const direct: EditorDocument = {
+      version: 1, revision: 0, rootIds: ['hosted-node'],
+      nodes: { 'hosted-node': { id: 'hosted-node', componentId: hosted.componentId, exportName: 'Button', props: { children: 'Save' }, children: {} } },
+      frame: { width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false },
+    }
+    expect(() => validateDocument(direct, [hosted], { allowUnavailableBindings: true })).toThrow('Component binding needs review')
+    expect(() => createDocument([hosted], { id: 'hosted-composition', name: 'Hosted', componentId: null, children: [{ id: 'hosted-node', componentId: hosted.componentId, exportName: 'Button', props: {} }] }, { allowUnavailableBindings: true })).toThrow('Component binding needs review')
+    expect(() => documentPromotionSource('HostedPromotion', direct, [hosted])).toThrow('Component binding needs review')
+  })
+
   it('initializes a named Card with actual repository atom bindings and immutable command inputs', () => {
     const before = fresh()
     expect(before.rootIds).toEqual(['login:card'])

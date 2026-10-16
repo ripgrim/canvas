@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { createBlankFile } from '@canvas/repo-engine/file-document'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { Atom } from './types'
+import type { RepositoryAtom } from '@canvas/repo-engine/contracts'
 import type { EditorRepositoryConnection } from '../../capabilities'
-import { connectedRegistryAtoms, connectedRegistryDefinitions, discoveredRegistryAtoms, discoveredRegistryDefinitions, documentRegistryAtoms } from './component-registry'
+import { connectedRegistryAtoms, connectedRegistryDefinitions, discoveredRegistryAtoms, discoveredRegistryDefinitions, documentRegistryAtoms, hostedProjectionAtoms, hostedProjectionDefinitions } from './component-registry'
+import type { HostedSourceBindingProjection } from './hosted-source-binding-projection'
 import { codeComponentValueId } from '@canvas/repo-engine/component-admission'
 
 const connection: EditorRepositoryConnection = {
@@ -15,7 +17,85 @@ const connection: EditorRepositoryConnection = {
   },
 }
 
+const hostedProjection: HostedSourceBindingProjection = {
+  authority: {
+    version: 3,
+    projectId: 'project-secret',
+    repositoryId: 'repository-secret',
+    scanId: 'scan-secret',
+    sourceRevision: 'revision-secret',
+    registryFingerprint: 'registry-secret',
+    grantGeneration: 9,
+    adapterId: 'adapter-secret',
+    updatedAt: 12,
+  },
+  components: [
+    {
+      bindingId: 'opaque-bound', status: 'bound', name: 'Button',
+      props: [
+        { name: 'label', type: 'string', optional: false },
+        { name: 'count', type: 'number', optional: false },
+        { name: 'children', type: 'ReactNode', optional: true },
+      ],
+      slots: ['children'],
+    },
+    { bindingId: 'opaque-missing', status: 'missing' },
+    { bindingId: 'opaque-ambiguous', status: 'ambiguous', candidates: [
+      { choiceToken: 'candidate:1', name: 'Candidate secret name' },
+      { choiceToken: 'candidate:2', name: 'Other secret name' },
+    ] },
+  ],
+}
+
 describe('connected component registry', () => {
+  it('COMP-V2-BINDING-001 admits hosted bindings with opaque identity and no source or authority fields', () => {
+    const atoms = hostedProjectionAtoms(hostedProjection)
+    const definitions = hostedProjectionDefinitions(hostedProjection)
+    expect(atoms).toEqual([
+      {
+        componentId: 'opaque-bound', kind: 'hosted', status: 'bound', name: 'Button', candidates: [],
+        props: [
+          { name: 'label', type: 'string', optional: false },
+          { name: 'count', type: 'number', optional: false },
+          { name: 'children', type: 'ReactNode', optional: true },
+        ],
+        slots: ['children'],
+      },
+      { componentId: 'opaque-missing', kind: 'hosted', status: 'missing', name: null, candidates: [], props: [] },
+      { componentId: 'opaque-ambiguous', kind: 'hosted', status: 'ambiguous', name: null, candidates: ['candidate:1', 'candidate:2'], props: [] },
+    ])
+    expect(definitions).toEqual([{
+      id: 'opaque-bound', name: 'Button', source: { kind: 'code', bindingId: 'opaque-bound' }, revision: 0,
+      properties: [
+        { id: 'property:label', name: 'label', type: 'text', defaultValue: '' },
+        { id: 'property:children', name: 'children', type: 'slot', optional: true },
+      ],
+      materials: [], parts: [], interactions: [],
+    }])
+
+    const serialized = JSON.stringify({ atoms, definitions })
+    for (const forbidden of ['project-secret', 'repository-secret', 'scan-secret', 'revision-secret', 'registry-secret', 'adapter-secret', 'Candidate secret name', 'Other secret name', 'path', 'sourceHash', 'fingerprint', 'exportName', 'grantGeneration']) {
+      expect(serialized).not.toContain(forbidden)
+    }
+  })
+
+  it('COMP-V2-ADMISSION-NEG-001 rejects malformed, unknown, and duplicate hosted components atomically', () => {
+    const invalid = [
+      { ...hostedProjection, components: [...hostedProjection.components, hostedProjection.components[0]!] },
+      { ...hostedProjection, components: [{ bindingId: 'opaque-bad', status: 'unknown' }] },
+      { ...hostedProjection, components: [{ bindingId: 'opaque-bad', status: 'missing', name: 'Leaked' }] },
+      { ...hostedProjection, components: [{ bindingId: 'opaque-bad', status: 'bound', name: 'Bad', props: [], slots: [], path: 'src/Bad.tsx' }] },
+      { ...hostedProjection, components: [{ bindingId: 'opaque-bad', status: 'ambiguous', candidates: [{ choiceToken: 'candidate:1', name: 'One' }, { choiceToken: 'candidate:1', name: 'Two' }] }] },
+      { ...hostedProjection, components: [{ bindingId: 'opaque-bad', status: 'bound', name: 'Bad', props: [{ name: 'tone', type: 'string' }], slots: [] }] },
+      { ...hostedProjection, extra: true },
+      { ...hostedProjection, authority: { ...hostedProjection.authority, scanId: undefined } },
+    ]
+    for (const projection of invalid) {
+      expect(() => hostedProjectionAtoms(projection as HostedSourceBindingProjection)).toThrow('Invalid hosted source binding projection.')
+      expect(() => hostedProjectionDefinitions(projection as HostedSourceBindingProjection)).toThrow('Invalid hosted source binding projection.')
+    }
+  })
+
   it('[AT-COMP-001] derives exact identities, props, and slots from the active verified catalog', () => {
     expect(connectedRegistryAtoms(connection)).toEqual([{
       componentId: 'shadcn:LoginForm:1234567890abcdef', name: 'LoginForm', exportName: 'LoginForm', path: 'components/ui/LoginForm.tsx',
@@ -75,7 +155,7 @@ describe('connected component registry', () => {
   })
 
   it('keeps code variant identity attached to its literal value when source order changes', () => {
-    const atom = (type: string): Atom => ({ componentId: 'component:button', name: 'Button', exportName: 'Button', path: 'button.tsx', fingerprint: 'registry', sourceHash: 'source', status: 'bound', candidates: [], kind: 'atom', props: [{ name: 'tone', type, optional: false }], slots: [] })
+    const atom = (type: string): RepositoryAtom => ({ componentId: 'component:button', name: 'Button', exportName: 'Button', path: 'button.tsx', fingerprint: 'registry', sourceHash: 'source', status: 'bound', candidates: [], kind: 'atom', props: [{ name: 'tone', type, optional: false }], slots: [] })
     const before = connectedRegistryDefinitions([atom("'quiet' | 'solid'")])[0]!.properties[0]
     const after = connectedRegistryDefinitions([atom("'solid' | 'quiet'")])[0]!.properties[0]
     expect(before?.type).toBe('variant')
@@ -91,5 +171,13 @@ describe('connected component registry', () => {
       'component:button': { id: 'component:button', name: 'Button', source: { kind: 'code', bindingId: 'component:button' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
     }, instances: {} } }
     expect(documentRegistryAtoms(file, [], [prior])).toMatchObject([{ componentId: 'component:button', status: 'missing' }])
+  })
+
+  it('preserves transient hosted availability verbatim while local repository atoms reconcile', () => {
+    const hosted = hostedProjectionAtoms(hostedProjection)
+    expect(documentRegistryAtoms(null, connectedRegistryAtoms(connection), hosted)).toEqual([
+      ...connectedRegistryAtoms(connection),
+      ...hosted,
+    ])
   })
 })

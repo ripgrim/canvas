@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FileDocument, FileNode } from '@canvas/repo-engine/file-document'
 import type { Atom } from './types'
+import type { RepositoryAtom } from '@canvas/repo-engine/contracts'
 import type { Scene, SceneNode } from './canvas-scene'
 import type { GestureAuthoritySnapshot } from './gesture-authority'
 import type { SceneGeometry } from './scene-geometry'
@@ -81,7 +82,7 @@ function fixture(options: FixtureOptions = {}): GestureAuthoritySnapshot {
     }
   }
   const scene: Scene = { nodes: sceneNodes, byId: new Map(sceneNodes.map(node => [node.id, node])) }
-  const atoms: Atom[] = targetType === 'component' ? [
+  const atoms: RepositoryAtom[] = targetType === 'component' ? [
     { name: 'Target', kind: 'atom', componentId: 'Target', path: 'Target.tsx', exportName: 'Target', fingerprint: 'target', sourceHash: 'target', status: 'bound', candidates: [], slots: [...slots], props: slots.map(name => ({ name, type: 'ReactNode', optional: true })) },
     ...ids.map(id => ({ name: id, kind: 'atom' as const, componentId: `Child-${id}`, path: `${id}.tsx`, exportName: `Child-${id}`, fingerprint: id, sourceHash: id, status: 'bound' as const, candidates: [], props: [] })),
   ] : []
@@ -157,7 +158,7 @@ describe('exact Paper Flex drag target resolver', () => {
     const ambiguous = fixture({ targetType: 'component', sourceType: 'component', targetSlots: ['children', 'footer'] })
     expect(resolve(ambiguous, { x: 170, y: 20 })).toBeNull()
     const duplicateDeclaration = fixture({ targetType: 'component', sourceType: 'component' })
-    ;(duplicateDeclaration.atoms as Atom[]).push({ ...duplicateDeclaration.atoms[0]!, path: 'OtherTarget.tsx' })
+    ;(duplicateDeclaration.atoms as Atom[]).push({ ...(duplicateDeclaration.atoms[0] as RepositoryAtom), path: 'OtherTarget.tsx' })
     expect(resolve(duplicateDeclaration, { x: 170, y: 20 })).toBeNull()
     const incompatible = fixture({ targetType: 'frame', sourceType: 'component' })
     expect(resolve(incompatible, { x: 170, y: 20 })).toBeNull()

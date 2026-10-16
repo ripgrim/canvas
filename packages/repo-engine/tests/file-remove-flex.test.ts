@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { applyFileCommand, applyFileCommandWithHistory, validateFileCommand, validateFileDocument } from '../src/file-document.js'
 import type { ComponentNode, FileCommand, FileDocument, NodeFlexState, NodeRemoveFlexGroup, NodeTextProperties, PrimitiveNode } from '../src/file-document.js'
 import type { NodeLayout } from '../src/layout.js'
-import type { Atom } from '../src/types.js'
+import type { RepositoryAtom } from '../src/types.js'
 
 const flex = (direction: 'row' | 'column' = 'row') => ({ direction, wrap: 'nowrap', justify: 'start', align: 'start' } as const)
 const textProperties = (fontSize: number, width: 'fixed' | 'fit', height: 'fixed' | 'fit'): NodeTextProperties => ({
@@ -57,8 +57,8 @@ function frameRemoveGroup(): NodeRemoveFlexGroup {
   }
 }
 
-const parentAtom: Atom = { componentId: 'component-parent', path: 'Parent.tsx', exportName: 'Parent', fingerprint: 'parent', sourceHash: 'parent', status: 'bound', candidates: [], name: 'Parent', kind: 'atom', props: [{ name: 'content', type: 'ReactNode', optional: true }], slots: ['content'] }
-const childAtom: Atom = { componentId: 'component-child', path: 'Child.tsx', exportName: 'Child', fingerprint: 'child', sourceHash: 'child', status: 'bound', candidates: [], name: 'Child', kind: 'atom', props: [] }
+const parentAtom: RepositoryAtom = { componentId: 'component-parent', path: 'Parent.tsx', exportName: 'Parent', fingerprint: 'parent', sourceHash: 'parent', status: 'bound', candidates: [], name: 'Parent', kind: 'atom', props: [{ name: 'content', type: 'ReactNode', optional: true }], slots: ['content'] }
+const childAtom: RepositoryAtom = { componentId: 'component-child', path: 'Child.tsx', exportName: 'Child', fingerprint: 'child', sourceHash: 'child', status: 'bound', candidates: [], name: 'Child', kind: 'atom', props: [] }
 const atoms = [parentAtom, childAtom]
 
 function componentFixture(empty = false): FileDocument {
