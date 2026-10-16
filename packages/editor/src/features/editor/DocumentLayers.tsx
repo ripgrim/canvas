@@ -2,16 +2,14 @@ import { useRef, useState, useSyncExternalStore } from 'react'
 import { getNodeSlots } from '@canvas/repo-engine/document'
 import { acceptsChild, childrenOf, descendantsOf, nodeIsLocked, pageRoot } from '@canvas/repo-engine/file-document'
 import { Button, Layout, Text } from '../../design-system/atoms'
-import type { IconName } from '../../design-system/atoms'
 import { DocumentLayerItem, DocumentSlotTarget, DocumentTree } from '../../design-system/canvas-atoms'
 import { canvasCopy as copy } from './canvas-copy'
-import { displayName } from './canvas-scene'
 import { documentStore as store } from './document-store'
 import { NodeContextMenu } from './NodeContextMenu'
-import { layerTreeIndent, layerTreeRowHeight, layerTreeScrollStep, resolveLayerTreeDrop, surpassedLayerTreeThreshold } from './layer-tree-gesture'
+import { layerPresentation } from './layer-presentation'
+import { layerTreeIndent, layerTreeRowHeight, layerTreeScrollStep, resolveLayerTreeDrop, resolveLayerTreeKeyboardDrop, surpassedLayerTreeThreshold } from './layer-tree-gesture'
 import type { LayerTreeDrop, LayerTreeRow } from './layer-tree-gesture'
 
-const icons: Record<string, IconName> = { frame: 'frame', rectangle: 'rectangle', shape: 'shape', shader: 'shader', text: 'text', component: 'component' }
 const slotRowId = (parentId: string, slot: string) => `slot:${parentId}:${slot}`
 type VisibleRow = LayerTreeRow & Readonly<{ kind: 'node'; nodeId: string } | { kind: 'slot'; label: string }>
 type DragSession = { pointerId: number; startX: number; startY: number; previousY: number; previousTime: number; nodeIds: string[]; affectedIds: string[]; dragged: boolean; altKey: boolean; drop: LayerTreeDrop | null; tree: HTMLDivElement }
@@ -134,6 +132,16 @@ export function DocumentLayers({ readOnly = false }: { readOnly?: boolean }) {
   const treeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape' && session.current) { event.preventDefault(); finishGesture(); return }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r' && state.selection.length === 1) { event.preventDefault(); beginRename(state.selection[0]!) }
+    if (!readOnly && event.altKey && !event.ctrlKey && !event.metaKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      const roots = state.selection.filter(candidate => !state.selection.some(other => other !== candidate && descendantsOf(file, other).includes(candidate)))
+      const direction = event.key === 'ArrowUp' ? 'up' : event.key === 'ArrowDown' ? 'down' : event.key === 'ArrowRight' ? 'in' : 'out'
+      const drop = resolveLayerTreeKeyboardDrop(targetRows(roots), roots, direction)
+      if (drop) {
+        event.preventDefault()
+        event.stopPropagation()
+        store.commands.layerTreeDrop(roots, { parentId: drop.parentId === root ? null : drop.parentId, ...(drop.slot ? { slot: drop.slot } : {}), index: drop.index })
+      }
+    }
   }
   const indicator = dragView?.drop && dragView.drop.mode !== 'inside' ? (() => { const index = rows.findIndex(row => row.id === dragView.drop!.targetId); return { top: (index + (dragView.drop!.mode === 'after' ? 1 : 0)) * layerTreeRowHeight - 1, left: dragView.drop!.depth * layerTreeIndent + 20 } })() : null
 
@@ -144,12 +152,14 @@ export function DocumentLayers({ readOnly = false }: { readOnly?: boolean }) {
         : (() => {
           const node = file.nodes[row.nodeId]!
           if (node.type === 'root') return null
-          const name = displayName(file, row.nodeId)
+          const presentation = layerPresentation(file, row.nodeId)
+          if (!presentation) return null
+          const { name, kind: semanticKind, icon } = presentation
           const visible = node.appearance?.visible !== false
           const directlyLocked = node.isLocked === true
           const locked = nodeIsLocked(file, row.nodeId)
           const inheritedLock = locked && !directlyLocked
-          return <DocumentLayerItem key={row.id} id={row.nodeId} kind={node.type} name={name} toggleLabel={row.expanded ? copy.collapse(name) : copy.expand(name)} depth={row.depth} selected={state.selection.includes(row.nodeId)} expanded={row.expanded} childrenCount={row.childIds.length} visible={visible} locked={locked} directlyLocked={directlyLocked} showLabel={copy.showLayer(name)} hideLabel={copy.hideLayer(name)} lockLabel={inheritedLock ? copy.lockedByParent(name) : directlyLocked ? copy.unlockLayer(name) : copy.lockLayer(name)} lockDisabled={readOnly || inheritedLock} visibilityDisabled={readOnly} icon={icons[node.type]!} {...(dragView ? { dragging: dragView.nodeIds.includes(row.nodeId), dropTarget: dragView.targetId === row.id } : {})} renaming={!readOnly && renamingLayer === row.nodeId} renameLabel={copy.renameLabel(name)} onSelect={modifiers => { if (ignoreClickId.current === row.nodeId) { ignoreClickId.current = null; return }; store.select(row.nodeId, modifiers) }} onToggle={recursive => toggle(row.nodeId, recursive)} onVisibilityChange={next => { if (!readOnly) store.commands.appearance.setBlending([row.nodeId], { visible: next }) }} onLockChange={next => { if (!readOnly && !inheritedLock) store.commands.setLocked(row.nodeId, next) }} {...(!locked ? { onPointerDown: pointerDown(row.nodeId) } : {})} onIconDoubleClick={() => { store.select(row.nodeId); store.requestFit('selection') }} onRename={() => beginRename(row.nodeId)} onRenameCommit={value => { store.commands.rename(row.nodeId, value); setRenamingLayer(null) }} onRenameCancel={() => setRenamingLayer(null)} onRenameTraverse={(direction, value) => traverseRename(row.nodeId, direction, value)} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); if (!state.selection.includes(row.nodeId)) store.select(row.nodeId); setRenamingLayer(null); setContextMenu({ x: event.clientX, y: event.clientY }) }} />
+          return <DocumentLayerItem key={row.id} id={row.nodeId} kind={semanticKind} name={name} toggleLabel={row.expanded ? copy.collapse(name) : copy.expand(name)} depth={row.depth} selected={state.selection.includes(row.nodeId)} expanded={row.expanded} childrenCount={row.childIds.length} visible={visible} locked={locked} directlyLocked={directlyLocked} showLabel={copy.showLayer(name)} hideLabel={copy.hideLayer(name)} lockLabel={inheritedLock ? copy.lockedByParent(name) : directlyLocked ? copy.unlockLayer(name) : copy.lockLayer(name)} lockDisabled={readOnly || inheritedLock} visibilityDisabled={readOnly} icon={icon} {...(dragView ? { dragging: dragView.nodeIds.includes(row.nodeId), dropTarget: dragView.targetId === row.id } : {})} renaming={!readOnly && renamingLayer === row.nodeId} renameLabel={copy.renameLabel(name)} onSelect={modifiers => { if (ignoreClickId.current === row.nodeId) { ignoreClickId.current = null; return }; store.select(row.nodeId, modifiers) }} onToggle={recursive => toggle(row.nodeId, recursive)} onVisibilityChange={next => { if (!readOnly) store.commands.appearance.setBlending([row.nodeId], { visible: next }) }} onLockChange={next => { if (!readOnly && !inheritedLock) store.commands.setLocked(row.nodeId, next) }} {...(!locked ? { onPointerDown: pointerDown(row.nodeId) } : {})} onIconDoubleClick={() => { store.select(row.nodeId); store.requestFit('selection') }} onRename={() => beginRename(row.nodeId)} onRenameCommit={value => { store.commands.rename(row.nodeId, value); setRenamingLayer(null) }} onRenameCancel={() => setRenamingLayer(null)} onRenameTraverse={(direction, value) => traverseRename(row.nodeId, direction, value)} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); if (!state.selection.includes(row.nodeId)) store.select(row.nodeId); setRenamingLayer(null); setContextMenu({ x: event.clientX, y: event.clientY }) }} />
         })())}
     </DocumentTree>
     {state.blocked && state.error && <Layout roleName="canvas-status" aria-live="polite"><Text>{state.error}</Text><Button onClick={() => store.retryPersistence()}>{copy.retry}</Button></Layout>}

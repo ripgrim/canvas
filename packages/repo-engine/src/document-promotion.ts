@@ -7,7 +7,8 @@ import { hostOrigin } from './file-document.js'
 import type { FileDocument } from './file-document.js'
 import { projectPreviewPage } from './file-preview.js'
 import { cssPropertyToJsx, rejectedSourceDeclaration } from './layout-css.js'
-import type { Atom } from './types.js'
+import { isRepositoryAtom } from './types.js'
+import type { Atom, RepositoryAtom } from './types.js'
 
 export type LayoutStyles = Record<string, Record<string, string>>
 
@@ -53,7 +54,7 @@ export function promotionLayoutStyles(file: FileDocument, pageId: string): Layou
  * `style` prop on the node's own element (never a wrapper), and every declaration must pass the source grammar.
  */
 export function documentPromotionSource(name: string, input: EditorDocument, atoms: Atom[], outputPath = `src/components/${name}.tsx`, layoutStyles?: LayoutStyles): string {
-  if (!/^[A-Z][A-Za-z0-9]{0,63}$/.test(name) || atoms.some(atom => atom.exportName === name)) throw new Error('Choose a new PascalCase component name')
+  if (!/^[A-Z][A-Za-z0-9]{0,63}$/.test(name) || atoms.some(atom => isRepositoryAtom(atom) && atom.exportName === name)) throw new Error('Choose a new PascalCase component name')
   if (!/^src\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.tsx$/.test(outputPath)) throw new Error('Unsupported promotion path')
   const document = validateDocument(input, atoms)
   // Drawn primitives have no source adapter. Layout without reviewed styles would be dropped silently, so it refuses too.
@@ -69,9 +70,10 @@ export function documentPromotionSource(name: string, input: EditorDocument, ato
   }
   const b = recast.types.builders
   const scalar = (value: DocumentValue) => typeof value === 'string' ? b.stringLiteral(value) : typeof value === 'boolean' ? b.booleanLiteral(value) : b.numericLiteral(value)
-  const used = new Map<string, Atom>()
+  const used = new Map<string, RepositoryAtom>()
   for (const node of Object.values(document.nodes)) {
     const atom = atoms.find(candidate => candidate.componentId === node.componentId)!
+    if (!isRepositoryAtom(atom)) throw new Error('Hosted components cannot be promoted to source')
     if (used.has(atom.exportName) && used.get(atom.exportName)!.componentId !== atom.componentId) throw new Error('Ambiguous component exports need an import alias adapter')
     used.set(atom.exportName, atom)
   }

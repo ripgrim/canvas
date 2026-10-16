@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FileDocument, FileNode } from '@canvas/repo-engine/file-document'
 import type { Atom } from './types'
+import type { RepositoryAtom } from '@canvas/repo-engine/contracts'
 import type { Scene, SceneNode } from './canvas-scene'
 import type { GestureAuthoritySnapshot } from './gesture-authority'
 import type { SceneGeometry } from './scene-geometry'
@@ -13,10 +14,10 @@ const fence = { fileId: 'flow-target', fileRevision: revision, measurementRevisi
 const box = (x: number, y: number, width = 100, height = 40) => ({ x, y, width, height })
 const flex = (direction: 'row' | 'row-reverse' | 'column' | 'column-reverse' = 'row', wrap: 'nowrap' | 'wrap' | 'wrap-reverse' = 'nowrap') => ({ direction, wrap, justify: 'start' as const, align: 'start' as const })
 const frame = (id: string, direction: Parameters<typeof flex>[0] = 'row', wrap: Parameters<typeof flex>[1] = 'nowrap'): FileNode => ({
-  id, type: 'frame', name: id, styles: { left: 0, top: 0, width: 400, height: 200 },
+  id, type: 'frame', name: id, styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 400, height: 200 },
   layout: { item: { position: { mode: 'flow' } }, container: { display: 'flex', flex: flex(direction, wrap) } },
 })
-const rectangle = (id: string): FileNode => ({ id, type: 'rectangle', name: id, styles: { left: 0, top: 0, width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } })
+const rectangle = (id: string): FileNode => ({ id, type: 'rectangle', name: id, styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } })
 const component = (id: string, componentId = id): FileNode => ({ id, type: 'component', componentId, exportName: componentId, props: {}, layout: { item: { position: { mode: 'flow' } } } })
 const sourceRelationship = (parentId = 'target', orderKey = 'V', slot?: string): FlowDragSourceRelationship => ({
   parentId, orderKey, slot: slot === undefined ? { presence: 'absent' } : { presence: 'present', value: slot },
@@ -63,7 +64,7 @@ function fixture(options: FixtureOptions = {}): GestureAuthoritySnapshot {
     const parentId = id === 'a' ? sourceParent : targetId
     relationships[id] = { parentId, orderKey: String.fromCharCode(86 + position), ...(targetType === 'component' && parentId === targetId ? { slot: 'children' } : {}) }
   })
-  const file: FileDocument = { schemaVersion: 9, fileId: fence.fileId, revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} } }
+  const file: FileDocument = { schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: fence.fileId, revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} } }
   const sceneNodes: SceneNode[] = []
   const geometryNodes: SceneGeometry['nodes'] = {}
   for (const [id, rect] of Object.entries(rects)) {
@@ -81,7 +82,7 @@ function fixture(options: FixtureOptions = {}): GestureAuthoritySnapshot {
     }
   }
   const scene: Scene = { nodes: sceneNodes, byId: new Map(sceneNodes.map(node => [node.id, node])) }
-  const atoms: Atom[] = targetType === 'component' ? [
+  const atoms: RepositoryAtom[] = targetType === 'component' ? [
     { name: 'Target', kind: 'atom', componentId: 'Target', path: 'Target.tsx', exportName: 'Target', fingerprint: 'target', sourceHash: 'target', status: 'bound', candidates: [], slots: [...slots], props: slots.map(name => ({ name, type: 'ReactNode', optional: true })) },
     ...ids.map(id => ({ name: id, kind: 'atom' as const, componentId: `Child-${id}`, path: `${id}.tsx`, exportName: `Child-${id}`, fingerprint: id, sourceHash: id, status: 'bound' as const, candidates: [], props: [] })),
   ] : []
@@ -157,7 +158,7 @@ describe('exact Paper Flex drag target resolver', () => {
     const ambiguous = fixture({ targetType: 'component', sourceType: 'component', targetSlots: ['children', 'footer'] })
     expect(resolve(ambiguous, { x: 170, y: 20 })).toBeNull()
     const duplicateDeclaration = fixture({ targetType: 'component', sourceType: 'component' })
-    ;(duplicateDeclaration.atoms as Atom[]).push({ ...duplicateDeclaration.atoms[0]!, path: 'OtherTarget.tsx' })
+    ;(duplicateDeclaration.atoms as Atom[]).push({ ...(duplicateDeclaration.atoms[0] as RepositoryAtom), path: 'OtherTarget.tsx' })
     expect(resolve(duplicateDeclaration, { x: 170, y: 20 })).toBeNull()
     const incompatible = fixture({ targetType: 'frame', sourceType: 'component' })
     expect(resolve(incompatible, { x: 170, y: 20 })).toBeNull()

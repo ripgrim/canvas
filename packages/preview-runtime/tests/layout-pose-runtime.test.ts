@@ -20,7 +20,7 @@ const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component
 const registry = fixtureRegistry
 const frameSize = { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false }
 const previewDocument = {
-  version: 2, revision: 1, rootIds: ['card-1'], frame: frameSize,
+  version: 3, revision: 1, rootIds: ['card-1'], frame: frameSize,
   nodes: {
     'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: {}, children: { children: ['input-1'] } },
     'input-1': { id: 'input-1', componentId: 'atom-input', exportName: 'Input', theme: lightTheme, props: { id: 'pose-email', type: 'email' }, children: {} },
@@ -69,7 +69,7 @@ beforeAll(async () => {
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
   send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 10, generation, ...payload }
     await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
   await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument })
@@ -81,7 +81,7 @@ afterAll(async () => { await dispose?.() }, 30_000)
 describe('pose measurement', () => {
   it('LAY-GEST-003: chained offsets, origins and transforms reproduce the rotated child box within 0.5 px', async () => {
     await send({ type: 'set-layout', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', layoutGeneration: 5, items: [
-      { nodeId: 'card-1', mode: 'absolute', x: 60, y: 80, order: 0, width: 300, height: 200, declarations: { transform: 'rotate(30deg) scale(1.5)' } },
+      { nodeId: 'card-1', mode: 'absolute', x: 60, y: 80, order: 0, width: 300, height: 200, declarations: { transform: 'matrix(1.299038105677, 0.75, -0.75, 1.299038105677, 0, 0)' } },
       { nodeId: 'input-1', mode: 'absolute', x: 5, y: 6, order: 0, width: 120 },
     ] })
     const geometry = await geometryFor(5)

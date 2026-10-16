@@ -7,15 +7,15 @@ import { replaceSelectionColor, selectionColorGroups } from './selection-colors'
 const literal = (hex: string): ColorValue => ({ kind: 'literal', color: hexColor(hex) })
 const token = (tokenId: string): ColorValue => ({ kind: 'token', tokenId })
 const file = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'file',
   revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    parent: { id: 'parent', type: 'frame', name: 'Parent', styles: { left: 0, top: 0, width: 100, height: 100 }, appearance: { fills: [{ id: 'fill-parent', type: 'solid', color: literal('#ff0000') }] } },
-    child: { id: 'child', type: 'rectangle', name: 'Child', styles: { left: 0, top: 0, width: 20, height: 20 }, appearance: { fills: [{ id: 'fill-child', type: 'solid', color: literal('#0000ff') }] } },
-    sibling: { id: 'sibling', type: 'rectangle', name: 'Sibling', styles: { left: 30, top: 0, width: 20, height: 20 }, appearance: { fills: [{ id: 'fill-sibling', type: 'solid', color: literal('#00ff00') }] } },
+    parent: { id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 }, appearance: { fills: [{ id: 'fill-parent', type: 'solid', color: literal('#ff0000') }] } },
+    child: { id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 20, height: 20 }, appearance: { fills: [{ id: 'fill-child', type: 'solid', color: literal('#0000ff') }] } },
+    sibling: { id: 'sibling', type: 'rectangle', name: 'Sibling', styles: { relativeTransform: [1, 0, 0, 1, 30, 0], width: 20, height: 20 }, appearance: { fills: [{ id: 'fill-sibling', type: 'solid', color: literal('#00ff00') }] } },
   },
   relationships: {
     parent: { parentId: 'root', orderKey: 'a' },

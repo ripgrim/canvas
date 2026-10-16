@@ -28,7 +28,7 @@ const nodes = (buttonAppearance?: object) => ({
   'label-1': { id: 'label-1', componentId: 'atom-label', exportName: 'Label', theme: lightTheme, props: { children: 'Email', htmlFor: 'baseline-email' }, children: {} },
   'button-1': { id: 'button-1', componentId: 'atom-button', exportName: 'Button', theme: lightTheme, props: { children: 'Go', type: 'button' }, children: {}, ...(buttonAppearance ? { appearance: buttonAppearance } : {}) },
 })
-const previewDocument = (revision: number, buttonAppearance?: object) => ({ version: 2, revision, rootIds: ['card-1', 'button-1'], nodes: nodes(buttonAppearance), frame: frameSize })
+const previewDocument = (revision: number, buttonAppearance?: object) => ({ version: 3, revision, rootIds: ['card-1', 'button-1'], nodes: nodes(buttonAppearance), frame: frameSize })
 const layoutItems = [
   { nodeId: 'button-1', mode: 'absolute', x: 40, y: 60, order: 0, width: 200, height: 44 },
   { nodeId: 'input-1', mode: 'absolute', x: 5, y: 6, order: 0, width: 120 },
@@ -110,7 +110,7 @@ beforeAll(async () => {
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
   send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 10, generation, ...payload }
     await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
 
@@ -147,7 +147,7 @@ beforeAll(async () => {
 
   const canvasDocument = (revision: number, width: number) => ({
     ...previewDocument(revision),
-    canvas: { elements: [{ id: 'canvas-frame', kind: 'frame', name: 'Frame', x: 0, y: 0, width, height: 80, rotation: 0, appearance: { fills: [{ type: 'solid', color: '#ff0000' }] }, parentId: null }] },
+    canvas: { elements: [{ id: 'canvas-frame', kind: 'frame', name: 'Frame', relativeTransform: [1, 0, 0, 1, 0, 0], width, height: 80, appearance: { fills: [{ type: 'solid', color: '#ff0000' }] }, parentId: null }] },
   })
   await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: canvasDocument(4, 100) })
   await frame.waitForSelector('[data-preview-canvas="canvas-frame"]')

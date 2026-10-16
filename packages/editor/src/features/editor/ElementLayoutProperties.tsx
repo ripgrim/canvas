@@ -3,6 +3,7 @@ import { PropertyField, PropertyGrid, PropertyGroup, PropertyHint, PropertySelec
 import { legacyLayout } from '@canvas/repo-engine/layout'
 import { documentStore } from './document-store'
 import { propertiesCopy as copy } from './properties-copy'
+import { positionPatch, primitiveBounds } from './matrix-style'
 
 const numeric = (value: string, minimum = -1000000) => {
   const next = Number(value)
@@ -17,9 +18,10 @@ export function ElementLayoutProperties() {
   if (!node || node.type === 'root') return null
   if (node.type !== 'component') {
     const styles = node.styles
+    const bounds = primitiveBounds(styles)
     return <PropertyGroup title={copy.layout}><PropertyHint>{copy.absoluteCanvas}</PropertyHint><PropertyGrid>
-      <PropertyField id={`${id}-x`} label={copy.x} type="number" value={String(styles.left)} disabled={state.blocked} onChange={value => { const next = numeric(value); if (next !== null) documentStore.commands.setStyles(id, { left: next }) }} />
-      <PropertyField id={`${id}-y`} label={copy.y} type="number" value={String(styles.top)} disabled={state.blocked} onChange={value => { const next = numeric(value); if (next !== null) documentStore.commands.setStyles(id, { top: next }) }} />
+      <PropertyField id={`${id}-x`} label={copy.x} type="number" value={String(bounds.x)} disabled={state.blocked} onChange={value => { const next = numeric(value); if (next !== null) documentStore.commands.setStyles(id, positionPatch(styles, 'x', next)) }} />
+      <PropertyField id={`${id}-y`} label={copy.y} type="number" value={String(bounds.y)} disabled={state.blocked} onChange={value => { const next = numeric(value); if (next !== null) documentStore.commands.setStyles(id, positionPatch(styles, 'y', next)) }} />
       <PropertyField id={`${id}-width`} label={copy.width} type="number" value={String(styles.width)} disabled={state.blocked} onChange={value => { const next = numeric(value, 1); if (next !== null) documentStore.commands.setStyles(id, { width: next }) }} />
       <PropertyField id={`${id}-height`} label={copy.height} type="number" value={String(styles.height)} disabled={state.blocked} onChange={value => { const next = numeric(value, 1); if (next !== null) documentStore.commands.setStyles(id, { height: next }) }} />
     </PropertyGrid></PropertyGroup>

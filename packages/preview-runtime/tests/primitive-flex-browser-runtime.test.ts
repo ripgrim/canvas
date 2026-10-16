@@ -13,10 +13,10 @@ const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component
 const evidencePath = resolve(import.meta.dirname, '../../../docs/research/evidence/paper-flex/primitive-flex-browser.png')
 const solid = (color: string) => ({ fills: [{ type: 'solid', color }] })
 const rectangle = (id: string, parentId: string, width: number, height: number, color: string, layout?: object) => ({
-  id, kind: 'rectangle', name: id, x: 999, y: 999, width, height, rotation: 0, parentId, appearance: solid(color), ...(layout ? { layout } : {}),
+  id, kind: 'rectangle', name: id, relativeTransform: [1, 0, 0, 1, 0, 0] as const, width, height, parentId, appearance: solid(color), ...(layout ? { layout } : {}),
 })
 const previewDocument = {
-  version: 2,
+  version: 3,
   revision: 7,
   rootIds: [],
   nodes: {},
@@ -24,25 +24,25 @@ const previewDocument = {
   canvas: {
     elements: [
       {
-        id: 'flex-frame', kind: 'frame', name: 'Flex frame', x: -300, y: -180, width: 260, height: 190, rotation: 0, parentId: null, clip: false, appearance: solid('#29292c'),
+        id: 'flex-frame', kind: 'frame', name: 'Flex frame', relativeTransform: [1, 0, 0, 1, -300, -180], width: 260, height: 190, parentId: null, clip: false, appearance: solid('#29292c'),
         layout: { mode: 'freeform', declarations: { display: 'flex', 'flex-direction': 'row', 'flex-wrap': 'wrap', 'justify-content': 'flex-start', 'align-items': 'flex-start', 'align-content': 'flex-start', 'column-gap': '10px', 'row-gap': '10px', 'padding-top': '10px', 'padding-right': '10px', 'padding-bottom': '10px', 'padding-left': '10px' } },
       },
       rectangle('flow-a', 'flex-frame', 100, 60, '#fb7185', { mode: 'flow', declarations: { width: '100px', height: '60px', 'flex-shrink': '0' } }),
       rectangle('flow-b', 'flex-frame', 100, 60, '#60a5fa', { mode: 'flow', declarations: { width: '100px', height: '60px', 'flex-shrink': '0' } }),
       rectangle('flow-c', 'flex-frame', 100, 60, '#4ade80', { mode: 'flow', declarations: { width: '100px', height: '60px', 'flex-shrink': '0' } }),
-      { ...rectangle('rotated-flow', 'flex-frame', 50, 30, '#f472b6', { mode: 'flow', declarations: { width: '50px', height: '30px', 'flex-shrink': '0' } }), rotation: 90 },
+      { ...rectangle('rotated-flow', 'flex-frame', 50, 30, '#f472b6', { mode: 'flow', declarations: { width: '50px', height: '30px', 'flex-shrink': '0' } }), relativeTransform: [0, 1, -1, 0, 0, 0] as const },
       rectangle('absolute-child', 'flex-frame', 40, 40, '#facc15', { mode: 'absolute', declarations: { position: 'absolute', left: '150px', top: '130px' } }),
-      { ...rectangle('rotated-absolute', 'flex-frame', 80, 40, '#22d3ee', { mode: 'absolute', declarations: { position: 'absolute', left: '70px', top: '135px' } }), rotation: 90 },
+      { ...rectangle('rotated-absolute', 'flex-frame', 80, 40, '#22d3ee', { mode: 'absolute', declarations: { position: 'absolute', left: '70px', top: '135px' } }), relativeTransform: [0, 1, -1, 0, 0, 0] as const },
       rectangle('right-edge', 'flex-frame', 30, 20, '#f97316', { mode: 'absolute', declarations: { position: 'absolute', right: '12px', top: '10px' } }),
       rectangle('bottom-edge', 'flex-frame', 30, 20, '#a3e635', { mode: 'absolute', declarations: { position: 'absolute', left: '10px', bottom: '14px' } }),
       rectangle('mixed-edge', 'flex-frame', 25, 25, '#e879f9', { mode: 'absolute', declarations: { position: 'absolute', right: '18px', bottom: '16px' } }),
       {
-        id: 'center-frame', kind: 'frame', name: 'Centered flex frame', x: 40, y: 60, width: 200, height: 160, rotation: 0, parentId: null, clip: false, appearance: solid('#29292c'),
+        id: 'center-frame', kind: 'frame', name: 'Centered flex frame', relativeTransform: [1, 0, 0, 1, 40, 60], width: 200, height: 160, parentId: null, clip: false, appearance: solid('#29292c'),
         layout: { mode: 'freeform', declarations: { display: 'flex', 'justify-content': 'center', 'align-items': 'center' } },
       },
       rectangle('center-child', 'center-frame', 40, 20, '#38bdf8', { mode: 'flow', declarations: { width: '40px', height: '20px', 'flex-shrink': '0' } }),
-      { id: 'legacy-frame', kind: 'frame', name: 'Legacy frame', x: 40, y: -180, width: 200, height: 190, rotation: 0, parentId: null, clip: false, appearance: solid('#29292c') },
-      { id: 'legacy-child', kind: 'rectangle', name: 'Legacy child', x: 20, y: 30, width: 80, height: 40, rotation: 0, parentId: 'legacy-frame', appearance: solid('#c084fc') },
+      { id: 'legacy-frame', kind: 'frame', name: 'Legacy frame', relativeTransform: [1, 0, 0, 1, 40, -180], width: 200, height: 190, parentId: null, clip: false, appearance: solid('#29292c') },
+      { id: 'legacy-child', kind: 'rectangle', name: 'Legacy child', relativeTransform: [1, 0, 0, 1, 20, 30], width: 80, height: 40, parentId: 'legacy-frame', appearance: solid('#c084fc') },
     ],
   },
 } as const
@@ -96,7 +96,7 @@ beforeAll(async () => {
   await page.goto(editorOrigin)
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
-  const command = { channel: 'design-editor-preview', version: 8, generation: result.activeGeneration, type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument, theme: { attribute: null, colorScheme: 'light' } }
+  const command = { channel: 'design-editor-preview', version: 10, generation: result.activeGeneration, type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument, theme: { attribute: null, colorScheme: 'light' } }
   await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, result.origin] as const)
   await frame.waitForSelector('[data-preview-canvas="flow-c"]')
   await waitFor(() => observe('flow-c'), value => value.rect.y > 200)
@@ -117,15 +117,15 @@ describe('PAPER-FLEX-001/002 primitive DOM layout in a real preview iframe', () 
     expect(c.rect).toEqual({ x: parent.rect.x + 10, y: parent.rect.y + 80, width: 100, height: 60 })
   })
 
-  it('preserves an absolute child inside flex and the untouched legacy freeform path beside it', async () => {
+  it('preserves an absolute child inside flex and the matrix-native freeform path beside it', async () => {
     const parent = await observe('flex-frame')
     const absolute = await observe('absolute-child')
     const legacyParent = await observe('legacy-frame')
     const legacyChild = await observe('legacy-child')
     expect(absolute).toMatchObject({ position: 'absolute', left: '150px', top: '130px', width: '40px', height: '40px' })
     expect(absolute.rect).toEqual({ x: parent.rect.x + 150, y: parent.rect.y + 130, width: 40, height: 40 })
-    expect(legacyParent).toMatchObject({ position: 'absolute', left: '40px', top: '-180px', display: 'block', width: '200px', height: '190px' })
-    expect(legacyChild).toMatchObject({ position: 'absolute', left: '20px', top: '30px', width: '80px', height: '40px' })
+    expect(legacyParent).toMatchObject({ position: 'absolute', left: '0px', top: '0px', display: 'block', width: '200px', height: '190px' })
+    expect(legacyChild).toMatchObject({ position: 'absolute', left: '0px', top: '0px', width: '80px', height: '40px' })
     expect(legacyChild.rect).toEqual({ x: legacyParent.rect.x + 20, y: legacyParent.rect.y + 30, width: 80, height: 40 })
   })
 
@@ -156,11 +156,11 @@ describe('PAPER-FLEX-001/002 primitive DOM layout in a real preview iframe', () 
     await page.evaluate(([data, origin]) => {
       document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string)
     }, [{
-      channel: 'design-editor-preview', version: 8, generation, type: 'set-transient-presentations',
+      channel: 'design-editor-preview', version: 10, generation, type: 'set-transient-presentations',
       presentations: [{
         kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'center-resize', sampleSequence: 1,
         fence: { documentRevision: 7, layoutGeneration: 0, measurementRevision: geometry!.measurementRevision },
-        items: [{ nodeId: 'center-frame', parentNodeId: null, startRect: { x: 40, y: 60, width: 200, height: 160 }, rect: { x: 40, y: 60, width: 300, height: 240 } }],
+        items: [{ nodeId: 'center-frame', parentNodeId: null, startRect: { x: 40, y: 60, width: 200, height: 160 }, rect: { x: 40, y: 60, width: 300, height: 240 }, nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 150, y: 120 } }],
       }],
     }, previewOrigin] as const)
 

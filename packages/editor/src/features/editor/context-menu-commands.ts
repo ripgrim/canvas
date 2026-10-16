@@ -53,7 +53,7 @@ export function frameSelectionPlan(file: FileDocument, pageId: string, ids: read
   if (!bounds) return null
   const parentWorld = parentId === page ? { x: 0, y: 0 } : worldPosition(file, parentId)
   const frameId = makeId()
-  const frame: FileNode = { id: frameId, type: 'frame', name: 'Frame', styles: { left: Math.round(bounds.x - parentWorld.x), top: Math.round(bounds.y - parentWorld.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), overflow: 'visible' } }
+  const frame: FileNode = { id: frameId, type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, Math.round(bounds.x - parentWorld.x), Math.round(bounds.y - parentWorld.y)], width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), overflow: 'visible' } }
   const commands: FileCommand[] = [{ type: 'node.insert', node: frame, placement: { parentId } }]
   for (const nodeId of roots) commands.push({ type: 'node.reparent', nodeId, placement: { parentId: frameId }, preserveWorldPosition: true })
   return { commands, selection: [frameId] }

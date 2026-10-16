@@ -20,6 +20,7 @@
     "@base-ui/react": "^1.0.0",
     "@canvas/auth": "workspace:*",
     "@canvas/cloud-client": "workspace:*",
+    "@canvas/cloud-document": "workspace:*",
     "@canvas/editor": "workspace:*",
     "@canvas/preview-runtime": "workspace:*",
     "@canvas/repo-engine": "workspace:*",

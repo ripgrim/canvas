@@ -15,6 +15,10 @@
     "@canvas/cloud-document": "workspace:*",
     "@canvas/database": "workspace:*",
     "@canvas/github-app": "workspace:*",
+    "@canvas/preview-runtime": "workspace:*",
+    "@canvas/repo-engine": "workspace:*",
+    "@canvas/repository": "workspace:*",
+    "@canvas/scanner": "workspace:*",
     "@canvas/sync-protocol": "workspace:*",
     "pg": "8.23.1"
   },

@@ -9,6 +9,16 @@ let snapshot = authSessionView('unavailable', null, 'Sign-in is unavailable in t
 const serverSnapshot = authSessionView('loading', null, 'Checking your session.')
 const listeners = new Set<() => void>()
 let unsubscribe: (() => void) | undefined
+let retryTimer: ReturnType<typeof setTimeout> | undefined
+let generation = 0
+
+const retryDelay = 1_000
+
+function clearRetry(): void {
+  if (retryTimer === undefined) return
+  clearTimeout(retryTimer)
+  retryTimer = undefined
+}
 
 function publish(next: AuthSessionView): void {
   if (Object.is(snapshot, next)) return
@@ -19,21 +29,52 @@ function publish(next: AuthSessionView): void {
   for (const listener of listeners) listener()
 }
 
+function scheduleRetry(activeGeneration: number): void {
+  if (retryTimer !== undefined || activeGeneration !== generation || !api) return
+  retryTimer = setTimeout(() => {
+    retryTimer = undefined
+    void refresh(activeGeneration)
+  }, retryDelay)
+}
+
+function accept(next: AuthSessionView, activeGeneration: number): void {
+  if (activeGeneration !== generation) return
+  publish(next)
+  if (next.status === 'offline') scheduleRetry(activeGeneration)
+  else clearRetry()
+}
+
+async function refresh(activeGeneration: number): Promise<void> {
+  const current = api
+  if (!current || activeGeneration !== generation) return
+  try {
+    accept(await current.getSession(), activeGeneration)
+  } catch (error) {
+    if (activeGeneration !== generation) return
+    const failure = failureDetails(error, 'The auth service could not be reached.')
+    trackCanvasEvent('operation_failed', { operation: 'auth_session', error_code: failure.code, error_reference: failure.reference })
+    accept(authSessionView('offline', null, failure.message, failure.reference), activeGeneration)
+  }
+}
+
 export const authSessionService = {
   configure(next: EditorAuthApi | undefined): void {
+    generation += 1
+    clearRetry()
     api = next
     publish(next ? authSessionView('loading', null, 'Checking your session.') : authSessionView('unavailable', null, 'Sign-in is unavailable in this build.'))
   },
   start(): void {
+    generation += 1
+    const activeGeneration = generation
+    clearRetry()
     unsubscribe?.()
-    unsubscribe = api?.subscribe(publish)
-    if (api) void api.getSession().then(publish).catch(error => {
-      const failure = failureDetails(error, 'The auth service could not be reached.')
-      trackCanvasEvent('operation_failed', { operation: 'auth_session', error_code: failure.code, error_reference: failure.reference })
-      publish(authSessionView('offline', null, failure.message, failure.reference))
-    })
+    unsubscribe = api?.subscribe(next => accept(next, activeGeneration))
+    void refresh(activeGeneration)
   },
   dispose(): void {
+    generation += 1
+    clearRetry()
     unsubscribe?.()
     unsubscribe = undefined
     api = undefined
@@ -44,21 +85,27 @@ export const authSessionService = {
   getServerSnapshot(): AuthSessionView { return serverSnapshot },
   allowsUnauthenticatedWorkspace(): boolean { return api === undefined || api.allowUnauthenticatedWorkspace === true },
   allowsSignedOutWorkspace(): boolean { return api?.allowSignedOutWorkspace === true },
+  retry(): void {
+    clearRetry()
+    void refresh(generation)
+  },
   signIn(): void {
     if (!api) return
+    const activeGeneration = generation
     trackCanvasEvent('sign_in_started', { auth_provider: 'github' })
-    void api.signInWithGitHub().then(publish).catch(error => {
+    void api.signInWithGitHub().then(next => accept(next, activeGeneration)).catch(error => {
       const failure = failureDetails(error, 'The auth service could not be reached.')
       trackCanvasEvent('operation_failed', { operation: 'auth_sign_in', error_code: failure.code, error_reference: failure.reference })
-      publish(authSessionView('offline', null, failure.message, failure.reference))
+      accept(authSessionView('offline', null, failure.message, failure.reference), activeGeneration)
     })
   },
   signOut(): void {
     if (!api) return
-    void api.signOut().then(publish).catch(error => {
+    const activeGeneration = generation
+    void api.signOut().then(next => accept(next, activeGeneration)).catch(error => {
       const failure = failureDetails(error, 'The auth service could not be reached.')
       trackCanvasEvent('operation_failed', { operation: 'auth_sign_out', error_code: failure.code, error_reference: failure.reference })
-      publish(authSessionView('offline', null, failure.message, failure.reference))
+      accept(authSessionView('offline', null, failure.message, failure.reference), activeGeneration)
     })
   },
 }

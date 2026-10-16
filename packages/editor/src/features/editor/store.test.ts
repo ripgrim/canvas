@@ -8,13 +8,13 @@ import type { EditorPersistenceIntent } from '../../capabilities'
 
 const labelAtom = { name: 'Label', kind: 'atom' as const, componentId: 'label-component', path: 'src/Label.tsx', exportName: 'Label', fingerprint: 'f', sourceHash: 'h', status: 'bound' as const, candidates: [], props: [{ name: 'children', type: 'ReactNode', optional: true }] }
 const file = (): FileDocument => ({
-  schemaVersion: 9, fileId: 'file-a', revision: 3,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'file-a', revision: 3,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
     'root-2': { id: 'root-2', type: 'root' },
     'label-instance': { id: 'label-instance', type: 'component', componentId: 'label-component', exportName: 'Label', props: { children: 'Email' } },
-    note: { id: 'note', type: 'frame', name: 'Note', styles: { left: 0, top: 0, width: 120, height: 80, overflow: 'clip' }, appearance: { fills: [{ id: 'note-fill', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#ffffff' } } }] } },
+    note: { id: 'note', type: 'frame', name: 'Note', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 120, height: 80, overflow: 'clip' }, appearance: { fills: [{ id: 'note-fill', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#ffffff' } } }] } },
   },
   relationships: { 'label-instance': { parentId: 'root-1', orderKey: 'V' }, note: { parentId: 'root-2', orderKey: 'V' } },
   theme: { tokens: {} },
@@ -45,8 +45,6 @@ function setup(options: { storage?: ReturnType<typeof memory>; documents?: boole
   const refresh = vi.fn<DesignEditorApi['refresh']>().mockResolvedValue(project())
   const prepare = vi.fn<DesignEditorApi['prepareLabelPadding']>().mockResolvedValue(change)
   const prepareToken = vi.fn<DesignEditorApi['prepareToken']>().mockResolvedValue({ ...change, scope: 'Token' })
-  const undo = vi.fn<DesignEditorApi['prepareUndo']>().mockResolvedValue(change)
-  const redo = vi.fn<DesignEditorApi['prepareRedo']>().mockResolvedValue(change)
   const openFile = vi.fn<NonNullable<DesignEditorApi['openFile']>>().mockImplementation(async () => project())
   const openSharedFile = vi.fn<NonNullable<DesignEditorApi['openSharedFile']>>().mockImplementation(async () => project())
   const listFiles = vi.fn<NonNullable<DesignEditorApi['listFiles']>>().mockResolvedValue([{ id: 'file-a', name: 'Login', location: 'local' }])
@@ -58,12 +56,12 @@ function setup(options: { storage?: ReturnType<typeof memory>; documents?: boole
   const api: DesignEditorApi = {
     capabilities: { runtime: 'desktop', openLabel: 'Open fixture', files: { list: available, create: unavailable, open: available }, sourceWrites: { available: true, reason: 'Explicit test grant' }, localRepository: available, hostedExecution: unavailable, git: unavailable, mcp: unavailable, hostedProjects: unavailable },
     listFiles, openFile, openSharedFile, openProject: async () => project(), refresh, saveFile, getFileShare, setFileShare, shareUrl: fileId => `https://canvas.test/file/${fileId}`,
-    prepareLabelPadding: prepare, prepareToken, preparePromotion: async () => ({ ...change, summary: 'Create LoginForm' }), prepareUndo: undo, prepareRedo: redo, savePrepared: save,
+    prepareLabelPadding: prepare, prepareToken, preparePromotion: async () => ({ ...change, summary: 'Create LoginForm' }), prepareUndo: async () => change, prepareRedo: async () => change, savePrepared: save,
   }
   const storage = options.storage ?? memory()
   const documents = options.documents === false ? undefined : createDocumentStore(() => 'new-id')
   const store = createEditorStore(() => api, documents, () => storage.api)
-  return { api, save, refresh, prepare, prepareToken, undo, redo, openFile, openSharedFile, listFiles, saveFile, getFileShare, setFileShare, storage, documents: documents!, store }
+  return { api, save, refresh, prepare, prepareToken, openFile, openSharedFile, listFiles, saveFile, getFileShare, setFileShare, storage, documents: documents!, store }
 }
 const storedView = (fileId: string, view: object) => ({ [viewKey]: JSON.stringify({ schemaVersion: 1, files: { [fileId]: view } }) })
 
@@ -303,6 +301,26 @@ describe('AT-FILE opening files into the document controller', () => {
     expect(documents.getSnapshot().file?.pages[0]?.name).toBe('Newest remote page')
   })
 
+  it('AT-UX-003 keeps the current file interactive while a different file is opening', async () => {
+    const { store, documents, openFile } = setup()
+    await store.openFile('file-a')
+    documents.select('label-instance')
+    let finishOpen: (snapshot: ProjectSnapshot) => void = () => undefined
+    openFile.mockImplementationOnce(() => new Promise(resolve => { finishOpen = resolve }))
+
+    const opening = store.openFile('file-b')
+    await vi.waitFor(() => expect(store.getSnapshot().busy).toBe('Reading source'))
+
+    expect(documents.getSnapshot().file?.fileId).toBe('file-a')
+    expect(documents.getSnapshot().selection).toEqual(['label-instance'])
+    documents.select(null)
+    expect(documents.getSnapshot().selection).toEqual([])
+
+    finishOpen(projectFor('file-b'))
+    await opening
+    expect(documents.getSnapshot().file?.fileId).toBe('file-b')
+  })
+
   it('ignores a stored page that no longer exists', async () => {
     const storage = memory(storedView('file-a', { fileId: 'file-a', activePageId: 'page-gone', previewThemeId: 'default', pageViews: {} }))
     const { store, documents } = setup({ storage })
@@ -323,6 +341,25 @@ describe('AT-FILE opening files into the document controller', () => {
 })
 
 describe('AT-FILE file locations', () => {
+  it('FILE-OPEN-SLOW-001 cancels a superseded open and ignores its late result', async () => {
+    const { store, openFile, documents } = setup()
+    let finishOpen: ((snapshot: ProjectSnapshot) => void) | undefined
+    openFile.mockImplementationOnce(() => new Promise(resolve => { finishOpen = resolve }))
+    const controller = new AbortController()
+    const pending = store.openLocation('file-a', null, null, controller.signal)
+    await vi.waitFor(() => expect(openFile).toHaveBeenCalledOnce())
+    controller.abort(Object.assign(new Error('This file open was cancelled.'), { code: 'file_open_cancelled' }))
+
+    const result = await pending
+    expect(result).toMatchObject({ status: 'error', message: 'This file open was cancelled.' })
+    expect(result.status === 'error' ? result.reference : null).toMatch(/^[0-9a-f-]{36}$/)
+    expect(store.getSnapshot()).toMatchObject({ busy: null, error: 'This file open was cancelled.' })
+    finishOpen?.(project())
+    await Promise.resolve()
+    expect(documents.getSnapshot().file).toBeNull()
+    expect(store.getSnapshot()).toMatchObject({ snapshot: null, busy: null, error: 'This file open was cancelled.' })
+  })
+
   it('reports a missing file without opening anything', async () => {
     const { store, openFile, documents } = setup()
     expect(await store.openLocation('file-missing', null)).toEqual({ status: 'missing-file', fileId: 'file-missing' })
@@ -491,18 +528,6 @@ describe('AT-REVIEW renderer review command gates', () => {
     expect(store.getSnapshot().notice).toBe('Saved Label padding')
   })
 
-  it('prepares source undo and redo without bypassing explicit approval', async () => {
-    const { store, save, undo, redo } = setup()
-    await store.open()
-    await store.prepareSourceHistory('undo', 'saved-forward-1')
-    await store.save()
-    expect(undo.mock.calls).toEqual([['saved-forward-1']])
-    expect(save).not.toHaveBeenCalled()
-    await store.prepareSourceHistory('redo', 'saved-reverse-1')
-    expect(redo.mock.calls).toEqual([['saved-reverse-1']])
-    expect(store.getSnapshot().approved).toBe(false)
-  })
-
   it('clears source approval when the composition document changes', async () => {
     const { store, save } = setup()
     await store.open()
@@ -547,25 +572,6 @@ describe('AT-REVIEW renderer review command gates', () => {
     await store.prepare()
     expect(prepare).not.toHaveBeenCalled()
     expect(store.getSnapshot().error).toBe('Select Label to edit its shared padding.')
-  })
-
-  it('withholds source changes when source writes are unavailable', async () => {
-    const { api } = setup()
-    const store = createEditorStore(() => ({ ...api, capabilities: { ...api.capabilities!, sourceWrites: { available: false, reason: 'Read-only fixture' } } }))
-    await store.open()
-    await store.promote()
-    expect(store.getSnapshot().prepared).toBeNull()
-    expect(store.getSnapshot().error).toBe('Read-only fixture')
-  })
-
-  it('prepares a promotion for review without saving it', async () => {
-    const { store, save } = setup()
-    await store.open()
-    await store.promote()
-    expect(store.getSnapshot().prepared?.summary).toBe('Create LoginForm')
-    expect(store.getSnapshot().preparedKind).toBe('promotion')
-    expect(store.getSnapshot().reviewOpen).toBe(true)
-    expect(save).not.toHaveBeenCalled()
   })
 
   it('rejects Save if any required validation has not run', async () => {

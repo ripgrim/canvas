@@ -14,6 +14,10 @@
 .appearance-line > * { flex: 1 1 0; min-width: 0; }
 .appearance-line[data-layout="value-actions"] > :first-child { flex: 1 1 auto; }
 .appearance-line[data-layout="value-actions"] > :not(:first-child) { flex: 0 0 auto; }
+.appearance-line[data-layout="border"] { display: grid; grid-template-columns: minmax(64px, 1.2fr) minmax(44px, .85fr) minmax(52px, 1fr) 20px 20px; gap: 2px; }
+.appearance-line[data-layout="border"] > * { min-width: 0; }
+.appearance-line[data-layout="border"] .inspector-field { gap: 2px; padding-inline: var(--space-xxs); }
+.appearance-line[data-layout="border"] > .appearance-icon-button { width: 20px; }
 .appearance-line > .appearance-icon-button, .appearance-line > .appearance-handle, .appearance-line > .appearance-segments, .appearance-line > .inspector-text-button { flex: 0 0 auto; }
 .appearance-line[data-lead] > :first-child { flex: 0 0 88px; }
 .appearance-line[data-lead] > :only-child { flex: 1 1 0; }
@@ -41,10 +45,10 @@
 .theme-dark .appearance-item[data-dragging] { background: var(--neutral-3); }
 .appearance-item[data-dragging] .appearance-handle { cursor: grabbing; }
 
-.appearance-select { display: grid; grid-template-columns: 12px minmax(0, 1fr) 12px; align-items: center; width: 100%; border: 0; text-align: center; cursor: pointer; }
-.appearance-select::before { content: ''; width: 12px; height: 12px; }
-.appearance-select[data-prefix]::before { display: none; }
+.appearance-select { display: grid; grid-template-columns: minmax(0, 1fr) 12px; align-items: center; gap: var(--space-xxs); width: 100%; border: 0; text-align: center; cursor: pointer; }
+.appearance-select[data-prefix] { grid-template-columns: 12px minmax(0, 1fr) 12px; }
 .appearance-select-prefix { justify-content: center; }
+.appearance-select-prefix .icon { width: 12px; height: 12px; }
 .appearance-select[data-mixed] .appearance-select-value { color: var(--neutral-5); }
 .appearance-select-value { display: flex; align-items: center; justify-content: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .appearance-select[data-align="start"] { text-align: left; }
@@ -52,12 +56,16 @@
 .appearance-select > .inspector-select-chevron { justify-self: end; }
 .appearance-select-positioner { z-index: 320; min-width: var(--anchor-width); }
 .appearance-select-positioner[data-layer="popover"] { z-index: 331; }
+.appearance-select-positioner[data-layer="dialog"] { z-index: 350; }
 .appearance-select-popup { width: var(--anchor-width); max-height: min(460px, var(--available-height)); overflow: hidden; border: 0; border-radius: var(--radius-s); background: color-mix(in srgb, var(--neutral-2) 92%, transparent); color: var(--neutral-10); box-shadow: var(--border-shadow-s), var(--shadow-m); backdrop-filter: blur(12px); transform-origin: var(--transform-origin); }
 .theme-light .appearance-select-popup { background: color-mix(in srgb, var(--neutral-1) 94%, transparent); }
 .appearance-select-list { max-height: min(460px, var(--available-height)); overflow-y: auto; padding: var(--space-xxs); outline: none; }
 .appearance-select-group { display: contents; }
+.appearance-select-group-label { display: block; padding: var(--space-xxs) var(--space-s); color: var(--neutral-6); font-family: var(--font-ui); font-size: var(--size-xxs); line-height: var(--line-xxs); letter-spacing: var(--letter-spacing-xxs); }
 .appearance-select-item { position: relative; display: flex; align-items: center; justify-content: center; gap: var(--space-s); min-height: 28px; padding: 0 var(--space-xl); border-radius: var(--radius-xs); color: var(--neutral-9); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); text-align: center; cursor: default; outline: none; }
 .appearance-select-positioner[data-align="start"] .appearance-select-item { justify-content: flex-start; text-align: left; }
+.appearance-select-item-icon { display: inline-flex; flex: 0 0 12px; color: var(--neutral-7); }
+.appearance-select-item-icon .icon { width: 12px; height: 12px; }
 .appearance-select-item[data-highlighted] { background: var(--neutral-4); color: var(--neutral-10); }
 .theme-light .appearance-select-item[data-highlighted] { background: var(--neutral-3); }
 .appearance-select-item[data-disabled] { color: var(--neutral-5); }

@@ -68,6 +68,13 @@ describe('AT-P0-001, AT-SCAN-001, AT-COMP-001, and AT-PRV-001 verified component
     await expect(verifyComponentRegistry(repositoryRoot, { ...request, components: [withoutSlots] } as never)).rejects.toThrow('Invalid or duplicate component binding')
   })
 
+  it('[AT-SCAN-001] rejects malformed prop optionality evidence', async () => {
+    await expect(verifyComponentRegistry(repositoryRoot, {
+      ...request,
+      components: [{ ...request.components[0], props: { tone: { ...request.components[0].props.tone, optional: 'yes' } } }],
+    } as never)).rejects.toThrow('Invalid component prop rule')
+  })
+
   it('[AT-SCAN-001] requires explicit selected-component schema when adapting a preview binding', () => {
     const selected = { componentId: 'panel', entryPath: 'Panel.tsx', exportName: 'Panel' }
     expect(() => registryRequestFromPreviewBinding({ ...selected, registry: [selected] })).toThrow('needs explicit props and slots')

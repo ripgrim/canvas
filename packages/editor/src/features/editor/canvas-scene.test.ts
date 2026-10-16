@@ -6,18 +6,18 @@ import { buildScene, clickTarget, containingFrameAt, displayName, drillTarget, h
 const appearance = { fills: [{ id: 'white-fill', type: 'solid' as const, color: { kind: 'literal' as const, color: { kind: 'hex' as const, hex: '#ffffff' } } }] }
 /** Page 1: card > button (measured components), frame (300,0) > inner (+20,+20) > text (+10,+10), loose rectangle. */
 const file = (innerOverflow: 'clip' | 'visible' = 'clip'): FileDocument => ({
-  schemaVersion: 9, fileId: 'file-a', revision: 0,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'file-a', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
     'root-2': { id: 'root-2', type: 'root' },
     card: { id: 'card', type: 'component', componentId: 'atom-card', exportName: 'Card', name: 'Login Card', props: {} },
     button: { id: 'button', type: 'component', componentId: 'atom-button', exportName: 'Button', props: { children: 'Sign in' } },
-    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 300, top: 0, width: 200, height: 200, overflow: 'clip' }, appearance },
-    inner: { id: 'inner', type: 'frame', name: 'Inner', styles: { left: 20, top: 20, width: 100, height: 100, overflow: innerOverflow }, appearance },
-    text: { id: 'text', type: 'text', name: 'Text', styles: { left: 10, top: 10, width: 300, height: 40 }, appearance, text: '  Welcome   back to the workspace today ', ...legacyTextProperties() },
-    loose: { id: 'loose', type: 'rectangle', name: 'Rectangle', styles: { left: -600, top: -600, width: 50, height: 50 }, appearance },
-    elsewhere: { id: 'elsewhere', type: 'rectangle', name: 'Elsewhere', styles: { left: 0, top: 0, width: 10, height: 10 }, appearance },
+    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 300, 0], width: 200, height: 200, overflow: 'clip' }, appearance },
+    inner: { id: 'inner', type: 'frame', name: 'Inner', styles: { relativeTransform: [1, 0, 0, 1, 20, 20], width: 100, height: 100, overflow: innerOverflow }, appearance },
+    text: { id: 'text', type: 'text', name: 'Text', styles: { relativeTransform: [1, 0, 0, 1, 10, 10], width: 300, height: 40 }, appearance, text: '  Welcome   back to the workspace today ', ...legacyTextProperties() },
+    loose: { id: 'loose', type: 'rectangle', name: 'Rectangle', styles: { relativeTransform: [1, 0, 0, 1, -600, -600], width: 50, height: 50 }, appearance },
+    elsewhere: { id: 'elsewhere', type: 'rectangle', name: 'Elsewhere', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 }, appearance },
   },
   relationships: {
     card: { parentId: 'root-1', orderKey: 'V' },
@@ -63,7 +63,7 @@ describe('AT-CAN scene identity and geometry', () => {
     expect(ids(buildScene(file(), 'page-1', generated, 5).nodes)).toEqual(['frame', 'inner', 'text', 'loose'])
   })
 
-  it('uses measured used dimensions only for intrinsic text axes and preserves the authored alignment anchor', () => {
+  it('uses current DOM geometry for intrinsic text, including its resolved alignment and parent box edges', () => {
     const source = file()
     const text = source.nodes.text
     if (!text || text.type !== 'text' || !text.textStyle || !text.textSizing) throw new Error('Text fixture is missing')
@@ -73,7 +73,7 @@ describe('AT-CAN scene identity and geometry', () => {
     expect(buildScene(source, 'page-1', geometry, 2).byId.get('text')?.rect).toEqual({ x: 390, y: 30, width: 180, height: 24 })
 
     text.textStyle = { ...text.textStyle, horizontalAlign: 'right' }
-    expect(buildScene(source, 'page-1', geometry, 2).byId.get('text')?.rect).toEqual({ x: 450, y: 30, width: 180, height: 24 })
+    expect(buildScene(source, 'page-1', geometry, 2).byId.get('text')?.rect).toEqual({ x: 390, y: 30, width: 180, height: 24 })
   })
 
   it('ignores native measurements for fixed text and fixed non-text primitives', () => {
@@ -133,7 +133,7 @@ describe('AT-CAN scene identity and geometry', () => {
     const inner = source.nodes.inner
     if (!inner || inner.type !== 'frame') throw new Error('Inner frame fixture is missing')
     inner.layout = { container: { display: 'freeform' }, item: { position: { mode: 'absolute', right: { kind: 'px', value: 12 }, bottom: { kind: 'px', value: 8 } } } }
-    inner.styles = { ...inner.styles, rotation: 90 }
+    inner.styles = { ...inner.styles, relativeTransform: [0, 1, -1, 0, 120, 20] }
     const geometry = { ...measured, inner: { canvasKind: 'frame' as const, documentRevision: source.revision, layoutGeneration: 4, rect: { x: 440, y: 50, width: 120, height: 80 } } }
     const node = buildScene(source, 'page-1', geometry, 4).byId.get('inner')
     expect(node).toMatchObject({ rect: { x: 440, y: 50, width: 120, height: 80 }, rotation: 90 })

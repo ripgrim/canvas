@@ -18,14 +18,14 @@ const zeroBox = { border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { t
 
 function document(locked = false): FileDocument {
   return {
-    schemaVersion: 9,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'hud-file', revision: fileRevision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },
       selected: {
         id: 'selected', type: 'rectangle', name: 'Selected', isLocked: locked,
-        styles: { left: -70, top: 10, width: 100, height: 70 },
+        styles: { relativeTransform: [1, 0, 0, 1, -70, 10], width: 100, height: 70 },
         layout: { item: { position: { mode: 'freeform' } } },
       },
     },
@@ -68,13 +68,13 @@ function authority(options: { locked?: boolean; measurement?: MeasuredNode; came
 
 function nestedAuthority(): GestureAuthoritySnapshot {
   const file: FileDocument = {
-    schemaVersion: 9, fileId: 'nested-hud-file', revision: fileRevision,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'nested-hud-file', revision: fileRevision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },
       parent: {
         id: 'parent', type: 'frame', name: 'Parent',
-        styles: { left: -90, top: 20, width: 100, height: 100, rotation: 90, overflow: 'visible' },
+        styles: { relativeTransform: [0, 1, -1, 0, 10, 20], width: 100, height: 100, overflow: 'visible' },
         layout: { item: { position: { mode: 'freeform' } } },
       },
       selected: { id: 'selected', type: 'component', name: 'Card', componentId: 'card', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'freeform' } } } },
@@ -125,6 +125,7 @@ function resize(quad: HudQuad = worldQuad, effectiveHandle: ResizePresentation['
   const item: ResizePresentationItem = {
     nodeId: 'selected', parentId: 'root', coordinateSpace: 'parent-padding',
     startRect: { x: 0, y: 0, width: 100, height: 50 }, rect: { ...localRect },
+    nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: localRect.width / 2, y: localRect.height / 2 },
     world: { quad, aabb: bounds(quad) },
   }
   return {
@@ -319,6 +320,28 @@ describe('PAPER-FLEX-006-HUD / PAPER-FLEX-007-HUD / AT-DOC-003-HUD shared HUD pr
     expect(entry?.worldQuad).toStrictEqual(worldQuad)
     // A rect-plus-rotation reconstruction from measurement.rect would start at the AABB corner.
     expect(entry?.worldQuad[0]).not.toStrictEqual({ x: -70, y: 10 })
+  })
+
+  it('AT-APP-005 projects a translated matrix when the browser has no offset-parent topology', () => {
+    const measured = measurement({
+      rect: { ...worldAabb },
+      worldAabb: { ...worldAabb },
+      offset: { x: 0, y: 0, width: 100, height: 70, origin: { x: 0, y: 0 } },
+      transform: [1, 0, 0, 1, -70, 10],
+    })
+    delete measured.offsetParentNodeId
+    delete measured.offsetParentToRoot
+    const captured = authority({ measurement: measured })
+
+    const entry = projectHudFrame({ authority: captured, view: view(captured) })?.byNodeId.selected
+
+    expect(entry?.worldQuad).toStrictEqual([
+      { x: -70, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 80 },
+      { x: -70, y: 80 },
+    ])
+    expect(entry?.policy).toMatchObject({ selected: true, showOutline: true, showHandles: true })
   })
 
   it('proves a nested primitive-border-transform chain and Component identity with literal quads', () => {

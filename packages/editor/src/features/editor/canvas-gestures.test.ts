@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { childrenOf as fileChildren, nodeAppearance } from '@canvas/repo-engine/file-document'
 import { expandedCornerRadii } from '@canvas/repo-engine/appearance'
+import { legacyPoseFromMatrix } from '@canvas/repo-engine/layout-pose'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { createCanvasGestures } from './canvas-gestures'
 import type { CanvasInteractionController } from './canvas-gestures'
 import { createDocumentStore } from './document-store'
 import { createCanvasHudProjectionService } from './canvas-hud-projection-service'
+import { createPreviewCameraStore } from './preview-camera-store'
 import type { sceneGeometry } from './scene-geometry'
 import type { SceneGeometry } from './scene-geometry'
 import type { PreviewResizeSample } from './preview-service'
@@ -15,16 +17,16 @@ import { cornerRadiusHandlePoses } from './corner-radius-handles'
 const solid = (id: string, hex: string) => ({ id, type: 'solid' as const, color: { kind: 'literal' as const, color: { kind: 'hex' as const, hex } } })
 const textStyle = { fontFamily: 'Inter', fontStyle: 'normal' as const, fontWeight: 400, fontSize: 16, lineHeight: { kind: 'normal' as const }, letterSpacing: 0, horizontalAlign: 'left' as const, verticalAlign: 'top' as const, case: 'none' as const, wrap: 'normal' as const, keepWords: false }
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'gesture-file',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
-    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 240, height: 180, overflow: 'clip' }, appearance: { fills: [solid('frame-fill', '#685fff')] } },
-    child: { id: 'child', type: 'rectangle', name: 'Child', styles: { left: 20, top: 20, width: 160, height: 100 }, appearance: { fills: [solid('child-fill', '#ffffff')] } },
-    text: { id: 'text', type: 'text', name: 'Text', text: 'Hello', textStyle, textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } }, styles: { left: 300, top: 0, width: 120, height: 40 } },
-    'nested-text': { id: 'nested-text', type: 'text', name: 'Nested text', text: 'Nested', textStyle, textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } }, styles: { left: 10, top: 140, width: 80, height: 20 } },
+    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 240, height: 180, overflow: 'clip' }, appearance: { fills: [solid('frame-fill', '#685fff')] } },
+    child: { id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 20, 20], width: 160, height: 100 }, appearance: { fills: [solid('child-fill', '#ffffff')] } },
+    text: { id: 'text', type: 'text', name: 'Text', text: 'Hello', textStyle, textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } }, styles: { relativeTransform: [1, 0, 0, 1, 300, 0], width: 120, height: 40 } },
+    'nested-text': { id: 'nested-text', type: 'text', name: 'Nested text', text: 'Nested', textStyle, textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } }, styles: { relativeTransform: [1, 0, 0, 1, 10, 140], width: 80, height: 20 } },
   },
   relationships: {
     frame: { parentId: 'root-1', orderKey: 'V' },
@@ -47,21 +49,23 @@ const measuredGeometry = (store: ReturnType<typeof createDocumentStore>): SceneG
     const parent = file.nodes[relationship.parentId]
     const parentPosition = parent?.type === 'root' ? { x: 0, y: 0 } : position(relationship.parentId)
     const styles = node.type === 'component' ? null : node.styles
-    return { x: parentPosition.x + (styles?.left ?? 0), y: parentPosition.y + (styles?.top ?? 0) }
+    const pose = styles ? legacyPoseFromMatrix(styles.relativeTransform, styles) : null
+    return { x: parentPosition.x + (pose?.left ?? styles?.relativeTransform[4] ?? 0), y: parentPosition.y + (pose?.top ?? styles?.relativeTransform[5] ?? 0) }
   }
   for (const [id, node] of Object.entries(file.nodes)) {
     if (node.type === 'root') continue
     const relationship = file.relationships[id]!, parent = file.nodes[relationship.parentId]!
     const styles = node.type === 'component' ? null : node.styles
     const width = styles?.width ?? 1, height = styles?.height ?? 1, world = position(id)
-    const local = parent.type === 'root' ? world : { x: styles?.left ?? 0, y: styles?.top ?? 0 }
+    const pose = styles ? legacyPoseFromMatrix(styles.relativeTransform, styles) : null
+    const local = parent.type === 'root' ? world : { x: pose?.left ?? styles?.relativeTransform[4] ?? 0, y: pose?.top ?? styles?.relativeTransform[5] ?? 0 }
     nodes[id] = {
       ...(node.type === 'component' ? { componentId: node.componentId } : { canvasKind: node.type }),
       documentRevision: file.revision, layoutGeneration: state.layoutGeneration,
       rect: { ...world, width, height }, worldAabb: { ...world, width, height },
       offset: { ...local, width, height, origin: { x: width / 2, y: height / 2 } },
       offsetParentNodeId: parent.type === 'root' ? null : parent.id, directChild: true,
-      transform: styles?.rotation === 180 ? [-1, 0, 0, -1, 0, 0] : styles?.rotation === 90 ? [0, 1, -1, 0, 0, 0] : [1, 0, 0, 1, 0, 0],
+      transform: styles ? [styles.relativeTransform[0], styles.relativeTransform[1], styles.relativeTransform[2], styles.relativeTransform[3], 0, 0] : [1, 0, 0, 1, 0, 0],
       offsetParentToRoot: [1, 0, 0, 1, 0, 0] as const,
       box: { border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { top: 0, right: 0, bottom: 0, left: 0 } },
     }
@@ -74,6 +78,7 @@ const setup = (
   viewportOrigin = { left: 0, top: 0 },
   geometryFactory?: (store: ReturnType<typeof createDocumentStore>) => typeof sceneGeometry,
   sourceFile = fixture(),
+  presentedCamera?: { x: number; y: number; zoom: number; width: number; height: number },
 ) => {
   const store = createDocumentStore(() => 'unused')
   store.load(sourceFile, [])
@@ -85,20 +90,35 @@ const setup = (
     update: () => undefined,
     clear: () => undefined,
   } as typeof sceneGeometry
-  const projections = createCanvasHudProjectionService(store, geometry, { getSnapshot: () => false, subscribe: () => () => undefined })
+  const cameras = createPreviewCameraStore()
+  if (presentedCamera) {
+    cameras.expect(1, 1)
+    cameras.publish(1, 1, presentedCamera)
+  }
+  const projections = createCanvasHudProjectionService(store, geometry, { getSnapshot: () => false, subscribe: () => () => undefined }, undefined, cameras)
   projections.start()
   const resizeSamples: PreviewResizeSample[] = []
   const preview = {
     publishResizePresentation: vi.fn((sample: PreviewResizeSample) => { resizeSamples.push(sample); return true }),
     clearResizePresentation: vi.fn(() => true),
-    publishRotationPreview: vi.fn(() => true),
-    clearRotationPreview: vi.fn(() => true),
     syncCommittedDocument: vi.fn(() => null),
   }
   const gestures = createCanvasGestures(store, geometry, interactions, projections, preview)
   gestures.attach({ getBoundingClientRect: () => viewportOrigin } as HTMLElement)
-  return { store, geometry, projections, gestures, preview, resizeSamples }
+  return { store, geometry, projections, gestures, preview, resizeSamples, cameras }
 }
+
+describe('AT-CAN-PAN-001 presented-camera hit testing', () => {
+  it('selects the visible node while a newer target camera is still awaiting preview acknowledgement', () => {
+    const { store, gestures } = setup(undefined, { left: 0, top: 0 }, undefined, fixture(), { x: 100, y: 0, zoom: 1, width: 1000, height: 800 })
+    store.select(null)
+
+    expect(gestures.stagePointerDown(pointer(610, 410))).toBe(true)
+    gestures.pointerUp(pointer(610, 410))
+
+    expect(store.getSnapshot().selection).toStrictEqual(['frame'])
+  })
+})
 
 describe('AT-CAN-003 canvas corner radius gesture', () => {
   it('previews from the renderer-owned quad and commits one uniform radius history step', () => {
@@ -227,7 +247,7 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
         return Promise.resolve({ ...next, revision: next.revision + 1 })
       },
     })
-    expect(store.commands.setStyles('child', { left: 21 })).toBe(true)
+    expect(store.commands.setStyles('child', { relativeTransform: [1, 0, 0, 1, 21, 20] })).toBe(true)
 
     gestures.stagePointerDown(pointer(550, 450))
     gestures.pointerMove(pointer(560, 450))
@@ -691,7 +711,7 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
 
   it('AT-CAN-006 uses local axes for 180-degree resize while preserving the visual handle identity', () => {
     const { store, gestures, resizeSamples } = setup()
-    expect(store.commands.setStyles('text', { rotation: 180 })).toBe(true)
+    expect(store.commands.setStyles('text', { relativeTransform: [-1, 0, 0, -1, 420, 40] })).toBe(true)
     store.select('text')
     expect(gestures.handlePointerDown(pointer(800, 400), 'text', 'top-left')).toBe(true)
     gestures.pointerMove(pointer(810, 420))
@@ -707,20 +727,24 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
       canCommitInteraction: vi.fn(() => true),
       endInteraction: vi.fn(),
     }
-    const { store, gestures, preview } = setup(interactions)
+    const { store, gestures, preview, resizeSamples } = setup(interactions)
     const before = store.getHistory().past.length
 
     expect(gestures.rotationPointerDown(pointer(740, 400), 'frame', 'top-right')).toBe(true)
     gestures.pointerMove(pointer(710, 610))
 
-    expect(preview.publishRotationPreview).toHaveBeenLastCalledWith('frame', 90)
-    expect((store.getSnapshot().file?.nodes.frame as { styles?: { rotation?: number } }).styles?.rotation).toBeUndefined()
+    const rotationPreview = resizeSamples.at(-1)?.presentation.byNodeId.frame
+    expect(rotationPreview?.nodeTransform[0]).toBeCloseTo(0, 12)
+    expect(rotationPreview?.nodeTransform[1]).toBeCloseTo(1, 12)
+    expect(rotationPreview?.nodeTransform[2]).toBeCloseTo(-1, 12)
+    expect(rotationPreview?.nodeTransform[3]).toBeCloseTo(0, 12)
+    expect((store.getSnapshot().file?.nodes.frame as { styles?: { relativeTransform: readonly number[] } }).styles?.relativeTransform).toEqual([1, 0, 0, 1, 0, 0])
 
     gestures.pointerUp(pointer(710, 610))
 
-    expect((store.getSnapshot().file?.nodes.frame as { styles?: { rotation?: number } }).styles?.rotation).toBe(90)
+    expect((store.getSnapshot().file?.nodes.frame as { styles?: { relativeTransform: readonly number[] } }).styles?.relativeTransform).toEqual([0, 1, -1, 0, 210, -30])
     expect(store.getHistory().past).toHaveLength(before + 1)
-    expect(preview.clearRotationPreview).toHaveBeenCalledOnce()
+    expect(preview.clearResizePresentation).toHaveBeenCalledOnce()
     expect(interactions.endInteraction).toHaveBeenCalledWith('rotation-1')
   })
 
@@ -733,7 +757,7 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
     expect(resizeSamples.at(-1)?.presentation.byNodeId.text?.rect).toEqual({ x: 300, y: 0, width: 160.5, height: 40 })
     gestures.pointerUp(pointer(960.5, 420))
     expect(store.getSnapshot().file?.nodes.text).toMatchObject({
-      styles: { left: 300, top: 0, width: 160.5, height: 40 },
+      styles: { relativeTransform: [1, 0, 0, 1, 300, 0], width: 160.5, height: 40 },
       textSizing: { width: { mode: 'fixed' }, height: { mode: 'fit' } },
     })
     expect(store.getHistory().past).toHaveLength(before + 1)
@@ -857,13 +881,13 @@ describe('CLOUD-SYNC-GESTURE-001 live collaboration gestures', () => {
 const primitivePosition = (store: ReturnType<typeof createDocumentStore>, id: 'frame' | 'child') => {
   const node = store.getSnapshot().file!.nodes[id]
   if (!node || node.type === 'root' || node.type === 'component') throw new Error(`${id} is not a primitive`)
-  return { left: node.styles.left, top: node.styles.top }
+  return { left: node.styles.relativeTransform[4], top: node.styles.relativeTransform[5] }
 }
 
 const primitiveRect = (store: ReturnType<typeof createDocumentStore>, id: 'frame' | 'child') => {
   const node = store.getSnapshot().file!.nodes[id]
   if (!node || node.type === 'root' || node.type === 'component') throw new Error(`${id} is not a primitive`)
-  return { left: node.styles.left, top: node.styles.top, width: node.styles.width, height: node.styles.height }
+  return { left: node.styles.relativeTransform[4], top: node.styles.relativeTransform[5], width: node.styles.width, height: node.styles.height }
 }
 
 const flowFixture = (): FileDocument => {
@@ -923,7 +947,7 @@ describe('PAPER-FLEX-006 production flow drag controller', () => {
     await vi.waitFor(() => expect(store.getSnapshot().file!.relationships.child!.parentId).toBe('root-1'))
     expect(store.getSnapshot().file!.nodes.child).toMatchObject({
       layout: { item: { position: { mode: 'freeform' } } },
-      styles: { left: 270, top: 270, width: 160, height: 100 },
+      styles: { relativeTransform: [1, 0, 0, 1, 270, 270], width: 160, height: 100 },
     })
     expect(store.getSnapshot().selection).toEqual(['child'])
   })
@@ -1085,7 +1109,7 @@ describe('AT-CAN-005 selected container pointer precedence', () => {
     gestures.pointerUp({ ...pointer(562, 450), altKey: true })
 
     expect(primitivePosition(store, 'child')).toEqual({ left: 20, top: 20 })
-    expect(store.getSnapshot().file!.nodes.unused).toMatchObject({ id: 'unused', type: 'rectangle', styles: { left: 32, top: 20, width: 160, height: 100 } })
+    expect(store.getSnapshot().file!.nodes.unused).toMatchObject({ id: 'unused', type: 'rectangle', styles: { relativeTransform: [1, 0, 0, 1, 32, 20], width: 160, height: 100 } })
     expect(store.getSnapshot().selection).toEqual(['unused'])
   })
 

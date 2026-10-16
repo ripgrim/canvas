@@ -9,9 +9,9 @@ import { planPaperWrap } from './layout-wrap-planner'
 
 const px = (value: number) => ({ kind: 'px' as const, value })
 const root = { id: 'root', type: 'root' as const }
-const frame = (id: string, left = 0, top = 0, width = 400, height = 300): PrimitiveNode & { type: 'frame' } => ({ id, type: 'frame', name: 'Frame', styles: { left, top, width, height, overflow: 'visible' } })
+const frame = (id: string, left = 0, top = 0, width = 400, height = 300): PrimitiveNode & { type: 'frame' } => ({ id, type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, left, top], width, height, overflow: 'visible' } })
 const rect = (id: string, left: number, top: number, width: number, height: number, mode: 'freeform' | 'absolute' | 'flow' = 'freeform'): PrimitiveNode => ({
-  id, type: 'rectangle', name: id, styles: { left, top, width, height },
+  id, type: 'rectangle', name: id, styles: { relativeTransform: [1, 0, 0, 1, left, top], width, height },
   ...(mode === 'freeform' ? {} : { layout: { item: { position: mode === 'absolute' ? { mode, left: px(left), right: { kind: 'percent', value: 12 }, top: px(top), bottom: px(7), zIndex: 4 } : { mode } } } }),
 })
 const textStyle = (): TextStyle => ({
@@ -20,13 +20,13 @@ const textStyle = (): TextStyle => ({
   horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false,
 })
 const textNode = (id: string, left: number, top: number, width: number, height: number, textSizing: TextSizing, layout?: NodeLayout): PrimitiveNode => ({
-  id, type: 'text', name: id, styles: { left, top, width, height }, text: id,
+  id, type: 'text', name: id, styles: { relativeTransform: [1, 0, 0, 1, left, top], width, height }, text: id,
   textStyle: textStyle(), textSizing,
   ...(layout ? { layout } : {}),
 })
-const file = (nodes: FileDocument['nodes'], relationships: FileDocument['relationships'], revision = 4): FileDocument => ({ schemaVersion: 9, fileId: 'wrap-file', revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes: { root, ...nodes }, relationships, theme: { tokens: {} } })
+const file = (nodes: FileDocument['nodes'], relationships: FileDocument['relationships'], revision = 4): FileDocument => ({ schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'wrap-file', revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes: { root, ...nodes }, relationships, theme: { tokens: {} } })
 const validFile = (nodes: FileDocument['nodes'], relationships: FileDocument['relationships'], rootId: string): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: '00000000-0000-4000-8000-000000000001',
   revision: 4,
   pages: [{ id: '00000000-0000-4000-8000-000000000002', name: 'Page', rootNodeId: rootId }],
@@ -38,9 +38,9 @@ const measured = (node: PrimitiveNode, parentId: string | null, revision = 4, ge
   canvasKind: node.type,
   documentRevision: revision,
   layoutGeneration: generation,
-  rect: { x: node.styles.left, y: node.styles.top, width: node.styles.width, height: node.styles.height },
-  worldAabb: { x: node.styles.left, y: node.styles.top, width: node.styles.width, height: node.styles.height },
-  offset: { x: node.styles.left, y: node.styles.top, width: node.styles.width, height: node.styles.height, origin: { x: node.styles.width / 2, y: node.styles.height / 2 } },
+  rect: { x: node.styles.relativeTransform[4], y: node.styles.relativeTransform[5], width: node.styles.width, height: node.styles.height },
+  worldAabb: { x: node.styles.relativeTransform[4], y: node.styles.relativeTransform[5], width: node.styles.width, height: node.styles.height },
+  offset: { x: node.styles.relativeTransform[4], y: node.styles.relativeTransform[5], width: node.styles.width, height: node.styles.height, origin: { x: node.styles.width / 2, y: node.styles.height / 2 } },
   offsetParentNodeId: parentId,
   ...(parentId === null ? { offsetParentToRoot: [1, 0, 0, 1, 0, 0] as Matrix } : {}),
   directChild: true,
@@ -81,7 +81,7 @@ describe('Paper Wrap planner', () => {
       groups: [{
         parentId: 'root',
         wrapper: {
-          id: 'wrap', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 110, height: 10, overflow: 'visible' },
+          id: 'wrap', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 110, height: 10, overflow: 'visible' },
           layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', gap: 40, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } },
         },
         children: [
@@ -135,9 +135,9 @@ describe('Paper Wrap planner', () => {
     ])
     const final = applyFileCommand(source, result.command, [])
     expect(validateFileDocument(final, [])).toStrictEqual(final)
-    expect((final.nodes.fill as PrimitiveNode).styles).toStrictEqual({ left: 0, top: 0, width: 137, height: 20 })
-    expect((final.nodes.relative as PrimitiveNode).styles).toStrictEqual({ left: 150, top: 0, width: 96, height: 20 })
-    expect((final.nodes.constrained as PrimitiveNode).styles).toStrictEqual({ left: 260, top: 0, width: 88, height: 20 })
+    expect((final.nodes.fill as PrimitiveNode).styles).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 0, 0], width: 137, height: 20 })
+    expect((final.nodes.relative as PrimitiveNode).styles).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 150, 0], width: 96, height: 20 })
+    expect((final.nodes.constrained as PrimitiveNode).styles).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 260, 0], width: 88, height: 20 })
     expect(JSON.stringify(source)).toBe(sourceBytes)
     expect(JSON.stringify(geometryInput)).toBe(geometryBytes)
   })
@@ -167,7 +167,7 @@ describe('Paper Wrap planner', () => {
     ])
     const final = applyFileCommand(source, result.command, [])
     expect(validateFileDocument(final, [])).toStrictEqual(final)
-    expect((final.nodes.over as PrimitiveNode).styles).toStrictEqual({ left: 140, top: 0, width: 110, height: 30.002 })
+    expect((final.nodes.over as PrimitiveNode).styles).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 140, 0], width: 110, height: 30.002 })
   })
 
   it('PAPER-FLEX-003 gives multiline text Fill width in a column Flex target', () => {
@@ -216,8 +216,8 @@ describe('Paper Wrap planner', () => {
     measuredGeometry.nodes.c!.worldAabb = { x: 500, y: 0, width: 10, height: 10 }
     const group = ready(source, ['a', 'b', 'c'], measuredGeometry).command.groups[0]!
     // Source centers average to 205. Synthetic centers average to 105. A union-center placement would be 150.
-    expect(group.wrapper.styles.left).toBe(100)
-    expect(group.wrapper.styles.top).toBe(0)
+    expect(group.wrapper.styles.relativeTransform[4]).toBe(100)
+    expect(group.wrapper.styles.relativeTransform[5]).toBe(0)
     expect(group.wrapper.styles.width).toBe(210)
   })
 
@@ -253,7 +253,7 @@ describe('Paper Wrap planner', () => {
     const wrapper = ready(source, ['a', 'b'], measuredGeometry).command.groups[0]!.wrapper
     // World centroid is (88,76). Subtracting the synthetic centroid (5,10) gives (83,66).
     // The inverse padding-box matrix includes the rotated 11px left and 7px top border, yielding (5,10), not (16,17).
-    expect(wrapper.styles).toStrictEqual({ left: 5, top: 10, width: 10, height: 20, overflow: 'visible' })
+    expect(wrapper.styles).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 5, 10], width: 10, height: 20, overflow: 'visible' })
 
     const missing = structuredClone(measuredGeometry); delete missing.nodes.parent
     expect(planPaperWrap({ file: source, geometry: missing, selection: ['a', 'b'], layoutGeneration: 2, makeId: ids('unused') })).toMatchObject({ status: 'unavailable', reason: 'geometry' })
@@ -413,7 +413,7 @@ describe('Paper Wrap planner', () => {
     expect(ready(source, ['absolute', 'free']).command.groups[0]!.wrapper.layout!.item.position).toStrictEqual({ mode: 'freeform' })
     const flowWrapper = ready(source, ['flow']).command.groups[0]!.wrapper
     expect(flowWrapper.layout!.item.position).toStrictEqual({ mode: 'flow' })
-    expect({ left: flowWrapper.styles.left, top: flowWrapper.styles.top }).toStrictEqual({ left: 0, top: 0 })
+    expect({ left: flowWrapper.styles.relativeTransform[4], top: flowWrapper.styles.relativeTransform[5] }).toStrictEqual({ left: 0, top: 0 })
   })
 
   it('preserves compatible flex-child sizing, flex item data, child container, and spacing through node.wrap', () => {

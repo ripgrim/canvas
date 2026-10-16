@@ -1,6 +1,6 @@
 import { childrenOf, nodeIsLocked, nodePositionMode } from '@canvas/repo-engine/file-document'
 import type { Appearance, FileDocument, FileNode, ImageGeometry, ImagePaint } from '@canvas/repo-engine/file-document'
-import { aboutOrigin, apply, invert, isFiniteMatrix, multiply, rotation, translation } from '@canvas/repo-engine/layout-matrix'
+import { aboutOrigin, apply, invert, isFiniteMatrix, multiply, translation } from '@canvas/repo-engine/layout-matrix'
 import type { Matrix } from '@canvas/repo-engine/layout-matrix'
 import type { Point, Rect, ResizeAxis, ResizeHandle } from './canvas-math'
 import type { GestureAuthoritySnapshot, ResizeGeometryAuthority } from './gesture-authority'
@@ -21,6 +21,8 @@ export type ResizePresentationItem = Readonly<{
   coordinateSpace: 'parent-padding'
   startRect: Readonly<Rect>
   rect: Readonly<Rect>
+  nodeTransform: Matrix
+  transformOrigin: Readonly<Point>
   world: ResizeWorldProjection
   appearance?: Appearance
 }>
@@ -66,7 +68,7 @@ function exactAuthority(left: ResizeGeometryAuthority, right: ResizeGeometryAuth
     && sameRect(left.startRect, right.startRect)
     && sameMatrix(left.groupToWorld, right.groupToWorld)
     && sameMatrix(left.worldToGroup, right.worldToGroup)
-    && close(left.rotationDegrees, right.rotationDegrees)
+    && sameMatrix(left.nodeTransform, right.nodeTransform)
     && samePoint(left.transformOrigin, right.transformOrigin)
 }
 
@@ -88,10 +90,10 @@ function nodeResizeWritable(node: FileNode, context: 'selected' | 'inherited'): 
     && position.bottom === undefined
 }
 
-function nodeBorderToWorld(groupToWorld: Matrix, rect: Readonly<Rect>, rotationDegrees: number): Matrix | null {
-  if (!isFiniteMatrix(groupToWorld) || !finiteRect(rect) || !finite(rotationDegrees)) return null
-  const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
-  const result = multiply(groupToWorld, multiply(aboutOrigin(rotation(rotationDegrees), center), translation(rect.x, rect.y)))
+function nodeBorderToWorld(groupToWorld: Matrix, rect: Readonly<Rect>, nodeTransform: Matrix): Matrix | null {
+  if (!isFiniteMatrix(groupToWorld) || !finiteRect(rect) || !isFiniteMatrix(nodeTransform)) return null
+  const center = { x: rect.width / 2, y: rect.height / 2 }
+  const result = multiply(groupToWorld, multiply(translation(rect.x, rect.y), aboutOrigin(nodeTransform, center)))
   return isFiniteMatrix(result) ? result : null
 }
 
@@ -185,8 +187,8 @@ function verifiedItem(
 ): ResizePresentationItem | null {
   const node = file.nodes[authority.nodeId]
   if (!node || node.type === 'root' || (context === 'selected' && nodeIsLocked(file, node.id)) || !finiteRect(rect) || !nodeResizeWritable(node, context)) return null
-  const oldNodeToWorld = nodeBorderToWorld(authority.groupToWorld, authority.startRect, authority.rotationDegrees)
-  const newNodeToWorld = nodeBorderToWorld(groupToWorld, rect, authority.rotationDegrees)
+  const oldNodeToWorld = nodeBorderToWorld(authority.groupToWorld, authority.startRect, authority.nodeTransform)
+  const newNodeToWorld = nodeBorderToWorld(groupToWorld, rect, authority.nodeTransform)
   const projected = projectedAuthority(authority, groupToWorld)
   if (!oldNodeToWorld || !newNodeToWorld || !projected) return null
   const world = projectResizeRectToWorld(projected, rect)
@@ -199,6 +201,8 @@ function verifiedItem(
     coordinateSpace: 'parent-padding',
     startRect: cloneRect(authority.startRect),
     rect: cloneRect(rect),
+    nodeTransform: [...authority.nodeTransform] as Matrix,
+    transformOrigin: { x: rect.width / 2, y: rect.height / 2 },
     world,
     ...(appearance ? { appearance } : {}),
   }
@@ -269,8 +273,8 @@ export function projectResizePresentation(
   const selectedItem = verifiedItem(snapshot.file, selected, sample.rect, selected.groupToWorld, sample.contentLocked, 'selected')
   if (!selectedItem) return null
   const items: ResizePresentationItem[] = [selectedItem]
-  const selectedOldBorderToWorld = nodeBorderToWorld(selected.groupToWorld, selected.startRect, selected.rotationDegrees)
-  const selectedNewBorderToWorld = nodeBorderToWorld(selected.groupToWorld, sample.rect, selected.rotationDegrees)
+  const selectedOldBorderToWorld = nodeBorderToWorld(selected.groupToWorld, selected.startRect, selected.nodeTransform)
+  const selectedNewBorderToWorld = nodeBorderToWorld(selected.groupToWorld, sample.rect, selected.nodeTransform)
   if (!selectedOldBorderToWorld || !selectedNewBorderToWorld) return null
 
   if (selectedNode.type === 'frame') {
@@ -293,8 +297,8 @@ export function projectResizePresentation(
         if (!item) return false
         items.push(item)
         if (child.type === 'frame') {
-          const oldNode = nodeBorderToWorld(oldChildGroup, current.startRect, current.rotationDegrees)
-          const nextNode = nodeBorderToWorld(newChildGroup, rect, current.rotationDegrees)
+          const oldNode = nodeBorderToWorld(oldChildGroup, current.startRect, current.nodeTransform)
+          const nextNode = nodeBorderToWorld(newChildGroup, rect, current.nodeTransform)
           if (!oldNode || !nextNode || !walkOrdinary(childId, current.startRect as Rect, rect, oldNode, nextNode)) return false
         }
       }

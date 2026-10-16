@@ -72,6 +72,14 @@
       "types": "./dist/layout-matrix.d.ts",
       "import": "./dist/layout-matrix.js"
     },
+    "./layout-pose": {
+      "types": "./dist/layout-pose.d.ts",
+      "import": "./dist/layout-pose.js"
+    },
+    "./transform-matrix": {
+      "types": "./dist/transform-matrix.d.ts",
+      "import": "./dist/transform-matrix.js"
+    },
     "./layout-css": {
       "types": "./dist/layout-css.d.ts",
       "import": "./dist/layout-css.js"
@@ -79,6 +87,26 @@
     "./node-theme": {
       "types": "./dist/node-theme.d.ts",
       "import": "./dist/node-theme.js"
+    },
+    "./component-model": {
+      "types": "./dist/component-model.d.ts",
+      "import": "./dist/component-model.js"
+    },
+    "./component-docs-blume": {
+      "types": "./dist/component-docs-blume.d.ts",
+      "import": "./dist/component-docs-blume.js"
+    },
+    "./component-docs-adapter": {
+      "types": "./dist/component-docs-adapter.d.ts",
+      "import": "./dist/component-docs-adapter.js"
+    },
+    "./hosted-source-review": {
+      "types": "./dist/hosted-source-review.d.ts",
+      "import": "./dist/hosted-source-review.js"
+    },
+    "./component-admission": {
+      "types": "./dist/component-admission.d.ts",
+      "import": "./dist/component-admission.js"
     }
   },
   "scripts": {

@@ -1,4 +1,5 @@
-import type { Atom, Composition } from './types.js'
+import { isPlaceableAtom, isRepositoryAtom } from './types.js'
+import type { Atom, Composition, RepositoryAtom } from './types.js'
 
 export type DocumentValue = string | number | boolean
 export type CanvasElementKind = 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'
@@ -79,6 +80,7 @@ export function fields(value: Record<string, unknown>, allowed: string[], label:
 }
 
 export function getNodeSlots(atom: Atom): string[] {
+  if (!isRepositoryAtom(atom)) return atom.slots ?? []
   if (atom.kind !== 'atom') return []
   if (atom.slots !== undefined) return atom.slots.filter(name => atom.props.some(prop => prop.name === name))
   return atom.exportName === 'Card' ? ['children', 'heading', 'footer'].filter(name => atom.props.some(prop => prop.name === name)) : []
@@ -124,8 +126,8 @@ export function validateProps(node: Pick<DocumentNode, 'props' | 'children'>, at
     if (forbiddenKeys.has(name) || !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(name) || /^on[A-Z]/.test(name) || ['style', 'dangerouslySetInnerHTML', 'ref', 'key'].includes(name)) throw new Error(`Unsupported prop ${name}`)
     if (!['string', 'number', 'boolean'].includes(typeof value) || (typeof value === 'number' && !Number.isFinite(value)) || (typeof value === 'string' && value.length > 10_000)) throw new Error(`Invalid value for ${name}`)
     const definition = atom.props.find(prop => prop.name === name)
-    if (!definition || !validPropValue(definition.type, value)) throw new Error(`Unsupported value for ${atom.exportName}.${name}`)
-    if (name === 'children' && atom.exportName === 'Input') throw new Error('Input does not accept children')
+    if (!definition || !validPropValue(definition.type, value)) throw new Error(`Unsupported value for ${isRepositoryAtom(atom) ? atom.exportName : atom.name ?? atom.componentId}.${name}`)
+    if (name === 'children' && isRepositoryAtom(atom) && atom.exportName === 'Input') throw new Error('Input does not accept children')
     if (own(node.children, name) && node.children[name]!.length > 0) throw new Error(`Slot ${name} already contains components`)
   }
   for (const definition of atom.props) {
@@ -171,7 +173,7 @@ export function validateDocument(input: unknown, atoms: Atom[], options: Documen
     if (!validId(key) || node.id !== key || !validId(node.componentId) || typeof node.exportName !== 'string') throw new Error('Invalid component identity')
     if (own(node, 'name') && !validName(node.name)) throw new Error('Invalid component name')
     const atom = atoms.find(candidate => candidate.componentId === node.componentId)
-    if (!atom || (!options.allowUnavailableBindings && atom.status !== 'bound') || atom.kind !== 'atom' || atom.exportName !== node.exportName) throw new Error('Component binding needs review')
+    if (!atom || !isRepositoryAtom(atom) || atom.kind !== 'atom' || (!options.allowUnavailableBindings && !isPlaceableAtom(atom)) || atom.exportName !== node.exportName) throw new Error('Component binding needs review')
     if (!record(node.children)) throw new Error('Invalid component slots')
     if (own(node, 'layout') && !validateNodeLayout(node.layout)) throw new Error('Invalid component layout')
     const slots = getNodeSlots(atom)
@@ -206,7 +208,7 @@ export function createDocument(atoms: Atom[], composition: Composition, options:
     nodes[child.id] = { ...structuredClone(child), children: {} }
     rootIds.push(child.id)
   }
-  const card = atoms.find(atom => atom.exportName === 'Card' && atom.kind === 'atom' && (atom.status === 'bound' || options.allowUnavailableBindings))
+  const card = atoms.find((atom): atom is RepositoryAtom => isRepositoryAtom(atom) && atom.exportName === 'Card' && atom.kind === 'atom' && (isPlaceableAtom(atom) || Boolean(options.allowUnavailableBindings)))
   if (card && rootIds.length > 0) {
     const id = `${composition.id}:card`
     nodes[id] = { id, componentId: card.componentId, exportName: card.exportName, props: { heading: 'Welcome back' }, children: { children: [...rootIds] } }
@@ -238,7 +240,8 @@ export function applyDocumentCommand(input: EditorDocument, command: DocumentCom
       return doc.rootIds
     }
     const parent = node(target.parentId)
-    const atom = atoms.find(candidate => candidate.componentId === parent.componentId)!
+    const atom = atoms.find(candidate => candidate.componentId === parent.componentId)
+    if (!atom || !isPlaceableAtom(atom)) throw new Error('Component binding needs review')
     const slot = target.slot ?? 'children'
     if (!getNodeSlots(atom).includes(slot)) throw new Error(`Invalid slot ${parent.exportName}.${slot}`)
     if (own(parent.props, slot)) throw new Error(`Clear the text prop before adding to ${slot}`)

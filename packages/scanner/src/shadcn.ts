@@ -5,6 +5,7 @@ import postcss, { type Node as PostCssNode } from 'postcss'
 import { Node, Project, SyntaxKind, ts } from 'ts-morph'
 import { confined } from './paths.js'
 import type { ShadcnComponent, ShadcnConfig, ShadcnDiagnostic, ShadcnModuleConfig, ShadcnProp, ShadcnScan, ShadcnToken } from './contracts.js'
+import { compareText } from './ordering.js'
 export type { ShadcnComponent, ShadcnConfig, ShadcnDiagnostic, ShadcnProp, ShadcnScan, ShadcnToken } from './contracts.js'
 
 type RawComponentsConfig = {
@@ -19,6 +20,7 @@ const uiDirectoryCandidates = ['src/app/components/ui', 'src/components/ui', 'ap
 const stylesheetCandidates = ['globals.css', 'styles.css', 'styles/globals.css', 'src/globals.css', 'src/styles.css', 'src/styles/globals.css', 'app/globals.css', 'app/styles.css', 'src/app/globals.css', 'src/app/styles.css'] as const
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const posix = (value: string) => value.replaceAll('\\', '/')
+const packageNamePattern = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/
 
 async function walk(root: string, directory = ''): Promise<string[]> {
   const entries = await readdir(directory ? await confined(root, directory) : root, { withFileTypes: true })
@@ -161,7 +163,7 @@ async function inferConfigs(root: string, paths: readonly string[], occupiedWork
     rootsByWorkspace.set(inferred.workspace, roots)
   }
   const configs: ShadcnConfig[] = []
-  for (const [workspace, roots] of [...rootsByWorkspace].sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [workspace, roots] of [...rootsByWorkspace].sort(([left], [right]) => compareText(left, right))) {
     const pathInWorkspace = (candidate: string) => posix(path.join(workspace, candidate))
     const tokenFiles = stylesheetCandidates.map(pathInWorkspace).filter(filename => files.has(filename))
     const registryRoots: string[] = []
@@ -214,13 +216,13 @@ function componentProps(location: Node | null): ShadcnProp[] {
       name: property.getName(),
       type: property.getTypeNode()?.getText() ?? property.getType().getText(property),
       optional: property.hasQuestionToken(),
-    })).sort((left, right) => left.name.localeCompare(right.name))
+    })).sort((left, right) => compareText(left.name, right.name))
   }
   return location.getType().getProperties().map((symbol) => ({
     name: symbol.getName(),
     type: symbol.getTypeAtLocation(location).getText(location),
     optional: symbol.isOptional(),
-  })).sort((left, right) => left.name.localeCompare(right.name))
+  })).sort((left, right) => compareText(left.name, right.name))
 }
 
 function declarationFingerprint(node: Node): string {
@@ -232,6 +234,14 @@ function declarationFingerprint(node: Node): string {
   }
   visit(node)
   return hash(parts.join('|'))
+}
+
+function workspacePackageName(source: string | undefined): string | null {
+  if (!source) return null
+  try {
+    const value = (JSON.parse(source) as { name?: unknown }).name
+    return typeof value === 'string' && value.length <= 214 && packageNamePattern.test(value) ? value : null
+  } catch { return null }
 }
 
 function hasUseServerDirective(node: Node): boolean {
@@ -252,44 +262,55 @@ function hasUseServerDirective(node: Node): boolean {
   return false
 }
 
-function discoverComponents(root: string, files: Readonly<Record<string, string>>, roots: readonly string[], diagnostics: ShadcnDiagnostic[]): ShadcnComponent[] {
+type ComponentOwner = Readonly<{ configPath: string; roots: readonly string[]; packageName: string | null }>
+
+function componentOwner(relative: string, owners: readonly ComponentOwner[]): ComponentOwner | null {
+  const claims = owners.flatMap(owner => owner.roots.flatMap(root => relative === root || relative.startsWith(`${root}/`) ? [{ owner, length: root.length }] : []))
+  if (!claims.length) return null
+  const longest = Math.max(...claims.map(claim => claim.length))
+  const candidates = [...new Map(claims.filter(claim => claim.length === longest).map(claim => [claim.owner.configPath, claim.owner])).values()]
+  if (candidates.length !== 1) throw new Error(`Ambiguous component owner: ${relative}`)
+  return candidates[0]!
+}
+
+function discoverComponents(root: string, files: Readonly<Record<string, string>>, owners: readonly ComponentOwner[], diagnostics: ShadcnDiagnostic[]): ShadcnComponent[] {
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, jsx: ts.JsxEmit.ReactJSX, strict: true, skipLibCheck: true },
   })
   for (const [relative, source] of Object.entries(files)) if (/\.[cm]?tsx?$/.test(relative)) project.createSourceFile(path.join(root, relative), source, { overwrite: true })
   const components: ShadcnComponent[] = []
-  for (const componentRoot of roots) {
-    for (const [relative, source] of Object.entries(files)) {
-      if (!(relative === componentRoot || relative.startsWith(`${componentRoot}/`)) || !/\.[cm]?tsx$/.test(relative) || /\.d\.[cm]?ts$/.test(relative)) continue
-      const sourceFile = project.getSourceFile(path.join(root, relative))
-      if (!sourceFile) continue
-      for (const [exportName, declarations] of sourceFile.getExportedDeclarations()) for (const declaration of declarations) {
-        if (Node.isTypeAliasDeclaration(declaration) || Node.isInterfaceDeclaration(declaration)) continue
-        const resolved = unwrapComponentDeclaration(declaration)
-        if (hasUseServerDirective(sourceFile) || hasUseServerDirective(resolved?.body ?? declaration)) {
-          diagnostics.push({ code: 'unsupported-export', path: relative, message: `${exportName} is server-only and cannot be indexed as a preview component.` })
-          continue
-        }
-        const rendersJsx = resolved?.body.getDescendants().some((node) => [SyntaxKind.JsxElement, SyntaxKind.JsxSelfClosingElement, SyntaxKind.JsxFragment].includes(node.getKind())) ?? false
-        if (!resolved || !rendersJsx) {
-          if (declaration.getSourceFile() === sourceFile) diagnostics.push({ code: 'unsupported-export', path: relative, message: `${exportName} is exported from the UI root but is not a supported React component declaration.` })
-          continue
-        }
-        const props = componentProps(resolved.propsAt)
-        components.push({
-          path: relative,
-          exportName,
-          declarationKind: resolved.kind,
-          props,
-          slots: props.filter((prop) => prop.name === 'children' || /ReactNode|ReactElement/.test(prop.type)).map((prop) => prop.name),
-          sourceHash: hash(source),
-          fingerprint: declarationFingerprint(declaration),
-        })
+  for (const [relative, source] of Object.entries(files)) {
+    const owner = componentOwner(relative, owners)
+    if (!owner || !/\.[cm]?tsx$/.test(relative) || /\.d\.[cm]?ts$/.test(relative)) continue
+    const sourceFile = project.getSourceFile(path.join(root, relative))
+    if (!sourceFile) continue
+    for (const [exportName, declarations] of sourceFile.getExportedDeclarations()) for (const declaration of declarations) {
+      if (Node.isTypeAliasDeclaration(declaration) || Node.isInterfaceDeclaration(declaration)) continue
+      const resolved = unwrapComponentDeclaration(declaration)
+      if (hasUseServerDirective(sourceFile) || hasUseServerDirective(resolved?.body ?? declaration)) {
+        diagnostics.push({ code: 'unsupported-export', path: relative, message: `${exportName} is server-only and cannot be indexed as a preview component.` })
+        continue
       }
+      const rendersJsx = resolved?.body.getDescendants().some((node) => [SyntaxKind.JsxElement, SyntaxKind.JsxSelfClosingElement, SyntaxKind.JsxFragment].includes(node.getKind())) ?? false
+      if (!resolved || !rendersJsx) {
+        if (declaration.getSourceFile() === sourceFile) diagnostics.push({ code: 'unsupported-export', path: relative, message: `${exportName} is exported from the UI root but is not a supported React component declaration.` })
+        continue
+      }
+      const props = componentProps(resolved.propsAt)
+      components.push({
+        path: relative,
+        exportName,
+        packageName: owner.packageName,
+        declarationKind: resolved.kind,
+        props,
+        slots: props.filter((prop) => prop.name === 'children' || /ReactNode|ReactElement/.test(prop.type)).map((prop) => prop.name),
+        sourceHash: hash(source),
+        fingerprint: declarationFingerprint(declaration),
+      })
     }
   }
-  return components.sort((left, right) => left.path.localeCompare(right.path) || left.exportName.localeCompare(right.exportName))
+  return components.sort((left, right) => compareText(left.path, right.path) || compareText(left.exportName, right.exportName))
 }
 
 function tokenTheme(selector: string): string {
@@ -342,7 +363,10 @@ export async function scanShadcnRepository(repositoryRoot: string): Promise<Shad
   }
   configs.push(...await inferConfigs(root, paths, new Set(configs.map(config => config.workspace)), diagnostics))
   const relevant = new Set<string>()
+  const repositoryFiles = new Set(paths)
   for (const config of configs) {
+    const packagePath = posix(path.join(config.workspace, 'package.json'))
+    if (repositoryFiles.has(packagePath)) relevant.add(packagePath)
     config.tokenFiles.forEach((filename) => relevant.add(filename))
     if (config.moduleConfig) relevant.add(config.moduleConfig.path)
     if (config.previewProvider || config.themeAdapters.length) relevant.add(config.path)
@@ -352,8 +376,12 @@ export async function scanShadcnRepository(repositoryRoot: string): Promise<Shad
   }
   const files: Record<string, string> = {}
   for (const filename of [...relevant].sort()) files[filename] = await readFile(await confined(root, filename), 'utf8')
-  const componentRoots = [...new Set(configs.flatMap((config) => [...config.uiRoots, ...config.registryRoots]))]
-  const components = discoverComponents(root, files, componentRoots, diagnostics)
+  const owners = configs.map(config => ({
+    configPath: config.path,
+    roots: [...config.uiRoots, ...config.registryRoots],
+    packageName: workspacePackageName(files[posix(path.join(config.workspace, 'package.json'))]),
+  })).sort((left, right) => compareText(left.configPath, right.configPath))
+  const components = discoverComponents(root, files, owners, diagnostics)
   const tokens = configs.flatMap((config) => config.tokenFiles).filter((filename, index, all) => all.indexOf(filename) === index).flatMap((filename) => discoverTokens(filename, files[filename]!))
   return {
     adapterId: 'shadcn-v1',

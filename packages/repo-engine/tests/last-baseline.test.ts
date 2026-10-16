@@ -10,7 +10,7 @@ import type { Atom } from '../src/types.js'
 const firstBaseline = { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'baseline' } as const
 const lastBaseline = { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'last baseline' } as const
 const file = (align: 'baseline' | 'last baseline' = 'baseline'): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'baseline-file',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -20,7 +20,7 @@ const file = (align: 'baseline' | 'last baseline' = 'baseline'): FileDocument =>
       id: 'frame',
       type: 'frame',
       name: 'Frame',
-      styles: { left: 0, top: 0, width: 320, height: 200 },
+      styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 320, height: 200 },
       layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { ...lastBaseline, align } } },
     },
   },
@@ -109,7 +109,7 @@ describe('PAPER-FLEX-005 last baseline model and persistence', () => {
       theme: { tokens: {} },
     }
     const upgraded = validateFileDocument(upgradeFileDocument(legacy), [card])
-    expect(upgraded.schemaVersion).toBe(9)
+    expect(upgraded.schemaVersion).toBe(13)
     expect(upgraded.revision).toBe(4)
     expect(upgraded.nodes.card).toMatchObject({ layout: { container: { flex: firstBaseline } } })
   })

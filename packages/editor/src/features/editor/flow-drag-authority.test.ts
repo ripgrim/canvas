@@ -32,16 +32,16 @@ const targetGeometry = {
 
 function file(): FileDocument {
   return {
-    schemaVersion: 9,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'authority-file',
     revision: 7,
     pages: [{ id: 'page', name: 'Page 1', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },
-      'source-parent': { id: 'source-parent', type: 'frame', name: 'Source', styles: { left: 0, top: 0, width: 180, height: 100 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
-      node: { id: 'node', type: 'rectangle', name: 'Card', styles: { left: 0, top: 0, width: 40, height: 30 }, layout: { item: { position: { mode: 'flow' } } } },
-      'target-parent': { id: 'target-parent', type: 'frame', name: 'Target', styles: { left: 200, top: 100, width: 200, height: 150 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
-      'target-child': { id: 'target-child', type: 'rectangle', name: 'Existing', styles: { left: 0, top: 0, width: 40, height: 30 }, layout: { item: { position: { mode: 'flow' } } } },
+      'source-parent': { id: 'source-parent', type: 'frame', name: 'Source', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 180, height: 100 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+      node: { id: 'node', type: 'rectangle', name: 'Card', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 30 }, layout: { item: { position: { mode: 'flow' } } } },
+      'target-parent': { id: 'target-parent', type: 'frame', name: 'Target', styles: { relativeTransform: [1, 0, 0, 1, 200, 100], width: 200, height: 150 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+      'target-child': { id: 'target-child', type: 'rectangle', name: 'Existing', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 30 }, layout: { item: { position: { mode: 'flow' } } } },
     },
     relationships: {
       'source-parent': { parentId: 'root', orderKey: 'F' },
@@ -499,8 +499,8 @@ describe('PAPER-FLEX-006-C5-AUTHORITY, AT-CAN-005-C5-AUTHORITY, and CLOUD-SYNC-G
 
   it('rejects a locked descendant in a moved Frame subtree', () => {
     const sourceFile = file()
-    sourceFile.nodes.node = { id: 'node', type: 'frame', name: 'Group', styles: { left: 0, top: 0, width: 40, height: 30 }, layout: { item: { position: { mode: 'flow' } } } }
-    sourceFile.nodes.inner = { id: 'inner', type: 'rectangle', name: 'Inner', isLocked: false, styles: { left: 2, top: 2, width: 10, height: 10 } }
+    sourceFile.nodes.node = { id: 'node', type: 'frame', name: 'Group', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 30 }, layout: { item: { position: { mode: 'flow' } } } }
+    sourceFile.nodes.inner = { id: 'inner', type: 'rectangle', name: 'Inner', isLocked: false, styles: { relativeTransform: [1, 0, 0, 1, 2, 2], width: 10, height: 10 } }
     sourceFile.relationships.inner = { parentId: 'node', orderKey: 'V' }
     const measured = geometry()
     measured.nodes.node = { ...measured.nodes.node!, canvasKind: 'frame' }
@@ -514,7 +514,7 @@ describe('PAPER-FLEX-006-C5-AUTHORITY, AT-CAN-005-C5-AUTHORITY, and CLOUD-SYNC-G
   it('rejects a locked descendant in a moved Component subtree', () => {
     const sourceFile = file()
     sourceFile.nodes.node = { id: 'node', type: 'component', componentId: 'group-component', exportName: 'Group', name: 'Group', props: {}, layout: { item: { position: { mode: 'flow' } } } }
-    sourceFile.nodes.inner = { id: 'inner', type: 'rectangle', name: 'Inner', styles: { left: 2, top: 2, width: 10, height: 10 } }
+    sourceFile.nodes.inner = { id: 'inner', type: 'rectangle', name: 'Inner', styles: { relativeTransform: [1, 0, 0, 1, 2, 2], width: 10, height: 10 } }
     sourceFile.relationships.inner = { parentId: 'node', orderKey: 'V' }
     const measured = geometry()
     const { canvasKind: _canvasKind, ...componentMeasurement } = measured.nodes.node!

@@ -8,6 +8,8 @@ import { fields, record } from './document.js'
 import type { DocumentNodeLayout } from './document.js'
 import { validateGridTrack } from './grid-tracks.js'
 import type { GridTrack } from './grid-tracks.js'
+import { isTransformMatrix } from './transform-matrix.js'
+import type { TransformMatrix } from './transform-matrix.js'
 
 const limit = 1_000_000
 export const expressionLimit = 256
@@ -272,7 +274,7 @@ export type PositionMode = 'freeform' | 'flow' | 'absolute'
 export type NodePosition = { mode: PositionMode; left?: InsetLength; right?: InsetLength; top?: InsetLength; bottom?: InsetLength; zIndex?: number }
 export type FlexItem = { grow?: number; shrink?: number; basis?: LayoutLength }
 export type GridItem = { columnStart?: number; rowStart?: number; columnSpan?: number; rowSpan?: number; justifySelf?: ItemAlignment; alignSelf?: ItemAlignment }
-export type NodeTransform = { rotate?: number; scale?: number | { x: number; y: number } }
+export type NodeTransform = { matrix: TransformMatrix }
 export type LayoutItem = { position: NodePosition; width?: AxisSize; height?: AxisSize; aspectRatio?: number; flex?: FlexItem; grid?: GridItem; transform?: NodeTransform }
 /** The v4 layout record stored on component nodes. `item` describes the node; `container` only exists for containers. */
 export type NodeLayout = { item: LayoutItem; container?: LayoutContainer; spacing?: NodeSpacing }
@@ -305,10 +307,8 @@ export function validateGridItem(value: unknown): value is GridItem {
 }
 export function validateTransform(value: unknown): value is NodeTransform {
   if (!record(value)) return false
-  optionalKeys(value, [], ['rotate', 'scale'], 'node transform')
-  if (own(value, 'rotate') && !finite(value.rotate, -3600, 3600)) return false
-  if (own(value, 'scale') && !(finite(value.scale, -1000, 1000) || (record(value.scale) && Object.keys(value.scale).sort().join(',') === 'x,y' && finite(value.scale.x, -1000, 1000) && finite(value.scale.y, -1000, 1000)))) return false
-  return true
+  optionalKeys(value, ['matrix'], [], 'node transform')
+  return isTransformMatrix(value.matrix) && value.matrix.every(entry => Math.abs(entry) <= 1000) && value.matrix[4] === 0 && value.matrix[5] === 0
 }
 export function validateItem(value: unknown, options: LayoutValidationOptions = {}): value is LayoutItem {
   if (!record(value)) return false
@@ -470,13 +470,11 @@ export function projectItemStyle(item: LayoutItem, parent: ParentLayoutInput): S
     }
   }
   if (item.transform) {
-    const parts: string[] = []
-    if (item.transform.rotate) parts.push(`rotate(${item.transform.rotate}deg)`)
-    if (item.transform.scale !== undefined) parts.push(typeof item.transform.scale === 'number' ? `scale(${item.transform.scale})` : `scale(${item.transform.scale.x}, ${item.transform.scale.y})`)
-    if (parts.length) projection.transform = parts.join(' ')
+    projection.transform = `matrix(${item.transform.matrix.map(matrixNumberToCss).join(', ')})`
   }
   return projection
 }
+const matrixNumberToCss = (value: number): string => Number(value.toFixed(12)).toString()
 /** Exact partial-start projection: start N (+ `span S` end when S > 1), or `span S` start with no end, or nothing. */
 export function gridLine(start: number | undefined, span: number | undefined): { start: string | null; end: string | null } {
   const count = integer(span, 2, maxGridLine) ? span : 1

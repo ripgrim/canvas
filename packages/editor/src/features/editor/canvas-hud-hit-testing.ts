@@ -9,6 +9,10 @@ const epsilon = 1e-9
 type Polygon = readonly Readonly<Point>[]
 export type CanvasHudProjectionSource = Readonly<{ getSnapshot: () => CanvasHudProjectionSnapshot }>
 export type CanvasHitFrameKey = Omit<HudProjectionFrame['key'], 'hover' | 'mobile'>
+export type CanvasHitDocumentKey = Omit<CanvasHitFrameKey, 'camera' | 'size' | 'targetCamera' | 'targetSize'> & Readonly<{
+  targetCamera: Readonly<{ x: number; y: number; zoom: number }>
+  targetSize: Readonly<{ width: number; height: number }>
+}>
 
 const finitePoint = (point: Readonly<Point>) => Number.isFinite(point.x) && Number.isFinite(point.y)
 const cross = (origin: Readonly<Point>, end: Readonly<Point>, point: Readonly<Point>) => (end.x - origin.x) * (point.y - origin.y) - (end.y - origin.y) * (point.x - origin.x)
@@ -38,6 +42,32 @@ export function currentCanvasHitFrame(source: CanvasHudProjectionSource, expecte
   const observed = source.getSnapshot()
   const frame = currentHudProjectionFrame(observed, source.getSnapshot())
   return frame && sameKey(frame.key, expected) ? frame : null
+}
+
+/** Hit-testing follows the exact camera and viewport that produced the current renderer frame, not a newer target camera still awaiting preview acknowledgement. */
+export function currentCanvasHitFrameForDocument(source: CanvasHudProjectionSource, expected: CanvasHitDocumentKey): HudProjectionFrame | null {
+  const observed = source.getSnapshot()
+  const frame = currentHudProjectionFrame(observed, source.getSnapshot())
+  if (!frame) return null
+  const key = frame.key
+  const targetCamera = key.targetCamera ?? key.camera
+  const targetSize = key.targetSize ?? key.size
+  return key.fileId === expected.fileId
+    && key.pageId === expected.pageId
+    && key.fileRevision === expected.fileRevision
+    && key.measurementRevision === expected.measurementRevision
+    && key.documentRevision === expected.documentRevision
+    && key.layoutGeneration === expected.layoutGeneration
+    && targetCamera.x === expected.targetCamera.x
+    && targetCamera.y === expected.targetCamera.y
+    && targetCamera.zoom === expected.targetCamera.zoom
+    && targetSize.width === expected.targetSize.width
+    && targetSize.height === expected.targetSize.height
+    && sameOrdered(key.selection, expected.selection)
+    && key.tool === expected.tool
+    && key.readOnly === expected.readOnly
+    ? frame
+    : null
 }
 
 function usablePolygon(polygon: Polygon): boolean {

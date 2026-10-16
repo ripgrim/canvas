@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { createCloudApiClient } from '@canvas/cloud-client'
 import type { CloudFileSummary } from '@canvas/cloud-client'
+import { validateHostedFileDocument } from '@canvas/cloud-document'
 import type { ElectronAuthClient } from '@canvas/auth/electron'
 import type { EditorCollaborationLocalProfile, EditorCollaborationPatch, EditorCollaborationRole, EditorCollaborationSnapshot, EditorPersistenceIntent } from '@canvas/editor/capabilities'
 import type { Atom, ProjectSnapshot } from '@canvas/repo-engine'
-import { applyHostedFileCommand, fileSchemaVersion, validateFileDocument } from '@canvas/repo-engine/file-document'
+import { applyHostedFileCommand, fileSchemaVersion } from '@canvas/repo-engine/file-document'
 import type { FileCommand, FileDocument } from '@canvas/repo-engine/file-document'
 import type { PreviewSnapshot } from '@canvas/preview-runtime'
 import { createCollaborationClient } from '@canvas/sync-client'
@@ -99,7 +100,7 @@ export class DesktopCloudFiles {
     this.client = createCloudApiClient<FileDocument>({
       apiOrigin,
       fetch: ((input: string | URL | Request, init?: RequestInit) => auth.request(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url, init)) as typeof fetch,
-      validateDocument: value => validateFileDocument(value, this.workspace?.atoms() ?? [], { allowUnavailableBindings: true }),
+      validateDocument: validateHostedFileDocument,
     })
     this.sync = createCollaborationClient<FileDocument>({
       syncOrigin: collaboration.syncOrigin,
@@ -107,7 +108,7 @@ export class DesktopCloudFiles {
       clientId: collaboration.clientId,
       durableStore: collaboration.durableStore,
       createWebSocket: (url, protocol) => auth.createWebSocket(url, protocol, collaboration.requestOrigin) as unknown as CollaborationWebSocket,
-      validateDocument: value => validateFileDocument(value, this.workspace?.atoms() ?? [], { allowUnavailableBindings: true }),
+      validateDocument: validateHostedFileDocument,
       applyCommand: (document, command) => applyHostedFileCommand(document, command, this.workspace?.atoms() ?? []),
     })
     this.sync.subscribe(() => this.handleSyncChange())

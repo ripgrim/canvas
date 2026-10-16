@@ -1,4 +1,4 @@
-.canvas-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; }
+.canvas-viewport { position: relative; grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; overflow: hidden; touch-action: none; }
 .canvas-viewport:focus-visible { outline: var(--focus-ring-outline); outline-offset: calc(-1 * var(--border-l)); }
 .canvas-world { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform-origin: 0 0; pointer-events: none; }
 /* The live preview is an implementation detail: it fills the workspace, paints no sheet, and casts no shadow. */
@@ -19,6 +19,9 @@
 .canvas-floating-actions .button { min-height: 24px; width: 24px; padding: var(--space-xxs); color: var(--neutral-8); }
 .canvas-floating-actions .button .icon { width: 16px; height: 16px; }
 .canvas-floating-actions .button:disabled { color: var(--neutral-5); }
+.canvas-panel-reveal { position: absolute; top: var(--space-s); z-index: 220; }
+.canvas-panel-reveal-left { left: calc(48px + var(--space-s)); }
+.canvas-panel-reveal-right { right: var(--space-s); }
 .canvas-hud > * { position: absolute; }
 .resize-handles { inset: 0; z-index: 1; pointer-events: none; }
 /* Corner visuals are painted on the HUD canvas; DOM targets add generous hit areas and visible one-axis handles. */
@@ -95,6 +98,8 @@
 .mobile-canvas-header, .mobile-canvas-toolbar, .mobile-selection-actions { display: none; }
 
 @media (max-width: 760px) {
+  .canvas-area { display: flex; flex-direction: column; }
+  .canvas-viewport { flex: 1; }
   .mobile-canvas-header { display: flex; align-items: center; flex-shrink: 0; gap: var(--space-xs); min-height: 44px; padding: 0 var(--space-s); background: var(--neutral-1); box-shadow: inset 0 calc(-1 * var(--border-s)) 0 var(--cte-border); }
   .mobile-canvas-toolbar { position: absolute; bottom: max(var(--space-m), env(safe-area-inset-bottom)); left: 50%; z-index: 225; display: inline-flex; align-items: center; gap: var(--space-xs); transform: translateX(-50%); }
   .mobile-canvas-panel-toggle { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 40px; height: 40px; padding: var(--space-s); border: 0; border-radius: var(--radius-xs); background: var(--color-none); color: var(--neutral-8); cursor: pointer; }

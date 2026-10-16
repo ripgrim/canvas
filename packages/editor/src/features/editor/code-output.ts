@@ -1,5 +1,6 @@
 import { validateDocument } from '@canvas/repo-engine/document'
 import type { EditorDocument } from '@canvas/repo-engine/document'
+import { isRepositoryAtom } from '@canvas/repo-engine/contracts'
 import type { Atom } from '@canvas/repo-engine/contracts'
 import { codeOutputCopy } from './code-output-copy'
 
@@ -143,7 +144,8 @@ export function serializeComponentUsage(input: EditorDocument, atoms: Atom[], op
     if (!node || visited.has(id)) throw new Error(codeOutputCopy.invalidSelection)
     visited.add(id)
     if (!bindingNames.has(node.componentId)) {
-      const atom = atoms.find(candidate => candidate.componentId === node.componentId)!
+      const atom = atoms.find(candidate => candidate.componentId === node.componentId)
+      if (!atom || !isRepositoryAtom(atom)) throw new Error(codeOutputCopy.invalidBinding)
       if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(atom.exportName)) throw new Error(codeOutputCopy.invalidBinding)
       const moduleSpecifier = Object.hasOwn(options.moduleSpecifiers, atom.componentId) ? options.moduleSpecifiers[atom.componentId] : undefined
       if (!validModuleSpecifier(moduleSpecifier)) throw new Error(codeOutputCopy.missingImport)

@@ -8,6 +8,8 @@
       "@canvas/database/collaboration": ["../../packages/database/src/collaboration.ts"],
       "@canvas/database/postgres": ["../../packages/database/src/postgres.ts"],
       "@canvas/repo-engine/file-document": ["../../packages/repo-engine/src/file-document.ts"],
+      "@canvas/repo-engine/hosted-catalog": ["../../packages/repo-engine/src/hosted-catalog.ts"],
+      "@canvas/sync-client": ["../../packages/sync-client/src/index.ts"],
       "@canvas/sync-protocol/flow": ["../../packages/sync-protocol/src/flow.ts"],
       "@canvas/sync-protocol": ["../../packages/sync-protocol/src/index.ts"]
     }

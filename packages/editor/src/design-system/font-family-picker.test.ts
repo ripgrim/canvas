@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { fontFamilyLabel, fontPickerEntries, fontSearchScore, mergeFontOptions, systemFontOptions } from './font-family-picker'
+import { describe, expect, it, vi } from 'vitest'
+import { fontFamilyLabel, fontPickerEntries, fontPickerPortalContainer, fontSearchScore, mergeFontOptions, systemFontOptions } from './font-family-picker'
 
 describe('PAPER-TEXT-006 font family catalog', () => {
   it('finds direct and fuzzy family matches while rejecting unrelated input', () => {
@@ -20,5 +20,15 @@ describe('PAPER-TEXT-006 font family catalog', () => {
   it('keeps missing favorites visible and separates token labels from values', () => {
     expect(fontPickerEntries('favorites', [], [], ['Missing Sans'], '')[0]?.family).toMatchObject({ family: 'Missing Sans', source: 'document' })
     expect(fontPickerEntries('tokens', [], [{ id: 'font-brand', name: 'Brand', family: 'Inter' }], [], '')[0]).toMatchObject({ token: { name: 'Brand' }, family: { family: 'Inter', label: 'Brand' } })
+  })
+
+  it('keeps the picker inside the active mobile dialog', () => {
+    const sheet = {} as HTMLElement
+    const editor = {} as HTMLElement
+    const closest = vi.fn((selector: string) => selector === '.mobile-sheet-popup' ? sheet : editor)
+    const trigger = { closest } as unknown as HTMLElement
+
+    expect(fontPickerPortalContainer(trigger)).toBe(sheet)
+    expect(closest).toHaveBeenCalledTimes(1)
   })
 })

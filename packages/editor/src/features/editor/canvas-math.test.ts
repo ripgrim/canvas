@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { advanceResizeGesture, beginResizeGesture, effectiveResizeHandle, fitCamera, flowInsertIndex, gridBackground, gridVisible, resizeHandleCenter, resizeRect, resizeRectResult, resizeRotatedRect, resizeRotatedRectResult, screenToWorld, snapRect, stepZoom, wheelPanDelta, wheelZoomFactor, worldToScreen, zoomAtPoint, zoomPresets } from './canvas-math'
+import { rotation } from '@canvas/repo-engine/layout-matrix'
+import { advanceResizeGesture, beginResizeGesture as beginAffineResizeGesture, effectiveResizeHandle, fitCamera, flowInsertIndex, gridBackground, gridVisible, resizeHandleCenter as affineResizeHandleCenter, resizeRect, resizeRectResult, resizeTransformedRectResult, screenToWorld, snapRect, stepZoom, wheelPanDelta, wheelZoomFactor, worldToScreen, zoomAtPoint, zoomPresets } from './canvas-math'
+
+const beginResizeGesture = (start: Parameters<typeof beginAffineResizeGesture>[0], handle: Parameters<typeof beginAffineResizeGesture>[1], pointer: Parameters<typeof beginAffineResizeGesture>[2], degrees: number) => beginAffineResizeGesture(start, handle, pointer, rotation(degrees))
+const resizeRotatedRectResult = (start: Parameters<typeof resizeTransformedRectResult>[0], handle: Parameters<typeof resizeTransformedRectResult>[1], delta: Parameters<typeof resizeTransformedRectResult>[2], degrees: number, options: Parameters<typeof resizeTransformedRectResult>[4]) => resizeTransformedRectResult(start, handle, delta, rotation(degrees), options)
+const resizeRotatedRect = (...args: Parameters<typeof resizeRotatedRectResult>) => resizeRotatedRectResult(...args).rect
+const resizeHandleCenter = (rect: Parameters<typeof affineResizeHandleCenter>[0], handle: Parameters<typeof affineResizeHandleCenter>[1], degrees: number) => affineResizeHandleCenter(rect, handle, rotation(degrees))
 
 const size = { width: 1200, height: 800 }
 
@@ -198,16 +204,26 @@ describe('snapping, flow insertion, and resizing', () => {
   it('projects 90- and 180-degree pointer deltas into local axes', () => {
     const options = { symmetric: false, proportional: false }
     const quarterTurn = resizeRotatedRectResult({ x: 0, y: 0, width: 100, height: 50 }, 'right', { x: 0, y: 20 }, 90, options)
-    expect(quarterTurn.localDelta).toEqual({ x: 20, y: 0 })
+    expect(quarterTurn.localDelta.x).toBeCloseTo(20, 12)
+    expect(quarterTurn.localDelta.y).toBeCloseTo(0, 12)
     expect(quarterTurn.rect).toEqual({ x: -10, y: 10, width: 120, height: 50 })
     // Mutation control: applying world dx=0 as local x would leave the width at 100.
     expect(quarterTurn.rect.width).not.toBe(100)
 
     const halfTurn = resizeRotatedRectResult({ x: 0, y: 0, width: 100, height: 50 }, 'right', { x: -20, y: 0 }, 180, options)
-    expect(halfTurn.localDelta).toEqual({ x: 20, y: 0 })
+    expect(halfTurn.localDelta.x).toBeCloseTo(20, 12)
+    expect(halfTurn.localDelta.y).toBeCloseTo(0, 12)
     expect(halfTurn.rect).toEqual({ x: -20, y: 0, width: 120, height: 50 })
     // Mutation control: world-space right resize would shrink to 80 instead of growing to 120.
     expect(halfTurn.rect.width).not.toBe(80)
+  })
+
+  it('MATRIX-LAYOUT-008 projects scaled and skewed pointer deltas through the full affine inverse', () => {
+    const transform = [2, 0, 0.5, 1, 0, 0] as const
+    const result = resizeTransformedRectResult({ x: 0, y: 0, width: 100, height: 50 }, 'right', { x: 40, y: 0 }, transform, { symmetric: false, proportional: false })
+    expect(result.localDelta).toEqual({ x: 20, y: 0 })
+    expect(result.rect).toEqual({ x: 10, y: 0, width: 120, height: 50 })
+    expect(result.rect.width).not.toBe(140)
   })
 
   it('maps a crossed handle to the visual side that remains under the pointer', () => {

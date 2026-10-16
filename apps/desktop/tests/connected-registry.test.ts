@@ -53,7 +53,7 @@ describe('connected repository registry handoff', () => {
     expect(path.relative(repositoryRoot, installed.manifestPath).startsWith('..')).toBe(true)
     expect(installed.binding.componentId).toBe(generated.request.entry.componentId)
     expect(installed.binding.registry).toHaveLength(1)
-    expect(installed.binding.registry?.[0]).toMatchObject({ props: { title: { kind: 'string' } }, slots: [] })
+    expect(installed.binding.registry?.[0]).toMatchObject({ props: { title: { kind: 'string', optional: true } }, slots: [] })
     expect(installed.catalog.components[0]).toMatchObject({ componentId: generated.request.entry.componentId, exportName: 'Card', props: [{ name: 'title', type: 'string | undefined', optional: true }], slots: [] })
     expect((installed.binding as typeof installed.binding & { aliases?: unknown[] }).aliases).toHaveLength(1)
     expect(await repositoryBytes(repositoryRoot)).toEqual(before)

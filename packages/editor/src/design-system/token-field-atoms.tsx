@@ -3,6 +3,7 @@ import type { KeyboardEvent, ReactNode } from 'react'
 import { Popover } from '@base-ui/react/popover'
 import { Icon } from './atoms'
 import type { IconName } from './atoms'
+import { floatingPortalContainer } from './floating-portal'
 import './token-field.css'
 
 /**
@@ -78,7 +79,7 @@ export function TokenChooser({ id, label, placeholder, options, disabled = false
     else if (event.key === 'Enter' && visible[active]) { event.preventDefault(); choose(visible[active]!) }
     else if (event.key === 'Escape') { event.preventDefault(); setOpen(false); trigger.current?.focus() }
   }
-  return <Popover.Root open={open} onOpenChange={next => { setOpen(next); if (next) { setContainer(trigger.current?.closest<HTMLElement>('.editor-root') ?? null); setQuery(''); setActive(0) } }}>
+  return <Popover.Root open={open} onOpenChange={next => { setOpen(next); if (next) { setContainer(floatingPortalContainer(trigger.current)); setQuery(''); setActive(0) } }}>
     <Popover.Trigger ref={trigger} id={id} className="token-chooser" aria-label={label} title={label} disabled={unavailable} data-disabled={unavailable || undefined}><TokenGlyph /></Popover.Trigger>
     <Popover.Portal container={container}><Popover.Positioner className="token-chooser-positioner" side="left" align="start" sideOffset={4}><Popover.Popup className="token-chooser-popup">
       <div className="token-chooser-header"><Icon name="search" /><input autoFocus value={query} aria-label={placeholder} aria-controls={listId} aria-activedescendant={visible[active] ? `${listId}-${visible[active]!.value}` : undefined} placeholder={placeholder} onChange={event => { setQuery(event.currentTarget.value); setActive(0) }} onKeyDown={keys} /></div>

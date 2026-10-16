@@ -37,18 +37,18 @@ function authority(file: FileDocument, geometry: SceneGeometry, nodes: readonly 
 
 function wrappedAuthority(): GestureAuthoritySnapshot {
   const file: FileDocument = {
-    schemaVersion: 9,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'terminal-wrapped',
     revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },
-      flex: { id: 'flex', type: 'frame', name: 'Flex', styles: { left: 0, top: 0, width: 330, height: 100 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex } } },
-      a: { id: 'a', type: 'rectangle', name: 'A', styles: { left: 0, top: 0, width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
-      b: { id: 'b', type: 'rectangle', name: 'B', styles: { left: 0, top: 0, width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
-      c: { id: 'c', type: 'rectangle', name: 'C', styles: { left: 0, top: 0, width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
-      d: { id: 'd', type: 'rectangle', name: 'D', styles: { left: 0, top: 0, width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
-      e: { id: 'e', type: 'rectangle', name: 'E', styles: { left: 0, top: 0, width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
+      flex: { id: 'flex', type: 'frame', name: 'Flex', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 330, height: 100 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex } } },
+      a: { id: 'a', type: 'rectangle', name: 'A', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
+      b: { id: 'b', type: 'rectangle', name: 'B', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
+      c: { id: 'c', type: 'rectangle', name: 'C', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
+      d: { id: 'd', type: 'rectangle', name: 'D', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
+      e: { id: 'e', type: 'rectangle', name: 'E', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, layout: { item: { position: { mode: 'flow' } } } },
     },
     relationships: {
       flex: { parentId: 'root', orderKey: 'V' },
@@ -98,7 +98,7 @@ function componentAuthority(): GestureAuthoritySnapshot {
     { name: 'Child B', kind: 'atom', componentId: 'child-b', path: 'ChildB.tsx', exportName: 'ChildB', fingerprint: 'child-b', sourceHash: 'child-b', status: 'bound', candidates: [], props: [] },
   ]
   const file: FileDocument = {
-    schemaVersion: 9, fileId: 'terminal-components', revision,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'terminal-components', revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },
@@ -134,12 +134,12 @@ function componentAuthority(): GestureAuthoritySnapshot {
 
 function rotatedAuthority(): GestureAuthoritySnapshot {
   const file: FileDocument = {
-    schemaVersion: 9, fileId: 'terminal-rotated', revision,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'terminal-rotated', revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },
-      parent: { id: 'parent', type: 'frame', name: 'Parent', styles: { left: 100, top: -100, width: 200, height: 400, rotation: 90 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { ...flex, wrap: 'nowrap' } } } },
-      a: { id: 'a', type: 'rectangle', name: 'A', styles: { left: 0, top: 0, width: 60, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
+      parent: { id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [0, 1, -1, 0, 400, 0], width: 200, height: 400 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { ...flex, wrap: 'nowrap' } } } },
+      a: { id: 'a', type: 'rectangle', name: 'A', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 60, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
     },
     relationships: { parent: { parentId: 'root', orderKey: 'V' }, a: { parentId: 'parent', orderKey: 'V' } },
     theme: { tokens: {} },

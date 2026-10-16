@@ -3,7 +3,8 @@
  * one file-scoped theme. Child lists, page membership, and world geometry are derived from the relationships. Pages are
  * open workspaces whose roots render nothing; frames are ordinary nodes that may contain children.
  */
-import type { Atom } from './types.js'
+import { isHostedAtom, isPlaceableAtom, isRepositoryAtom } from './types.js'
+import type { Atom, HostedAtom } from './types.js'
 import { fields, forbiddenKeys, getNodeSlots, record, validId, validName, validateProps } from './document.js'
 import type { DocumentValue, EditorDocument } from './document.js'
 import { legacyLayout, validateLayout } from './layout.js'
@@ -17,13 +18,17 @@ import type { Color } from './color.js'
 import { compareOrder, isOrderKey, orderKeyBetween, orderKeySequence } from './order-keys.js'
 import { appearanceColors, assetReferences, blendModes, borderSides, canonicalAppearance, defaultFillColor, isColorValue, mapAppearanceColors, validateAppearance, validateBorders, validateImageAssetReference, validateOutline, validatePaint, validateStroke } from './appearance.js'
 import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAssetReference, Outline, Paint, Stroke } from './appearance.js'
+import { applyComponentAuthoringCommand, validateComponentAuthoringCommand, validateComponentModelState } from './component-model.js'
+import type { ComponentAuthoringCommand, ComponentModelState } from './component-model.js'
+import { containsTransformedPoint, identityTransform, isTransformMatrix, multiplyTransforms, reparentTransform, transformedBounds, translationTransform } from './transform-matrix.js'
+import type { TransformMatrix } from './transform-matrix.js'
 export * from './appearance.js'
 export * from './text.js'
 
-export const fileSchemaVersion = 9 as const
+export const fileSchemaVersion = 13 as const
 export type PrimitiveKind = 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'
 export const primitiveKinds: readonly PrimitiveKind[] = ['frame', 'rectangle', 'shape', 'shader', 'text']
-export type PrimitiveStyles = { left: number; top: number; width: number; height: number; rotation?: number; flipX?: boolean; flipY?: boolean; overflow?: 'clip' | 'visible' }
+export type PrimitiveStyles = { relativeTransform: TransformMatrix; width: number; height: number; overflow?: 'clip' | 'visible' }
 export type RootNode = { id: string; type: 'root' }
 /**
  * `themeMode` is the stored per-node theme choice (schema v5). Migration and insertion write it explicitly; a node
@@ -35,13 +40,21 @@ export type FileNode = RootNode | PrimitiveNode | ComponentNode
 /** Parent plus sibling order; `slot` names the component slot when the parent is a component instance. */
 export type NodeRelationship = { parentId: string; orderKey: string; slot?: string }
 export type FilePage = { id: string; name: string; rootNodeId: string; background?: ColorValue }
-export type TokenValue =
+export const tokenTypes = ['color', 'opacity', 'radius', 'spacing', 'container', 'breakpoint', 'fontFamily', 'fontWeight', 'fontSize', 'lineHeight', 'letterSpacing'] as const
+export type TokenType = typeof tokenTypes[number]
+export type ScalarTokenType = Exclude<TokenType, 'color'>
+export type ColorTokenValue =
   | { kind: 'literal'; color: Color }
   | { kind: 'alias'; tokenId: string }
   /** A design stylesheet custom property (for example `--surface`), resolved against the active design theme. */
   | { kind: 'source'; property: string; fallback: Color }
-export type ColorToken = { id: string; type: 'color'; name: string; orderKey: string; description?: string; value: TokenValue }
-export type FileTheme = { tokens: Record<string, ColorToken> }
+export type ScalarTokenValue = { kind: 'literal'; value: string | number } | { kind: 'alias'; tokenId: string }
+export type TokenValue = ColorTokenValue | ScalarTokenValue
+type TokenBase = { id: string; name: string; orderKey: string; description?: string }
+export type ColorToken = TokenBase & { type: 'color'; value: ColorTokenValue }
+export type ScalarToken = TokenBase & { type: ScalarTokenType; value: ScalarTokenValue }
+export type FileToken = ColorToken | ScalarToken
+export type FileTheme = { tokens: Record<string, FileToken> }
 export type FileDocument = {
   schemaVersion: typeof fileSchemaVersion
   fileId: string
@@ -50,6 +63,7 @@ export type FileDocument = {
   nodes: Record<string, FileNode>
   relationships: Record<string, NodeRelationship>
   theme: FileTheme
+  componentModel: ComponentModelState
   /** Immutable private asset metadata. Object keys, URLs, and bytes never enter the document. */
   assets?: Record<string, ImageAssetReference>
 }
@@ -82,34 +96,49 @@ const sourceProperty = (value: unknown): value is string => typeof value === 'st
 
 function validateStyles(value: unknown, kind: PrimitiveKind): value is PrimitiveStyles {
   if (!record(value)) return false
-  fields(value, ['left', 'top', 'width', 'height', ...(own(value, 'rotation') ? ['rotation'] : []), ...(own(value, 'flipX') ? ['flipX'] : []), ...(own(value, 'flipY') ? ['flipY'] : []), ...(own(value, 'overflow') ? ['overflow'] : [])], 'node styles')
-  if (!finite(value.left, -limits.coordinate, limits.coordinate) || !finite(value.top, -limits.coordinate, limits.coordinate)) return false
+  fields(value, ['relativeTransform', 'width', 'height', ...(own(value, 'overflow') ? ['overflow'] : [])], 'node styles')
+  if (!isTransformMatrix(value.relativeTransform) || Math.abs(value.relativeTransform[4]) > limits.coordinate || Math.abs(value.relativeTransform[5]) > limits.coordinate) return false
   if (!finite(value.width, 1, limits.coordinate) || !finite(value.height, 1, limits.coordinate)) return false
-  if (own(value, 'rotation') && !finite(value.rotation, -limits.coordinate, limits.coordinate)) return false
-  if (own(value, 'flipX') && typeof value.flipX !== 'boolean') return false
-  if (own(value, 'flipY') && typeof value.flipY !== 'boolean') return false
   if (own(value, 'overflow') && (kind !== 'frame' || !['clip', 'visible'].includes(value.overflow as string))) return false
   return true
 }
 
-function validateTokenValue(value: unknown): value is TokenValue {
+const cssLength = (value: unknown, negative = false): value is string => typeof value === 'string' && (negative ? /^-?(?:\d+\.?\d*|\.\d+)px$/ : /^(?:\d+\.?\d*|\.\d+)px$/).test(value)
+function validateScalarLiteral(type: ScalarTokenType, value: unknown): value is string | number {
+  if (type === 'opacity') return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
+  if (type === 'fontWeight') return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 1000
+  if (type === 'fontFamily') return typeof value === 'string' && value.trim().length > 0 && value.length <= 128
+  if (type === 'lineHeight') return typeof value === 'number' ? Number.isFinite(value) && value > 0 && value <= 10 : cssLength(value)
+  if (type === 'letterSpacing') return typeof value === 'number' ? Number.isFinite(value) && Math.abs(value) <= 1000 : cssLength(value, true)
+  return cssLength(value)
+}
+
+function validateTokenValue(value: unknown, type?: TokenType): value is TokenValue {
   if (!record(value)) return false
-  if (value.kind === 'literal') return Object.keys(value).length === 2 && isColor(value.color)
   if (value.kind === 'alias') return Object.keys(value).length === 2 && validId(value.tokenId)
-  if (value.kind === 'source') return Object.keys(value).length === 3 && sourceProperty(value.property) && isColor(value.fallback)
+  if (value.kind === 'source') return type === 'color' && Object.keys(value).length === 3 && sourceProperty(value.property) && isColor(value.fallback)
+  if (value.kind === 'literal' && type === 'color') return Object.keys(value).length === 2 && isColor(value.color)
+  if (value.kind === 'literal' && type && type !== 'color') return Object.keys(value).length === 2 && validateScalarLiteral(type, value.value)
   return false
 }
 
 const invalid = (message: string) => new Error(message)
 
-/** Parents that accept children: page roots take anything, frames take primitives, component instances take components in a slot. */
-export function acceptsChild(parent: FileNode, child: FileNode, slot: string | undefined, atoms: Atom[]): boolean {
+/** Parents that accept children: page roots take anything, frames take primitives, and declared component slots take any drawable layer. */
+export function acceptsChild(parent: FileNode, child: FileNode, slot: string | undefined, atoms: Atom[], allowUnavailableBindings = false): boolean {
+  if (child.type === 'component') {
+    const binding = atoms.find(atom => atom.componentId === child.componentId)
+    const structurallyKnown = binding && (isHostedAtom(binding) || isRepositoryAtom(binding) && binding.kind === 'atom')
+    if (!binding || (!isPlaceableAtom(binding) && !(allowUnavailableBindings && structurallyKnown))) return false
+  }
   if (parent.type === 'root') return slot === undefined && child.type !== 'root'
-  if (parent.type === 'frame') return slot === undefined && child.type !== 'root' && child.type !== 'component'
+  if (parent.type === 'frame') return slot === undefined ? child.type !== 'root' && child.type !== 'component' : child.type !== 'root'
   if (parent.type === 'component') {
-    if (child.type !== 'component' || slot === undefined) return false
+    if (child.type === 'root' || slot === undefined) return false
     const atom = atoms.find(candidate => candidate.componentId === parent.componentId)
-    return Boolean(atom && getNodeSlots(atom).includes(slot))
+    const structurallyKnown = atom && (isHostedAtom(atom) || isRepositoryAtom(atom) && atom.kind === 'atom')
+    if (!atom || (!isPlaceableAtom(atom) && !(allowUnavailableBindings && structurallyKnown))) return false
+    return getNodeSlots(atom).includes(slot)
   }
   return false
 }
@@ -156,7 +185,7 @@ function hasDefiniteFrameAxis(file: FileDocument, nodeId: string, axis: Primitiv
 
 export function validateFileDocument(input: unknown, atoms: Atom[], options: FileValidationOptions = {}): FileDocument {
   if (!record(input)) throw invalid('Invalid design file')
-  fields(input, ['schemaVersion', 'fileId', 'revision', 'pages', 'nodes', 'relationships', 'theme', ...(own(input, 'assets') ? ['assets'] : [])], 'design file')
+  fields(input, ['schemaVersion', 'fileId', 'revision', 'pages', 'nodes', 'relationships', 'theme', 'componentModel', ...(own(input, 'assets') ? ['assets'] : [])], 'design file')
   if (input.schemaVersion !== fileSchemaVersion) throw invalid('Unsupported design file version')
   if (!validId(input.fileId)) throw invalid('Invalid design file identity')
   if (!Number.isSafeInteger(input.revision) || (input.revision as number) < 0) throw invalid('Invalid design file revision')
@@ -164,6 +193,7 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
   if (!record(input.nodes) || Object.keys(input.nodes).length > limits.nodes) throw invalid('Design file exceeds the supported node limit')
   if (!record(input.relationships)) throw invalid('Invalid node relationships')
   if (!record(input.theme)) throw invalid('Invalid file theme')
+  validateComponentModelState(input.componentModel)
   fields(input.theme, ['tokens'], 'file theme')
   if (!record(input.theme.tokens) || Object.keys(input.theme.tokens).length > limits.tokens) throw invalid('Design file exceeds the supported token limit')
   if (own(input, 'assets')) {
@@ -182,7 +212,9 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
       if (!validId(node.componentId) || typeof node.exportName !== 'string') throw invalid('Invalid component identity')
       if (own(node, 'name') && !validName(node.name)) throw invalid('Invalid component name')
       const atom = atoms.find(candidate => candidate.componentId === node.componentId)
-      if (!atom || (!options.allowUnavailableBindings && atom.status !== 'bound') || atom.kind !== 'atom' || atom.exportName !== node.exportName) throw invalid('Component binding needs review')
+      const repositoryMatch = atom && isRepositoryAtom(atom) && atom.kind === 'atom' && atom.exportName === node.exportName
+      const hostedMatch = atom && isHostedAtom(atom) && options.allowUnavailableBindings && (atom.name === null || atom.name === node.exportName)
+      if (!atom || (!options.allowUnavailableBindings && !isPlaceableAtom(atom)) || (!repositoryMatch && !hostedMatch)) throw invalid('Component binding needs review')
       if (own(node, 'layout') && !validateLayout(node.layout)) throw invalid('Invalid component layout')
       if (own(node, 'appearance')) validateAppearance(node.appearance, 'component')
       continue
@@ -201,14 +233,14 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
   for (const [tokenId, token] of Object.entries(file.theme.tokens)) {
     if (!record(token) || !validId(tokenId) || token.id !== tokenId) throw invalid('Invalid token identity')
     fields(token, ['id', 'type', 'name', 'orderKey', 'value', ...(own(token, 'description') ? ['description'] : [])], 'token')
-    if (token.type !== 'color' || typeof token.name !== 'string' || token.name.trim().length === 0 || token.name.length > 64 || !isOrderKey(token.orderKey)) throw invalid('Invalid token')
+    if (!(tokenTypes as readonly unknown[]).includes(token.type) || typeof token.name !== 'string' || token.name.trim().length === 0 || token.name.length > 64 || !isOrderKey(token.orderKey)) throw invalid('Invalid token')
     if (own(token, 'description') && (typeof token.description !== 'string' || token.description.length > 500)) throw invalid('Invalid token description')
-    if (!validateTokenValue(token.value)) throw invalid('Invalid token value')
-    if (token.value.kind === 'alias' && !own(file.theme.tokens, token.value.tokenId)) throw invalid('Token alias target is missing')
+    if (!validateTokenValue(token.value, token.type as TokenType)) throw invalid('Invalid token value')
+    if (token.value.kind === 'alias' && (!own(file.theme.tokens, token.value.tokenId) || file.theme.tokens[token.value.tokenId]!.type !== token.type)) throw invalid('Token alias target is missing or has a different type')
   }
   for (const token of Object.values(file.theme.tokens)) {
     const visited = new Set<string>()
-    let current: ColorToken | undefined = token
+    let current: FileToken | undefined = token
     while (current?.value.kind === 'alias') {
       if (visited.has(current.id)) throw invalid('Token aliases cannot form a cycle')
       visited.add(current.id)
@@ -217,7 +249,7 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
   }
   for (const node of Object.values(file.nodes)) {
     if (node.type === 'root' || !node.appearance) continue
-    for (const value of appearanceColors(node.appearance)) if (value.kind === 'token' && !own(file.theme.tokens, value.tokenId)) throw invalid('A fill references a missing token')
+    for (const value of appearanceColors(node.appearance)) if (value.kind === 'token' && file.theme.tokens[value.tokenId]?.type !== 'color') throw invalid('A fill references a missing token')
     for (const assetId of assetReferences(node.appearance)) if (!file.assets || !own(file.assets, assetId)) throw invalid('An image fill references a missing asset')
   }
 
@@ -228,7 +260,7 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
     fields(page, ['id', 'name', 'rootNodeId', ...(own(page, 'background') ? ['background'] : [])], 'page')
     if (!validId(page.id) || pageIds.has(page.id) || !validName(page.name) || !validId(page.rootNodeId) || roots.has(page.rootNodeId)) throw invalid('Invalid page identity')
     if (own(page, 'background') && !isColorValue(page.background)) throw invalid('Invalid page background')
-    if (page.background?.kind === 'token' && !own(file.theme.tokens, page.background.tokenId)) throw invalid('A page background references a missing token')
+    if (page.background?.kind === 'token' && file.theme.tokens[page.background.tokenId]?.type !== 'color') throw invalid('A page background references a missing token')
     const root = file.nodes[page.rootNodeId]
     if (!root || root.type !== 'root') throw invalid('A page root is missing')
     if (own(file.relationships, page.rootNodeId)) throw invalid('Page roots cannot have a parent')
@@ -245,8 +277,30 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
     if (!validId(relationship.parentId) || !isOrderKey(relationship.orderKey) || (own(relationship, 'slot') && typeof relationship.slot !== 'string')) throw invalid('Invalid relationship')
     const parent = file.nodes[relationship.parentId]
     if (!parent) throw invalid('A node parent is missing')
-    if (!acceptsChild(parent, file.nodes[nodeId]!, relationship.slot, atoms)) throw invalid('A node cannot live under that parent')
+    if (!acceptsChild(parent, file.nodes[nodeId]!, relationship.slot, atoms, Boolean(options.allowUnavailableBindings))) throw invalid('A node cannot live under that parent')
   }
+  for (const instance of Object.values(file.componentModel.instances)) {
+    const node = file.nodes[instance.id]
+    const definition = file.componentModel.definitions[instance.componentId]
+    if (!node || node.type === 'root') throw invalid('A component instance needs a design node')
+    if (definition?.source.kind === 'code' && (node.type !== 'component' || node.componentId !== definition.id)) throw invalid('A code component instance needs its bound component node')
+  }
+  for (const definition of Object.values(file.componentModel.definitions)) {
+    if (definition.source.kind !== 'canvas') continue
+    const master = file.nodes[definition.source.masterRootId]
+    if (!master || master.type === 'root') throw invalid('A canvas component needs its master node')
+    const sourceNodes = new Set([definition.source.masterRootId, ...descendantsOf(file, definition.source.masterRootId)])
+    if (definition.properties.some(property => property.binding && !sourceNodes.has(property.binding.nodeId))) throw invalid('A component property references a missing master layer')
+    for (const property of definition.properties) {
+      if (property.type !== 'instance-swap') continue
+      const target = file.componentModel.instances[property.binding.nodeId]
+      if (!target || property.binding.nodeId === definition.source.masterRootId) throw invalid('An Instance swap property needs a nested component instance root')
+      if (target.componentId !== property.defaultValue) throw invalid('An Instance swap default must match its nested component instance')
+      if (file.componentModel.definitions[target.componentId]?.source.kind !== 'canvas') throw invalid('Instance swap requires a nested canvas component instance')
+    }
+    if (definition.parts.some(part => !sourceNodes.has(part.nodeId))) throw invalid('A component part references a missing master layer')
+  }
+  validateComponentDependencyCycles(file)
   for (const [nodeId, relationship] of Object.entries(file.relationships)) {
     const node = file.nodes[nodeId]!
     if (node.type === 'root') continue
@@ -304,6 +358,39 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
   }
   if (JSON.stringify(file).length > limits.bytes) throw invalid('Design file exceeds the supported size')
   return structuredClone(file)
+}
+
+function validateComponentDependencyCycles(file: FileDocument): void {
+  const dependencies = new Map<string, Set<string>>()
+  const instances = Object.values(file.componentModel.instances)
+  for (const definition of Object.values(file.componentModel.definitions)) {
+    const targets = new Set<string>()
+    dependencies.set(definition.id, targets)
+    if (definition.source.kind !== 'canvas') continue
+    const sourceNodes = new Set([definition.source.masterRootId, ...descendantsOf(file, definition.source.masterRootId)])
+    for (const instance of instances) if (sourceNodes.has(instance.id)) targets.add(instance.componentId)
+    for (const property of definition.properties) {
+      if (property.type !== 'instance-swap') continue
+      targets.add(property.defaultValue)
+      for (const owner of instances) {
+        if (owner.componentId !== definition.id) continue
+        const value = owner.values[property.id]
+        if (typeof value === 'string') targets.add(value)
+      }
+    }
+  }
+
+  const visited = new Set<string>()
+  const active = new Set<string>()
+  const visit = (componentId: string): void => {
+    if (active.has(componentId)) throw invalid('Components cannot contain themselves recursively')
+    if (visited.has(componentId)) return
+    active.add(componentId)
+    for (const dependency of dependencies.get(componentId) ?? []) visit(dependency)
+    active.delete(componentId)
+    visited.add(componentId)
+  }
+  for (const componentId of dependencies.keys()) visit(componentId)
 }
 
 // Derived views -----------------------------------------------------------------------------------------------------
@@ -372,28 +459,38 @@ export function nodeIsLocked(file: FileDocument, nodeId: string): boolean {
   }
   return false
 }
-/** World position of a primitive or absolutely placed component: parent-local offsets accumulated up to the page root. */
-export function worldPosition(file: FileDocument, nodeId: string): { x: number; y: number } {
-  let x = 0, y = 0
+/** Low-level local transform. Width and height remain independent sizing authority. */
+export function nodeLocalTransform(file: FileDocument, nodeId: string): TransformMatrix {
+  const node = file.nodes[nodeId]
+  if (!node || node.type === 'root') return identityTransform
+  if (node.type === 'component') {
+    const placement = legacyLayout(node.layout)
+    return placement.mode === 'absolute' ? translationTransform(placement.x, placement.y) : identityTransform
+  }
+  return node.styles.relativeTransform
+}
+
+/** Composes every relative transform in the ancestry chain. */
+export function nodeWorldTransform(file: FileDocument, nodeId: string): TransformMatrix {
+  const chain: string[] = []
   let current: string | undefined = nodeId
   const seen = new Set<string>()
-  while (current && !seen.has(current)) {
-    seen.add(current)
-    const node: FileNode | undefined = file.nodes[current]
-    if (!node) break
-    if (node.type === 'component') { const placement = legacyLayout(node.layout); if (placement.mode === 'absolute') { x += placement.x; y += placement.y } }
-    else if (node.type !== 'root') { x += node.styles.left; y += node.styles.top }
-    current = file.relationships[current]?.parentId
-  }
-  return { x, y }
+  while (current && !seen.has(current)) { seen.add(current); chain.unshift(current); current = file.relationships[current]?.parentId }
+  return chain.reduce((world, id) => multiplyTransforms(world, nodeLocalTransform(file, id)), identityTransform)
+}
+
+/** World position is the transformed local origin, not a sum of ancestor offsets. */
+export function worldPosition(file: FileDocument, nodeId: string): { x: number; y: number } {
+  const world = nodeWorldTransform(file, nodeId)
+  return { x: world[4], y: world[5] }
 }
 export function worldRect(file: FileDocument, nodeId: string): Rect | null {
   const node = file.nodes[nodeId]
   if (!node) return null
-  const position = worldPosition(file, nodeId)
-  if (node.type === 'component') { const placement = legacyLayout(node.layout); return placement.mode === 'absolute' && placement.width !== undefined && placement.height !== undefined ? { x: position.x, y: position.y, width: placement.width, height: placement.height } : null }
+  const world = nodeWorldTransform(file, nodeId)
+  if (node.type === 'component') { const placement = legacyLayout(node.layout); return placement.mode === 'absolute' && placement.width !== undefined && placement.height !== undefined ? transformedBounds(world, { width: placement.width, height: placement.height }) : null }
   if (node.type === 'root') return null
-  return { x: position.x, y: position.y, width: node.styles.width, height: node.styles.height }
+  return transformedBounds(world, node.styles)
 }
 /** Deepest frame on a page containing a world point, ignoring a subtree. */
 export function frameAt(file: FileDocument, pageId: string, point: { x: number; y: number }, excludedId?: string): string | null {
@@ -402,8 +499,7 @@ export function frameAt(file: FileDocument, pageId: string, point: { x: number; 
   for (const id of pageNodes(file, pageId)) {
     const node = file.nodes[id]
     if (!node || node.type !== 'frame' || excluded.has(id)) continue
-    const rect = worldRect(file, id)!
-    if (point.x < rect.x || point.x > rect.x + rect.width || point.y < rect.y || point.y > rect.y + rect.height) continue
+    if (!containsTransformedPoint(nodeWorldTransform(file, id), node.styles, point)) continue
     const depth = ancestorsOf(file, id).length
     if (!best || depth >= best.depth) best = { id, depth }
   }
@@ -414,11 +510,21 @@ export function frameAt(file: FileDocument, pageId: string, point: { x: number; 
 
 export function resolveToken(theme: FileTheme, tokenId: string, sources: SourcePalette = {}, visited = new Set<string>()): Color | null {
   const token = theme.tokens[tokenId]
-  if (!token || visited.has(tokenId) || visited.size > limits.depth) return null
+  if (!token || token.type !== 'color' || visited.has(tokenId) || visited.size > limits.depth) return null
   visited.add(tokenId)
   if (token.value.kind === 'literal') return token.value.color
   if (token.value.kind === 'source') return sources[token.value.property] ?? token.value.fallback
   return resolveToken(theme, token.value.tokenId, sources, visited)
+}
+export type ResolvedTokenLiteral = { kind: 'literal'; color: Color } | { kind: 'literal'; value: string | number }
+/** Resolves any design token to a literal while preserving its value domain. */
+export function resolveTokenLiteral(theme: FileTheme, tokenId: string, sources: SourcePalette = {}, visited = new Set<string>()): ResolvedTokenLiteral | null {
+  const token = theme.tokens[tokenId]
+  if (!token || visited.has(tokenId) || visited.size > limits.depth) return null
+  visited.add(tokenId)
+  if (token.value.kind === 'alias') return resolveTokenLiteral(theme, token.value.tokenId, sources, visited)
+  if (token.type === 'color') return { kind: 'literal', color: token.value.kind === 'source' ? sources[token.value.property] ?? token.value.fallback : token.value.color }
+  return { kind: 'literal', value: token.value.value }
 }
 export const resolveColorValue = (theme: FileTheme, value: ColorValue, sources: SourcePalette = {}): Color | null => value.kind === 'literal' ? value.color : resolveToken(theme, value.tokenId, sources)
 /** The appearance of any non-root node (primitives and component instances share one model). */
@@ -439,14 +545,14 @@ export function tokenReferences(file: FileDocument, tokenId: string): TokenRefer
 export function wouldCreateAliasCycle(theme: FileTheme, tokenId: string, targetId: string): boolean {
   let current: string | undefined = targetId
   const seen = new Set<string>()
-  while (current && !seen.has(current)) { if (current === tokenId) return true; seen.add(current); const token: ColorToken | undefined = theme.tokens[current]; current = token?.value.kind === 'alias' ? token.value.tokenId : undefined }
+  while (current && !seen.has(current)) { if (current === tokenId) return true; seen.add(current); const token: FileToken | undefined = theme.tokens[current]; current = token?.value.kind === 'alias' ? token.value.tokenId : undefined }
   return false
 }
 
 // Construction ------------------------------------------------------------------------------------------------------
 
 export function createBlankFile(fileId: string, pageId: string, rootNodeId: string, pageName = 'Page 1'): FileDocument {
-  return { schemaVersion: fileSchemaVersion, fileId, revision: 0, pages: [{ id: pageId, name: pageName, rootNodeId }], nodes: { [rootNodeId]: { id: rootNodeId, type: 'root' } }, relationships: {}, theme: { tokens: {} } }
+  return { schemaVersion: fileSchemaVersion, fileId, revision: 0, pages: [{ id: pageId, name: pageName, rootNodeId }], nodes: { [rootNodeId]: { id: rootNodeId, type: 'root' } }, relationships: {}, theme: { tokens: {} }, componentModel: { definitions: {}, instances: {} } }
 }
 
 /** Legacy per-page view used by code output, promotion, and source bindings: component nodes with slot children. */
@@ -471,13 +577,9 @@ export function legacyPageDocument(file: FileDocument, pageId: string): EditorDo
 
 export type NodePlacement = { parentId: string; slot?: string; orderKey?: string; index?: number }
 export type PrimitiveStylePatch = {
-  left?: number
-  top?: number
+  relativeTransform?: TransformMatrix
   width?: number
   height?: number
-  rotation?: number | null
-  flipX?: boolean | null
-  flipY?: boolean | null
   overflow?: PrimitiveStyles['overflow'] | null
 }
 /** Full numeric fallback box used when Wrap must change a primitive's fixed size, including text geometry. */
@@ -485,7 +587,7 @@ export type NodePrimitiveSize = Pick<PrimitiveStyles, 'width' | 'height'>
 /** Full text authority used when Wrap must change a text node's typography or sizing intent. */
 export type NodeTextProperties = { textStyle: TextStyle; textSizing: TextSizing }
 /** Complete fallback geometry controlled by a resize presentation. Optional primitive style fields remain untouched. */
-export type NodeResizePrimitiveGeometry = Pick<PrimitiveStyles, 'left' | 'top' | 'width' | 'height'>
+export type NodeResizePrimitiveGeometry = Pick<PrimitiveStyles, 'relativeTransform' | 'width' | 'height'>
 /** Exact checked state for every authority one resize presentation owns. Omitted authorities remain untouched. */
 export type NodeResizeState = {
   nodeId: string
@@ -511,6 +613,7 @@ export type NodeRemoveFlexGroup = { parent: NodeFlexState; children: NodeFlexSta
 /** Checked history inverse: the current removed state must equal `expected` before `source` can be restored. */
 export type NodeRestoreFlexGroup = { expected: NodeRemoveFlexGroup; source: NodeRemoveFlexGroup }
 export type FileCommand =
+  | ComponentAuthoringCommand
   | { type: 'page.create'; page: FilePage; index?: number }
   | { type: 'page.rename'; pageId: string; name: string }
   | { type: 'page.setBackground'; pageId: string; background: ColorValue | null }
@@ -563,7 +666,7 @@ export type FileCommand =
   | { type: 'node.delete'; nodeIds: string[] }
   /** Copies a subtree beside its source; `ids` maps every copied node id to a new identity. */
   | { type: 'node.duplicate'; nodeId: string; ids: Record<string, string>; offset?: { x: number; y: number } }
-  | { type: 'token.create'; token: ColorToken }
+  | { type: 'token.create'; token: FileToken }
   | { type: 'token.rename'; tokenId: string; name: string }
   | { type: 'token.setValue'; tokenId: string; value: TokenValue }
   | { type: 'token.setDescription'; tokenId: string; description: string }
@@ -616,6 +719,10 @@ function commandRelationship(value: unknown): value is NodeRelationship {
     && validId(value.parentId) && isOrderKey(value.orderKey) && (!own(value, 'slot') || validId(value.slot))
 }
 
+function commandComponentAuthoring(value: unknown): boolean {
+  try { validateComponentAuthoringCommand(value); return true } catch { return false }
+}
+
 function commandPrimitiveSize(value: unknown): value is NodePrimitiveSize {
   return record(value) && commandFields(value, ['width', 'height'])
     && finite(value.width, 1, limits.coordinate) && finite(value.height, 1, limits.coordinate)
@@ -627,8 +734,8 @@ function commandTextProperties(value: unknown): value is NodeTextProperties {
 }
 
 function commandResizePrimitiveGeometry(value: unknown): value is NodeResizePrimitiveGeometry {
-  return record(value) && commandFields(value, ['left', 'top', 'width', 'height'])
-    && commandFinite(value.left) && commandFinite(value.top)
+  return record(value) && commandFields(value, ['relativeTransform', 'width', 'height'])
+    && isTransformMatrix(value.relativeTransform)
     && finite(value.width, 1, limits.coordinate) && finite(value.height, 1, limits.coordinate)
 }
 
@@ -746,14 +853,15 @@ function commandPage(value: unknown): value is FilePage {
 function commandTokenValue(value: unknown): value is TokenValue {
   if (!record(value)) return false
   if (value.kind === 'literal') return commandFields(value, ['kind', 'color']) && isColor(value.color)
+    || commandFields(value, ['kind', 'value']) && (typeof value.value === 'string' || typeof value.value === 'number' && Number.isFinite(value.value))
   if (value.kind === 'alias') return commandFields(value, ['kind', 'tokenId']) && validId(value.tokenId)
   return value.kind === 'source' && commandFields(value, ['kind', 'property', 'fallback']) && sourceProperty(value.property) && isColor(value.fallback)
 }
 
-function commandToken(value: unknown): value is ColorToken {
+function commandToken(value: unknown): value is FileToken {
   return record(value) && commandFields(value, ['id', 'type', 'name', 'orderKey', 'value'], ['description'])
-    && validId(value.id) && value.type === 'color' && typeof value.name === 'string' && value.name.trim().length > 0 && value.name.length <= 64
-    && isOrderKey(value.orderKey) && commandTokenValue(value.value)
+    && validId(value.id) && (tokenTypes as readonly unknown[]).includes(value.type) && typeof value.name === 'string' && value.name.trim().length > 0 && value.name.length <= 64
+    && isOrderKey(value.orderKey) && commandTokenValue(value.value) && validateTokenValue(value.value, value.type as TokenType)
     && (!own(value, 'description') || typeof value.description === 'string' && value.description.length <= 500)
 }
 
@@ -791,6 +899,14 @@ function validateCommandShape(value: unknown, limitsValue: Required<FileCommandV
   if (!record(value) || typeof value.type !== 'string' || depth > limitsValue.maxDepth) return false
   if (value.type !== 'batch' && --budget.remaining < 0) return false
   switch (value.type) {
+    case 'component.create':
+    case 'component.replace':
+    case 'component.delete':
+    case 'component.restore':
+    case 'component.instance.create':
+    case 'component.instance.replace':
+    case 'component.instance.delete':
+    case 'component.instance.restore': return commandComponentAuthoring(value)
     case 'page.create': return commandFields(value, ['type', 'page'], ['index']) && commandPage(value.page) && (!own(value, 'index') || commandIndex(value.index))
     case 'page.rename': return commandFields(value, ['type', 'pageId', 'name']) && validId(value.pageId) && validName(value.name)
     case 'page.setBackground': return commandFields(value, ['type', 'pageId', 'background']) && validId(value.pageId) && (value.background === null || isColorValue(value.background))
@@ -803,9 +919,9 @@ function validateCommandShape(value: unknown, limitsValue: Required<FileCommandV
     case 'node.setStyles': {
       if (!commandFields(value, ['type', 'nodeId', 'styles']) || !validId(value.nodeId) || !record(value.styles) || Object.keys(value.styles).length === 0) return false
       const styles = value.styles
-      if (Object.keys(styles).some(key => !['left', 'top', 'width', 'height', 'rotation', 'flipX', 'flipY', 'overflow'].includes(key))) return false
-      if (['left', 'top', 'width', 'height'].some(key => styles[key] === null)) return false
-      const geometry: Record<string, unknown> = { left: 0, top: 0, width: 1, height: 1 }
+      if (Object.keys(styles).some(key => !['relativeTransform', 'width', 'height', 'overflow'].includes(key))) return false
+      if (['relativeTransform', 'width', 'height'].some(key => styles[key] === null)) return false
+      const geometry: Record<string, unknown> = { relativeTransform: identityTransform, width: 1, height: 1 }
       for (const [key, item] of Object.entries(styles)) if (item !== null) geometry[key] = item
       return validateStyles(geometry, own(styles, 'overflow') ? 'frame' : 'rectangle')
     }
@@ -886,7 +1002,7 @@ function hostedComponentShapes(file: FileDocument): HostedComponentShape[] {
 }
 
 /** Synthetic unavailable bindings used only to validate hosted document structure, never source compatibility. */
-export function hostedFileAtoms(file: FileDocument): Atom[] {
+export function hostedFileAtoms(file: FileDocument): HostedAtom[] {
   const groups = new Map<string, HostedComponentShape[]>()
   for (const shape of hostedComponentShapes(file)) {
     const current = groups.get(shape.componentId) ?? []
@@ -909,11 +1025,12 @@ export function hostedFileAtoms(file: FileDocument): Atom[] {
     }
     return {
       componentId,
-      exportName: shapes[0]!.exportName,
       name: shapes[0]!.exportName,
-      kind: 'atom' as const,
-      path: '', fingerprint: '', sourceHash: '', status: 'missing' as const, candidates: [],
+      kind: 'hosted' as const,
+      status: 'missing' as const,
+      candidates: [],
       props: [...propTypes].map(([name, types]) => ({ name, type: [...types].sort().join(' | '), optional: true })),
+      slots: [...new Set(shapes.flatMap(shape => shape.slots))].sort(),
     }
   })
 }
@@ -978,7 +1095,7 @@ function component(file: FileDocument, nodeId: string): ComponentNode {
   if (!node || node.type !== 'component') throw invalid('Select a component instance')
   return node
 }
-function token(file: FileDocument, tokenId: string): ColorToken {
+function token(file: FileDocument, tokenId: string): FileToken {
   const found = file.theme.tokens[tokenId]
   if (!found) throw invalid('Select an existing token')
   return found
@@ -1286,7 +1403,7 @@ function resizeStateMatches(file: FileDocument, state: NodeResizeState): boolean
   const relationship = file.relationships[state.nodeId]
   if (!node || node.type === 'root' || !relationship || !sameRelationship(relationship, state.relationship)) return false
   if (state.primitiveGeometry && (node.type === 'component'
-    || node.styles.left !== state.primitiveGeometry.left || node.styles.top !== state.primitiveGeometry.top
+    || !sameResizeValue(node.styles.relativeTransform, state.primitiveGeometry.relativeTransform)
     || node.styles.width !== state.primitiveGeometry.width || node.styles.height !== state.primitiveGeometry.height)) return false
   if (own(state, 'layout') && !sameResizeValue(own(node, 'layout') ? node.layout : null, state.layout)) return false
   if (state.textProperties && (node.type !== 'text'
@@ -1358,13 +1475,24 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       for (const inner of command.commands) working = apply(working, inner, atoms)
       return working
     }
+    case 'component.create':
+    case 'component.replace':
+    case 'component.delete':
+    case 'component.restore':
+    case 'component.instance.create':
+    case 'component.instance.replace':
+    case 'component.instance.delete':
+    case 'component.instance.restore': {
+      file.componentModel = applyComponentAuthoringCommand(file.componentModel, command)
+      return file
+    }
     case 'page.create': {
       if (file.pages.length >= limits.pages) throw invalid(`A file supports up to ${limits.pages} pages`)
       if (!validId(command.page.id) || !validId(command.page.rootNodeId) || own(file.nodes, command.page.rootNodeId) || file.pages.some(page => page.id === command.page.id) || !validName(command.page.name)) throw invalid('Invalid page')
       const index = command.index ?? file.pages.length
       if (!Number.isInteger(index) || index < 0 || index > file.pages.length) throw invalid('Invalid page position')
       if (command.page.background !== undefined && !isColorValue(command.page.background)) throw invalid('Invalid page background')
-      if (command.page.background?.kind === 'token' && !own(file.theme.tokens, command.page.background.tokenId)) throw invalid('A page background references a missing token')
+      if (command.page.background?.kind === 'token' && file.theme.tokens[command.page.background.tokenId]?.type !== 'color') throw invalid('A page background references a missing token')
       file.nodes[command.page.rootNodeId] = { id: command.page.rootNodeId, type: 'root' }
       file.pages.splice(index, 0, structuredClone(command.page))
       return file
@@ -1381,7 +1509,7 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       if (command.background === null) delete page.background
       else {
         if (!isColorValue(command.background)) throw invalid('Invalid page background')
-        if (command.background.kind === 'token' && !own(file.theme.tokens, command.background.tokenId)) throw invalid('A page background references a missing token')
+        if (command.background.kind === 'token' && file.theme.tokens[command.background.tokenId]?.type !== 'color') throw invalid('A page background references a missing token')
         page.background = structuredClone(command.background)
       }
       return file
@@ -1610,7 +1738,7 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       const node = file.nodes[command.nodeId]
       if (!node || node.type === 'root' || !own(file.relationships, command.nodeId)) throw invalid('Select an existing node')
       if (command.placement.parentId === command.nodeId || descendantsOf(file, command.nodeId).includes(command.placement.parentId)) throw invalid('A node cannot move inside its own subtree')
-      const world = worldPosition(file, command.nodeId)
+      const oldWorld = nodeWorldTransform(file, command.nodeId)
       const relationship = placeRelationship(file, command.nodeId, command.placement, atoms)
       const previousParent = file.relationships[command.nodeId]!.parentId
       file.relationships[command.nodeId] = relationship
@@ -1636,9 +1764,10 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
         }
       }
       if (command.preserveWorldPosition && previousParent !== relationship.parentId && node.type !== 'component') {
-        // newLocal = inverse(newParentWorld) x oldWorld, for unrotated parents a translation.
-        const parentWorld = worldPosition(file, relationship.parentId)
-        node.styles = { ...node.styles, left: world.x - parentWorld.x, top: world.y - parentWorld.y }
+        const newParentWorld = nodeWorldTransform(file, relationship.parentId)
+        const local = reparentTransform(oldWorld, identityTransform, newParentWorld)
+        if (!local) throw invalid('The new parent transform is singular')
+        node.styles = { ...node.styles, relativeTransform: local! }
       }
       return file
     }
@@ -1688,7 +1817,7 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
       const copy = next.nodes[command.ids[command.nodeId]!]!
       if (command.offset) {
         if (copy.type === 'component') { const position = copy.layout?.item.position; if (copy.layout && position?.mode === 'absolute' && position.left?.kind === 'px' && position.top?.kind === 'px') copy.layout = { ...copy.layout, item: { ...copy.layout.item, position: { ...position, left: { kind: 'px', value: position.left.value + command.offset.x }, top: { kind: 'px', value: position.top.value + command.offset.y } } } } }
-        else if (copy.type !== 'root') copy.styles = { ...copy.styles, left: copy.styles.left + command.offset.x, top: copy.styles.top + command.offset.y }
+        else if (copy.type !== 'root') copy.styles = { ...copy.styles, relativeTransform: multiplyTransforms(translationTransform(command.offset.x, command.offset.y), copy.styles.relativeTransform) }
       }
       return next
     }
@@ -1712,9 +1841,9 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
     }
     case 'token.setValue': {
       const target = token(file, command.tokenId)
-      if (!validateTokenValue(command.value)) throw invalid('Invalid token value')
-      if (command.value.kind === 'alias') { if (!own(file.theme.tokens, command.value.tokenId)) throw invalid('Token alias target is missing'); if (command.value.tokenId === command.tokenId || wouldCreateAliasCycle(file.theme, command.tokenId, command.value.tokenId)) throw invalid('Token aliases cannot form a cycle') }
-      target.value = structuredClone(command.value)
+      if (!validateTokenValue(command.value, target.type)) throw invalid('Invalid token value')
+      if (command.value.kind === 'alias') { const aliasTarget = file.theme.tokens[command.value.tokenId]; if (!aliasTarget) throw invalid('Token alias target is missing'); if (aliasTarget.type !== target.type) throw invalid('Token alias target has a different type'); if (command.value.tokenId === command.tokenId || wouldCreateAliasCycle(file.theme, command.tokenId, command.value.tokenId)) throw invalid('Token aliases cannot form a cycle') }
+      target.value = structuredClone(command.value) as typeof target.value
       return file
     }
     case 'token.reorder': {
@@ -1739,19 +1868,24 @@ function apply(file: FileDocument, command: FileCommand, atoms: Atom[]): FileDoc
     case 'token.delete': {
       if (!Array.isArray(command.tokenIds) || !command.tokenIds.length) throw invalid('Select a token')
       const deleting = new Set(command.tokenIds)
-      const resolved = new Map<string, Color>()
+      const resolved = new Map<string, ResolvedTokenLiteral>()
       for (const tokenId of deleting) {
-        const color = resolveToken(file.theme, tokenId, command.sources ?? {})
-        if (!color) throw invalid('A token could not be resolved, so its references cannot be preserved')
-        resolved.set(tokenId, color)
+        const literal = resolveTokenLiteral(file.theme, tokenId, command.sources ?? {})
+        if (!literal) throw invalid('A token could not be resolved, so its references cannot be preserved')
+        resolved.set(tokenId, literal)
       }
-      const replace = (value: ColorValue): ColorValue => value.kind === 'token' && deleting.has(value.tokenId) ? { kind: 'literal', color: resolved.get(value.tokenId)! } : value
+      const replace = (value: ColorValue): ColorValue => {
+        if (value.kind !== 'token' || !deleting.has(value.tokenId)) return value
+        const literal = resolved.get(value.tokenId)
+        if (!literal || !('color' in literal)) throw invalid('A color reference requires a color token')
+        return literal
+      }
       for (const node of Object.values(file.nodes)) {
         if (node.type === 'root' || !node.appearance) continue
         node.appearance = mapAppearanceColors(node.appearance, replace)
       }
       for (const page of file.pages) if (page.background) page.background = replace(page.background)
-      for (const other of Object.values(file.theme.tokens)) if (!deleting.has(other.id) && other.value.kind === 'alias' && deleting.has(other.value.tokenId)) other.value = { kind: 'literal', color: resolved.get(other.value.tokenId)! }
+      for (const other of Object.values(file.theme.tokens)) if (!deleting.has(other.id) && other.value.kind === 'alias' && deleting.has(other.value.tokenId)) other.value = structuredClone(resolved.get(other.value.tokenId)!) as unknown as typeof other.value
       for (const tokenId of deleting) delete file.theme.tokens[tokenId]
       return file
     }
@@ -1820,6 +1954,37 @@ function canonicalHistoryRedo(before: FileDocument, after: FileDocument, command
 
 function inverseHistoryLeaf(before: FileDocument, after: FileDocument, command: Exclude<FileCommand, { type: 'batch' }>): FileCommand {
   switch (command.type) {
+    case 'component.create': return { type: 'component.restore', componentId: command.definition.id, expected: structuredClone(after.componentModel.definitions[command.definition.id]!), source: null }
+    case 'component.replace': return {
+      type: 'component.restore', componentId: command.componentId,
+      expected: structuredClone(after.componentModel.definitions[command.componentId]!),
+      source: structuredClone(before.componentModel.definitions[command.componentId]!),
+    }
+    case 'component.delete': return {
+      type: 'component.restore', componentId: command.componentId, expected: null,
+      source: structuredClone(before.componentModel.definitions[command.componentId]!),
+    }
+    case 'component.restore': return {
+      type: 'component.restore', componentId: command.componentId,
+      expected: structuredClone(command.source), source: structuredClone(command.expected),
+    }
+    case 'component.instance.create': return {
+      type: 'component.instance.restore', instanceId: command.instance.id,
+      expected: structuredClone(after.componentModel.instances[command.instance.id]!), source: null,
+    }
+    case 'component.instance.replace': return {
+      type: 'component.instance.restore', instanceId: command.instanceId,
+      expected: structuredClone(after.componentModel.instances[command.instanceId]!),
+      source: structuredClone(before.componentModel.instances[command.instanceId]!),
+    }
+    case 'component.instance.delete': return {
+      type: 'component.instance.restore', instanceId: command.instanceId, expected: null,
+      source: structuredClone(before.componentModel.instances[command.instanceId]!),
+    }
+    case 'component.instance.restore': return {
+      type: 'component.instance.restore', instanceId: command.instanceId,
+      expected: structuredClone(command.source), source: structuredClone(command.expected),
+    }
     case 'page.create': return { type: 'page.delete', pageId: command.page.id }
     case 'page.rename': return { type: 'page.rename', pageId: command.pageId, name: before.pages.find(page => page.id === command.pageId)!.name }
     case 'page.setBackground': return { type: 'page.setBackground', pageId: command.pageId, background: structuredClone(before.pages.find(page => page.id === command.pageId)?.background ?? null) }
@@ -2027,10 +2192,10 @@ export function applyHostedFileCommand(input: FileDocument, command: FileCommand
   const established = hostedFileAtoms(input)
   const trustedIds = new Set<string>()
   for (const atom of trustedAtoms) {
-    if (atom.kind !== 'atom' || atom.status !== 'bound' || trustedIds.has(atom.componentId)) throw invalid('Invalid trusted component catalog')
+    if (!isPlaceableAtom(atom) || trustedIds.has(atom.componentId)) throw invalid('Invalid trusted component catalog')
     trustedIds.add(atom.componentId)
     const prior = established.find(candidate => candidate.componentId === atom.componentId)
-    if (prior && prior.exportName !== atom.exportName) throw invalid('Component binding needs review')
+    if (prior && prior.name !== atom.exportName) throw invalid('Component binding needs review')
   }
   const atoms = [...established.filter(atom => !trustedIds.has(atom.componentId)), ...trustedAtoms.map(atom => structuredClone(atom))]
   const source = validateFileDocument(input, atoms, { allowUnavailableBindings: true })

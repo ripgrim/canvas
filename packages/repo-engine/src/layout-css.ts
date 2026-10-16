@@ -14,6 +14,8 @@ const exact = (pattern: string) => new RegExp(`^(?:${pattern})$`)
 const keywords = (...values: string[]) => exact(values.join('|'))
 const sizeValue = exact(`${unsignedLength}|auto|fit-content|min-content|max-content`)
 const track = String.raw`(?:${unsigned}(?:px|%|fr)|auto|minmax\((?:${unsigned}(?:px|%)|auto), (?:${unsigned}(?:px|%|fr)|auto)\))`
+const matrixNumber = String.raw`-?(?:1000|\d{1,3}(?:\.\d{1,12})?)`
+const matrix = String.raw`matrix\(${matrixNumber}, ${matrixNumber}, ${matrixNumber}, ${matrixNumber}, 0, 0\)`
 
 const containerGrammar: Record<string, RegExp> = {
   display: keywords('block', 'flex', 'grid'),
@@ -44,7 +46,7 @@ const itemGrammar: Record<string, RegExp> = {
   'justify-self': keywords('flex-start', 'flex-end', 'center', 'stretch', 'start', 'end'),
   'align-self': keywords('flex-start', 'flex-end', 'center', 'stretch', 'baseline', 'start', 'end'),
   'aspect-ratio': exact(unsigned),
-  transform: exact(String.raw`rotate\(${number}deg\)|scale\(${number}(?:, ${number})?\)|rotate\(${number}deg\) scale\(${number}(?:, ${number})?\)`),
+  transform: exact(matrix),
   'padding-top': exact(`${unsigned}px`), 'padding-right': exact(`${unsigned}px`), 'padding-bottom': exact(`${unsigned}px`), 'padding-left': exact(`${unsigned}px`),
   'margin-top': exact(`${number}px|auto`), 'margin-right': exact(`${number}px|auto`), 'margin-bottom': exact(`${number}px|auto`), 'margin-left': exact(`${number}px|auto`),
 }

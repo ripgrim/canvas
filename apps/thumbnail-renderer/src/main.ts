@@ -5,6 +5,8 @@ import { validateFileDocument } from '@canvas/repo-engine/file-document'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { PreviewPageDocument } from '@canvas/repo-engine/file-preview'
 import type { Atom } from '@canvas/repo-engine'
+import { multiplyTransforms, transformedBounds } from '@canvas/repo-engine/transform-matrix'
+import type { TransformMatrix } from '@canvas/repo-engine/transform-matrix'
 import { protocolVersion, type PreviewEvent } from '@canvas/preview-runtime/protocol'
 import { RegistryEntry, RegistryProvider, registry, registryContract, registryProviderProps, registryThemeAdapters } from 'virtual:canvas-verified-component-registry'
 
@@ -47,7 +49,21 @@ function animationFrame(): Promise<void> {
 
 function bounds(document: PreviewPageDocument): Readonly<{ x: number; y: number; width: number; height: number }> {
   const frame = { x: -document.frame.width / 2, y: -document.frame.height / 2, width: document.frame.width, height: document.frame.height }
-  const items = [frame, ...document.canvas.elements.map(item => ({ x: item.x, y: item.y, width: item.width, height: item.height }))]
+  const elements = new Map(document.canvas.elements.map(item => [item.id, item]))
+  const world = new Map<string, TransformMatrix>()
+  const worldTransform = (id: string, visiting = new Set<string>()): TransformMatrix => {
+    const cached = world.get(id)
+    if (cached) return cached
+    const element = elements.get(id)
+    if (!element || visiting.has(id)) throw new Error('Thumbnail canvas contains an invalid primitive hierarchy.')
+    visiting.add(id)
+    const parent = element.parentId ? elements.get(element.parentId) : undefined
+    const matrix = parent ? multiplyTransforms(worldTransform(parent.id, visiting), element.relativeTransform) : element.relativeTransform
+    visiting.delete(id)
+    world.set(id, matrix)
+    return matrix
+  }
+  const items = [frame, ...document.canvas.elements.map(item => transformedBounds(worldTransform(item.id), item))]
   const left = Math.min(...items.map(item => item.x))
   const top = Math.min(...items.map(item => item.y))
   const right = Math.max(...items.map(item => item.x + item.width))
@@ -123,8 +139,8 @@ async function start(): Promise<void> {
   await ready
   mark('rendering')
   command({ type: 'set-interaction-mode', mode: 'interact' })
-  command({ type: 'set-document', document: projection.document })
-  command({ type: 'set-layout', items: projection.layout, layoutGeneration: source.revision })
+  command({ type: 'set-document', document: projection.document, flowDragTerminalPolicy: 'preserve-matching-committed-handoff' })
+  command({ type: 'set-layout', items: projection.layout, layoutGeneration: source.revision, flowDragTerminalPolicy: 'preserve-matching-committed-handoff' })
   command({ type: 'set-selection', nodeIds: [], color: '#000000', renderChrome: false })
   command({ type: 'set-camera', camera: camera(bounds(projection.document)) })
   await animationFrame()

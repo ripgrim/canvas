@@ -12,13 +12,13 @@ const flex = { direction: 'row' as const, wrap: 'nowrap' as const, justify: 'sta
 
 function fixture(): GestureAuthoritySnapshot {
   const file: FileDocument = {
-    schemaVersion: 9, fileId: 'cross-parent-absolute', revision,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'cross-parent-absolute', revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },
-      source: { id: 'source', type: 'frame', name: 'Source', styles: { left: 0, top: 0, width: 200, height: 100 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex } } },
-      target: { id: 'target', type: 'frame', name: 'Target', styles: { left: 100, top: 50, width: 200, height: 100, rotation: 90 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex } } },
-      child: { id: 'child', type: 'rectangle', name: 'Child', styles: { left: 0, top: 0, width: 60, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
+      source: { id: 'source', type: 'frame', name: 'Source', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 200, height: 100 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex } } },
+      target: { id: 'target', type: 'frame', name: 'Target', styles: { relativeTransform: [0, 1, -1, 0, 250, 0], width: 200, height: 100 }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex } } },
+      child: { id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 60, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
     },
     relationships: { source: { parentId: 'root', orderKey: 'V' }, target: { parentId: 'root', orderKey: 'W' }, child: { parentId: 'source', orderKey: 'V' } },
     theme: { tokens: {} },

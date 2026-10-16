@@ -18,6 +18,7 @@
   ],
   "vars": {
     "API_ORIGIN": "http://127.0.0.1:4320",
+    "ASSETS_ORIGIN": "http://127.0.0.1:4322",
     "ALLOWED_ORIGINS": "http://127.0.0.1:4317,http://localhost:4317,http://127.0.0.1:4319,http://localhost:4319"
   },
   "env": {
@@ -37,6 +38,7 @@
       ],
       "vars": {
         "API_ORIGIN": "https://api-staging.canvas.ripgrim.com",
+        "ASSETS_ORIGIN": "https://assets-staging.canvas.ripgrim.com",
         "ALLOWED_ORIGINS": "https://staging.canvas.ripgrim.com,https://login-staging.canvas.ripgrim.com"
       }
     },
@@ -55,6 +57,7 @@
       ],
       "vars": {
         "API_ORIGIN": "https://api.canvas.ripgrim.com",
+        "ASSETS_ORIGIN": "https://assets.canvas.ripgrim.com",
         "ALLOWED_ORIGINS": "https://canvas.ripgrim.com,https://login.canvas.ripgrim.com"
       }
     }

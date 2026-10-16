@@ -10,7 +10,7 @@ import { childrenOf, legacyPageDocument } from './file-document.js'
 import type { FileDocument } from './file-document.js'
 import { documentPromotionSource } from './document-promotion.js'
 import { discover, makeProject, sourceFiles } from './discovery.js'
-import type { Atom, Composition } from './types.js'
+import type { Atom, Composition, HostedAtom } from './types.js'
 
 const fixtureRoot = fileURLToPath(new URL('../../../fixtures/component-repo/', import.meta.url))
 let atoms: Atom[]
@@ -37,6 +37,21 @@ afterEach(async () => {
 })
 
 describe('validated editor documents', () => {
+  it('COMP-V2-BINDING-001 rejects source-free hosted atoms from direct composition and promotion', () => {
+    const hosted: HostedAtom = {
+      componentId: 'hosted-button', name: 'Button', kind: 'hosted', status: 'bound', candidates: ['opaque-candidate'],
+      props: [{ name: 'children', type: 'ReactNode', optional: true }], slots: ['children'],
+    }
+    const direct: EditorDocument = {
+      version: 1, revision: 0, rootIds: ['hosted-node'],
+      nodes: { 'hosted-node': { id: 'hosted-node', componentId: hosted.componentId, exportName: 'Button', props: { children: 'Save' }, children: {} } },
+      frame: { width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false },
+    }
+    expect(() => validateDocument(direct, [hosted], { allowUnavailableBindings: true })).toThrow('Component binding needs review')
+    expect(() => createDocument([hosted], { id: 'hosted-composition', name: 'Hosted', componentId: null, children: [{ id: 'hosted-node', componentId: hosted.componentId, exportName: 'Button', props: {} }] }, { allowUnavailableBindings: true })).toThrow('Component binding needs review')
+    expect(() => documentPromotionSource('HostedPromotion', direct, [hosted])).toThrow('Component binding needs review')
+  })
+
   it('initializes a named Card with actual repository atom bindings and immutable command inputs', () => {
     const before = fresh()
     expect(before.rootIds).toEqual(['login:card'])
@@ -171,32 +186,41 @@ describe('document metadata persistence', () => {
     expect(state.file!.pages).toEqual([{ id: `page-${projectId}`, name: 'Page 1', rootNodeId: `root:page-${projectId}` }])
     expect(await readFile(path.join(directory, '.design-editor/document.json'), 'utf8')).toBe(legacyBytes)
     const saved = await saveDocument(directory, state.file!, 0, atoms, state.hash)
-    expect(saved.schemaVersion).toBe(9)
+    expect(saved.schemaVersion).toBe(13)
     expect(await readFile(path.join(directory, '.design-editor/document.v1.backup.json'), 'utf8')).toBe(legacyBytes)
-    expect(JSON.parse(await readFile(path.join(directory, '.design-editor/document.json'), 'utf8')).schemaVersion).toBe(9)
+    expect(JSON.parse(await readFile(path.join(directory, '.design-editor/document.json'), 'utf8')).schemaVersion).toBe(13)
   })
 
-  it('upgrades a stored version 2 file on read without rewriting it, and saves it as version 5', async () => {
+  it('upgrades a stored version 2 file on read without rewriting it, and saves it as the current schema', async () => {
     const directory = await root()
     const rootId = `root:page-${projectId}`
-    const stored = JSON.parse(JSON.stringify({ ...freshFile(), schemaVersion: 2, revision: 4 }))
     const lit = (hex: string) => ({ kind: 'literal', color: { kind: 'hex', hex } })
-    // Version 2 order is top-first: red is drawn, the hidden green sits under it.
-    stored.nodes.swatch = { id: 'swatch', type: 'rectangle', name: 'Swatch', styles: { left: 0, top: 0, width: 10, height: 10 }, fills: [{ type: 'solid', color: lit('#ff0000') }, { type: 'solid', color: lit('#00ff00'), visible: false }] }
-    stored.relationships.swatch = { parentId: rootId, orderKey: 'Z' }
+    const stored = {
+      schemaVersion: 2,
+      fileId: projectId,
+      revision: 4,
+      pages: [{ id: `page-${projectId}`, name: 'Page 1', rootNodeId: rootId }],
+      nodes: {
+        [rootId]: { id: rootId, type: 'root' },
+        // Version 2 order is top-first: red is drawn, the hidden green sits under it.
+        swatch: { id: 'swatch', type: 'rectangle', name: 'Swatch', styles: { left: 0, top: 0, width: 10, height: 10 }, fills: [{ type: 'solid', color: lit('#ff0000') }, { type: 'solid', color: lit('#00ff00'), visible: false }] },
+      },
+      relationships: { swatch: { parentId: rootId, orderKey: 'Z' } },
+      theme: { tokens: {} },
+    }
     const bytes = JSON.stringify(stored, null, 2)
     await mkdir(path.join(directory, '.design-editor'), { recursive: true })
     await writeFile(path.join(directory, '.design-editor/document.json'), bytes)
     const state = await readDocumentState(directory, projectId, atoms)
     expect(state.legacy).toBe(false)
-    expect(state.file!.schemaVersion).toBe(9)
+    expect(state.file!.schemaVersion).toBe(13)
     expect(state.file!.revision).toBe(4)
-    expect(state.file!.nodes.swatch).toStrictEqual({ id: 'swatch', type: 'rectangle', name: 'Swatch', styles: { left: 0, top: 0, width: 10, height: 10 }, appearance: { fills: [{ id: 'swatch:fill:2', type: 'solid', color: lit('#00ff00'), visible: false }, { id: 'swatch:fill:1', type: 'solid', color: lit('#ff0000') }] }, themeMode: 'inherit' })
+    expect(state.file!.nodes.swatch).toStrictEqual({ id: 'swatch', type: 'rectangle', name: 'Swatch', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 }, appearance: { fills: [{ id: 'swatch:fill:2', type: 'solid', color: lit('#00ff00'), visible: false }, { id: 'swatch:fill:1', type: 'solid', color: lit('#ff0000') }] }, themeMode: 'inherit' })
     expect(await readFile(path.join(directory, '.design-editor/document.json'), 'utf8')).toBe(bytes)
     const saved = await saveDocument(directory, state.file!, 4, atoms, state.hash)
     expect(saved.revision).toBe(5)
     const written = JSON.parse(await readFile(path.join(directory, '.design-editor/document.json'), 'utf8'))
-    expect(written.schemaVersion).toBe(9)
+    expect(written.schemaVersion).toBe(13)
     expect(written.nodes.swatch).not.toHaveProperty('fills')
     expect(written.nodes.swatch.appearance.fills.map((paint: { id: string }) => paint.id)).toEqual(['swatch:fill:2', 'swatch:fill:1'])
     await expect(readFile(path.join(directory, '.design-editor/document.v1.backup.json'))).rejects.toMatchObject({ code: 'ENOENT' })

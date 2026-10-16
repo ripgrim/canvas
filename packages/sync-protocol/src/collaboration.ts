@@ -12,7 +12,7 @@ import type {
 export const collaborationProtocolEpoch = 4 as const
 export const collaborationWebSocketProtocol = `canvas-sync-v${collaborationProtocolEpoch}` as const
 export const collaborationEnvelopeSchemaVersion = 1 as const
-export const collaborationDocumentSchemaVersion = 9 as const
+export const collaborationDocumentSchemaVersion = 13 as const
 export const maxCollaborationIdentifierLength = 128
 export const maxPresenceParticipants = 512
 export const maxCollaborationDisplayNameLength = 80

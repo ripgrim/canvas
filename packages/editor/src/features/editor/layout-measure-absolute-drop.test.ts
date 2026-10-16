@@ -17,18 +17,18 @@ function scene(nodes: readonly SceneNode[]): Scene {
 
 function frameInput(): PaperFlowAbsoluteDropInput {
   const file: FileDocument = {
-    schemaVersion: 9,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'absolute-drop',
     revision: documentRevision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },
       parent: {
-        id: 'parent', type: 'frame', name: 'Parent', styles: { left: 100, top: 50, width: 200, height: 100 },
+        id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [1, 0, 0, 1, 100, 50], width: 200, height: 100 },
         layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex } },
       },
       child: {
-        id: 'child', type: 'rectangle', name: 'Child', styles: { left: 0, top: 0, width: 60, height: 20 },
+        id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 60, height: 20 },
         layout: { item: { position: { mode: 'flow' } } },
       },
     },
@@ -75,7 +75,7 @@ function frameInput(): PaperFlowAbsoluteDropInput {
 
 function componentInput(): PaperFlowAbsoluteDropInput {
   const file: FileDocument = {
-    schemaVersion: 9,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'absolute-drop',
     revision: documentRevision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
@@ -169,7 +169,7 @@ describe('Paper flow child absolute-drop geometry', () => {
   it('rejects a primitive child under a Component Flex parent', () => {
     const primitiveUnderComponent = copy(componentInput())
     primitiveUnderComponent.file.nodes.child = {
-      id: 'child', type: 'rectangle', name: 'Child', styles: { left: 0, top: 0, width: 90, height: 36 },
+      id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 90, height: 36 },
       layout: { item: { position: { mode: 'flow' } } },
     }
     expect(paperFlowAbsoluteDropGeometry(primitiveUnderComponent)).toBeNull()

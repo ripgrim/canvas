@@ -9,7 +9,7 @@ const withoutRevision = (file: FileDocument) => ({ ...structuredClone(file), rev
 
 function fixture(): { file: FileDocument; geometry: LayoutGeometry } {
   const parent: PrimitiveNode = {
-    id: 'parent', type: 'frame', name: 'Parent', styles: { left: 20, top: 30, width: 200, height: 100, overflow: 'clip' },
+    id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 200, height: 100, overflow: 'clip' },
     layout: {
       item: { position: { mode: 'absolute', left: px(20), top: px(30) }, width: { value: { kind: 'intrinsic', value: 'fit-content' } } },
       container: { display: 'flex', gap: 10, flex: { direction: 'row', wrap: 'nowrap', justify: 'center', align: 'end' } },
@@ -17,15 +17,15 @@ function fixture(): { file: FileDocument; geometry: LayoutGeometry } {
     },
   }
   const child: PrimitiveNode = {
-    id: 'child', type: 'rectangle', name: 'Child', styles: { left: 0, top: 0, width: 40, height: 20 },
+    id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 20 },
     layout: { item: { position: { mode: 'flow' }, width: { value: { kind: 'percent', value: 100 } } } },
   }
   const absolute: PrimitiveNode = {
-    id: 'absolute', type: 'shape', name: 'Absolute', styles: { left: 140, top: 60, width: 30, height: 20 },
+    id: 'absolute', type: 'shape', name: 'Absolute', styles: { relativeTransform: [1, 0, 0, 1, 140, 60], width: 30, height: 20 },
     layout: { item: { position: { mode: 'absolute', left: px(140), top: px(60) } } },
   }
   const file: FileDocument = {
-    schemaVersion: 9, fileId: 'remove-store', revision: 0, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-store', revision: 0, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: { root: { id: 'root', type: 'root' }, parent, child, absolute },
     relationships: { parent: { parentId: 'root', orderKey: 'V' }, absolute: { parentId: 'parent', orderKey: 'W' }, child: { parentId: 'parent', orderKey: 'V' } },
     theme: { tokens: {} },
@@ -74,9 +74,9 @@ describe('Paper Remove Flex document-store seam', () => {
       item: { position: { mode: 'absolute', left: px(20), top: px(30) } },
       container: { display: 'freeform' }, spacing: { padding: 12 },
     })
-    expect((removed.nodes.parent as PrimitiveNode).styles).toStrictEqual({ left: 20, top: 30, width: 240, height: 100, overflow: 'clip' })
+    expect((removed.nodes.parent as PrimitiveNode).styles).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 20, 30], width: 240, height: 100, overflow: 'clip' })
     expect((removed.nodes.child as PrimitiveNode).layout).toStrictEqual({ item: { position: { mode: 'absolute', left: px(-8), top: px(14) } } })
-    expect((removed.nodes.child as PrimitiveNode).styles).toStrictEqual({ left: 0, top: 0, width: 120, height: 20 })
+    expect((removed.nodes.child as PrimitiveNode).styles).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 0, 0], width: 120, height: 20 })
     expect(removed.nodes.absolute).toStrictEqual(file.nodes.absolute)
 
     expect(store.undo()).toBe(true)
@@ -98,10 +98,10 @@ describe('Paper Remove Flex document-store seam', () => {
     const store = createDocumentStore(() => 'unused')
     const { file, geometry } = fixture()
     const second: PrimitiveNode = {
-      id: 'second', type: 'frame', name: 'Second', styles: { left: 360, top: 0, width: 100, height: 80 },
+      id: 'second', type: 'frame', name: 'Second', styles: { relativeTransform: [1, 0, 0, 1, 360, 0], width: 100, height: 80 },
       layout: { item: { position: { mode: 'absolute', left: px(360), top: px(0) } }, container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } } },
     }
-    const other: PrimitiveNode = { id: 'other', type: 'rectangle', name: 'Other', styles: { left: 520, top: 0, width: 30, height: 30 } }
+    const other: PrimitiveNode = { id: 'other', type: 'rectangle', name: 'Other', styles: { relativeTransform: [1, 0, 0, 1, 520, 0], width: 30, height: 30 } }
     file.nodes.second = second
     file.nodes.other = other
     file.relationships.second = { parentId: 'root', orderKey: 'W' }
@@ -133,7 +133,7 @@ describe('Paper Remove Flex document-store seam', () => {
     store.configure({ onChange: () => { publications++ } })
     const first = fixture()
     const second: PrimitiveNode = {
-      id: 'second', type: 'frame', name: 'Second', styles: { left: 400, top: 0, width: 100, height: 80 },
+      id: 'second', type: 'frame', name: 'Second', styles: { relativeTransform: [1, 0, 0, 1, 400, 0], width: 100, height: 80 },
       layout: { item: { position: { mode: 'absolute', left: px(400), top: px(0) } }, container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } } },
     }
     first.file.nodes.second = second

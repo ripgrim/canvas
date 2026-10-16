@@ -4,12 +4,12 @@
  * parent, its transform origin and its computed transform; chaining those up to the host gives an exact world matrix,
  * and the new local pose is inverse(newParentWorld) x world (never a sum of ancestor translations).
  */
-import { aboutOrigin, apply, decompose, identity, invert, multiply, translation } from '@canvas/repo-engine/layout-matrix'
+import { aboutOrigin, apply, identity, invert, multiply, translation } from '@canvas/repo-engine/layout-matrix'
 import type { Matrix, Point } from '@canvas/repo-engine/layout-matrix'
 import type { NodeLayout } from '@canvas/repo-engine/layout'
 import type { MeasuredNode } from './scene-geometry'
 
-export type Pose = { x: number; y: number; rotate: number; scale: { x: number; y: number } }
+export type Pose = { x: number; y: number; matrix: Matrix }
 const epsilon = 1e-6
 const paddingEdge = (node: MeasuredNode): Matrix => translation(node.box?.border.left ?? 0, node.box?.border.top ?? 0)
 
@@ -45,8 +45,7 @@ export function worldMatrixOf(nodes: Record<string, MeasuredNode>, id: string, h
 export function poseFromLocal(local: Matrix, origin: Point): Pose {
   const linear: Matrix = [local[0], local[1], local[2], local[3], 0, 0]
   const shifted = apply(linear, origin)
-  const parts = decompose(linear)
-  return { x: local[4] - (origin.x - shifted.x), y: local[5] - (origin.y - shifted.y), rotate: parts.rotateDegrees, scale: { x: parts.scaleX, y: parts.scaleY } }
+  return { x: local[4] - (origin.x - shifted.x), y: local[5] - (origin.y - shifted.y), matrix: linear }
 }
 /**
  * The pose a node needs under `newParentId` to keep its world pose. `newParentId` null means the host. Returns null
@@ -63,15 +62,13 @@ export function reparentPose(nodes: Record<string, MeasuredNode>, nodeId: string
   if (!inverse) return null
   return poseFromLocal(multiply(inverse, world), node.offset.origin)
 }
-/** Writes a pose into a layout record as absolute px insets and a rotate/scale transform (identity omitted). */
+/** Writes a pose into a layout record as absolute px insets and one lossless affine transform (identity omitted). */
 export function layoutWithPose(layout: NodeLayout | undefined, pose: Pose): NodeLayout {
   const base = layout ?? { item: { position: { mode: 'flow' } } }
   const item = { ...base.item, position: { mode: 'absolute' as const, left: { kind: 'px' as const, value: round(pose.x) }, top: { kind: 'px' as const, value: round(pose.y) } } }
-  const rotate = Math.abs(pose.rotate) < epsilon ? undefined : round(pose.rotate)
-  const uniform = Math.abs(pose.scale.x - pose.scale.y) < epsilon
-  const scale = Math.abs(pose.scale.x - 1) < epsilon && Math.abs(pose.scale.y - 1) < epsilon ? undefined : uniform ? round(pose.scale.x) : { x: round(pose.scale.x), y: round(pose.scale.y) }
-  if (rotate === undefined && scale === undefined) delete item.transform
-  else item.transform = { ...(rotate !== undefined ? { rotate } : {}), ...(scale !== undefined ? { scale } : {}) }
+  const matrix = pose.matrix.map(value => Math.abs(value) < epsilon ? 0 : value) as unknown as Matrix
+  if (matrix.every((value, index) => Math.abs(value - identity[index]!) < epsilon)) delete item.transform
+  else item.transform = { matrix }
   return { ...base, item }
 }
 const round = (value: number) => Math.round(value * 100) / 100

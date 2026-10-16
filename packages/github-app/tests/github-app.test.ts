@@ -61,9 +61,11 @@ class MemoryGrantStore implements GitHubGrantStore {
   repositoryGrant: RepositoryGrant | null = null
   activeInstallationReads = 0
   repositoryGrantReads = 0
+  authorizedAccessReads = 0
   authorizedAccess = true
   readonly installationInvalidations: Array<{ installationId: string; reason: string }> = []
   readonly repositoryInvalidations: Array<{ installationId: string; repositoryIds: readonly string[] }> = []
+  readonly repositoryGrantGenerations = new Map<string, number>()
 
   async saveInstallationGrant(grant: InstallationGrant) {
     this.installationGrant = grant
@@ -75,8 +77,12 @@ class MemoryGrantStore implements GitHubGrantStore {
     return grant?.tenantId === input.tenantId && grant.installation.id === input.installationId ? grant : null
   }
 
-  async saveRepositoryGrant(grant: RepositoryGrant) {
-    this.repositoryGrant = grant
+  async saveRepositoryGrant(grant: Omit<RepositoryGrant, 'grantGeneration'>) {
+    const key = `${grant.tenantId}\0${grant.projectId}`
+    const grantGeneration = (this.repositoryGrantGenerations.get(key) ?? 0) + 1
+    this.repositoryGrantGenerations.set(key, grantGeneration)
+    this.repositoryGrant = { ...grant, grantGeneration }
+    return this.repositoryGrant
   }
 
   async getRepositoryGrant(input: { tenantId: string; projectId: string }) {
@@ -86,6 +92,7 @@ class MemoryGrantStore implements GitHubGrantStore {
   }
 
   async getAuthorizedRepositoryAccess(input: { actorAccountId: string; tenantId: string; projectId: string; operation: 'scan' | 'pull' | 'prepare-patch' | 'write' }) {
+    this.authorizedAccessReads += 1
     if (!this.authorizedAccess) return null
     const grant = await this.getRepositoryGrant(input)
     const active = grant ? await this.getActiveInstallationGrant({ tenantId: input.tenantId, installationId: grant.installationId }) : null
@@ -125,9 +132,83 @@ class MemoryDeliveryStore implements WebhookDeliveryStore {
   }
 }
 
+class MemoryRepositoryJobStore implements RepositoryJobStore {
+  readonly records = new Map<string, RepositoryJob>()
+
+  async enqueue(job: RepositoryJob) {
+    this.records.set(job.id, job)
+  }
+
+  async get(id: string) {
+    return this.records.get(id) ?? null
+  }
+
+  async getAuthorized(id: string, actorAccountId: string) {
+    const job = this.records.get(id)
+    return job?.actor.accountId === actorAccountId ? job : null
+  }
+
+  async latestCompletedScan(scope: { actorAccountId: string; tenantId: string; projectId: string; installationId: string; repositoryId: string; repositoryLinkedAt: number; repositoryGrantId: string; repositoryGrantGeneration: number }) {
+    return [...this.records.values()].filter(job => job.status === 'completed'
+      && job.tenantId === scope.tenantId
+      && job.projectId === scope.projectId
+      && job.installationId === scope.installationId
+      && job.repositoryId === scope.repositoryId
+      && job.repositoryLinkedAt === scope.repositoryLinkedAt
+      && job.repositoryGrantId === scope.repositoryGrantId
+      && job.repositoryGrantGeneration === scope.repositoryGrantGeneration).at(-1) ?? null
+  }
+
+  async claimScan(input: { id: string; leaseId: string; now: number; leaseExpiresAt: number }) {
+    const job = this.records.get(input.id)
+    if (!job || job.operation !== 'scan') return null
+    if (job.status === 'queued' && job.nextAttemptAt > input.now) return null
+    if (job.status === 'running' && job.leaseExpiresAt > input.now) return null
+    if (job.status === 'completed' || job.status === 'failed') return null
+    const claimed: RepositoryJob = {
+      ...job,
+      status: 'running',
+      leaseId: input.leaseId,
+      leaseExpiresAt: input.leaseExpiresAt,
+      attempt: job.attempt + 1,
+    }
+    this.records.set(input.id, claimed)
+    return claimed
+  }
+
+  async claimNextScan(input: { leaseId: string; now: number; leaseExpiresAt: number }) {
+    const job = [...this.records.values()].find(candidate => candidate.status === 'queued' && candidate.nextAttemptAt <= input.now)
+    return job ? this.claimScan({ ...input, id: job.id }) : null
+  }
+
+  async isCurrentLease(input: { id: string; leaseId: string; now: number }) {
+    const job = this.records.get(input.id)
+    return Boolean(job?.status === 'running' && job.leaseId === input.leaseId && job.leaseExpiresAt > input.now)
+  }
+
+  async completeScan() {
+    return false
+  }
+
+  async retry(input: { id: string; leaseId: string; nextAttemptAt: number }) {
+    const job = this.records.get(input.id)
+    if (job?.status !== 'running' || job.leaseId !== input.leaseId) return
+    const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job
+    this.records.set(input.id, { ...base, status: 'queued', nextAttemptAt: input.nextAttemptAt })
+  }
+
+  async fail(input: { id: string; leaseId: string; now: number; errorId: string }) {
+    const job = this.records.get(input.id)
+    if (job?.status !== 'running' || job.leaseId !== input.leaseId) return
+    const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job
+    this.records.set(input.id, { ...base, status: 'failed', errorId: input.errorId, failedAt: input.now })
+  }
+}
+
 function provider(input: Readonly<{
   installations?: readonly GitHubInstallationIdentity[]
   repository?: GitHubRepositoryIdentity | null
+  repositories?: readonly GitHubRepositoryIdentity[]
 }> = {}): GitHubProviderPort {
   return {
     async listInstallationsForUser() {
@@ -135,6 +216,9 @@ function provider(input: Readonly<{
     },
     async getRepositoryForInstallation() {
       return input.repository === undefined ? repository : input.repository
+    },
+    async listRepositoriesForInstallation() {
+      return input.repositories ?? [repository]
     },
   }
 }
@@ -147,6 +231,42 @@ async function connectedService(providerPort: GitHubProviderPort = provider(), p
   const issued = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1', purpose: 'authorize-user', installationId: installation.id })
   await grants.completeInstallation({ state: issued.state, actor, installationId: installation.id })
   return { grants, grantStore, states }
+}
+
+async function repositoryJobFailureScenario() {
+  let providerFailure: unknown = null
+  let currentTime = now
+  let leaseNumber = 30
+  const providerPort: GitHubProviderPort = {
+    async listInstallationsForUser() {
+      if (providerFailure) throw providerFailure
+      return [installation]
+    },
+    async getRepositoryForInstallation() {
+      if (providerFailure) throw providerFailure
+      return repository
+    },
+  }
+  const { grants } = await connectedService(providerPort)
+  await grants.linkRepository({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repositoryId: repository.id })
+  const jobs = new MemoryRepositoryJobStore()
+  const jobId = '00000000-0000-4000-8000-000000000029'
+  const service = new RepositoryJobService(
+    grants,
+    jobs,
+    { async mint() { return { token: 'ghs_unexpected', expiresAt: currentTime + 60_000, contentsPermission: 'read' } } },
+    () => currentTime,
+    () => jobId,
+    () => `00000000-0000-4000-8000-${String(leaseNumber++).padStart(12, '0')}`,
+  )
+  const job = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })
+  return {
+    job,
+    jobs,
+    service,
+    failWith(error: unknown) { providerFailure = error },
+    advance(milliseconds: number) { currentTime += milliseconds },
+  }
 }
 
 function errorCode(error: unknown) {
@@ -169,7 +289,7 @@ describe('single-use installation state', () => {
     const states = new InstallationStateService(store, { now: () => now, createState: () => stateValue })
     const issued = await states.issue({ accountId: actor.accountId, tenantId: 'tenant-1', purpose: 'authorize-user', installationId: installation.id })
 
-    await expect(states.consume(issued.state, actor.accountId, 'authorize-user')).resolves.toEqual({ tenantId: 'tenant-1', installationId: installation.id, codeVerifierCiphertext: null })
+    await expect(states.consume(issued.state, actor.accountId, 'authorize-user')).resolves.toEqual({ tenantId: 'tenant-1', installationId: installation.id, codeVerifierCiphertext: null, returnToUrl: null })
     await expect(states.consume(issued.state, actor.accountId, 'authorize-user')).rejects.toSatisfy(error => errorCode(error) === 'INVALID_STATE')
   })
 
@@ -209,11 +329,20 @@ describe('installation and repository grants', () => {
     await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
   })
 
+  it('AT-REPO-LINK-001 assigns a new monotonic generation for every successful relink', async () => {
+    const { grants } = await connectedService()
+    const first = await grants.linkRepository({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repositoryId: repository.id })
+    const second = await grants.linkRepository({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repositoryId: repository.id })
+    expect(first.grantGeneration).toBe(1)
+    expect(second.grantGeneration).toBe(2)
+  })
+
   it('AT-REPO-LINK-001 denies repository writes when the App installation is read-only', async () => {
     let liveInstallation = installation
+    let installationVisible = true
     const providerPort: GitHubProviderPort = {
       async listInstallationsForUser() {
-        return [liveInstallation]
+        return installationVisible ? [liveInstallation] : []
       },
       async getRepositoryForInstallation() {
         return repository
@@ -230,7 +359,14 @@ describe('installation and repository grants', () => {
     const jobs: RepositoryJobStore = {
       async enqueue(job) { records.set(job.id, job) },
       async get(id) { return records.get(id) ?? null },
-      async markRunning(id) { const job = records.get(id); if (job) records.set(id, { ...job, status: 'running' }) },
+      async getAuthorized(id, actorAccountId) { const job = records.get(id); return job?.actor.accountId === actorAccountId ? job : null },
+      async latestCompletedScan(scope) { return [...records.values()].filter(job => job.status === 'completed' && job.tenantId === scope.tenantId && job.projectId === scope.projectId && job.installationId === scope.installationId && job.repositoryId === scope.repositoryId && job.repositoryLinkedAt === scope.repositoryLinkedAt && job.repositoryGrantId === scope.repositoryGrantId && job.repositoryGrantGeneration === scope.repositoryGrantGeneration).at(-1) ?? null },
+      async claimScan(input) { const job = records.get(input.id); if (!job || job.operation !== 'scan' || job.status === 'running' && job.leaseExpiresAt > input.now) return null; const claimed = { ...job, status: 'running' as const, leaseId: input.leaseId, leaseExpiresAt: input.leaseExpiresAt, attempt: job.attempt + 1 }; records.set(input.id, claimed); return claimed },
+      async claimNextScan() { return null },
+      async isCurrentLease(input) { const job = records.get(input.id); return Boolean(job?.status === 'running' && job.leaseId === input.leaseId && job.leaseExpiresAt > input.now) },
+      async completeScan() { return false },
+      async retry(input) { const job = records.get(input.id); if (job?.status === 'running' && job.leaseId === input.leaseId) { const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job; records.set(input.id, { ...base, status: 'queued', nextAttemptAt: input.nextAttemptAt }) } },
+      async fail(input) { const job = records.get(input.id); if (job?.status === 'running' && job.leaseId === input.leaseId) { const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job; records.set(input.id, { ...base, status: 'failed', errorId: input.errorId, failedAt: input.now }) } },
     }
     const minted: string[] = []
     let id = '00000000-0000-4000-8000-000000000011'
@@ -240,44 +376,161 @@ describe('installation and repository grants', () => {
     expect(records.size).toBe(0)
 
     liveInstallation = installation
-    const deniedAtStart = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })
-    liveInstallation = { ...installation, contentsPermission: 'read' }
-    await expect(service.start(deniedAtStart.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    const deniedAtStart = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })
+    installationVisible = false
+    await expect(service.start(deniedAtStart.id)).rejects.toSatisfy(error => errorCode(error) === 'INSTALLATION_NOT_VISIBLE')
     expect(minted).toEqual([])
-
-    liveInstallation = installation
-    id = '00000000-0000-4000-8000-000000000012'
-    const deniedBeforeWrite = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })
-    await service.start(deniedBeforeWrite.id)
-    liveInstallation = { ...installation, contentsPermission: 'read' }
-    await expect(service.authorizeWrite(deniedBeforeWrite.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
-    expect(minted).toEqual(['read'])
   })
 
-  it('AT-REPO-LINK-001 rechecks membership at job start and immediately before source write', async () => {
+  it('AT-REPO-SCAN-001 rechecks membership when a scan job starts', async () => {
     const { grants, grantStore } = await connectedService()
     await grants.linkRepository({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repositoryId: repository.id })
     const records = new Map<string, RepositoryJob>()
     const jobs: RepositoryJobStore = {
       async enqueue(job) { records.set(job.id, job) },
       async get(id) { return records.get(id) ?? null },
-      async markRunning(id) { const job = records.get(id); if (job) records.set(id, { ...job, status: 'running' }) },
+      async getAuthorized(id, actorAccountId) { const job = records.get(id); return job?.actor.accountId === actorAccountId ? job : null },
+      async latestCompletedScan(scope) { return [...records.values()].filter(job => job.status === 'completed' && job.tenantId === scope.tenantId && job.projectId === scope.projectId && job.installationId === scope.installationId && job.repositoryId === scope.repositoryId && job.repositoryLinkedAt === scope.repositoryLinkedAt && job.repositoryGrantId === scope.repositoryGrantId && job.repositoryGrantGeneration === scope.repositoryGrantGeneration).at(-1) ?? null },
+      async claimScan(input) { const job = records.get(input.id); if (!job || job.operation !== 'scan' || job.status === 'running' && job.leaseExpiresAt > input.now) return null; const claimed = { ...job, status: 'running' as const, leaseId: input.leaseId, leaseExpiresAt: input.leaseExpiresAt, attempt: job.attempt + 1 }; records.set(input.id, claimed); return claimed },
+      async claimNextScan(input) { const job = [...records.values()].find(candidate => candidate.status === 'queued'); return job ? this.claimScan({ ...input, id: job.id }) : null },
+      async isCurrentLease(input) { const job = records.get(input.id); return Boolean(job?.status === 'running' && job.leaseId === input.leaseId && job.leaseExpiresAt > input.now) },
+      async completeScan(input) { const job = records.get(input.id); if (job?.status !== 'running' || job.leaseId !== input.leaseId || job.leaseExpiresAt <= input.now) return false; const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job; records.set(input.id, { ...base, status: 'completed', result: input.result, completedAt: input.now }); return true },
+      async retry(input) { const job = records.get(input.id); if (job?.status === 'running' && job.leaseId === input.leaseId) { const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job; records.set(input.id, { ...base, status: 'queued', nextAttemptAt: input.nextAttemptAt }) } },
+      async fail(input) { const job = records.get(input.id); if (job?.status === 'running' && job.leaseId === input.leaseId) { const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job; records.set(input.id, { ...base, status: 'failed', errorId: input.errorId, failedAt: input.now }) } },
     }
     const minted: string[] = []
     let id = '00000000-0000-4000-8000-000000000001'
     const service = new RepositoryJobService(grants, jobs, { async mint(input) { minted.push(input.contentsPermission); return { token: `ghs_${input.contentsPermission}`, expiresAt: now + 60_000, contentsPermission: input.contentsPermission } } }, () => now, () => id)
-    const revokedBeforeStart = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })
+    const revokedBeforeStart = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })
+    const authorizationReads = grantStore.authorizedAccessReads
     grantStore.authorizedAccess = false
     await expect(service.start(revokedBeforeStart.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    expect(grantStore.authorizedAccessReads).toBe(authorizationReads + 1)
     expect(minted).toEqual([])
 
     grantStore.authorizedAccess = true
+    id = '00000000-0000-4000-8000-000000000003'
+    const oldLineage = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })
+    grantStore.repositoryGrant = { ...grantStore.repositoryGrant!, grantId: '00000000-0000-4000-8000-000000000099' }
+    await expect(service.start(oldLineage.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+
+    id = '00000000-0000-4000-8000-000000000005'
+    const oldGeneration = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })
+    grantStore.repositoryGrant = { ...grantStore.repositoryGrant!, grantGeneration: grantStore.repositoryGrant!.grantGeneration + 1 }
+    await expect(service.start(oldGeneration.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+
     id = '00000000-0000-4000-8000-000000000002'
-    const revokedBeforeWrite = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })
-    await expect(service.start(revokedBeforeWrite.id)).resolves.toMatchObject({ access: { contentsPermission: 'read' } })
-    grantStore.authorizedAccess = false
-    await expect(service.authorizeWrite(revokedBeforeWrite.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    const allowedScan = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })
+    const started = await service.start(allowedScan.id)
+    expect(started).toMatchObject({ access: { contentsPermission: 'read' } })
     expect(minted).toEqual(['read'])
+
+    const artifact = { sourceRevision: 'a'.repeat(40), scan: { adapterId: 'shadcn-v1' }, request: { version: 1 } }
+    grantStore.repositoryGrant = { ...grantStore.repositoryGrant!, grantId: '00000000-0000-4000-8000-000000000098' }
+    await expect(service.completeScan(allowedScan.id, started.job.status === 'running' ? started.job.leaseId : '', artifact)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    await expect(service.read(allowedScan.id, actor)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+
+    id = '00000000-0000-4000-8000-000000000004'
+    const currentScan = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })
+    const currentStarted = await service.start(currentScan.id)
+    await expect(service.completeScan(currentScan.id, currentStarted.job.status === 'running' ? currentStarted.job.leaseId : '', artifact)).resolves.toMatchObject({ status: 'completed', result: artifact })
+    const mintedBeforeAuthorizedRead = [...minted]
+    await expect(service.readAuthorizedCompletedScan({ id: currentScan.id, actor, tenantId: 'tenant-1', projectId: 'project-1' })).resolves.toMatchObject({ id: currentScan.id, status: 'completed' })
+    expect(minted).toEqual(mintedBeforeAuthorizedRead)
+    await expect(service.readAuthorizedCompletedScan({ id: currentScan.id, actor: { accountId: 'account-2', providerUserId: '1002' }, tenantId: 'tenant-1', projectId: 'project-1' })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    await expect(service.latestScan({ actor, tenantId: 'tenant-1', projectId: 'project-1' })).resolves.toMatchObject({ id: currentScan.id, status: 'completed', result: artifact })
+    grantStore.repositoryGrant = { ...grantStore.repositoryGrant!, grantId: '00000000-0000-4000-8000-000000000097' }
+    await expect(service.latestScan({ actor, tenantId: 'tenant-1', projectId: 'project-1' })).resolves.toBeNull()
+  })
+
+  it.each([
+    ['transport', new TypeError('fetch failed')],
+    ['rate limit', new Error('GitHub request failed with status 429.')],
+    ['provider outage', new Error('GitHub request failed with status 503.')],
+  ])('AT-REPO-SCAN-001 retries a transient %s failure after two seconds', async (_label, failure) => {
+    const scenario = await repositoryJobFailureScenario()
+    scenario.failWith(failure)
+
+    await expect(scenario.service.start(scenario.job.id)).rejects.toBe(failure)
+    expect(await scenario.jobs.get(scenario.job.id)).toMatchObject({
+      status: 'queued',
+      attempt: 1,
+      nextAttemptAt: now + 2_000,
+    })
+  })
+
+  it('AT-REPO-SCAN-001 grows claim-stage backoff and terminates on attempt three', async () => {
+    const scenario = await repositoryJobFailureScenario()
+    const failure = new Error('GitHub request failed with status 503.')
+    scenario.failWith(failure)
+
+    await expect(scenario.service.start(scenario.job.id)).rejects.toBe(failure)
+    scenario.advance(2_000)
+    await expect(scenario.service.start(scenario.job.id)).rejects.toBe(failure)
+    expect(await scenario.jobs.get(scenario.job.id)).toMatchObject({
+      status: 'queued',
+      attempt: 2,
+      nextAttemptAt: now + 6_000,
+    })
+
+    scenario.advance(4_000)
+    await expect(scenario.service.start(scenario.job.id)).rejects.toBe(failure)
+    expect(await scenario.jobs.get(scenario.job.id)).toMatchObject({
+      status: 'failed',
+      attempt: 3,
+      errorId: 'repository-provider-failed',
+      failedAt: now + 6_000,
+    })
+  })
+
+  it.each([
+    ['provider rejection', new Error('GitHub request failed with status 403.')],
+    ['malformed response', new Error('GitHub returned malformed installation data.')],
+  ])('AT-REPO-SCAN-001 fails a non-transient %s without retrying', async (_label, failure) => {
+    const scenario = await repositoryJobFailureScenario()
+    scenario.failWith(failure)
+
+    await expect(scenario.service.start(scenario.job.id)).rejects.toBe(failure)
+    expect(await scenario.jobs.get(scenario.job.id)).toMatchObject({
+      status: 'failed',
+      attempt: 1,
+      errorId: 'repository-provider-failed',
+      failedAt: now,
+    })
+  })
+
+  it('AT-REPO-SCAN-001 discards a token minted after its scan lease is reclaimed', async () => {
+    const { grants } = await connectedService()
+    await grants.linkRepository({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repositoryId: repository.id })
+    const records = new Map<string, RepositoryJob>()
+    const jobs: RepositoryJobStore = {
+      async enqueue(job) { records.set(job.id, job) },
+      async get(id) { return records.get(id) ?? null },
+      async getAuthorized(id) { return records.get(id) ?? null },
+      async latestCompletedScan() { return null },
+      async claimScan(input) { const job = records.get(input.id); if (!job || job.operation !== 'scan' || job.status === 'running' && job.leaseExpiresAt > input.now) return null; const claimed = { ...job, status: 'running' as const, leaseId: input.leaseId, leaseExpiresAt: input.leaseExpiresAt, attempt: job.attempt + 1 }; records.set(input.id, claimed); return claimed },
+      async claimNextScan() { return null },
+      async isCurrentLease(input) { const job = records.get(input.id); return Boolean(job?.status === 'running' && job.leaseId === input.leaseId && job.leaseExpiresAt > input.now) },
+      async completeScan() { return false },
+      async retry(input) { const job = records.get(input.id); if (job?.status === 'running' && job.leaseId === input.leaseId) { const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job; records.set(input.id, { ...base, status: 'queued', nextAttemptAt: input.nextAttemptAt }) } },
+      async fail(input) { const job = records.get(input.id); if (job?.status === 'running' && job.leaseId === input.leaseId) { const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, ...base } = job; records.set(input.id, { ...base, status: 'failed', errorId: input.errorId, failedAt: input.now }) } },
+    }
+    let currentTime = now
+    const jobId = '00000000-0000-4000-8000-000000000021'
+    const originalLeaseId = '00000000-0000-4000-8000-000000000022'
+    const recoveredLeaseId = '00000000-0000-4000-8000-000000000023'
+    const service = new RepositoryJobService(grants, jobs, {
+      async mint() {
+        currentTime += 5 * 60_000 + 1
+        await jobs.claimScan({ id: jobId, leaseId: recoveredLeaseId, now: currentTime, leaseExpiresAt: currentTime + 60_000 })
+        return { token: 'ghs_stale', expiresAt: currentTime + 60_000, contentsPermission: 'read' }
+      },
+    }, () => currentTime, () => jobId, () => originalLeaseId)
+    await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })
+
+    await expect(service.start(jobId)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    expect(await jobs.isCurrentLease({ id: jobId, leaseId: recoveredLeaseId, now: currentTime })).toBe(true)
+    expect(await jobs.isCurrentLease({ id: jobId, leaseId: originalLeaseId, now: currentTime })).toBe(false)
   })
 
   it('rejects an installation visible to a different provider user', async () => {
@@ -304,8 +557,23 @@ describe('installation and repository grants', () => {
 
     expect(linked.repository).toEqual(repository)
     await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })).resolves.toMatchObject({ repository })
+    await expect(grants.authorizeComponentAdmission({ actor, tenantId: 'tenant-1', projectId: 'project-1' })).resolves.toEqual({ provider: 'github', projectId: 'project-1', repositoryId: repository.id })
     grantStore.installationGrant = null
     await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+    await expect(grants.authorizeComponentAdmission({ actor, tenantId: 'tenant-1', projectId: 'project-1' })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+  })
+
+  it('AT-REPO-LINK-001 lists only live repositories from the authorized installation', async () => {
+    const readOnly = { ...repository, id: '4002', name: 'icons', fullName: 'canvas-team/icons', contentsPermission: 'read' as const }
+    const hidden = { ...repository, id: '4003', name: 'hidden', fullName: 'canvas-team/hidden', contentsPermission: 'none' as const }
+    const { grants } = await connectedService(provider({ repositories: [readOnly, hidden, repository] }))
+    await expect(grants.listLinkableRepositories({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id })).resolves.toEqual([repository, readOnly])
+  })
+
+  it('AT-REPO-LINK-001 rejects a repository list that crosses installation identity', async () => {
+    const foreign = { ...repository, installationId: '2999' }
+    const { grants } = await connectedService(provider({ repositories: [foreign] }))
+    await expect(grants.listLinkableRepositories({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
   })
 
   it('rejects a repository returned from another installation', async () => {
@@ -364,7 +632,7 @@ describe('installation and repository grants', () => {
     const getRepositoryForInstallation = vi.fn<GitHubProviderPort['getRepositoryForInstallation']>().mockResolvedValue(repository)
     const grantStore = new MemoryGrantStore()
     grantStore.installationGrant = { tenantId: 'tenant-1', installation, connectedByAccountId: actor.accountId, connectedAt: now }
-    grantStore.repositoryGrant = { tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repository, linkedByAccountId: actor.accountId, linkedAt: now }
+    grantStore.repositoryGrant = { grantId: '00000000-0000-4000-8000-000000000088', grantGeneration: 1, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repository, linkedByAccountId: actor.accountId, linkedAt: now }
     grantStore.authorizedAccess = false
     const grants = new GitHubGrantService(
       { listInstallationsForUser, getRepositoryForInstallation },

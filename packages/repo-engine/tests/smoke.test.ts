@@ -38,7 +38,7 @@ it('independent API smoke: inspect then prepare, without saving source', async (
     expect(prepared.files.map(file => file.path)).toEqual(['src/atoms/Label.tsx'])
     expect(prepared.validation.map(check => [check.name, check.status])).toEqual([['Parse', 'passed'], ['Types', 'passed'], ['Preview build', 'passed']])
     expect(after.sourceHashes).toEqual(before.sourceHashes)
-    expect(before.file).toMatchObject({ schemaVersion: 9, fileId: before.projectId, revision: 0 })
+    expect(before.file).toMatchObject({ schemaVersion: 13, fileId: before.projectId, revision: 0 })
     expect(before.file.pages).toHaveLength(1)
     expect(after.file).toEqual(before.file)
     expect(before).not.toHaveProperty('previewTheme')

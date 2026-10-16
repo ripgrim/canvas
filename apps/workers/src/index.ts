@@ -4,6 +4,7 @@ import {
   UploadIntentSigner,
 } from "@canvas/files"
 import { createR2BindingAssetStore } from "@canvas/files/r2"
+import { createHostedPreviewArtifactAssetStorage } from "@canvas/files/hosted-preview"
 import {
   createFileAssetsHandler,
   createHostedFileAccessAuthority,
@@ -19,6 +20,8 @@ interface Env {
   API_ORIGIN: string
   API_SERVICE_TOKEN: string
   UPLOAD_INTENT_SECRET: string
+  HOSTED_PREVIEW_WRITE_SECRET: string
+  ASSETS_ORIGIN: string
   ALLOWED_ORIGINS?: string
 }
 
@@ -48,6 +51,9 @@ function createHandler(env: Env) {
     accessAuthority,
     thumbnailServiceAuthority,
     serviceToken: env.API_SERVICE_TOKEN,
+    hostedPreviewStorage: createHostedPreviewArtifactAssetStorage({ store }),
+    hostedPreviewWriteSecret: env.HOSTED_PREVIEW_WRITE_SECRET,
+    hostedPreviewAssetsOrigin: env.ASSETS_ORIGIN,
     allowedOrigins,
   })
 }

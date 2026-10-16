@@ -3,6 +3,7 @@ import { legacyTextProperties, validateFileDocument } from '../src/file-document
 import type { Appearance, ColorValue, ComponentNode, FileDocument, ImageAssetReference, Paint, PrimitiveNode } from '../src/file-document.js'
 import { projectPreviewPage } from '../src/file-preview.js'
 import type { Atom } from '../src/types.js'
+import { matrixFromLegacyPose } from '../src/layout-pose.js'
 
 const card: Atom = { name: 'Card', kind: 'atom', componentId: 'sample-card', exportName: 'Card', path: 'src/atoms/Card.tsx', fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props: [{ name: 'children', type: 'ReactNode', optional: true }, { name: 'heading', type: 'ReactNode', optional: true }] }
 const button: Atom = { name: 'Button', kind: 'atom', componentId: 'sample-button', exportName: 'Button', path: 'src/atoms/Button.tsx', fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props: [{ name: 'children', type: 'ReactNode', optional: true }, { name: 'variant', type: '"primary" | "quiet" | undefined', optional: true }] }
@@ -22,7 +23,8 @@ const pixel = (id: string, sha256 = 'a'.repeat(64)): ImageAssetReference => ({ i
  * a half-opacity instance appearance with a red border on every side; caption has no appearance.
  */
 const fixture = (): FileDocument => validateFileDocument({
-  schemaVersion: 9,
+  schemaVersion: 13,
+  componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 9,
   pages: [{ id: 'page-1', name: 'Landing', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Empty', rootNodeId: 'root-2' }],
@@ -34,10 +36,10 @@ const fixture = (): FileDocument => validateFileDocument({
     'btn-2': { ...buttonNode('btn-2', { variant: 'quiet' }), layout: { item: { position: { mode: 'flow' }, height: { value: { kind: 'px', value: 40 } } } } },
     title: buttonNode('title'),
     solo: { ...buttonNode('solo'), appearance: { opacity: 0.5, borders: { all: { color: lit('#ff0000'), width: 2, style: 'solid' } } } },
-    outer: primitive('outer', 'frame', { left: -50, top: 60, width: 400, height: 300, overflow: 'visible' }, { fills: [solid('outer:fill:1', tok('surface'))] }),
-    inner: primitive('inner', 'frame', { left: 12, top: 18, width: 100, height: 80 }, { fills: [solid('inner:fill:1', lit('#ABCDEF'))] }),
-    dot: primitive('dot', 'shape', { left: 4, top: 6, width: 8, height: 8, rotation: 45, flipX: true }, { fills: [{ id: 'dot:fill:1', type: 'gradient', shape: 'linear', angle: 90, center, length: 1, interpolation: 'srgb', stops: [{ id: 'b', position: 1, color: tok('surface') }, { id: 'a', position: 0, color: lit('#000000') }] }] }),
-    caption: { ...primitive('caption', 'text', { left: 0, top: 400, width: 200, height: 24 }), text: 'Welcome', ...legacyTextProperties() },
+    outer: primitive('outer', 'frame', { relativeTransform: [1, 0, 0, 1, -50, 60], width: 400, height: 300, overflow: 'visible' }, { fills: [solid('outer:fill:1', tok('surface'))] }),
+    inner: primitive('inner', 'frame', { relativeTransform: [1, 0, 0, 1, 12, 18], width: 100, height: 80 }, { fills: [solid('inner:fill:1', lit('#ABCDEF'))] }),
+    dot: primitive('dot', 'shape', { relativeTransform: matrixFromLegacyPose({ left: 4, top: 6, rotation: 45, flipX: true }, { width: 8, height: 8 }), width: 8, height: 8 }, { fills: [{ id: 'dot:fill:1', type: 'gradient', shape: 'linear', angle: 90, center, length: 1, interpolation: 'srgb', stops: [{ id: 'b', position: 1, color: tok('surface') }, { id: 'a', position: 0, color: lit('#000000') }] }] }),
+    caption: { ...primitive('caption', 'text', { relativeTransform: [1, 0, 0, 1, 0, 400], width: 200, height: 24 }), text: 'Welcome', ...legacyTextProperties() },
   },
   relationships: {
     card: { parentId: 'root-1', orderKey: 'U' },
@@ -61,7 +63,7 @@ const ramp = (end: string) => ({ fills: [{ type: 'gradient', shape: 'linear', an
 describe('preview projection', () => {
   it('lists component children of the root in order as root ids, with slot children per slot and instance appearance', () => {
     const { document } = projectPreviewPage(fixture(), 'page-1')!
-    expect(document.version).toBe(2)
+    expect(document.version).toBe(3)
     expect(document.revision).toBe(9)
     expect(document.rootIds).toEqual(['card', 'solo'])
     const red = { color: '#ff0000', width: 2, style: 'solid' }
@@ -106,10 +108,10 @@ describe('preview projection', () => {
   it('flattens primitives in pre-order with parent-local positions, clipping, text, and resolved appearance', () => {
     const { document } = projectPreviewPage(fixture(), 'page-1')!
     expect(document.canvas.elements).toStrictEqual([
-      { id: 'outer', kind: 'frame', name: 'outer name', x: -50, y: 60, width: 400, height: 300, rotation: 0, appearance: flat('#ffffff'), parentId: null, clip: false },
-      { id: 'inner', kind: 'frame', name: 'inner name', x: 12, y: 18, width: 100, height: 80, rotation: 0, appearance: flat('#abcdef'), parentId: 'outer', clip: true },
-      { id: 'dot', kind: 'shape', name: 'dot name', x: 4, y: 6, width: 8, height: 8, rotation: 45, flipX: true, appearance: ramp('#ffffff'), parentId: 'inner' },
-      { id: 'caption', kind: 'text', name: 'caption name', x: 0, y: 400, width: 200, height: 24, rotation: 0, text: 'Welcome', ...legacyTextProperties(), parentId: null },
+      { id: 'outer', kind: 'frame', name: 'outer name', relativeTransform: [1, 0, 0, 1, -50, 60], width: 400, height: 300, appearance: flat('#ffffff'), parentId: null, clip: false },
+      { id: 'inner', kind: 'frame', name: 'inner name', relativeTransform: [1, 0, 0, 1, 12, 18], width: 100, height: 80, appearance: flat('#abcdef'), parentId: 'outer', clip: true },
+      { id: 'dot', kind: 'shape', name: 'dot name', relativeTransform: matrixFromLegacyPose({ left: 4, top: 6, rotation: 45, flipX: true }, { width: 8, height: 8 }), width: 8, height: 8, appearance: ramp('#ffffff'), parentId: 'inner' },
+      { id: 'caption', kind: 'text', name: 'caption name', relativeTransform: [1, 0, 0, 1, 0, 400], width: 200, height: 24, text: 'Welcome', ...legacyTextProperties(), parentId: null },
     ])
     expect(document).not.toHaveProperty('assets')
   })
@@ -129,14 +131,14 @@ describe('preview projection', () => {
     const { document } = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!
     const byId = Object.fromEntries(document.canvas.elements.map(element => [element.id, element]))
 
-    expect(document.version).toBe(2)
+    expect(document.version).toBe(3)
     expect(byId.outer!.layout).toStrictEqual({
       mode: 'freeform',
       declarations: { display: 'flex', 'flex-direction': 'row', 'flex-wrap': 'wrap', 'justify-content': 'flex-start', 'align-items': 'center', 'column-gap': '8px', 'row-gap': '10px', 'padding-top': '16px', 'padding-right': '12px', 'padding-bottom': '16px', 'padding-left': '12px' },
     })
     expect(byId.inner!.layout).toStrictEqual({ mode: 'flow', declarations: { 'flex-shrink': '0' } })
     expect(byId.dot!.layout).toStrictEqual({ mode: 'absolute', declarations: { position: 'absolute', left: '7px', top: '25%' } })
-    expect(byId.dot).toMatchObject({ rotation: 45, flipX: true })
+    expect(byId.dot!.relativeTransform).toStrictEqual(matrixFromLegacyPose({ left: 4, top: 6, rotation: 45, flipX: true }, { width: 8, height: 8 }))
     expect(byId.caption).not.toHaveProperty('layout')
   })
 
@@ -157,7 +159,7 @@ describe('preview projection', () => {
     const file = fixture()
     file.assets = { photo: pixel('photo', '1'.repeat(64)), spare: pixel('spare'), other: pixel('other', '2'.repeat(64)) }
     ;(file.nodes.inner as PrimitiveNode).appearance = { fills: [solid('inner:fill:1', lit('#abcdef')), { id: 'inner:fill:2', type: 'image', assetId: 'photo', fit: 'cover' }] }
-    file.nodes.away = primitive('away', 'rectangle', { left: 0, top: 0, width: 10, height: 10 }, { fills: [{ id: 'away:fill:1', type: 'image', assetId: 'other', fit: 'tile' }] })
+    file.nodes.away = primitive('away', 'rectangle', { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 }, { fills: [{ id: 'away:fill:1', type: 'image', assetId: 'other', fit: 'tile' }] })
     file.relationships.away = { parentId: 'root-2', orderKey: 'V' }
     const { document } = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!
     expect(document.assets).toStrictEqual({ photo: { name: 'photo.png', mime: 'image/png', extension: 'png', bytes: 3, width: 1, height: 1, sha256: '1'.repeat(64) } })
@@ -184,7 +186,163 @@ describe('preview projection', () => {
   })
 
   it('projects an empty page and returns null for an unknown page', () => {
-    expect(projectPreviewPage(fixture(), 'page-2')).toStrictEqual({ document: { version: 2, revision: 9, rootIds: [], nodes: {}, frame: { name: 'Empty', width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [] } }, layout: [], themeDiagnostics: [] })
+    expect(projectPreviewPage(fixture(), 'page-2')).toStrictEqual({ document: { version: 3, revision: 9, rootIds: [], nodes: {}, frame: { name: 'Empty', width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [] } }, layout: [], themeDiagnostics: [] })
     expect(projectPreviewPage(fixture(), 'page-x')).toBeNull()
+  })
+
+  it('COMP-V2-UI-003 projects model defaults and one instance override by source prop name', () => {
+    const file = fixture()
+    file.componentModel = {
+      definitions: {
+        'sample-button': {
+          id: 'sample-button', name: 'Button', source: { kind: 'code', bindingId: 'button-binding' }, revision: 0,
+          properties: [
+            { id: 'label', name: 'children', type: 'text', defaultValue: 'Default label' },
+            { id: 'tone', name: 'variant', type: 'variant', defaultValueId: 'primary', values: [{ id: 'primary', name: 'Primary' }, { id: 'quiet', name: 'Quiet' }] },
+          ], materials: [], parts: [], interactions: [],
+        },
+      },
+      instances: {
+        'btn-1': { id: 'btn-1', componentId: 'sample-button', values: { label: 'Only one', tone: 'quiet' } },
+        'btn-2': { id: 'btn-2', componentId: 'sample-button', values: {} },
+      },
+    }
+    const { document } = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!
+    expect(document.nodes['btn-1']!.props).toEqual({ children: 'Only one', variant: 'quiet' })
+    expect(document.nodes['btn-2']!.props).toEqual({ variant: 'primary', children: 'Default label' })
+  })
+
+  it('[COMP-V2-UI-076] keeps Instance swap values internal instead of leaking them into imported component props', () => {
+    const file = fixture()
+    file.componentModel = {
+      definitions: {
+        owner: {
+          id: 'owner', name: 'Owner', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 0,
+          properties: [{ id: 'leading', name: 'Leading', type: 'instance-swap', defaultValue: 'leaf', binding: { kind: 'instance-swap', nodeId: 'inner' } }],
+          materials: [], parts: [], interactions: [],
+        },
+        leaf: { id: 'leaf', name: 'Leaf', source: { kind: 'canvas', masterRootId: 'caption' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+      },
+      instances: {
+        inner: { id: 'inner', componentId: 'leaf', values: {} },
+        solo: { id: 'solo', componentId: 'owner', values: { leading: 'leaf' } },
+      },
+    }
+    ;(file.nodes.solo as ComponentNode).props = { children: 'Stored prop' }
+    const { document } = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!
+    expect(document.nodes.solo!.props).toEqual({ children: 'Stored prop' })
+    expect(document.nodes.solo!.props).not.toHaveProperty('Leading')
+  })
+
+  it('COMP-V2-UI-073 projects authored hover and press ownership onto the component root with the bound layer as target', () => {
+    const file = fixture()
+    const white = { fills: [solid('default-fill', lit('#ffffff'))] }
+    const red = { fills: [solid('hover-fill', lit('#ff0000'))] }
+    const blue = { fills: [solid('press-fill', lit('#0000ff'))] }
+    file.componentModel = {
+      definitions: {
+        card: {
+          id: 'card', name: 'Canvas card', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 1,
+          properties: [{
+            id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', currentValueId: 'default',
+            values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }, { id: 'pressed', name: 'Pressed' }],
+            binding: { kind: 'variant', nodeId: 'inner', appearances: { default: white, hover: red, pressed: blue } },
+          }],
+          materials: [], parts: [],
+          interactions: [
+            { id: 'hover-state', trigger: 'pointer-hover', propertyId: 'state', valueId: 'hover', transition: { type: 'smart-animate', durationMs: 180, easing: 'ease-out' } },
+            { id: 'press-state', trigger: 'pointer-press', propertyId: 'state', valueId: 'pressed' },
+          ],
+        },
+      },
+      instances: {},
+    }
+    const elements = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!.document.canvas.elements
+    expect(elements.find(element => element.id === 'outer')?.interactions).toStrictEqual([
+      { trigger: 'pointer-hover', targetId: 'inner', appearance: flat('#ff0000'), transition: { type: 'smart-animate', durationMs: 180, easing: 'ease-out' } },
+      { trigger: 'pointer-press', targetId: 'inner', appearance: flat('#0000ff') },
+    ])
+    expect(elements.find(element => element.id === 'inner')?.interactions).toBeUndefined()
+    expect(elements.find(element => element.id === 'inner')?.appearance).toStrictEqual(flat('#ffffff'))
+  })
+
+  it('[COMP-V2-UI-077] resolves one compound appearance for the current tuple and its interaction overlay', () => {
+    const file = fixture()
+    const appearance = (id: string, color: string) => ({ fills: [solid(id, lit(color))] })
+    file.nodes.copy = { ...structuredClone(file.nodes.outer as PrimitiveNode), id: 'copy', name: 'copy name' }
+    file.nodes['copy-inner'] = { ...structuredClone(file.nodes.inner as PrimitiveNode), id: 'copy-inner', name: 'copy-inner name' }
+    file.nodes['copy-dot'] = { ...structuredClone(file.nodes.dot as PrimitiveNode), id: 'copy-dot', name: 'copy-dot name' }
+    file.relationships.copy = { parentId: 'root-1', orderKey: 'Z' }
+    file.relationships['copy-inner'] = { parentId: 'copy', orderKey: 'V' }
+    file.relationships['copy-dot'] = { parentId: 'copy-inner', orderKey: 'V' }
+    file.componentModel = {
+      definitions: {
+        card: {
+          id: 'card', name: 'Canvas card', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 1,
+          properties: [
+            { id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', currentValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'inner', appearances: { default: appearance('state-default', '#111111'), hover: appearance('state-hover', '#222222') } } },
+            { id: 'tone', name: 'Tone', type: 'variant', defaultValueId: 'neutral', currentValueId: 'danger', values: [{ id: 'neutral', name: 'Neutral' }, { id: 'danger', name: 'Danger' }], binding: { kind: 'variant', nodeId: 'inner', appearances: { neutral: appearance('tone-neutral', '#333333'), danger: appearance('tone-danger', '#444444') } } },
+          ],
+          variantAppearances: { inner: {
+            'state=default|tone=neutral': appearance('default-neutral', '#101010'),
+            'state=default|tone=danger': appearance('default-danger', '#ff9900'),
+            'state=hover|tone=neutral': appearance('hover-neutral', '#00aa00'),
+            'state=hover|tone=danger': appearance('hover-danger', '#ff0000'),
+          } },
+          materials: [], parts: [], interactions: [{ id: 'hover-state', trigger: 'pointer-hover', propertyId: 'state', valueId: 'hover' }],
+        },
+      },
+      instances: { copy: { id: 'copy', componentId: 'card', values: { tone: 'neutral' } } },
+    }
+    const elements = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!.document.canvas.elements
+    expect(elements.find(element => element.id === 'inner')?.appearance).toStrictEqual(flat('#ff9900'))
+    expect(elements.find(element => element.id === 'copy-inner')?.appearance).toStrictEqual(flat('#101010'))
+    expect(elements.find(element => element.id === 'outer')?.interactions).toStrictEqual([
+      { trigger: 'pointer-hover', targetId: 'inner', appearance: flat('#ff0000') },
+    ])
+    expect(elements.find(element => element.id === 'copy')?.interactions).toStrictEqual([
+      { trigger: 'pointer-hover', targetId: 'copy-inner', appearance: flat('#00aa00') },
+    ])
+  })
+
+  it('[COMP-V2-UI-077] keeps owner compound appearances and interactions when an Instance swap changes a nested subtree', () => {
+    const file = fixture()
+    const appearance = (id: string, color: string) => ({ fills: [solid(id, lit(color))] })
+    file.nodes.copy = { ...structuredClone(file.nodes.outer as PrimitiveNode), id: 'copy', name: 'copy name' }
+    file.nodes['copy-inner'] = { ...structuredClone(file.nodes.dot as PrimitiveNode), id: 'copy-inner', name: 'copy-inner name' }
+    file.relationships.copy = { parentId: 'root-1', orderKey: 'Z' }
+    file.relationships['copy-inner'] = { parentId: 'copy', orderKey: 'V' }
+    file.componentModel = {
+      definitions: {
+        owner: {
+          id: 'owner', name: 'Owner', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 1,
+          properties: [
+            { id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'outer', appearances: { default: appearance('state-default', '#111111'), hover: appearance('state-hover', '#222222') } } },
+            { id: 'tone', name: 'Tone', type: 'variant', defaultValueId: 'neutral', values: [{ id: 'neutral', name: 'Neutral' }, { id: 'danger', name: 'Danger' }], binding: { kind: 'variant', nodeId: 'outer', appearances: { neutral: appearance('tone-neutral', '#333333'), danger: appearance('tone-danger', '#444444') } } },
+            { id: 'leading', name: 'Leading', type: 'instance-swap', defaultValue: 'leaf', binding: { kind: 'instance-swap', nodeId: 'inner' } },
+          ],
+          variantAppearances: { outer: {
+            'state=default|tone=neutral': appearance('default-neutral', '#101010'),
+            'state=default|tone=danger': appearance('default-danger', '#ff9900'),
+            'state=hover|tone=neutral': appearance('hover-neutral', '#00aa00'),
+            'state=hover|tone=danger': appearance('hover-danger', '#ff0000'),
+          } },
+          materials: [], parts: [], interactions: [{ id: 'hover-state', trigger: 'pointer-hover', propertyId: 'state', valueId: 'hover' }],
+        },
+        leaf: { id: 'leaf', name: 'Leaf', source: { kind: 'canvas', masterRootId: 'caption' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+        alternate: { id: 'alternate', name: 'Alternate', source: { kind: 'canvas', masterRootId: 'dot' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+      },
+      instances: {
+        inner: { id: 'inner', componentId: 'leaf', values: {} },
+        copy: { id: 'copy', componentId: 'owner', values: { tone: 'neutral', leading: 'alternate' } },
+        'copy-inner': { id: 'copy-inner', componentId: 'alternate', values: {} },
+      },
+    }
+
+    const elements = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!.document.canvas.elements
+    expect(elements.find(element => element.id === 'copy')?.appearance).toStrictEqual(flat('#101010'))
+    expect(elements.find(element => element.id === 'copy')?.interactions).toStrictEqual([
+      { trigger: 'pointer-hover', targetId: 'copy', appearance: flat('#00aa00') },
+    ])
   })
 })

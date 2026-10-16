@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import ts from 'typescript'
-import type { Atom } from '@canvas/repo-engine/contracts'
+import type { Atom, RepositoryAtom } from '@canvas/repo-engine/contracts'
 import type { EditorDocument } from '@canvas/repo-engine/document'
 import { convertCssDeclarations, serializeComponentUsage } from './code-output'
 
@@ -11,11 +11,11 @@ function parse(code: string) {
   return file
 }
 
-function atom(id: string, exportName: string, props: Atom['props']): Atom {
+function atom(id: string, exportName: string, props: Atom['props']): RepositoryAtom {
   return { componentId: id, exportName, name: exportName, path: `src/${id}.tsx`, fingerprint: id, sourceHash: 'hash', status: 'bound', candidates: [], kind: 'atom', props }
 }
 
-const atoms = [
+const atoms: RepositoryAtom[] = [
   atom('card', 'Card', [{ name: 'heading', type: 'ReactNode', optional: true }, { name: 'children', type: 'ReactNode', optional: true }, { name: 'footer', type: 'ReactNode', optional: true }]),
   atom('button', 'Button', [{ name: 'children', type: 'ReactNode', optional: false }, { name: 'disabled', type: 'boolean', optional: true }, { name: 'variant', type: "'quiet' | 'primary'", optional: true }]),
   atom('label', 'Label', [{ name: 'children', type: 'ReactNode', optional: false }, { name: 'htmlFor', type: 'string', optional: true }]),
@@ -170,8 +170,18 @@ describe('validated component usage output', () => {
     expect(output.jsx).toBe('<Caption children={"Email"} htmlFor={"email"} />')
   })
 
-  it('rejects missing bindings, overlapping selections, and unreviewed import paths', () => {
+  it('COMP-V2-CODE-002 rejects hosted or missing bindings, overlapping selections, and unreviewed import paths', () => {
     expect(() => serializeComponentUsage(document, atoms.map(item => ({ ...item, status: 'missing' })), { moduleSpecifiers })).toThrow('binding')
+    const hostedAtoms: Atom[] = atoms.map(item => ({
+      componentId: item.componentId,
+      name: item.name,
+      kind: 'hosted',
+      status: 'bound',
+      candidates: [],
+      props: item.props,
+      ...(item.slots ? { slots: item.slots } : {}),
+    }))
+    expect(() => serializeComponentUsage(document, hostedAtoms, { moduleSpecifiers })).toThrow('binding')
     expect(() => serializeComponentUsage(document, atoms, { moduleSpecifiers, rootIds: ['card-instance', 'label-instance'] })).toThrow('non-overlapping')
     expect(() => serializeComponentUsage(document, atoms, { moduleSpecifiers, rootIds: ['unknown'] })).toThrow('non-overlapping')
     expect(() => serializeComponentUsage(document, atoms, { moduleSpecifiers: {} })).toThrow('module specifier')

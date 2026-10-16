@@ -12,11 +12,11 @@ function fixture(): ProjectSnapshot {
     atoms: [{ componentId: 'label-component', name: 'Label', exportName: 'Label', path: 'src/Label.tsx', kind: 'atom', status: 'bound', fingerprint: 'f', sourceHash: 'h', candidates: [], props: [{ name: 'children', type: 'ReactNode', optional: true }] }],
     composition: { id: 'login', name: 'Login', componentId: null, children: [{ id: 'label', componentId: 'label-component', exportName: 'Label', props: { children: 'Email' } }] },
     file: {
-      schemaVersion: 9, fileId: 'history-file', revision: 0,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'history-file', revision: 0,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
-        panel: { id: 'panel', type: 'frame', name: 'Panel', styles: { left: 0, top: 0, width: 400, height: 520, overflow: 'clip' }, appearance: { fills: [literal('panel-fill', '#ffffff')] } },
+        panel: { id: 'panel', type: 'frame', name: 'Panel', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 400, height: 520, overflow: 'clip' }, appearance: { fills: [literal('panel-fill', '#ffffff')] } },
         label: { id: 'label', type: 'component', componentId: 'label-component', exportName: 'Label', props: { children: 'Email' } },
       },
       relationships: { panel: { parentId: 'root-1', orderKey: 'V' }, label: { parentId: 'root-1', orderKey: 'W' } },

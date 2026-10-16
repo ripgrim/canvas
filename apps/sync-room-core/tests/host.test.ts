@@ -1,5 +1,6 @@
 import { once } from 'node:events'
 import { createHmac } from 'node:crypto'
+import { createConnection } from 'node:net'
 import { maxCollaborationAvatarUrlBytes, maxCollaborationConnectionNonceLength, maxRoomTicketLength } from '@canvas/sync-protocol'
 import type { CollaborationClientMessage, RoomOpenMessage, VerifiedRoomTicketClaims } from '@canvas/sync-protocol'
 import { WebSocket } from 'ws'
@@ -154,6 +155,40 @@ describe('local multi-room host', () => {
     await expect(rejectedStatus(address.port, identity, 'X'.repeat(64))).resolves.toContain('401')
     expect(creations).toBe(0)
     expect(host.roomCount).toBe(0)
+  })
+
+  it('DEV-STACK-001 keeps serving after a client resets an upgrade during async admission', async () => {
+    const verification = deferred<RoomAuthorization | null>()
+    const verifier: RoomTicketVerifier = {
+      verify: async () => verification.promise,
+      async consume() { return null },
+      async isCurrent() { return false },
+    }
+    host = createHost(identity => new FakeHostedRoom(identity), { tickets: verifier })
+    const address = await host.listen(0)
+    const socket = createConnection({ host: '127.0.0.1', port: address.port })
+    await once(socket, 'connect')
+    socket.write([
+      `GET /sync/${fileId}/${generationId}?clientId=${clientId}&connectionNonce=${connectionNonce} HTTP/1.1`,
+      `Host: 127.0.0.1:${address.port}`,
+      `Origin: ${origin}`,
+      `Authorization: Bearer ${'X'.repeat(64)}`,
+      'Connection: Upgrade',
+      'Upgrade: websocket',
+      'Sec-WebSocket-Version: 13',
+      'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+      '',
+      '',
+    ].join('\r\n'))
+    while (host.pendingUpgradeCount !== 1) await new Promise<void>(resolve => setImmediate(resolve))
+    socket.destroy()
+    verification.resolve(null)
+    const pendingUpgradeCount = () => host?.pendingUpgradeCount ?? 0
+    while (pendingUpgradeCount() !== 0) await new Promise<void>(resolve => setImmediate(resolve))
+
+    const response = await fetch(`http://127.0.0.1:${address.port}/healthz`)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ ok: true, phase: 'accepting' })
   })
 
   it('CLOUD-SYNC-DO-SEC-001 rejects extra, duplicate, missing, and malformed route query authority before room allocation', async () => {

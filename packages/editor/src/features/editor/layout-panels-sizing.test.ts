@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { sizingFieldState, sizingModesForContext } from './LayoutPanels'
+import { createBlankFile } from '@canvas/repo-engine/file-document'
+import { sizingFieldState, sizingModesForContext, sizingTokenGroups } from './LayoutPanels'
 
 describe('AT-CAN-002 attached sizing menus', () => {
   it('uses the exact Fixed and Fit labels and only exposes available modes', () => {
@@ -29,5 +30,22 @@ describe('AT-CAN-002 attached sizing menus', () => {
     expect(sizingModesForContext(true, false)).toEqual(['fixed', 'hug'])
     expect(sizingModesForContext(false, true)).toEqual(['fixed', 'fill'])
     expect(sizingModesForContext(true, true)).toEqual(['fixed', 'hug', 'fill'])
+  })
+
+  it('groups only compatible numeric token kinds and gates breakpoints to root artboards', () => {
+    const file = createBlankFile('sizing-menu', 'page', 'root')
+    file.theme.tokens = {
+      space: { id: 'space', type: 'spacing', name: '2', orderKey: 'A', value: { kind: 'literal', value: '8px' } },
+      container: { id: 'container', type: 'container', name: 'sm', orderKey: 'B', value: { kind: 'literal', value: '320px' } },
+      breakpoint: { id: 'breakpoint', type: 'breakpoint', name: 'md', orderKey: 'C', value: { kind: 'literal', value: '640px' } },
+      color: { id: 'color', type: 'color', name: 'Ink', orderKey: 'D', value: { kind: 'literal', color: { kind: 'hex', hex: '#111111' } } },
+      weight: { id: 'weight', type: 'fontWeight', name: 'Medium', orderKey: 'E', value: { kind: 'literal', value: 500 } },
+    }
+    expect(sizingTokenGroups(file, {}, true).map(group => [group.label, group.tokens.map(token => `${token.name}:${token.displayValue}`)])).toEqual([
+      ['Spacing', ['2:8px']],
+      ['Container', ['sm:320px']],
+      ['Breakpoint', ['md:640px']],
+    ])
+    expect(sizingTokenGroups(file, {}, false).map(group => group.label)).toEqual(['Spacing', 'Container'])
   })
 })

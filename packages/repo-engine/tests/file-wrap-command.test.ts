@@ -8,15 +8,15 @@ const card: Atom = { name: 'Card', kind: 'atom', componentId: 'card', exportName
 const button: Atom = { name: 'Button', kind: 'atom', componentId: 'button', exportName: 'Button', path: 'Button.tsx', fingerprint: 'button', sourceHash: 'button', status: 'bound', candidates: [], props: [] }
 const atoms = [card, button]
 
-const rect = (id: string, left = 0, top = 0): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { left, top, width: 20, height: 20 } })
-const frame = (id: string, left = 0, top = 0): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { left, top, width: 240, height: 160 } })
+const rect = (id: string, left = 0, top = 0): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { relativeTransform: [1, 0, 0, 1, left, top], width: 20, height: 20 } })
+const frame = (id: string, left = 0, top = 0): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { relativeTransform: [1, 0, 0, 1, left, top], width: 240, height: 160 } })
 const flow = (): NodeLayout => ({ item: { position: { mode: 'flow' } } })
 const absolute = (left: number, top: number, zIndex?: number): NodeLayout => ({ item: { position: { mode: 'absolute', left: { kind: 'px', value: left }, top: { kind: 'px', value: top }, ...(zIndex === undefined ? {} : { zIndex }) } } })
 const flex = (position: NodeLayout['item']['position']): NodeLayout => ({ item: { position }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' }, gap: 12 }, spacing: { padding: 0 } })
 const wrapper = (id: string, position: NodeLayout['item']['position']): NodeWrapGroup['wrapper'] => ({ ...frame(id, 30, 40), type: 'frame', styles: { ...frame(id, 30, 40).styles, overflow: 'visible' }, layout: flex(position) })
 
 const blank = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'wrap-file',
   revision: 7,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

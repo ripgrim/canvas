@@ -12,13 +12,34 @@ export type ComponentBinding = {
   status: BindingStatus
   candidates: string[]
 }
-export type Atom = ComponentBinding & {
+export type AtomProp = { name: string; type: string; optional: boolean }
+export type RepositoryAtom = ComponentBinding & {
   name: string
   kind: 'atom' | 'component'
-  props: { name: string; type: string; optional: boolean }[]
+  props: AtomProp[]
   /** Verified named React child positions. Missing means the legacy schema, not an unrestricted component. */
   slots?: string[]
 }
+export type HostedAtom = {
+  componentId: string
+  name: string | null
+  kind: 'hosted'
+  status: BindingStatus
+  /** Hosted records cannot carry source locators or integrity evidence. */
+  path?: never
+  exportName?: never
+  fingerprint?: never
+  sourceHash?: never
+  /** Opaque reconciliation tokens. They are not source locators. */
+  candidates: string[]
+  props: AtomProp[]
+  slots?: string[]
+}
+export type Atom = RepositoryAtom | HostedAtom
+
+export function isRepositoryAtom(atom: Atom): atom is RepositoryAtom { return atom.kind === 'atom' || atom.kind === 'component' }
+export function isHostedAtom(atom: Atom): atom is HostedAtom { return atom.kind === 'hosted' }
+export function isPlaceableAtom(atom: Atom): atom is RepositoryAtom & { kind: 'atom'; status: 'bound' } { return atom.kind === 'atom' && atom.status === 'bound' }
 export type Composition = {
   id: string
   name: string
@@ -74,4 +95,5 @@ export type EngineOptions = {
       }[]
     }
   }) => Promise<void>
+  validateDocumentation?: (input: Readonly<{ root: string; files: Record<string, string>; changedPaths: readonly string[] }>) => Promise<void>
 }

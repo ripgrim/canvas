@@ -12,6 +12,7 @@ import { createCollaborationClient } from '../src/collaboration-client.js'
 import type { CollaborationClientLifecycleTarget, CollaborationSocketEventMap, CollaborationWebSocket } from '../src/collaboration-client.js'
 import { createCollaborationDurableStore } from '../src/collaboration-store.js'
 import type { CollaborationDurableStore, CollaborationStoreDriver, StoredCollaborationRoom } from '../src/collaboration-store.js'
+import { legacyTextProperties, validateFileDocument, type FileDocument } from '../../repo-engine/src/file-document.js'
 
 const fileId = '11111111-1111-4111-8111-111111111111'
 const generationId = '22222222-2222-4222-8222-222222222222'
@@ -23,6 +24,59 @@ const secondLeaseId = '66666666-6666-4666-8666-666666666666'
 const peerInteractionId = (serverLeaseId: string) => `lease:${serverLeaseId}`
 
 type Document = { title: string }
+
+function advancedComponentFile(): FileDocument {
+  return validateFileDocument({
+    schemaVersion: 13 as const, fileId, revision: 0,
+    pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
+    theme: { tokens: {} },
+    nodes: {
+      'root-1': { id: 'root-1', type: 'root' },
+      master: { id: 'master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 160, height: 48 } },
+      face: { id: 'face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 48 } },
+      label: { id: 'label', type: 'text', name: 'Label', text: 'Continue', styles: { relativeTransform: [1, 0, 0, 1, 16, 14], width: 96, height: 20 }, ...legacyTextProperties() },
+      slot: { id: 'slot', type: 'frame', name: 'Slot', styles: { relativeTransform: [1, 0, 0, 1, 128, 12], width: 24, height: 24 } },
+      'icon-use': { id: 'icon-use', type: 'frame', name: 'Icon use', styles: { relativeTransform: [0.866, 0.5, -0.5, 0.866, 2, 1], width: 20, height: 20 } },
+      'icon-master': { id: 'icon-master', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 220, 30], width: 20, height: 20 } },
+      'icon-shape': { id: 'icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 2, 2], width: 16, height: 16 } },
+    },
+    relationships: {
+      master: { parentId: 'root-1', orderKey: 'V' }, face: { parentId: 'master', orderKey: 'V' }, label: { parentId: 'master', orderKey: 'W' },
+      slot: { parentId: 'master', orderKey: 'X' }, 'icon-use': { parentId: 'slot', orderKey: 'V' },
+      'icon-master': { parentId: 'root-1', orderKey: 'W' }, 'icon-shape': { parentId: 'icon-master', orderKey: 'V' },
+    },
+    componentModel: {
+      definitions: {
+        button: {
+          id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'master' }, revision: 1,
+          properties: [
+            { id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'face', appearances: { default: {}, hover: { opacity: 0.8 } } } },
+            { id: 'tone', name: 'Tone', type: 'variant', defaultValueId: 'neutral', values: [{ id: 'neutral', name: 'Neutral' }, { id: 'danger', name: 'Danger' }], binding: { kind: 'variant', nodeId: 'face', appearances: { neutral: {}, danger: { opacity: 0.7 } } } },
+            { id: 'label', name: 'Label', type: 'text', defaultValue: 'Continue', binding: { kind: 'text', nodeId: 'label' } },
+            { id: 'visible', name: 'Visible', type: 'boolean', defaultValue: true, binding: { kind: 'visibility', nodeId: 'face' } },
+            { id: 'content', name: 'Content', type: 'slot', binding: { kind: 'slot', nodeId: 'slot' } },
+            { id: 'icon', name: 'Icon', type: 'instance-swap', defaultValue: 'icon', binding: { kind: 'instance-swap', nodeId: 'icon-use' } },
+          ],
+          variantAppearances: { face: {
+            'state=default|tone=neutral': { opacity: 0.99 }, 'state=default|tone=danger': { opacity: 0.9 },
+            'state=hover|tone=neutral': { opacity: 0.8 }, 'state=hover|tone=danger': { opacity: 0.7 },
+          } },
+          materials: [{ id: 'surface', group: 'Interaction', name: 'Surface', appearance: { opacity: 0.95 } }],
+          parts: [{ id: 'face-part', name: 'Face', nodeId: 'face', materialId: 'surface' }],
+          interactions: [{ id: 'hover-interaction', trigger: 'pointer-hover', propertyId: 'state', valueId: 'hover' }],
+        },
+        icon: { id: 'icon', name: 'Icon', source: { kind: 'canvas', masterRootId: 'icon-master' }, revision: 0, properties: [], materials: [], parts: [{ id: 'shape', name: 'Shape', nodeId: 'icon-shape' }], interactions: [] },
+      },
+      instances: { 'icon-use': { id: 'icon-use', componentId: 'icon', values: {} } },
+    },
+  }, [])
+}
+
+type AdvancedComponentDocument = FileDocument
+
+function validateAdvancedComponentDocument(value: unknown): AdvancedComponentDocument {
+  return validateFileDocument(value, [])
+}
 
 const noPresence: PresenceState = Object.freeze({ pageId: null, focused: false, selection: null, camera: null, cursor: null })
 
@@ -387,6 +441,32 @@ describe('protocol epoch 4 collaboration client transport', () => {
 
     expect(harness.client.getSnapshot()).toMatchObject({ document: null, snapshotId: null })
     expect(publishedDocuments.every(document => document === null)).toBe(true)
+    expect(socket.closes.at(-1)?.code).toBe(4008)
+  })
+
+  it('CLOUD-FILES-001 surfaces a deterministic stored-document validation failure without reconnecting forever', () => {
+    const harness = createHarness()
+    const { socket, requestId } = harness.openAssigned()
+    const bytes = new TextEncoder().encode('{}')
+    const digest = createHash('sha256').update(bytes).digest('hex')
+    const snapshotId = 'projection:0'
+    socket.server({ type: 'load.phase', envelope: envelope(), requestId, phase: 'stream' })
+    socket.server({
+      type: 'snapshot.begin', envelope: envelope(), requestId, snapshotId,
+      documentSchemaVersion: collaborationDocumentSchemaVersion, baseSequence: '0', compression: 'none', contentEncoding: 'utf-8',
+      storedByteLength: bytes.byteLength, documentByteLength: bytes.byteLength,
+      objectDigest: digest, documentDigest: digest, chunkCount: 1,
+    })
+    socket.server({ type: 'snapshot.chunk', envelope: envelope(), requestId, snapshotId, chunkIndex: 0, chunkCount: 1, data: Buffer.from(bytes).toString('base64') })
+    socket.server({ type: 'snapshot.end', envelope: envelope(), requestId, snapshotId })
+
+    expect(harness.client.getSnapshot()).toMatchObject({
+      lifecycle: 'connection-failed',
+      document: null,
+      snapshotId: null,
+      error: 'This file contains invalid data. Error ID: invalid-file-document',
+    })
+    expect(harness.timers).toHaveLength(0)
     expect(socket.closes.at(-1)?.code).toBe(4008)
   })
 
@@ -865,7 +945,7 @@ describe('protocol epoch 4 collaboration client transport', () => {
 
   it('CLOUD-SYNC-REPLAY-001-C3A quarantines an interaction-bound mutation across reconnect until an exact fresh binding is supplied', async () => {
     const memory = createMemoryDurableStore()
-    const harness = createHarness({ durableStore: memory.store, cache: { accountId: 'account-1', documentSchemaVersion: 9 } })
+    const harness = createHarness({ durableStore: memory.store, cache: { accountId: 'account-1', documentSchemaVersion: 13 } })
     await harness.started
     const room = harness.openAssigned()
     harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
@@ -904,7 +984,7 @@ describe('protocol epoch 4 collaboration client transport', () => {
 
   it('CLOUD-SYNC-REPLAY-001-C3A persists an interaction binding and quarantines it after process restart', async () => {
     const memory = createMemoryDurableStore()
-    const cache = { accountId: 'account-1', documentSchemaVersion: 9 }
+    const cache = { accountId: 'account-1', documentSchemaVersion: 13 }
     const first = createHarness({ durableStore: memory.store, cache })
     await first.started
     const firstRoom = first.openAssigned()
@@ -1799,6 +1879,77 @@ describe('protocol epoch 4 collaboration client transport', () => {
     await vi.waitFor(() => expect(second.client.getSnapshot()).toMatchObject({ document: { title: 'Second' }, serverSequence: '2', pendingMutationIds: [] }))
   })
 
+  it('CLOUD-SYNC-COMPONENT-001 CLOUD-SYNC-COMPONENT-002 restores a validated schema-13 component graph from durable storage and reconnects with one socket at a time', async () => {
+    const memory = createMemoryDurableStore()
+    const cache = { accountId: 'component-account', documentSchemaVersion: collaborationDocumentSchemaVersion }
+    const source = advancedComponentFile()
+    const instances: Array<Readonly<{ client: ReturnType<typeof createCollaborationClient<AdvancedComponentDocument>>; sockets: MockSocket[] }>> = []
+    const create = () => {
+      const sockets: MockSocket[] = []
+      const client = createCollaborationClient<AdvancedComponentDocument>({
+        syncOrigin: 'ws://127.0.0.1:4321', buildId: 'build-1', clientId: 'component-tab', durableStore: memory.store,
+        validateDocument: validateAdvancedComponentDocument,
+        applyCommand() { throw new Error('This recovery test does not apply commands.') },
+        createId: ids(`component-request-${instances.length + 1}`, `component-reconnect-${instances.length + 1}`),
+        createWebSocket() { const socket = new MockSocket(); sockets.push(socket); return socket },
+        reconnectDelaysMs: [0], lifecycleTarget: null,
+      })
+      const value = { client, sockets }
+      instances.push(value)
+      return value
+    }
+    const assign = (instance: typeof instances[number], index = 0) => {
+      const socket = instance.sockets[index]!
+      socket.open()
+      const open = JSON.parse(socket.sent[0]!) as CollaborationClientMessage
+      if (open.type !== 'room.open') throw new Error('Expected room.open.')
+      socket.server({ type: 'room.assigned', envelope: envelope(), requestId: open.requestId, role: 'owner', replayScopeId })
+      return { socket, requestId: open.requestId }
+    }
+    const publish = (instance: typeof instances[number], socket: MockSocket, requestId: string) => {
+      const bytes = new TextEncoder().encode(JSON.stringify(source))
+      const digest = createHash('sha256').update(bytes).digest('hex')
+      socket.server({ type: 'load.phase', envelope: envelope(), requestId, phase: 'stream' })
+      socket.server({
+        type: 'snapshot.begin', envelope: envelope(), requestId, snapshotId: 'projection:0', documentSchemaVersion: collaborationDocumentSchemaVersion,
+        baseSequence: '0', compression: 'none', contentEncoding: 'utf-8', storedByteLength: bytes.byteLength, documentByteLength: bytes.byteLength,
+        objectDigest: digest, documentDigest: digest, chunkCount: 1,
+      })
+      socket.server({ type: 'snapshot.chunk', envelope: envelope(), requestId, snapshotId: 'projection:0', chunkIndex: 0, chunkCount: 1, data: Buffer.from(bytes).toString('base64') })
+      socket.server({ type: 'snapshot.end', envelope: envelope(), requestId, snapshotId: 'projection:0' })
+      socket.server({ type: 'load.phase', envelope: envelope(), requestId, phase: 'apply' })
+      socket.server({ type: 'sync.ready', envelope: envelope(), requestId, snapshotId: 'projection:0', serverSequence: '0', role: 'owner' })
+      return vi.waitFor(() => expect(instance.client.getSnapshot()).toMatchObject({ lifecycle: 'live', document: source }))
+    }
+
+    const first = create()
+    await first.client.start({ fileId, cache })
+    const firstRoom = assign(first)
+    await publish(first, firstRoom.socket, firstRoom.requestId)
+    expect(first.sockets).toHaveLength(1)
+    await vi.waitFor(async () => await expect(memory.store.load({
+      accountId: cache.accountId, clientId: 'component-tab', fileId,
+      documentSchemaVersion: collaborationDocumentSchemaVersion, protocolEpoch: collaborationProtocolEpoch,
+    })).resolves.toMatchObject({ checkpoint: { document: source } }))
+    first.client.stop()
+
+    const restarted = create()
+    await restarted.client.start({ fileId, cache })
+    expect(restarted.client.getSnapshot()).toMatchObject({ document: null, snapshotId: null })
+    const restartedRoom = assign(restarted)
+    await vi.waitFor(() => expect(restarted.client.getSnapshot()).toMatchObject({ document: source, snapshotId: 'projection:0' }))
+    await publish(restarted, restartedRoom.socket, restartedRoom.requestId)
+    expect(restarted.sockets).toHaveLength(1)
+
+    restartedRoom.socket.serverClose(1006, 'network lost')
+    await vi.waitFor(() => expect(restarted.sockets).toHaveLength(2))
+    expect(restartedRoom.socket.readyState).toBe(3)
+    const recoveredRoom = assign(restarted, 1)
+    await publish(restarted, recoveredRoom.socket, recoveredRoom.requestId)
+    expect(restarted.client.getSnapshot().document).toEqual(source)
+    restarted.client.dispose()
+  })
+
   it('does not reconnect after a terminal compatibility failure', () => {
     const harness = createHarness()
     const socket = harness.sockets[0]!
@@ -1896,6 +2047,25 @@ describe('protocol epoch 4 collaboration client transport', () => {
     harness.sockets[1]!.serverClose(1006)
     expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'connection-failed', error: 'Collaboration could not be reached. Try again.' })
     expect(lifecycle.listenerCount()).toBe(0)
+  })
+
+  it('CLOUD-SYNC-LIFECYCLE-003 keeps reconnecting after an admitted room survives a dev-server restart', async () => {
+    const harness = createHarness({ maxPreAdmissionFailures: 2, ids: ['request-0001', 'request-0002', 'request-0003', 'request-0004'] })
+    const first = harness.openAssigned()
+    harness.streamDocument(first.socket, first.requestId, { title: 'Before' })
+    await vi.waitFor(() => expect(harness.client.getSnapshot().lifecycle).toBe('live'))
+
+    first.socket.serverClose(1006, 'Dev server restarted')
+    for (let index = 1; index <= 2; index += 1) {
+      harness.timers.at(-1)!.callback()
+      harness.sockets[index]!.serverClose(1006, 'Dev server unavailable')
+      expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'reconnecting', reconnectAttempt: index + 1, document: { title: 'Before' } })
+    }
+
+    harness.timers.at(-1)!.callback()
+    const recovered = harness.openAssigned(3, secondGenerationId, '10')
+    harness.streamDocument(recovered.socket, recovered.requestId, { title: 'After restart' }, '1', envelope(secondGenerationId, '10'))
+    await vi.waitFor(() => expect(harness.client.getSnapshot()).toMatchObject({ lifecycle: 'live', reconnectAttempt: 0, document: { title: 'After restart' } }))
   })
 
   it('CLOUD-SYNC-LIFECYCLE-001 caps socket factory failures before admission', () => {

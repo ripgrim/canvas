@@ -21,13 +21,13 @@ function deepFreeze<T>(value: T): T {
 }
 
 const file = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'hud-client-file',
   revision,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    selected: { id: 'selected', type: 'rectangle', name: 'Selected', styles: { left: -70, top: 10, width: 100, height: 70 }, layout: { item: { position: { mode: 'freeform' } } } },
+    selected: { id: 'selected', type: 'rectangle', name: 'Selected', styles: { relativeTransform: [1, 0, 0, 1, -70, 10], width: 100, height: 70 }, layout: { item: { position: { mode: 'freeform' } } } },
   },
   relationships: { selected: { parentId: 'root', orderKey: 'V' } },
   theme: { tokens: {} },
@@ -181,7 +181,7 @@ describe('PAPER-TEXT-004 mounted canvas text editor boundary', () => {
     sceneGeometry.clear()
     canvasHudProjectionService.stop()
     const source = file()
-    source.nodes.selected = { id: 'selected', type: 'frame', name: 'Frame', styles: { left: -70, top: 10, width: 100, height: 70, overflow: 'clip' }, layout: { item: { position: { mode: 'freeform' } } } }
+    source.nodes.selected = { id: 'selected', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, -70, 10], width: 100, height: 70, overflow: 'clip' }, layout: { item: { position: { mode: 'freeform' } } } }
     documentStore.load(source, [], { replace: true, pageId: 'page' })
     documentStore.setViewport({ x: 10, y: -20, zoom: 2 })
     documentStore.setViewportSize({ width: 800, height: 600 })
@@ -245,7 +245,7 @@ describe('PAPER-TEXT-004 mounted canvas text editor boundary', () => {
       import('./canvas-hud-projection-service'),
     ])
     const textFile: FileDocument = {
-      schemaVersion: 9,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
       fileId: 'hud-client-file',
       revision,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
@@ -253,7 +253,7 @@ describe('PAPER-TEXT-004 mounted canvas text editor boundary', () => {
         root: { id: 'root', type: 'root' },
         text: {
           id: 'text', type: 'text', name: 'Heading', text: 'Editable',
-          styles: { left: -70, top: 10, width: 100, height: 24 },
+          styles: { relativeTransform: [1, 0, 0, 1, -70, 10], width: 100, height: 24 },
           textStyle: { fontFamily: 'Inter, sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16, lineHeight: { kind: 'px', value: 24 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false },
           textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
           layout: { item: { position: { mode: 'freeform' } } },

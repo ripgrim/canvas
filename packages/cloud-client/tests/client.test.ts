@@ -8,6 +8,32 @@ const file = {
 
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+const sourceBindingProjectId = file.id
+const sourceBindingAuthority = {
+  repository: { provider: 'github' as const, projectId: sourceBindingProjectId, repositoryId: '4001' },
+  scanId: '00000000-0000-4000-8000-000000000041',
+  sourceRevision: 'a'.repeat(40),
+  registryFingerprint: `sha256:${'b'.repeat(64)}`,
+  grantGeneration: 2,
+  adapterId: 'shadcn-v1',
+}
+const sourceBindingEvidence = {
+  symbolKey: 'button', packageName: '@canvas/ui', path: 'src/button.tsx', exportName: 'Button',
+  sourceHash: 'c'.repeat(64), fingerprint: 'd'.repeat(64),
+}
+const sourceBindingSnapshot = {
+  version: 1,
+  authority: sourceBindingAuthority,
+  records: [{
+    id: '00000000-0000-4000-8000-000000000042',
+    repository: sourceBindingAuthority.repository,
+    authority: sourceBindingAuthority,
+    evidence: sourceBindingEvidence,
+    status: 'bound' as const,
+  }],
+  updatedAt: 1_800_000_000,
+}
+
 describe('cloud api client', () => {
   it('accepts the opaque account ids issued by the auth service', async () => {
     const user = { id: 'better-auth-user_01', name: 'Ada', email: 'ada@example.test', image: null }
@@ -129,5 +155,315 @@ describe('cloud api client', () => {
       { url: `https://api.canvas.test/api/shared/files/${file.id}`, method: 'GET', body: null },
     ])
     expect(fetcher.mock.calls.every(([, init]) => init?.credentials === 'include')).toBe(true)
+  })
+
+  it('AT-REPO-LINK-001 validates GitHub handoff, choices, and the exact linked repository', async () => {
+    const projectId = file.id
+    const repository = { id: '4001', ownerLogin: 'canvas-team', name: 'design-system', fullName: 'canvas-team/design-system', isPrivate: true }
+    const calls: Array<{ url: string; method: string; body: unknown }> = []
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      const input = init?.body ? JSON.parse(String(init.body)) : null
+      calls.push({ url: String(url), method, body: input })
+      if (String(url).endsWith('/api/github/installations/start')) return response({ installationUrl: 'https://github.com/apps/comp-canvas/installations/new?state=opaque', expiresAt: file.updatedAt }, 201)
+      if (String(url).includes('/repositories?')) return response({ installationId: '2001', repositories: [repository] })
+      return response({ installationId: '2001', repository })
+    })
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+
+    expect(await client.startGitHubInstallation('https://editor.canvas.test/file/current?pageId=page-1')).toMatchObject({ installationUrl: expect.stringContaining('github.com/apps/comp-canvas') })
+    expect(await client.listGitHubRepositories(projectId, '2001')).toEqual([repository])
+    expect(await client.getGitHubRepository(projectId)).toEqual({ installationId: '2001', repository })
+    expect(await client.linkGitHubRepository(projectId, '2001', '4001')).toEqual({ installationId: '2001', repository })
+    expect(calls).toEqual([
+      { url: 'https://api.canvas.test/api/github/installations/start', method: 'POST', body: { returnTo: 'https://editor.canvas.test/file/current?pageId=page-1' } },
+      { url: `https://api.canvas.test/api/projects/${projectId}/repositories?installationId=2001`, method: 'GET', body: null },
+      { url: `https://api.canvas.test/api/projects/${projectId}/repository`, method: 'GET', body: null },
+      { url: `https://api.canvas.test/api/projects/${projectId}/repository`, method: 'PUT', body: { installationId: '2001', repositoryId: '4001' } },
+    ])
+  })
+
+  it('AT-REPO-LINK-001 rejects a mismatched repository response', async () => {
+    const client = createCloudApiClient({
+      apiOrigin: 'https://api.canvas.test',
+      fetch: (async () => response({ installationId: '2001', repository: { id: '4999', ownerLogin: 'other', name: 'repo', fullName: 'other/repo', isPrivate: false } })) as typeof fetch,
+      validateDocument: value => value,
+    })
+    await expect(client.linkGitHubRepository(file.id, '2001', '4001')).rejects.toThrow('another repository')
+  })
+
+  it('AT-REPO-SCAN-001 starts and reads a completed hosted scan without exposing credentials', async () => {
+    const jobId = '00000000-0000-4000-8000-000000000021'
+    const artifact = { sourceRevision: 'a'.repeat(40), scan: { adapterId: 'shadcn-v1', components: [] }, request: { version: 1 } }
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => response(String(url).endsWith('/repository/jobs') && init?.method === 'POST'
+      ? { job: { id: jobId, operation: 'scan', status: 'queued', attempt: 0 } }
+      : { job: { id: jobId, operation: 'scan', status: 'completed', attempt: 1, result: artifact, completedAt: file.updatedAt } }))
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+
+    expect(await client.startGitHubRepositoryScan(file.id)).toEqual({ id: jobId, status: 'queued', attempt: 0, result: null })
+    expect(await client.getGitHubRepositoryScan(jobId)).toEqual({ id: jobId, status: 'completed', attempt: 1, result: artifact })
+    expect(await client.getLatestGitHubRepositoryScan(file.id)).toEqual({ id: jobId, status: 'completed', attempt: 1, result: artifact })
+    const empty = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ job: null })) as typeof fetch, validateDocument: value => value })
+    expect(await empty.getLatestGitHubRepositoryScan(file.id)).toBeNull()
+    expect(JSON.stringify(fetcher.mock.calls)).not.toContain('accessToken')
+  })
+
+  it('AT-REPO-SCAN-001 preserves a safe terminal scan error id', async () => {
+    const jobId = '00000000-0000-4000-8000-000000000022'
+    const client = createCloudApiClient({
+      apiOrigin: 'https://api.canvas.test',
+      fetch: (async () => response({ job: { id: jobId, operation: 'scan', status: 'failed', attempt: 3, errorId: 'repository-scan-failed', failedAt: file.updatedAt } })) as typeof fetch,
+      validateDocument: value => value,
+    })
+    await expect(client.getGitHubRepositoryScan(jobId)).resolves.toEqual({ id: jobId, status: 'failed', attempt: 3, errorId: 'repository-scan-failed', result: null })
+  })
+
+  it('COMP-V2-BINDING-001 uses the exact source-binding GET and PUT contracts', async () => {
+    const calls: Array<{ url: string; method: string; body: unknown }> = []
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null })
+      return response(sourceBindingSnapshot)
+    })
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+    const input = {
+      scanJobId: sourceBindingAuthority.scanId,
+      expectedVersion: 1,
+      expectedAuthority: sourceBindingAuthority,
+      rebinds: [{
+        bindingId: sourceBindingSnapshot.records[0]!.id,
+        expectedAuthority: sourceBindingAuthority,
+        expectedEvidence: sourceBindingEvidence,
+        nextSymbolKey: 'button-next',
+      }],
+    }
+
+    await expect(client.getGitHubSourceBindings(sourceBindingProjectId)).resolves.toEqual(sourceBindingSnapshot)
+    await expect(client.reconcileGitHubSourceBindings(sourceBindingProjectId, input)).resolves.toEqual(sourceBindingSnapshot)
+    expect(calls).toEqual([
+      { url: `https://api.canvas.test/api/projects/${sourceBindingProjectId}/repository/source-bindings`, method: 'GET', body: null },
+      { url: `https://api.canvas.test/api/projects/${sourceBindingProjectId}/repository/source-bindings`, method: 'PUT', body: input },
+    ])
+    expect(fetcher.mock.calls.every(([, init]) => init?.credentials === 'include')).toBe(true)
+  })
+
+  it('COMP-V2-BINDING-001 accepts a direct null source-binding response', async () => {
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response(null)) as typeof fetch, validateDocument: value => value })
+    await expect(client.getGitHubSourceBindings(sourceBindingProjectId)).resolves.toBeNull()
+  })
+
+  it.each([
+    ['an unknown top-level field', { ...sourceBindingSnapshot, installationId: '2001' }],
+    ['nested repository access fields', { ...sourceBindingSnapshot, authority: { ...sourceBindingAuthority, repository: { ...sourceBindingAuthority.repository, accessToken: 'secret' } } }],
+    ['a malformed authority', { ...sourceBindingSnapshot, authority: { ...sourceBindingAuthority, grantGeneration: 0 } }],
+    ['a malformed record', { ...sourceBindingSnapshot, records: [{ ...sourceBindingSnapshot.records[0], status: 'unknown' }] }],
+  ])('COMP-V2-BINDING-001 rejects %s in a source-binding response', async (_label, snapshot) => {
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response(snapshot)) as typeof fetch, validateDocument: value => value })
+    await expect(client.getGitHubSourceBindings(sourceBindingProjectId)).rejects.toThrow('Invalid source binding snapshot')
+  })
+
+  it('COMP-V2-BINDING-001 rejects source bindings for another project', async () => {
+    const authority = { ...sourceBindingAuthority, repository: { ...sourceBindingAuthority.repository, projectId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' } }
+    const snapshot = { ...sourceBindingSnapshot, authority, records: sourceBindingSnapshot.records.map(record => ({ ...record, repository: authority.repository, authority })) }
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response(snapshot)) as typeof fetch, validateDocument: value => value })
+    await expect(client.getGitHubSourceBindings(sourceBindingProjectId)).rejects.toThrow('another project')
+  })
+
+  it('COMP-V2-BINDING-001 validates project and reconcile input before fetch', async () => {
+    const fetcher = vi.fn(async () => response(sourceBindingSnapshot))
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+    await expect(client.getGitHubSourceBindings('not-a-project')).rejects.toThrow('Invalid project id')
+    await expect(client.reconcileGitHubSourceBindings(sourceBindingProjectId, {
+      scanJobId: 'not-a-job',
+      expectedVersion: null,
+      expectedAuthority: null,
+      rebinds: [],
+    })).rejects.toThrow('Invalid repository scan job id')
+    await expect(client.reconcileGitHubSourceBindings(sourceBindingProjectId, {
+      scanJobId: sourceBindingAuthority.scanId,
+      expectedVersion: 1,
+      expectedAuthority: sourceBindingAuthority,
+      rebinds: [],
+      repositoryGrantId: '00000000-0000-4000-8000-000000000043',
+    } as never)).rejects.toThrow('Invalid source binding reconcile command')
+    await expect(client.reconcileGitHubSourceBindings(sourceBindingProjectId, {
+      scanJobId: sourceBindingAuthority.scanId,
+      expectedVersion: 1,
+      expectedAuthority: sourceBindingAuthority,
+      rebinds: [{
+        bindingId: sourceBindingSnapshot.records[0]!.id,
+        expectedAuthority: sourceBindingAuthority,
+        expectedEvidence: sourceBindingEvidence,
+        nextSymbolKey: 'not a valid symbol key',
+      }],
+    })).rejects.toThrow('Invalid source symbol key')
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('COMP-V2-BINDING-001 returns a bounded 409 error without exposing binding state', async () => {
+    const fetcher = vi.fn(async () => response({
+      error: { code: 'source_bindings_changed', message: 'Repository source bindings changed.' },
+      current: sourceBindingSnapshot,
+      repositoryAccess: { installationId: '2001', accessToken: 'secret' },
+    }, 409))
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+    const error = await client.reconcileGitHubSourceBindings(sourceBindingProjectId, {
+      scanJobId: sourceBindingAuthority.scanId,
+      expectedVersion: 1,
+      expectedAuthority: sourceBindingAuthority,
+      rebinds: [],
+    }).catch(value => value as unknown)
+
+    expect(error).toBeInstanceOf(CloudApiError)
+    expect(error).toMatchObject({ status: 409, code: 'source_bindings_changed' })
+    expect(error).not.toHaveProperty('current')
+    expect(error).not.toHaveProperty('repositoryAccess')
+    expect(JSON.stringify(error)).not.toContain('secret')
+  })
+
+  it('COMP-V2-DOCS-005 prepares and reads a repository-owned documentation review without a client adapter', async () => {
+    const projectId = file.id
+    const reviewId = '00000000-0000-4000-8000-000000000031'
+    const scanJobId = '00000000-0000-4000-8000-000000000032'
+    const digest = 'd'.repeat(64)
+    const bundle = {
+      version: 1, projectId, fileId: file.id, fileRevision: 3, fileDocumentSha256: 'b'.repeat(64), scanJobId,
+      installationId: '2001', repositoryId: '4001', repositoryGrantId: '00000000-0000-4000-8000-000000000033', repositoryLinkedAt: 1,
+      baseRef: 'refs/heads/main', baseCommitSha: 'a'.repeat(40), baseTreeSha: 'c'.repeat(40),
+      adapter: { version: 1, renderer: 'blume', layout: {}, components: [] },
+      files: [{ path: 'apps/docs/content/docs/button.mdx', beforeSha256: null, after: '# Button\n', diff: '+# Button\n' }],
+      omissions: [], validation: [{ name: 'Documentation build', detail: 'Passed.' }],
+    }
+    const calls: Array<{ url: string; method: string; body: unknown }> = []
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      const input = init?.body ? JSON.parse(String(init.body)) : null
+      calls.push({ url: String(url), method, body: input })
+      const saving = String(url).endsWith('/save')
+      return response({ review: {
+        id: reviewId, projectId, fileId: file.id, fileRevision: 3,
+        status: method === 'POST' && !saving ? 'queued_prepare' : saving ? 'queued_save' : 'prepared',
+        baseRef: 'refs/heads/main', baseCommitSha: 'a'.repeat(40),
+        approvalDigest: method === 'POST' && !saving ? null : digest,
+        preparedBundle: method === 'POST' && !saving ? null : bundle,
+        committedSha: null,
+        errorId: null,
+      } }, method === 'GET' ? 200 : 202)
+    })
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+
+    await expect(client.startRepositoryDocsReview({ projectId, fileId: file.id, fileRevision: 3, scanJobId })).resolves.toMatchObject({ id: reviewId, status: 'queued_prepare' })
+    await expect(client.getLatestRepositoryDocsReview(projectId, file.id)).resolves.toMatchObject({ id: reviewId, status: 'prepared' })
+    await expect(client.getRepositoryDocsReview(reviewId)).resolves.toMatchObject({ status: 'prepared', approvalDigest: digest, preparedBundle: { files: [{ path: 'apps/docs/content/docs/button.mdx' }] } })
+    await expect(client.saveRepositoryDocsReview(reviewId, digest)).resolves.toMatchObject({ status: 'queued_save', approvalDigest: digest })
+    expect(calls).toEqual([
+      { url: `https://api.canvas.test/api/projects/${projectId}/repository/docs/reviews`, method: 'POST', body: { fileId: file.id, fileRevision: 3, scanJobId } },
+      { url: `https://api.canvas.test/api/projects/${projectId}/repository/docs/reviews?fileId=${file.id}`, method: 'GET', body: null },
+      { url: `https://api.canvas.test/api/repository-doc-reviews/${reviewId}`, method: 'GET', body: null },
+      { url: `https://api.canvas.test/api/repository-doc-reviews/${reviewId}/save`, method: 'POST', body: { approvalDigest: digest } },
+    ])
+    expect(JSON.stringify(calls)).not.toContain('adapter')
+  })
+
+  it.each([
+    ['project', { projectId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', fileId: file.id }],
+    ['file', { projectId: file.id, fileId: 'ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb' }],
+  ])('COMP-V2-DOCS-NEG-002 rejects a latest review for another %s', async (_scope, identity) => {
+    const review = {
+      id: '00000000-0000-4000-8000-000000000035',
+      ...identity,
+      fileRevision: 3,
+      status: 'queued_prepare',
+      baseRef: 'refs/heads/main',
+      baseCommitSha: 'a'.repeat(40),
+      approvalDigest: null,
+      preparedBundle: null,
+      committedSha: null,
+      errorId: null,
+    }
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ review })) as typeof fetch, validateDocument: value => value })
+
+    await expect(client.getLatestRepositoryDocsReview(file.id, file.id)).rejects.toThrow('The server returned another repository documentation review.')
+  })
+
+  it('COMP-V2-DOCS-005 requires an exact commit identity for a saved documentation review', async () => {
+    const reviewId = '00000000-0000-4000-8000-000000000034'
+    const saved = {
+      id: reviewId, projectId: file.id, fileId: file.id, fileRevision: 3, status: 'saved',
+      baseRef: 'refs/heads/main', baseCommitSha: 'a'.repeat(40), approvalDigest: 'd'.repeat(64),
+      preparedBundle: {
+        version: 1, projectId: file.id, fileId: file.id, fileRevision: 3, fileDocumentSha256: 'b'.repeat(64), scanJobId: '00000000-0000-4000-8000-000000000032',
+        installationId: '2001', repositoryId: '4001', repositoryGrantId: '00000000-0000-4000-8000-000000000033', repositoryLinkedAt: 1,
+        baseRef: 'refs/heads/main', baseCommitSha: 'a'.repeat(40), baseTreeSha: 'c'.repeat(40), adapter: { version: 1, renderer: 'blume', layout: {}, components: [] },
+        files: [{ path: 'apps/docs/content/docs/button.mdx', beforeSha256: null, after: '# Button\n', diff: '+# Button\n' }], omissions: [], validation: [{ name: 'Documentation build', detail: 'Passed.' }],
+      },
+      committedSha: 'e'.repeat(40), errorId: null,
+    }
+    const valid = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ review: saved })) as typeof fetch, validateDocument: value => value })
+    await expect(valid.getRepositoryDocsReview(reviewId)).resolves.toMatchObject({ status: 'saved', committedSha: 'e'.repeat(40) })
+
+    const missingCommit = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ review: { ...saved, committedSha: null } })) as typeof fetch, validateDocument: value => value })
+    await expect(missingCommit.getRepositoryDocsReview(reviewId)).rejects.toThrow('Incomplete repository documentation save result.')
+  })
+
+  it('COMP-V2-CODE-008 returns one exact short-lived hosted preview capability', async () => {
+    const artifactId = '00000000-0000-4000-8000-000000000801'
+    const previewUrl = `https://preview.canvas.test/hosted/${artifactId}/header.payload/index.html`
+    const fetcher = vi.fn(async () => response({ preview: { artifactId, url: previewUrl, expiresAt: 1_800_000_120 } }, 201))
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', hostedPreviewOrigin: 'https://preview.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+
+    await expect(client.getHostedPreview(file.id, artifactId)).resolves.toEqual({ artifactId, url: previewUrl, expiresAt: 1_800_000_120 })
+    expect(fetcher).toHaveBeenCalledWith(`https://api.canvas.test/api/files/${file.id}/hosted-preview-capability`, expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ artifactId }),
+    }))
+  })
+
+  it('COMP-V2-CODE-011 starts and reads only the exact file-scoped hosted build', async () => {
+    const jobId = '00000000-0000-4000-8000-000000000811'
+    const artifactId = '00000000-0000-4000-8000-000000000812'
+    const calls: Array<{ url: string; method: string; body: unknown }> = []
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      const input = init?.body ? JSON.parse(String(init.body)) : null
+      calls.push({ url: String(url), method, body: input })
+      return response({ job: method === 'POST'
+        ? { id: jobId, fileId: file.id, fileRevision: 3, status: 'queued', attempts: 0, createdAt: file.updatedAt }
+        : { id: jobId, fileId: file.id, fileRevision: 3, status: 'completed', attempts: 1, createdAt: file.updatedAt, artifactId, completedAt: file.updatedAt } })
+    })
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+
+    await expect(client.startHostedPreviewBuild(file.id)).resolves.toMatchObject({ id: jobId, fileId: file.id, status: 'queued' })
+    await expect(client.getHostedPreviewBuild(jobId)).resolves.toMatchObject({ id: jobId, fileId: file.id, status: 'completed', artifactId })
+    expect(calls).toEqual([
+      { url: `https://api.canvas.test/api/files/${file.id}/hosted-preview-builds`, method: 'POST', body: {} },
+      { url: `https://api.canvas.test/api/hosted-preview-builds/${jobId}`, method: 'GET', body: null },
+    ])
+  })
+
+  it('COMP-V2-CODE-011 rejects a hosted build for another file or job', async () => {
+    const jobId = '00000000-0000-4000-8000-000000000813'
+    const other = '00000000-0000-4000-8000-000000000814'
+    const wrongFile = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ job: { id: jobId, fileId: other, fileRevision: 0, status: 'queued', attempts: 0, createdAt: file.updatedAt } })) as typeof fetch, validateDocument: value => value })
+    await expect(wrongFile.startHostedPreviewBuild(file.id)).rejects.toThrow('another hosted preview build file')
+    const wrongJob = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response({ job: { id: other, fileId: file.id, fileRevision: 0, status: 'queued', attempts: 0, createdAt: file.updatedAt } })) as typeof fetch, validateDocument: value => value })
+    await expect(wrongJob.getHostedPreviewBuild(jobId)).rejects.toThrow('another hosted preview build')
+  })
+
+  it('COMP-V2-CODE-008 rejects redirected or mismatched hosted preview locations', async () => {
+    const artifactId = 'a0000000-0000-4000-8000-000000000802'
+    const create = (preview: object) => createCloudApiClient({
+      apiOrigin: 'https://api.canvas.test',
+      hostedPreviewOrigin: 'https://preview.canvas.test',
+      fetch: (async () => response({ preview }, 201)) as typeof fetch,
+      validateDocument: value => value,
+    })
+    await expect(create({ artifactId, url: `https://other.test/hosted/${artifactId}/header.payload/index.html`, expiresAt: 1 }).getHostedPreview(file.id, artifactId)).rejects.toThrow('Invalid hosted preview URL')
+    await expect(create({ artifactId, url: `https://preview.canvas.test/hosted/${artifactId}/header.payload/index.html?token=leak`, expiresAt: 1 }).getHostedPreview(file.id, artifactId)).rejects.toThrow('Invalid hosted preview URL')
+    await expect(create({ artifactId: '00000000-0000-4000-8000-000000000803', url: `https://preview.canvas.test/hosted/${artifactId}/header.payload/index.html`, expiresAt: 1 }).getHostedPreview(file.id, artifactId)).rejects.toThrow('another hosted preview artifact')
+    await expect(create({ artifactId, url: `https://preview.canvas.test/hosted/${artifactId}/header.payload/../secret.js`, expiresAt: 1 }).getHostedPreview(file.id, artifactId)).rejects.toThrow('Invalid hosted preview URL')
+    await expect(create({ artifactId, url: `https://preview.canvas.test/hosted/${artifactId}/header.payload/assets//component.js`, expiresAt: 1 }).getHostedPreview(file.id, artifactId)).rejects.toThrow('Invalid hosted preview URL')
+    await expect(create({ artifactId, url: `https://preview.canvas.test/hosted/${artifactId}/header.payload/index.html/`, expiresAt: 1 }).getHostedPreview(file.id, artifactId)).rejects.toThrow('Invalid hosted preview URL')
+    await expect(create({ artifactId, url: `https://preview.canvas.test/hosted/${artifactId.toUpperCase()}/header.payload/index.html`, expiresAt: 1 }).getHostedPreview(file.id, artifactId)).rejects.toThrow('Invalid hosted preview URL')
   })
 })

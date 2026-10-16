@@ -20,7 +20,9 @@ describe('CLOUD-SYNC-GESTURE-001 runtime-issued measurement authority', () => {
     })
 
     sceneGeometry.clear()
-    expect(sceneGeometry.getSnapshot()).toStrictEqual({ nodes: {}, revision: 0, documentRevision: null, layoutGeneration: null, unsupported: {}, themeUnsupported: {}, unownedPortals: 0 })
+    expect(sceneGeometry.getSnapshot()).toStrictEqual({ nodes: {}, revision: 0, documentRevision: null, layoutGeneration: null, gap: 'retired', unsupported: {}, themeUnsupported: {}, unownedPortals: 0 })
+    sceneGeometry.clear('temporary')
+    expect(sceneGeometry.getSnapshot()).toMatchObject({ nodes: {}, documentRevision: null, layoutGeneration: null, gap: 'temporary' })
     sceneGeometry.update({}, { documentRevision: 8, layoutGeneration: 3, measurementRevision: 1 })
     expect(sceneGeometry.getSnapshot()).toStrictEqual({ nodes: {}, revision: 1, documentRevision: 8, layoutGeneration: 3, unsupported: {}, themeUnsupported: {}, unownedPortals: 0 })
   })

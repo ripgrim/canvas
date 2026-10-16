@@ -10,7 +10,7 @@ import type { GestureStartFence } from './gesture-command-planner'
 import type { ResizePresentation } from './resize-projection'
 
 const file = (revision = 0): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-resize-bridge',
   revision,
   pages: [
@@ -20,7 +20,7 @@ const file = (revision = 0): FileDocument => ({
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
     'root-2': { id: 'root-2', type: 'root' },
-    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 10, top: 20, width: 100, height: 50 } },
+    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 100, height: 50 } },
   },
   relationships: { frame: { parentId: 'root-1', orderKey: 'V' } },
   theme: { tokens: {} },
@@ -52,6 +52,7 @@ const presentation = (appearance?: ResizePresentation['items'][number]['appearan
     nodeId: 'frame', parentId: 'root-1', coordinateSpace: 'parent-padding',
     startRect: { x: 10, y: 20, width: 100, height: 50 },
     rect: { x: 10, y: 20, width: 140, height: 80 },
+    nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 70, y: 40 },
     world: { quad: [{ x: 10, y: 20 }, { x: 150, y: 20 }, { x: 150, y: 100 }, { x: 10, y: 100 }], aabb: { x: 10, y: 20, width: 140, height: 80 } },
     ...(appearance ? { appearance } : {}),
   }],
@@ -89,7 +90,7 @@ function harness(options: Parameters<typeof createPreviewConnection>[0] = {}) {
   flushAllFrames()
   const deliver = (data: unknown) => messageListener?.({ data, origin: 'https://preview.test', source: target } as unknown as MessageEvent)
   deliver({
-    channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration, measurementRevision: 9, root: null,
+    channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration, measurementRevision: 9, root: null,
     camera: { x: 0, y: 0, zoom: 1, width: 800, height: 600 },
     items: [{ instanceId: 'frame', source: 'canvas', canvasKind: 'frame', bounds: { x: 410, y: 320, width: 100, height: 50 }, worldAabb: { x: 410, y: 320, width: 100, height: 50 }, offset: { x: 10, y: 20, width: 100, height: 50, origin: { x: 50, y: 25 } }, offsetParentNodeId: null, directChild: true }],
   })
@@ -112,7 +113,7 @@ afterEach(() => {
 const commands = (h: Harness, type: string) => h.target.postMessage.mock.calls.map(([command]) => command).filter(command => command.type === type)
 
 describe('AT-CAN-005/006 and PAPER-FLEX-006 strict resize preview bridge', () => {
-  it('posts each accepted pointer sample synchronously as one exact v8 presentation without scheduling or writing the file', () => {
+  it('posts each accepted pointer sample synchronously as one exact v9 presentation without scheduling or writing the file', () => {
     const h = harness()
     const before = documentStore.getSnapshot().file
     const input = h.sample()
@@ -120,11 +121,11 @@ describe('AT-CAN-005/006 and PAPER-FLEX-006 strict resize preview bridge', () =>
     expect(h.connection.publishResizePresentation(input)).toBe(true)
 
     expect(commands(h, 'set-transient-presentations')).toStrictEqual([{
-      channel: 'design-editor-preview', version: 8, generation: 1, type: 'set-transient-presentations',
+      channel: 'design-editor-preview', version: 10, generation: 1, type: 'set-transient-presentations',
       presentations: [{
         kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'resize-1', sampleSequence: 1,
         fence: { documentRevision: 0, layoutGeneration: h.start.layoutGeneration, measurementRevision: 9 },
-        items: [{ nodeId: 'frame', parentNodeId: null, startRect: { x: 10, y: 20, width: 100, height: 50 }, rect: { x: 10, y: 20, width: 140, height: 80 } }],
+        items: [{ nodeId: 'frame', parentNodeId: null, startRect: { x: 10, y: 20, width: 100, height: 50 }, rect: { x: 10, y: 20, width: 140, height: 80 }, nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 70, y: 40 } }],
       }],
     }])
     expect(h.frames.size).toBe(0)
@@ -248,7 +249,7 @@ describe('AT-CAN-005/006 and PAPER-FLEX-006 strict resize preview bridge', () =>
     h.connection.connect(h.target as unknown as Window)
     editorStore.set({ previewReady: true })
     h.connection.sync()
-    h.deliver({ channel: 'design-editor-preview', version: 8, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: h.start.layoutGeneration, measurementRevision: 9, root: null, items: [] })
+    h.deliver({ channel: 'design-editor-preview', version: 10, generation: 1, type: 'geometry', documentRevision: 0, layoutGeneration: h.start.layoutGeneration, measurementRevision: 9, root: null, items: [] })
     expect(h.connection.publishResizePresentation(old)).toBe(false)
     expect(commands(h, 'set-transient-presentations').some(command => command.presentations.length)).toBe(false)
   })
@@ -272,14 +273,14 @@ describe('AT-CAN-006 and CLOUD-SYNC-GESTURE-001 committed resize handoff prerequ
     const h = harness()
     expect(h.connection.publishResizePresentation(h.sample({ sampleSequence: 4 }))).toBe(true)
     const committed = file(1)
-    committed.nodes.frame = { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 10, top: 20, width: 140, height: 80 } }
+    committed.nodes.frame = { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 140, height: 80 } }
     documentStore.load(committed, [], { replace: true, pageId: 'page-1' })
 
     const receipt = h.connection.syncCommittedDocument(h.handoff(h.sample({ sampleSequence: 4 })))
     const relevant = h.target.postMessage.mock.calls.map(([command]) => command).filter(command => ['set-transient-presentations', 'set-document', 'set-layout'].includes(command.type))
     expect(relevant.map(command => command.type)).toStrictEqual(['set-transient-presentations', 'set-document', 'set-layout'])
     expect(relevant[1]!.document.revision).toBe(1)
-    expect(relevant[1]!.document.canvas.elements.find((element: { id: string }) => element.id === 'frame')).toMatchObject({ x: 10, y: 20, width: 140, height: 80 })
+    expect(relevant[1]!.document.canvas.elements.find((element: { id: string }) => element.id === 'frame')).toMatchObject({ relativeTransform: [1, 0, 0, 1, 10, 20], width: 140, height: 80 })
     expect(relevant[2]).toMatchObject({ layoutGeneration: h.start.layoutGeneration })
     expect(receipt).toStrictEqual({ generation: 1, fileId: 'file-resize-bridge', pageId: 'page-1', documentRevision: 1, layoutGeneration: h.start.layoutGeneration, afterMeasurementRevision: 9 })
     expect(Object.isFrozen(receipt)).toBe(true)
@@ -386,7 +387,7 @@ describe('AT-CAN-006 and CLOUD-SYNC-GESTURE-001 committed resize handoff prerequ
     const terminal = h.sample({ interactionId: 'asset-terminal', sampleSequence: 3 })
     expect(h.connection.publishResizePresentation(terminal)).toBe(true)
     const committed = file(1)
-    committed.nodes.frame = { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 10, top: 20, width: 140, height: 80 }, appearance: { fills: [{ id: 'fill', type: 'image', assetId: 'asset', fit: 'cover' }] } }
+    committed.nodes.frame = { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 140, height: 80 }, appearance: { fills: [{ id: 'fill', type: 'image', assetId: 'asset', fit: 'cover' }] } }
     committed.assets = { asset: { id: 'asset', name: 'asset.png', mime: 'image/png', extension: 'png', width: 1, height: 1, bytes: 3, sha256: 'a'.repeat(64) } }
     documentStore.load(committed, [], { replace: true, pageId: 'page-1' })
     const expectedCommit = documentStore.getSnapshot().file!

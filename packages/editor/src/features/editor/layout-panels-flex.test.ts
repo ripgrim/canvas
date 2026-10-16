@@ -9,6 +9,7 @@ import type { InspectorAnchorCell } from '../../design-system/inspector-atoms'
 import { numericLayoutTokens, paperFlexBaseline, paperFlexDirection, paperFlexMainSpaceBetween, paperFlexOverflowLabels, runInspectorFlexAction } from './LayoutPanels'
 import { SelectionInspector } from './InspectorPanels'
 import { documentStore } from './document-store'
+import { canvasGestures } from './canvas-gestures'
 import { sceneGeometry } from './scene-geometry'
 import { editorStore } from './store'
 
@@ -16,21 +17,21 @@ const noop = () => undefined
 const baseFlex = (patch: Partial<FlexContainer> = {}): FlexContainer => ({ direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start', ...patch })
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'paper-flex-inspector',
   revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    free: { id: 'free', type: 'frame', name: 'Free', styles: { left: 0, top: 0, width: 160, height: 120 } },
-    free2: { id: 'free2', type: 'frame', name: 'Free 2', styles: { left: 200, top: 0, width: 160, height: 120 } },
-    child: { id: 'child', type: 'rectangle', name: 'Child', styles: { left: 12, top: 16, width: 20, height: 24 } },
+    free: { id: 'free', type: 'frame', name: 'Free', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 120 } },
+    free2: { id: 'free2', type: 'frame', name: 'Free 2', styles: { relativeTransform: [1, 0, 0, 1, 200, 0], width: 160, height: 120 } },
+    child: { id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 12, 16], width: 20, height: 24 } },
     flex: {
-      id: 'flex', type: 'frame', name: 'Flex', styles: { left: 0, top: 180, width: 240, height: 180 },
+      id: 'flex', type: 'frame', name: 'Flex', styles: { relativeTransform: [1, 0, 0, 1, 0, 180], width: 240, height: 180 },
       layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 0 }, top: { kind: 'px', value: 180 } } }, spacing: { padding: { x: 12, y: 16 } }, container: { display: 'flex', gap: 8, flex: baseFlex() } },
     },
     wrapped: {
-      id: 'wrapped', type: 'frame', name: 'Wrapped', styles: { left: 280, top: 180, width: 240, height: 180 },
+      id: 'wrapped', type: 'frame', name: 'Wrapped', styles: { relativeTransform: [1, 0, 0, 1, 280, 180], width: 240, height: 180 },
       layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 280 }, top: { kind: 'px', value: 180 } } }, spacing: { padding: { left: 1, top: 2, right: 3, bottom: 4 } }, container: { display: 'flex', gap: { x: 10, y: 14 }, flex: baseFlex({ direction: 'column', wrap: 'wrap', justify: 'center', align: 'end', alignContent: 'center' }) } },
     },
   },
@@ -65,6 +66,7 @@ const renderFlexState = (patch: Partial<FlexContainer>) => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   documentStore.clear()
   sceneGeometry.clear()
   editorStore.set({ busy: null })
@@ -88,6 +90,14 @@ describe('PAPER-FLEX-001 inspector entry and active block', () => {
     expect(html).not.toContain('>Wrap in flex<')
     expect(html).not.toContain('>Remove flex<')
     expect(html).not.toContain('class="inspector-anchor-grid"')
+  })
+
+  it('keeps Add flex mounted but disabled while a pointer gesture owns the node', () => {
+    const active = vi.spyOn(canvasGestures, 'active', 'get').mockReturnValue(true)
+    const html = renderSelection('free')
+    expect(html).toContain('>Add flex<')
+    expect(html).toContain('data-wide="true" disabled=""><span>Add flex')
+    active.mockRestore()
   })
 
   it('uses Wrap for an eligible multi-selection and orders Wrap before the active Flex block', () => {
@@ -378,7 +388,8 @@ describe('AT-DOC-002/003 existing inspector controls remain intact', () => {
     const tokens = numericLayoutTokens([{ name: 'space-2', value: '8px' }, { name: 'duration', value: '120ms' }, { name: 'negative', value: '-4px' }])
     expect(tokens).toEqual([{ name: 'space-2', value: 8, displayValue: '8px' }])
     const tokenField = renderToStaticMarkup(h(InspectorScrubField, { id: 'gap', label: 'Gap', value: 8, tokens, tokenLabel: 'Choose token', onCommit: noop }))
-    expect(tokenField).toContain('space-2 · 8px')
+    expect(tokenField).toContain('aria-label="Choose token"')
+    expect(tokenField).not.toContain('<select')
 
     const spacing = renderToStaticMarkup(h(InspectorSpacingMode, { label: 'Padding mode', value: 'axes', labels: { all: 'All', axes: 'Axes', sides: 'Sides' }, onChange: noop }))
     expect(spacing.match(/class="inspector-spacing-mode-button"/g)).toHaveLength(3)

@@ -28,6 +28,8 @@ export type LayerTreeDrop = Readonly<{
   depth: number
 }>
 
+export type LayerTreeKeyboardDirection = 'up' | 'down' | 'in' | 'out'
+
 export const surpassedLayerTreeThreshold = (startX: number, startY: number, x: number, y: number) => Math.hypot(x - startX, y - startY) >= layerTreeDragThreshold
 
 export function layerTreeZone(offsetY: number, rowHeight: number, acceptsDrop: boolean, velocity: number): 'before' | 'inside' | 'after' {
@@ -95,6 +97,38 @@ export function resolveLayerTreeDrop(rows: readonly LayerTreeRow[], targetId: st
   const candidate = candidates.filter(item => item.depth >= target.depth).at(Math.min(depthDelta - 1, candidates.length - 1))
   if (!candidate || candidate.id === target.parentId) return base
   return { parentId: candidate.id, index: candidate.childIds.length, targetId, mode, depth: candidate.depth + 1 }
+}
+
+/** Resolves keyboard hierarchy edits to the same insertion contract used by pointer dragging. */
+export function resolveLayerTreeKeyboardDrop(rows: readonly LayerTreeRow[], selectedIds: readonly string[], direction: LayerTreeKeyboardDirection): LayerTreeDrop | null {
+  const selected = new Set(selectedIds)
+  const moving = rows.filter(row => selected.has(row.id))
+  if (!moving.length) return null
+  const parentId = moving[0]!.placementParentId ?? moving[0]!.parentId
+  const slot = moving[0]!.slot
+  if (moving.some(row => (row.placementParentId ?? row.parentId) !== parentId || row.slot !== slot)) return null
+  const siblings = rows.filter(row => (row.placementParentId ?? row.parentId) === parentId && row.slot === slot)
+  const selectedSiblings = siblings.filter(row => selected.has(row.id))
+  if (!selectedSiblings.length) return null
+  const firstIndex = siblings.indexOf(selectedSiblings[0]!)
+  const lastIndex = siblings.indexOf(selectedSiblings[selectedSiblings.length - 1]!)
+  if (direction === 'up') {
+    const target = [...siblings.slice(0, firstIndex)].reverse().find(row => !selected.has(row.id))
+    return target ? { parentId, ...(slot ? { slot } : {}), index: siblings.indexOf(target), targetId: target.id, mode: 'before', depth: target.depth } : null
+  }
+  if (direction === 'down') {
+    const target = siblings.slice(lastIndex + 1).find(row => !selected.has(row.id))
+    return target ? { parentId, ...(slot ? { slot } : {}), index: siblings.indexOf(target) + 1, targetId: target.id, mode: 'after', depth: target.depth } : null
+  }
+  if (direction === 'in') {
+    const target = [...siblings.slice(0, firstIndex)].reverse().find(row => !selected.has(row.id) && row.acceptsDrop)
+    return target ? { parentId: target.insideParentId ?? target.id, ...(target.insideSlot ? { slot: target.insideSlot } : {}), index: target.childIds.length, targetId: target.id, mode: 'inside', depth: target.depth + 1 } : null
+  }
+  const parent = rows.find(row => row.id === parentId)
+  if (!parent) return null
+  const destinationParentId = parent.placementParentId ?? parent.parentId
+  const destinationSiblings = rows.filter(row => (row.placementParentId ?? row.parentId) === destinationParentId && row.slot === parent.slot)
+  return { parentId: destinationParentId, ...(parent.slot ? { slot: parent.slot } : {}), index: destinationSiblings.indexOf(parent) + 1, targetId: parent.id, mode: 'after', depth: parent.depth }
 }
 
 export function layerTreeScrollStep(pointerY: number, top: number, bottom: number) {

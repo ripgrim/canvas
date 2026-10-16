@@ -3,8 +3,8 @@ import { applyFileCommand, applyFileCommandWithHistory, validateFileCommand, val
 import type { FileCommand, FileDocument, NodeTextProperties, NodeWrapGroup, PrimitiveNode } from '../src/file-document.js'
 import type { NodeLayout } from '../src/layout.js'
 
-const frame = (id: string): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { left: 0, top: 0, width: 180, height: 120 } })
-const rectangle = (id: string): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { left: 20, top: 30, width: 80, height: 60 } })
+const frame = (id: string): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 180, height: 120 } })
+const rectangle = (id: string): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 80, height: 60 } })
 const flow = (): NodeLayout => ({ item: { position: { mode: 'flow' } } })
 const wrapper = (id: string): NodeWrapGroup['wrapper'] => ({
   ...frame(id),
@@ -17,7 +17,7 @@ const textProperties = (fontSize: number, width: 'fixed' | 'fit', height: 'fixed
   textSizing: { width: { mode: width }, height: { mode: height } },
 })
 const fixture = (node: PrimitiveNode): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'wrap-sizing-file',
   revision: 9,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -37,7 +37,7 @@ describe('PAPER-FLEX-001/003 Wrap sizing authority', () => {
     const command: FileCommand = { type: 'node.wrap', groups: [{ wrapper: wrapper('wrap-box'), parentId: 'root-1', children: [{ nodeId: 'box', targetLayout: flow(), targetPrimitiveSize: { width: 132, height: 44 } }] }] }
     const projected = applyFileCommandWithHistory(source, command, [])
 
-    expect((projected.file.nodes.box as PrimitiveNode).styles).toStrictEqual({ left: 20, top: 30, width: 132, height: 44 })
+    expect((projected.file.nodes.box as PrimitiveNode).styles).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 20, 30], width: 132, height: 44 })
     expect(projected.undo).toStrictEqual({ type: 'node.unwrap', groups: [{ wrapperId: 'wrap-box', children: [{ nodeId: 'box', relationship: { parentId: 'root-1', orderKey: 'V' }, layout: null, restorePrimitiveSize: { width: 80, height: 60 } }] }] })
     const undone = applyFileCommand(projected.file, projected.undo, [])
     expect(withoutRevision(undone)).toStrictEqual(withoutRevision(source))
@@ -52,7 +52,7 @@ describe('PAPER-FLEX-001/003 Wrap sizing authority', () => {
   it('applies and restores full textStyle and textSizing in the same Wrap history leaf', () => {
     const original = textProperties(16, 'fixed', 'fixed')
     const target = textProperties(24, 'fit', 'fit')
-    const text: PrimitiveNode = { id: 'text', type: 'text', name: 'Text', styles: { left: 20, top: 30, width: 180, height: 40 }, text: 'Paper', ...original }
+    const text: PrimitiveNode = { id: 'text', type: 'text', name: 'Text', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 180, height: 40 }, text: 'Paper', ...original }
     const source = validateFileDocument(fixture(text), [])
     const command: FileCommand = { type: 'node.wrap', groups: [{ wrapper: wrapper('wrap-text'), parentId: 'root-1', children: [{ nodeId: 'text', targetLayout: flow(), targetTextProperties: target }] }] }
     const projected = applyFileCommandWithHistory(source, command, [])
@@ -72,13 +72,13 @@ describe('PAPER-FLEX-001/003 Wrap sizing authority', () => {
   it('atomically applies and restores text numeric geometry with full text properties through wrap, undo, and redo', () => {
     const original = textProperties(16, 'fixed', 'fixed')
     const target = textProperties(24, 'fit', 'fit')
-    const text: PrimitiveNode = { id: 'text-both', type: 'text', name: 'Text', styles: { left: 20, top: 30, width: 180, height: 40 }, text: 'Paper', ...original }
+    const text: PrimitiveNode = { id: 'text-both', type: 'text', name: 'Text', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 180, height: 40 }, text: 'Paper', ...original }
     const source = validateFileDocument(fixture(text), [])
     const command: FileCommand = { type: 'node.wrap', groups: [{ wrapper: wrapper('wrap-text-both'), parentId: 'root-1', children: [{ nodeId: 'text-both', targetLayout: flow(), targetPrimitiveSize: { width: 172, height: 42 }, targetTextProperties: target }] }] }
     const projected = applyFileCommandWithHistory(source, command, [])
 
     expect(projected.file.nodes['text-both']).toStrictEqual({
-      id: 'text-both', type: 'text', name: 'Text', styles: { left: 20, top: 30, width: 172, height: 42 }, text: 'Paper', ...target,
+      id: 'text-both', type: 'text', name: 'Text', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 172, height: 42 }, text: 'Paper', ...target,
       layout: { item: { position: { mode: 'flow' } } },
     })
     expect(projected.undo).toStrictEqual({ type: 'node.unwrap', groups: [{ wrapperId: 'wrap-text-both', children: [{
@@ -104,12 +104,12 @@ describe('PAPER-FLEX-001/003 Wrap sizing authority', () => {
 
   it('allows a text Wrap to carry only numeric fallback geometry', () => {
     const original = textProperties(16, 'fixed', 'fixed')
-    const text: PrimitiveNode = { id: 'text-size', type: 'text', name: 'Text', styles: { left: 20, top: 30, width: 180, height: 40 }, text: 'Paper', ...original }
+    const text: PrimitiveNode = { id: 'text-size', type: 'text', name: 'Text', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 180, height: 40 }, text: 'Paper', ...original }
     const source = validateFileDocument(fixture(text), [])
     const command: FileCommand = { type: 'node.wrap', groups: [{ wrapper: wrapper('wrap-text-size'), parentId: 'root-1', children: [{ nodeId: 'text-size', targetLayout: flow(), targetPrimitiveSize: { width: 144, height: 36 } }] }] }
     const projected = applyFileCommandWithHistory(source, command, [])
 
-    expect((projected.file.nodes['text-size'] as PrimitiveNode).styles).toStrictEqual({ left: 20, top: 30, width: 144, height: 36 })
+    expect((projected.file.nodes['text-size'] as PrimitiveNode).styles).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 20, 30], width: 144, height: 36 })
     expect(projected.file.nodes['text-size']).toMatchObject(original)
     expect(projected.undo).toStrictEqual({ type: 'node.unwrap', groups: [{ wrapperId: 'wrap-text-size', children: [{ nodeId: 'text-size', relationship: { parentId: 'root-1', orderKey: 'V' }, layout: null, restorePrimitiveSize: { width: 180, height: 40 } }] }] })
     expect(withoutRevision(applyFileCommand(projected.file, projected.undo, []))).toStrictEqual(withoutRevision(source))
@@ -119,7 +119,7 @@ describe('PAPER-FLEX-001/003 Wrap sizing authority', () => {
     const originalText = textProperties(16, 'fixed', 'fixed')
     const cases: PrimitiveNode[] = [
       rectangle('box'),
-      { id: 'text', type: 'text', name: 'Text', styles: { left: 20, top: 30, width: 180, height: 40 }, text: 'Paper', ...originalText },
+      { id: 'text', type: 'text', name: 'Text', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 180, height: 40 }, text: 'Paper', ...originalText },
     ]
     for (const node of cases) {
       const source = validateFileDocument(fixture(node), [])
@@ -137,7 +137,7 @@ describe('PAPER-FLEX-001/003 Wrap sizing authority', () => {
 
   it('rejects malformed and type-mismatched full targets before mutating the file', () => {
     const primitiveSource = validateFileDocument(fixture(rectangle('box')), [])
-    const text = { id: 'text', type: 'text', name: 'Text', styles: { left: 20, top: 30, width: 180, height: 40 }, text: 'Paper', ...textProperties(16, 'fixed', 'fixed') } satisfies PrimitiveNode
+    const text = { id: 'text', type: 'text', name: 'Text', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 180, height: 40 }, text: 'Paper', ...textProperties(16, 'fixed', 'fixed') } satisfies PrimitiveNode
     const textSource = validateFileDocument(fixture(text), [])
     const validTextTarget = textProperties(24, 'fit', 'fit')
     const malformedShapes: unknown[] = [
@@ -180,7 +180,7 @@ describe('PAPER-FLEX-001/003 Wrap sizing authority', () => {
 
   it('prevalidates every group before a failed Wrap or Unwrap can mutate any byte', () => {
     const first = rectangle('first')
-    const second = { ...rectangle('second'), styles: { left: 120, top: 30, width: 70, height: 50 } }
+    const second = { ...rectangle('second'), styles: { relativeTransform: [1, 0, 0, 1, 120, 30], width: 70, height: 50 } }
     const source = validateFileDocument({
       ...fixture(first),
       nodes: { 'root-1': { id: 'root-1', type: 'root' }, first, second },

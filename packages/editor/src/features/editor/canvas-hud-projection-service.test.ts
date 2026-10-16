@@ -12,11 +12,11 @@ import { createPreviewCameraStore } from './preview-camera-store'
 const revision = 4, measurementRevision = 12, layoutGeneration = 0
 const worldQuad = [{ x: 30, y: 10 }, { x: 30, y: 80 }, { x: -70, y: 80 }, { x: -70, y: 10 }] as const
 const file = (): FileDocument => ({
-  schemaVersion: 9, fileId: 'hud-file', revision,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'hud-file', revision,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    selected: { id: 'selected', type: 'rectangle', name: 'Selected', styles: { left: -70, top: 10, width: 100, height: 70 }, layout: { item: { position: { mode: 'freeform' } } } },
+    selected: { id: 'selected', type: 'rectangle', name: 'Selected', styles: { relativeTransform: [1, 0, 0, 1, -70, 10], width: 100, height: 70 }, layout: { item: { position: { mode: 'freeform' } } } },
   },
   relationships: { selected: { parentId: 'root', orderKey: 'V' } }, theme: { tokens: {} },
 })
@@ -34,6 +34,7 @@ const resize = (width = 35, height = 50): ResizePresentation => {
   const item: ResizePresentationItem = {
     nodeId: 'selected', parentId: 'root', coordinateSpace: 'parent-padding',
     startRect: { x: 0, y: 0, width: 100, height: 50 }, rect: { x: 5, y: -15, width, height },
+    nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: width / 2, y: height / 2 },
     world: { quad: worldQuad, aabb: { x: -70, y: 10, width: 100, height: 70 } },
   }
   return { selectedNodeId: 'selected', contentLocked: false, affectedAxes: ['x', 'y'], effectiveHandle: 'bottom-right', items: [item], byNodeId: { selected: item } }
@@ -114,6 +115,33 @@ function setup(mobile = false) {
 }
 
 describe('AT-CAN-005-HUD shared HUD projection service', () => {
+  it('AT-APP-005 retains a selection frame only through a matching temporary geometry interruption', () => {
+    const interrupted: SceneGeometry = { nodes: {}, revision: 0, documentRevision: null, layoutGeneration: null, gap: 'temporary', unsupported: {}, themeUnsupported: {}, unownedPortals: 0 }
+    const retired: SceneGeometry = { ...interrupted, gap: 'retired' }
+    const first = setup()
+    const held = first.service.getSnapshot()
+    first.setGeometry(interrupted)
+    expect(first.service.getSnapshot()).toBe(held)
+    first.setGeometry({ ...geometry, revision: measurementRevision + 1 })
+    expect(first.service.getSnapshot()).not.toBe(held)
+    expect(first.service.getSnapshot().frame?.byNodeId.selected).toBeDefined()
+    first.setGeometry(interrupted)
+    first.store.setViewport({ x: 11, y: -20, zoom: 2 })
+    expect(first.service.getSnapshot().frame).toBeNull()
+    first.service.dispose(); first.store.dispose()
+
+    const generation = setup()
+    generation.setGeometry(retired)
+    expect(generation.service.getSnapshot().frame).toBeNull()
+    generation.service.dispose(); generation.store.dispose()
+
+    const context = setup()
+    context.setGeometry(interrupted)
+    context.store.select(null)
+    expect(context.service.getSnapshot().frame).toBeNull()
+    context.service.dispose(); context.store.dispose()
+  })
+
   it('AT-CAN-PAN-001 projects visible chrome from the runtime-applied camera instead of an unacknowledged target', () => {
     const { cameras, service, store } = setup()
     const before = service.getSnapshot().frame!
@@ -202,13 +230,13 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
   it('keeps every selection overlay when a freeform frame has browser-owned Hug sizing', () => {
     const store = createDocumentStore(() => 'id')
     const source: FileDocument = {
-      schemaVersion: 9, fileId: 'hug-hud-file', revision,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'hug-hud-file', revision,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
         hug: {
           id: 'hug', type: 'frame', name: 'Hug frame',
-          styles: { left: 10, top: 20, width: 100, height: 70 },
+          styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 100, height: 70 },
           layout: {
             item: {
               position: { mode: 'freeform' },
@@ -258,13 +286,13 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
   it('keeps axis-aligned overlays when an unrelated nested node has no offset-parent matrix chain', () => {
     const store = createDocumentStore(() => 'id')
     const source: FileDocument = {
-      schemaVersion: 9, fileId: 'partial-topology-file', revision,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'partial-topology-file', revision,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
         parent: {
           id: 'parent', type: 'frame', name: 'Parent',
-          styles: { left: -160, top: -210, width: 212, height: 311 },
+          styles: { relativeTransform: [1, 0, 0, 1, -160, -210], width: 212, height: 311 },
           layout: {
             item: { position: { mode: 'freeform' } },
             container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'center', align: 'center' } },
@@ -274,12 +302,12 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
           id: 'copy', type: 'text', name: 'Copy', text: 'Copy',
           textStyle: { fontFamily: 'Inter', fontWeight: 400, fontStyle: 'normal', fontSize: 16, lineHeight: { kind: 'unitless', value: 1 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', wrap: 'normal', case: 'none', keepWords: false },
           textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
-          styles: { left: 80, top: 140, width: 52, height: 31 },
+          styles: { relativeTransform: [1, 0, 0, 1, 80, 140], width: 52, height: 31 },
           layout: { item: { position: { mode: 'flow' } } },
         },
         selected: {
           id: 'selected', type: 'frame', name: 'Selected',
-          styles: { left: 190, top: 26, width: 266, height: 217 },
+          styles: { relativeTransform: [1, 0, 0, 1, 190, 26], width: 266, height: 217 },
           layout: { item: { position: { mode: 'freeform' } } },
         },
       },
@@ -325,16 +353,81 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
     store.dispose()
   })
 
+  it('AT-CAN-005-HUD keeps a nested selection overlay when a translated ancestor forces measured-rectangle fallback', () => {
+    const store = createDocumentStore(() => 'id')
+    const source: FileDocument = {
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'translated-ancestor-file', revision,
+      pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      nodes: {
+        root: { id: 'root', type: 'root' },
+        parent: {
+          id: 'parent', type: 'frame', name: 'Parent',
+          styles: { relativeTransform: [1, 0, 0, 1, -300, 69], width: 243.503, height: 152.803 },
+          layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'center', align: 'center' } } },
+        },
+        selected: {
+          id: 'selected', type: 'text', name: 'Selected', text: 'Enter token',
+          textStyle: { fontFamily: 'Geist', fontWeight: 500, fontStyle: 'normal', fontSize: 16, lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', wrap: 'normal', case: 'none', keepWords: false },
+          textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+          styles: { relativeTransform: [1, 0, 0, 1, 78, 68], width: 89.1875, height: 17.4375 },
+          layout: { item: { position: { mode: 'flow' } } },
+        },
+      },
+      relationships: { parent: { parentId: 'root', orderKey: 'A' }, selected: { parentId: 'parent', orderKey: 'A' } }, theme: { tokens: {} },
+    }
+    const measuredGeometry: SceneGeometry = {
+      revision: measurementRevision, documentRevision: revision, layoutGeneration,
+      nodes: {
+        parent: {
+          canvasKind: 'frame', documentRevision: revision, layoutGeneration,
+          rect: { x: -300, y: 69, width: 243.5, height: 152.797 }, worldAabb: { x: -300, y: 69, width: 243.5, height: 152.797 },
+          offset: { x: 0, y: 0, width: 243.5, height: 152.797, origin: { x: 0, y: 0 } },
+          offsetParentNodeId: null, offsetParentToRoot: [1, 0, 0, 1, 0, 0], directChild: true, transform: [1, 0, 0, 1, -300, 69],
+          box: { border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { top: 0, right: 0, bottom: 0, left: 0 } },
+        },
+        selected: {
+          canvasKind: 'text', documentRevision: revision, layoutGeneration,
+          rect: { x: -222.859, y: 136.672, width: 89.1875, height: 17.4375 }, worldAabb: { x: -222.859, y: 136.672, width: 89.1875, height: 17.4375 },
+          offset: { x: 78, y: 68, width: 89.1875, height: 17.4375, origin: { x: 0, y: 0 } },
+          offsetParentNodeId: 'parent', directChild: true, transform: [1, 0, 0, 1, 0, 0],
+          box: { border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { top: 0, right: 0, bottom: 0, left: 0 } },
+        },
+      },
+      unsupported: {}, themeUnsupported: {}, unownedPortals: 0,
+    }
+    store.load(source, [], { replace: true, pageId: 'page' })
+    store.setViewport({ x: 0, y: 0, zoom: 1 })
+    store.setViewportSize({ width: 800, height: 600 })
+    store.select('selected')
+    const measured = { getSnapshot: () => measuredGeometry, subscribe: () => () => undefined }
+    const viewport = { getSnapshot: () => false, subscribe: () => () => undefined }
+    const service = createCanvasHudProjectionService(store, measured, viewport)
+    service.start()
+
+    expect(service.getSnapshot().frame?.byNodeId.selected).toMatchObject({
+      worldAabb: { x: -222.859, y: 136.672, width: 89.1875, height: 17.4375 },
+      policy: { selected: true, showOutline: true, showHandles: true },
+    })
+
+    service.dispose()
+    measuredGeometry.nodes.parent!.transform = [0, 1, -1, 0, -300, 69]
+    const rejected = createCanvasHudProjectionService(store, measured, viewport)
+    rejected.start()
+    expect(rejected.getSnapshot().frame).toBeNull()
+    rejected.dispose()
+    store.dispose()
+  })
+
   it('reconstructs a rotated selected quad from exact measured rectangles when the root matrix chain is unavailable', () => {
     const store = createDocumentStore(() => 'id')
     const source: FileDocument = {
-      schemaVersion: 9, fileId: 'rotated-measured-file', revision,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'rotated-measured-file', revision,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
         selected: {
           id: 'selected', type: 'frame', name: 'Selected',
-          styles: { left: 190, top: 26, width: 266, height: 217, rotation: 90 },
+          styles: { relativeTransform: [0, 1, -1, 0, 431.5, 1.5], width: 266, height: 217 },
           layout: { item: { position: { mode: 'freeform' } } },
         },
       },
@@ -405,7 +498,7 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
     const terminalFrame = service.getSnapshot().frame
     expect(terminalFrame?.flowDrag?.terminalHold?.kind).toBe('awaiting-committed-receipt')
 
-    expect(store.commands.setStyles('selected', { left: 5, top: -15, width: 35, height: 50 })).toBe(true)
+    expect(store.commands.setStyles('selected', { relativeTransform: [1, 0, 0, 1, 5, -15], width: 35, height: 50 })).toBe(true)
     const committed = store.getSnapshot()
     expect(service.getSnapshot().frame).toBe(terminalFrame)
     const receipt = deepFreeze({
@@ -662,7 +755,7 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
       const { store, service, setGeometry } = setup(true)
       const terminal = flowDrag('terminal-retained')
       expect(service.publishFlowDragPresentation(terminal)).toBe(true)
-      expect(store.commands.setStyles('selected', { left: 5, top: -15, width: 35, height: 50 })).toBe(true)
+      expect(store.commands.setStyles('selected', { relativeTransform: [1, 0, 0, 1, 5, -15], width: 35, height: 50 })).toBe(true)
       const committed = store.getSnapshot()
       const receipt = deepFreeze({
         generation: 12, fileId: 'hud-file', pageId: 'page', documentRevision: committed.file!.revision,
@@ -801,7 +894,7 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
     expect(terminalFrame?.byNodeId.selected?.dimensions).toEqual({ width: 35, height: 50 })
     expect(service.beginCommittedResizeHold()).toBe(true)
 
-    expect(store.commands.setStyles('selected', { left: 5, top: -15, width: 35, height: 50 })).toBe(true)
+    expect(store.commands.setStyles('selected', { relativeTransform: [1, 0, 0, 1, 5, -15], width: 35, height: 50 })).toBe(true)
     store.setTransient(null)
     const committed = store.getSnapshot()
     expect(service.getSnapshot().frame).toBe(terminalFrame)

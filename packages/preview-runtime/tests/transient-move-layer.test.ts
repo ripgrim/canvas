@@ -99,14 +99,14 @@ describe('AT-CAN-006 transient move presentation', () => {
     expect(element.style.getPropertyValue('translate')).toBe('')
   })
 
-  it('applies a rotation delta with the individual transform property and restores it exactly', () => {
+  it('leaves rotation outside the legacy transient move channel', () => {
     const element = new FakeElement()
     element.style.setProperty('rotate', '12deg', 'revert-layer')
     const ownerDocument = { defaultView: { HTMLElement: FakeElement, getComputedStyle: () => ({ translate: 'none' }) } }
     const layer = createTransientMoveLayer(ownerDocument, { querySelector: () => element })
 
     layer.update([{ nodeId: 'node-1', dx: 0, dy: 0, rotationDelta: 37.5 }])
-    expect(element.style.values.get('rotate')).toEqual({ value: '37.5deg', priority: 'important' })
+    expect(element.style.values.get('rotate')).toEqual({ value: '12deg', priority: 'revert-layer' })
     layer.clear()
     expect(element.style.values.get('rotate')).toEqual({ value: '12deg', priority: 'revert-layer' })
   })
@@ -180,7 +180,7 @@ describe('AT-CAN-006 transient move presentation', () => {
 describe('AT-CAN-006 and PAPER-FLEX-007 coordinate-explicit transient presentation layer', () => {
   const fence = { documentRevision: 4, layoutGeneration: 2, measurementRevision: 9 }
 
-  it('writes parent-padding geometry literally on primitive and Component roots without a wrapper or transform rewrite', () => {
+  it('writes parent-padding geometry and full affine authority on primitive and Component roots without a wrapper', () => {
     const primitive = new FakeElement()
     const component = new FakeElement()
     primitive.style.setProperty('transform', 'matrix(0, 2, -2, 0, 0, 0)', 'important')
@@ -197,8 +197,8 @@ describe('AT-CAN-006 and PAPER-FLEX-007 coordinate-explicit transient presentati
     layer.update([{
       kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'resize-1', sampleSequence: 1, fence,
       items: [
-        { nodeId: 'primitive', parentNodeId: null, startRect: { x: 0, y: 0, width: 10, height: 20 }, rect: { x: 5, y: -15, width: 35, height: 50 } },
-        { nodeId: 'component', parentNodeId: null, startRect: { x: 4, y: 6, width: 20, height: 30 }, rect: { x: -8, y: 12, width: 44, height: 55 } },
+        { nodeId: 'primitive', parentNodeId: null, startRect: { x: 0, y: 0, width: 10, height: 20 }, rect: { x: 5, y: -15, width: 35, height: 50 }, nodeTransform: [0, 2, -2, 0, 0, 0], transformOrigin: { x: 0, y: 0 } },
+        { nodeId: 'component', parentNodeId: null, startRect: { x: 4, y: 6, width: 20, height: 30 }, rect: { x: -8, y: 12, width: 44, height: 55 }, nodeTransform: [0.9659258263, 0.2588190451, -0.2588190451, 0.9659258263, 0, 0], transformOrigin: { x: 22, y: 27.5 } },
       ],
     }])
 
@@ -211,9 +211,10 @@ describe('AT-CAN-006 and PAPER-FLEX-007 coordinate-explicit transient presentati
     expect(component.style.getPropertyValue('width')).toBe('44px')
     expect(component.style.getPropertyValue('height')).toBe('55px')
     expect(primitive.style.getPropertyValue('transform')).toBe('matrix(0, 2, -2, 0, 0, 0)')
-    expect(component.style.getPropertyValue('transform')).toBe('rotate(15deg)')
-    expect(primitive.style.writes).not.toContain('transform')
-    expect(component.style.writes).not.toContain('transform')
+    expect(component.style.getPropertyValue('transform')).toBe('matrix(0.9659258263, 0.2588190451, -0.2588190451, 0.9659258263, 0, 0)')
+    expect(primitive.style.getPropertyPriority('transform')).toBe('important')
+    expect(primitive.style.getPropertyValue('transform-origin')).toBe('0px 0px')
+    expect(component.style.writes).toContain('transform')
   })
 
   it('keeps move ownership to translate and will-change and restores exact values and priorities', () => {
@@ -250,7 +251,7 @@ describe('AT-CAN-006 and PAPER-FLEX-007 coordinate-explicit transient presentati
     const layer = createTransientPresentationLayer(ownerDocument, { querySelector: (selector: string) => elements.get(selector.includes('primitive') ? 'primitive' : 'component') })
     layer.setDocument({ assets: { photo: { mime: 'image/png', data: 'AAAA' } }, nodes: { component: {} }, canvas: { elements: [{ id: 'primitive', kind: 'rectangle' }] } })
     const appearance = { fills: [{ type: 'image', assetId: 'photo', fit: 'cover', geometry: { x: 7, y: 8, width: 90, height: 60 } }] }
-    const item = (nodeId: string) => ({ nodeId, parentNodeId: null, startRect: { x: 0, y: 0, width: 20, height: 20 }, rect: { x: 2, y: 3, width: 40, height: 50 }, appearance })
+    const item = (nodeId: string) => ({ nodeId, parentNodeId: null, startRect: { x: 0, y: 0, width: 20, height: 20 }, rect: { x: 2, y: 3, width: 40, height: 50 }, nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 20, y: 25 }, appearance })
 
     layer.update([{ kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'resize-images', sampleSequence: 1, fence, items: [item('primitive'), item('component')] }])
     for (const element of [primitive, component]) {
@@ -284,7 +285,7 @@ describe('AT-CAN-006 and PAPER-FLEX-007 coordinate-explicit transient presentati
     layer.setDocument({ nodes: { component: {} }, canvas: { elements: [] } })
     const next = (sampleSequence: number, x: number) => [{
       kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'remount', sampleSequence, fence,
-      items: [{ nodeId: 'component', parentNodeId: null, startRect: { x: 0, y: 0, width: 10, height: 10 }, rect: { x, y: 2, width: 30, height: 40 } }],
+      items: [{ nodeId: 'component', parentNodeId: null, startRect: { x: 0, y: 0, width: 10, height: 10 }, rect: { x, y: 2, width: 30, height: 40 }, nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 15, y: 20 } }],
     }]
 
     layer.update(next(1, 5))
@@ -306,7 +307,7 @@ describe('AT-CAN-006 and PAPER-FLEX-007 coordinate-explicit transient presentati
     layer.setDocument({ nodes: { component: {} }, canvas: { elements: [] } })
     const presentation = [{
       kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'authored-drift', sampleSequence: 1, fence,
-      items: [{ nodeId: 'component', parentNodeId: null, startRect: { x: 0, y: 0, width: 20, height: 20 }, rect: { x: 0, y: 0, width: 80, height: 30 } }],
+      items: [{ nodeId: 'component', parentNodeId: null, startRect: { x: 0, y: 0, width: 20, height: 20 }, rect: { x: 0, y: 0, width: 80, height: 30 }, nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 40, y: 15 } }],
     }]
 
     layer.update(presentation)
@@ -318,7 +319,7 @@ describe('AT-CAN-006 and PAPER-FLEX-007 coordinate-explicit transient presentati
   })
 })
 
-describe('PAPER-FLEX-006-RUNTIME-V8 flow drag DOM layer', () => {
+describe('PAPER-FLEX-006-RUNTIME-V9 flow drag DOM layer', () => {
   const geometry = (x = 0, y = 0) => ({
     coordinateSpace: 'world', semanticSize: { width: 40, height: 20 },
     quad: [{ x, y }, { x: x + 40, y }, { x: x + 40, y: y + 20 }, { x, y: y + 20 }],

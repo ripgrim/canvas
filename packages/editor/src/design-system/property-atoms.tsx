@@ -3,11 +3,12 @@ import type { ReactNode } from 'react'
 import { Icon } from './atoms'
 import type { IconName } from './atoms'
 import { InspectorScrubHandle } from './inspector-atoms'
+import { AppearanceSelect } from './appearance-atoms'
 import './property.css'
 
-export type PropertyOption = { value: string; label: string; disabled?: boolean }
+export type PropertyOption = { value: string; label: string; icon?: IconName; disabled?: boolean; group?: string }
 
-export function PropertyField({ id, label, value, onChange, readOnly = false, disabled = false, type = 'text', prefix, suffix, mixed }: { id: string; label: string; value: string; onChange?: (value: string) => void; readOnly?: boolean; disabled?: boolean; type?: 'text' | 'number'; prefix?: string; suffix?: string; mixed?: string }) {
+export function PropertyField({ id, label, value, onChange, onBlur, readOnly = false, disabled = false, type = 'text', prefix, suffix, mixed, placeholder, maxLength }: { id: string; label: string; value: string; onChange?: (value: string) => void; onBlur?: () => void; readOnly?: boolean; disabled?: boolean; type?: 'text' | 'number'; prefix?: string; suffix?: string; mixed?: string; placeholder?: string; maxLength?: number }) {
   const [scrubbing, setScrubbing] = useState<number | null>(null)
   const parsed = Number(value)
   const numeric = type === 'number' && value.trim() && Number.isFinite(parsed) ? parsed : null
@@ -18,14 +19,20 @@ export function PropertyField({ id, label, value, onChange, readOnly = false, di
     {fieldLabel}
     <span className="property-control" data-readonly={readOnly || undefined} data-disabled={disabled || undefined} data-mixed={mixed ? true : undefined}>
       {prefix && <span className="property-affix" aria-hidden="true">{prefix}</span>}
-      <input className="property-input" id={id} type={mixed ? 'text' : type} value={mixed ? '' : scrubbing === null ? value : String(scrubbing)} placeholder={mixed} readOnly={readOnly} disabled={disabled} onChange={event => onChange?.(event.currentTarget.value)} />
+      <input className="property-input" id={id} type={mixed ? 'text' : type} value={mixed ? '' : scrubbing === null ? value : String(scrubbing)} placeholder={mixed ?? placeholder} readOnly={readOnly} disabled={disabled} {...(maxLength === undefined ? {} : { maxLength })} onChange={event => onChange?.(event.currentTarget.value)} onBlur={onBlur} />
       {suffix && <span className="property-affix" aria-hidden="true">{suffix}</span>}
     </span>
   </label>
 }
 
 export function PropertySelect({ id, label, value, options, onChange, disabled = false }: { id: string; label: string; value: string; options: PropertyOption[]; onChange: (value: string) => void; disabled?: boolean }) {
-  return <label className="property-field" htmlFor={id}><span className="property-label">{label}</span><span className="property-select-control"><select className="property-select" id={id} value={value} disabled={disabled} onChange={event => onChange(event.currentTarget.value)}>{options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select><Icon name="chevron" /></span></label>
+  const grouped = options.some(option => option.group) ? options.reduce<Array<{ label?: string; options: PropertyOption[] }>>((result, option) => {
+    const set = result.find(candidate => candidate.label === option.group)
+    if (set) set.options.push(option)
+    else result.push({ ...(option.group ? { label: option.group } : {}), options: [option] })
+    return result
+  }, []) : undefined
+  return <div className="property-field"><span className="property-label">{label}</span><span className="property-select-control"><AppearanceSelect id={id} label={label} value={value} {...(grouped ? { groups: grouped } : { options })} align="start" layer="dialog" placement="bottom" className="property-select" disabled={disabled} onChange={onChange} /></span></div>
 }
 
 export function PropertyToggle({ id, label, checked, onChange, disabled = false }: { id: string; label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {

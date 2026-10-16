@@ -14,12 +14,12 @@ const zeroBox = { border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { t
 const asset = { id: 'flowers', name: 'flowers.webp', mime: 'image/webp' as const, extension: 'webp' as const, width: 1600, height: 1200, bytes: 8, sha256: 'a'.repeat(64) }
 
 function rectangle(id: string, left: number, top: number, width: number, height: number): PrimitiveNode {
-  return { id, type: 'rectangle', name: id, styles: { left, top, width, height }, layout: { item: { position: { mode: 'freeform' } } } }
+  return { id, type: 'rectangle', name: id, styles: { relativeTransform: [1, 0, 0, 1, left, top], width, height }, layout: { item: { position: { mode: 'freeform' } } } }
 }
 
 function baseFile(node: PrimitiveNode = rectangle('selected', 0, 0, 100, 50)): FileDocument {
   return {
-    schemaVersion: 9, fileId: 'projection-file', revision,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'projection-file', revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: { root: { id: 'root', type: 'root' }, [node.id]: node },
     relationships: { [node.id]: { parentId: 'root', orderKey: 'V' } },
@@ -117,7 +117,7 @@ describe('immutable resize projection', () => {
 
     // Negative controls: a raw-world authority and a second selected rotation are not the captured authority.
     expect(projectResizePresentation(captured, { ...authority, groupToWorld: [1, 0, 0, 1, 0, 0] }, sample({ x: 5, y: -15, width: 35, height: 50 }))).toBeNull()
-    expect(projectResizePresentation(captured, { ...authority, rotationDegrees: 90 }, sample({ x: 5, y: -15, width: 35, height: 50 }))).toBeNull()
+    expect(projectResizePresentation(captured, { ...authority, nodeTransform: [0, 1, -1, 0, 0, 0] }, sample({ x: 5, y: -15, width: 35, height: 50 }))).toBeNull()
   })
 
   it('scales explicit image geometry in local axes and leaves ordinary implicit fits implicit', () => {
@@ -144,7 +144,7 @@ describe('immutable resize projection', () => {
   it('materializes and counter-moves rotated content-lock image geometry in node-local space', () => {
     const file = baseFile(rectangle('selected', 10, 20, 100, 50))
     const selected = file.nodes.selected as PrimitiveNode
-    selected.styles.rotation = 90
+    selected.styles.relativeTransform = [0, 1, -1, 0, 85, -5]
     selected.appearance = { fills: [{ id: 'image', type: 'image', assetId: 'flowers', fit: 'cover', geometry: { x: 10, y: 5, width: 40, height: 20 } }] }
     const node = measured('rectangle', { x: 10, y: 20, width: 100, height: 50 }, { x: 10, y: 20, width: 100, height: 50 }, null, { x: 35, y: -5, width: 50, height: 100 })
     node.offsetParentToRoot = [1, 0, 0, 1, 0, 0]
@@ -167,7 +167,7 @@ describe('immutable resize projection', () => {
   })
 
   it('holds a direct freeform child world-fixed under a rotated and scaled selected ancestor', () => {
-    const frame: PrimitiveNode = { id: 'selected', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 100, height: 50 }, layout: { item: { position: { mode: 'freeform' } } } }
+    const frame: PrimitiveNode = { id: 'selected', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 50 }, layout: { item: { position: { mode: 'freeform' } } } }
     const file = baseFile(frame)
     frame.layout = { item: { position: { mode: 'absolute', left: { kind: 'px', value: 0 }, top: { kind: 'px', value: 0 } } } }
     file.nodes.child = rectangle('child', 10, 5, 20, 10)
@@ -191,9 +191,9 @@ describe('immutable resize projection', () => {
   })
 
   it('scales a locked nested subtree once in each local padding space', () => {
-    const selected: PrimitiveNode = { id: 'selected', type: 'frame', name: 'Selected', styles: { left: 0, top: 0, width: 100, height: 100 }, layout: { item: { position: { mode: 'freeform' } } } }
+    const selected: PrimitiveNode = { id: 'selected', type: 'frame', name: 'Selected', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 }, layout: { item: { position: { mode: 'freeform' } } } }
     const file = baseFile(selected)
-    file.nodes.child = { id: 'child', type: 'frame', name: 'Child', styles: { left: 10, top: 20, width: 40, height: 50 }, layout: { item: { position: { mode: 'freeform' } } } }
+    file.nodes.child = { id: 'child', type: 'frame', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 40, height: 50 }, layout: { item: { position: { mode: 'freeform' } } } }
     file.nodes.child.isLocked = true
     file.nodes.grand = rectangle('grand', 5, 6, 10, 20)
     ;(file.nodes.grand as PrimitiveNode).appearance = { fills: [{ id: 'image', type: 'image', assetId: 'flowers', fit: 'cover', geometry: { x: 1, y: 2, width: 4, height: 5 } }] }
@@ -221,7 +221,7 @@ describe('immutable resize projection', () => {
   })
 
   it('omits flow subtrees but rejects a missing or unsupported represented child', () => {
-    const frame: PrimitiveNode = { id: 'selected', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 100, height: 100 }, layout: { item: { position: { mode: 'freeform' } } } }
+    const frame: PrimitiveNode = { id: 'selected', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 }, layout: { item: { position: { mode: 'freeform' } } } }
     const file = baseFile(frame)
     file.nodes.flow = { ...rectangle('flow', 0, 0, 20, 20), layout: { item: { position: { mode: 'flow' } } } }
     file.relationships.flow = { parentId: 'selected', orderKey: 'V' }
@@ -264,7 +264,7 @@ describe('immutable resize projection', () => {
   it('AT-CAN-005 projects a selected flow frame while leaving parent placement authoritative', () => {
     const frame: PrimitiveNode = {
       id: 'selected', type: 'frame', name: 'Flow frame',
-      styles: { left: 41, top: 27, width: 100, height: 50 },
+      styles: { relativeTransform: [1, 0, 0, 1, 41, 27], width: 100, height: 50 },
       layout: { item: { position: { mode: 'flow' } } },
     }
     const file = baseFile(frame)
@@ -328,7 +328,7 @@ describe('immutable resize projection', () => {
       },
     ]
     const file: FileDocument = {
-      schemaVersion: 9, fileId: 'projection-file', revision,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'projection-file', revision,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
@@ -383,7 +383,7 @@ describe('immutable resize projection', () => {
     expect(resizeGeometryAuthority(undeclaredSlot, 'selected')).toBeNull()
 
     const componentUnderFrame = snapshot(structuredClone(file), structuredClone(geometry), 'selected', atoms)
-    componentUnderFrame.file.nodes.parent = { id: 'parent', type: 'frame', name: 'Parent', styles: { left: 50, top: 60, width: 200, height: 160 } }
+    componentUnderFrame.file.nodes.parent = { id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [1, 0, 0, 1, 50, 60], width: 200, height: 160 } }
     expect(resizeGeometryAuthority(componentUnderFrame, 'selected')).toBeNull()
 
     const primitiveUnderComponent = snapshot(structuredClone(file), structuredClone(geometry), 'selected', atoms)

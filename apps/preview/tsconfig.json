@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "noEmit": true, "jsx": "react-jsx" },
-  "include": ["main.ts", "vite.config.ts", "../web/preview/**/*.ts"]
+  "include": ["main.ts", "hosted-gateway.ts", "api/**/*.ts", "vite.config.ts", "../web/preview/**/*.ts"]
 }

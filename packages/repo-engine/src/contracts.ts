@@ -1,1 +1,2 @@
-export type { Atom, ComponentBinding, Composition, Conflict, FileChange, PreparedChange, ProjectSnapshot, SaveResult, Validation } from './types.js'
+export { isHostedAtom, isPlaceableAtom, isRepositoryAtom } from './types.js'
+export type { Atom, ComponentBinding, Composition, Conflict, FileChange, HostedAtom, PreparedChange, ProjectSnapshot, RepositoryAtom, SaveResult, Validation } from './types.js'

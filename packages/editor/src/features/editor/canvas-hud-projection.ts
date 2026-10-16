@@ -20,6 +20,9 @@ export type HudProjectionKey = Readonly<{
   layoutGeneration: number
   camera: Readonly<{ x: number; y: number; zoom: number }>
   size: Readonly<Size>
+  /** Latest editor camera intent. Rendering and hit-testing still use `camera` until the preview acknowledges it. */
+  targetCamera?: Readonly<{ x: number; y: number; zoom: number }>
+  targetSize?: Readonly<Size>
   selection: readonly string[]
   hover: string | null
   tool: CanvasTool
@@ -239,8 +242,8 @@ function measurementMatchesNode(snapshot: GestureAuthoritySnapshot, nodeId: stri
   return sameAabb(sceneNode.rect, measurement.rect)
 }
 
-function identityTransform(matrix: Matrix | undefined): boolean {
-  return matrix === undefined || matrix[0] === 1 && matrix[1] === 0 && matrix[2] === 0 && matrix[3] === 1 && matrix[4] === 0 && matrix[5] === 0
+function translationOnlyTransform(matrix: Matrix | undefined): boolean {
+  return matrix === undefined || matrix[0] === 1 && matrix[1] === 0 && matrix[2] === 0 && matrix[3] === 1 && finite(matrix[4]) && finite(matrix[5])
 }
 
 function measuredRectProjection(snapshot: GestureAuthoritySnapshot, nodeId: string): { quad: HudQuad; aabb: Rect; dimensions: Size } | null {
@@ -251,19 +254,22 @@ function measuredRectProjection(snapshot: GestureAuthoritySnapshot, nodeId: stri
   if (measurement.documentRevision !== snapshot.start.documentRevision || measurement.layoutGeneration !== snapshot.start.layoutGeneration || measurement.directChild !== true) return null
   if (documentNode.type === 'component' ? measurement.componentId !== documentNode.componentId : measurement.canvasKind !== documentNode.type) return null
   if (!finiteRect(sceneNode.rect) || !finiteRect(measurement.rect) || !finiteRect(measurement.worldAabb) || !finiteSize(measurement.offset)) return null
-  if (!sameAabb(sceneNode.rect, measurement.rect)) return null
-  if (!close(sceneNode.rect.width, measurement.offset.width) || !close(sceneNode.rect.height, measurement.offset.height)) return null
+  if (!sameAabb(sceneNode.rect, measurement.rect) && !sameAabb(sceneNode.rect, measurement.worldAabb)) return null
   let current = sceneNode.parentId ? snapshot.scene.byId.get(sceneNode.parentId) : undefined
   while (current) {
-    if (current.rotation !== 0 || !identityTransform(snapshot.geometry.nodes[current.id]?.transform)) return null
+    if (current.rotation !== 0 || !translationOnlyTransform(snapshot.geometry.nodes[current.id]?.transform)) return null
     current = current.parentId ? snapshot.scene.byId.get(current.parentId) : undefined
   }
-  const { x, y, width, height } = sceneNode.rect
+  const { width, height, origin } = measurement.offset
   const transform = measurement.transform ?? [1, 0, 0, 1, 0, 0]
-  if (!usableMatrix(transform) || !finitePoint(measurement.offset.origin)) return null
-  const { origin } = measurement.offset
-  const matrix = multiply(translation(x, y), multiply(translation(origin.x, origin.y), multiply(transform, translation(-origin.x, -origin.y))))
-  const quad = [apply(matrix, { x: 0, y: 0 }), apply(matrix, { x: width, y: 0 }), apply(matrix, { x: width, y: height }), apply(matrix, { x: 0, y: height })] as HudQuad
+  if (!usableMatrix(transform) || !finitePoint(origin)) return null
+  const linear: Matrix = [transform[0], transform[1], transform[2], transform[3], 0, 0]
+  const local = multiply(translation(origin.x, origin.y), multiply(linear, translation(-origin.x, -origin.y)))
+  const localQuad = [apply(local, { x: 0, y: 0 }), apply(local, { x: width, y: 0 }), apply(local, { x: width, y: height }), apply(local, { x: 0, y: height })] as HudQuad
+  const localAabb = quadAabb(localQuad)
+  if (!localAabb) return null
+  const offset = { x: measurement.worldAabb.x - localAabb.x, y: measurement.worldAabb.y - localAabb.y }
+  const quad = localQuad.map(point => ({ x: point.x + offset.x, y: point.y + offset.y })) as unknown as HudQuad
   const aabb = quadAabb(quad)
   if (!aabb || !sameAabb(aabb, measurement.worldAabb)) return null
   return { quad, aabb, dimensions: { width, height } }
@@ -398,6 +404,8 @@ function validView(authority: GestureAuthoritySnapshot, view: HudProjectionView)
     && finite(view.camera.zoom)
     && view.camera.zoom > 0
     && finiteSize(view.size)
+    && (!view.targetCamera || finite(view.targetCamera.x) && finite(view.targetCamera.y) && finite(view.targetCamera.zoom) && view.targetCamera.zoom > 0)
+    && (!view.targetSize || finiteSize(view.targetSize))
     && sameCamera(view.camera, authority.camera)
     && sameSize(view.size, authority.size)
     && sameOrdered(view.selection, authority.selection)
@@ -571,6 +579,8 @@ export function projectHudFrame(input: HudProjectionInput): HudProjectionFrame |
     fileId: view.fileId, pageId: view.pageId, fileRevision: view.fileRevision,
     measurementRevision: view.measurementRevision, documentRevision: view.documentRevision,
     layoutGeneration: view.layoutGeneration, camera: { ...view.camera }, size: { ...view.size },
+    ...(view.targetCamera ? { targetCamera: { ...view.targetCamera } } : {}),
+    ...(view.targetSize ? { targetSize: { ...view.targetSize } } : {}),
     selection: [...view.selection], hover: view.hover, tool: view.tool, readOnly: view.readOnly, mobile: view.mobile,
   }
   const entries: HudProjectionEntry[] = []

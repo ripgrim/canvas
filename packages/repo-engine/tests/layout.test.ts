@@ -17,7 +17,7 @@ const full = (): NodeLayout => ({
     height: { value: { kind: 'intrinsic', value: 'fit-content' } },
     aspectRatio: 1.5,
     flex: { grow: 1, shrink: 0, basis: { kind: 'auto' } },
-    transform: { rotate: 45, scale: { x: 2, y: 1 } },
+    transform: { matrix: [1, 0.5, 0.25, 1, 0, 0] },
   },
   container: { display: 'flex', gap: { x: 8, y: 4 }, flex: { direction: 'row', wrap: 'wrap', justify: 'space-between', align: 'center' } },
   spacing: { padding: { top: 1, right: 2, bottom: 3, left: 4 }, margin: { x: 'auto', y: 8 } },
@@ -112,16 +112,16 @@ describe('layout validation', () => {
     expect(validateLayout(withGrid({ columnStart: 1, columnSpan: 1000 }))).toBe(true)
   })
 
-  it('LAY-SCHEMA-002: transforms bound rotation and require a number or {x,y} scale', () => {
+  it('LAY-SCHEMA-002: transforms require one invertible linear affine matrix', () => {
     const withTransform = (transform: Loose) => ({ item: { position: { mode: 'flow' }, transform } })
-    expect(validateLayout(withTransform({ rotate: 3601 }))).toBe(false)
-    expect(validateLayout(withTransform({ rotate: 3600 }))).toBe(true)
-    expect(validateLayout(withTransform({ scale: { x: 1 } }))).toBe(false)
-    expect(validateLayout(withTransform({ scale: { x: 1, y: 1, z: 1 } }))).toBe(false)
-    expect(validateLayout(withTransform({ scale: [1, 1] }))).toBe(false)
-    expect(validateLayout(withTransform({ scale: '2' }))).toBe(false)
-    expect(validateLayout(withTransform({ scale: 2 }))).toBe(true)
-    expect(validateLayout(withTransform({ scale: { x: 2, y: -1 } }))).toBe(true)
+    expect(validateLayout(withTransform({ matrix: [1, 0, 0, 1, 0, 0] }))).toBe(true)
+    expect(validateLayout(withTransform({ matrix: [1, 0, 0, 1, 1, 0] }))).toBe(false)
+    expect(validateLayout(withTransform({ matrix: [1, 0, 0, 0, 0, 0] }))).toBe(false)
+    expect(validateLayout(withTransform({ matrix: [1001, 0, 0, 1, 0, 0] }))).toBe(false)
+    expect(validateLayout(withTransform({ matrix: [1, 0, 0, 1, 0] }))).toBe(false)
+    expect(validateLayout(withTransform({ matrix: [1, 0, Number.NaN, 1, 0, 0] }))).toBe(false)
+    expect(() => validateLayout(withTransform({ rotate: 20 }))).toThrow('Unsupported node transform field')
+    expect(isValidLayout(withTransform({ rotate: 20 }))).toBe(false)
   })
 
   it('LAY-SCHEMA-002: auto is valid on margin but not on padding', () => {
@@ -294,9 +294,9 @@ describe('item projection', () => {
     expect(constrained.width).toBeNull()
   })
 
-  it('LAY-SCHEMA-002: transform projects rotate then scale', () => {
-    expect(projectItemStyle(flow({ transform: { rotate: 45, scale: { x: 2, y: 1 } } }), null).transform).toBe('rotate(45deg) scale(2, 1)')
-    expect(projectItemStyle(flow({ transform: { scale: 1.5 } }), null).transform).toBe('scale(1.5)')
+  it('LAY-SCHEMA-002: transform projects the stored affine matrix directly', () => {
+    expect(projectItemStyle(flow({ transform: { matrix: [1, 2, 3, 4, 0, 0] } }), null).transform).toBe('matrix(1, 2, 3, 4, 0, 0)')
+    expect(projectItemStyle(flow({ transform: { matrix: [Math.SQRT1_2, Math.SQRT1_2, -Math.SQRT1_2, Math.SQRT1_2, 0, 0] } }), null).transform).toBe('matrix(0.707106781187, 0.707106781187, -0.707106781187, 0.707106781187, 0, 0)')
     expect(projectItemStyle(flow(), null).transform).toBeNull()
   })
 

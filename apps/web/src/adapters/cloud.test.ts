@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applyFileCommandWithHistory, applyHostedFileCommand, createBlankFile } from '@canvas/repo-engine/file-document'
+import { applyFileCommandWithHistory, applyHostedFileCommand, createBlankFile, legacyTextProperties } from '@canvas/repo-engine/file-document'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { CollaborationSocketEventMap, CollaborationWebSocket } from '@canvas/sync-client'
 import type { CollaborationDurableStore } from '@canvas/sync-client'
 import { collaborationDocumentSchemaVersion, collaborationEnvelopeSchemaVersion, collaborationProtocolEpoch, collaborationWebSocketProtocol } from '@canvas/sync-protocol'
 import type { CollaborationClientMessage, CollaborationServerMessage, FlowDragPresentation, ServerRoomEnvelope } from '@canvas/sync-protocol'
 import type { EditorProjectSnapshot } from '@canvas/editor/capabilities'
+import { hostedPreviewCatalogFingerprint } from '@canvas/preview-runtime/hosted-artifact'
 import { collaborationShellState, createCloudAdapter } from './cloud'
 import { browserHollowAtoms } from './browser'
 
@@ -15,6 +16,10 @@ const metadata = {
   createdAt: '2026-10-09T00:00:00.000Z', updatedAt: '2026-10-09T00:00:00.000Z',
 }
 const document = createBlankFile(metadata.id, 'page_cloud', 'root_cloud', 'Page 1')
+const malformedHostedDocument = () => ({
+  ...document,
+  pages: [{ ...document.pages[0]!, rootNodeId: 'missing-root' }],
+}) as typeof document
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
 const imageBytes = new Uint8Array([1, 2, 3, 4])
 const imageAsset = {
@@ -26,15 +31,43 @@ const flowDocument: FileDocument = {
   ...document,
   nodes: {
     ...document.nodes,
-    'source-frame': { id: 'source-frame', type: 'frame', name: 'Source frame', styles: { left: 0, top: 0, width: 200, height: 200 }, layout: { item: { position: { mode: 'absolute' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
-    'target-frame': { id: 'target-frame', type: 'frame', name: 'Target frame', styles: { left: 300, top: 0, width: 200, height: 200 }, layout: { item: { position: { mode: 'absolute' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
-    source: { id: 'source', type: 'frame', name: 'Source', styles: { left: 0, top: 0, width: 40, height: 30 }, layout: { item: { position: { mode: 'flow' } }, container: { display: 'freeform' } } },
+    'source-frame': { id: 'source-frame', type: 'frame', name: 'Source frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 200, height: 200 }, layout: { item: { position: { mode: 'absolute' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+    'target-frame': { id: 'target-frame', type: 'frame', name: 'Target frame', styles: { relativeTransform: [1, 0, 0, 1, 300, 0], width: 200, height: 200 }, layout: { item: { position: { mode: 'absolute' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+    source: { id: 'source', type: 'frame', name: 'Source', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 30 }, layout: { item: { position: { mode: 'flow' } }, container: { display: 'freeform' } } },
   },
   relationships: {
     ...document.relationships,
     'source-frame': { parentId: 'root_cloud', orderKey: 'V' },
     'target-frame': { parentId: 'root_cloud', orderKey: 'W' },
     source: { parentId: 'source-frame', orderKey: 'V' },
+  },
+}
+
+const componentDocument: FileDocument = {
+  ...flowDocument,
+  nodes: {
+    ...flowDocument.nodes,
+    'source-face': { id: 'source-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 30 } },
+    'source-label': { id: 'source-label', type: 'text', name: 'Label', text: 'Continue', styles: { relativeTransform: [1, 0, 0, 1, 4, 5], width: 24, height: 18 }, ...legacyTextProperties() },
+    'source-slot': { id: 'source-slot', type: 'frame', name: 'Icon slot', styles: { relativeTransform: [1, 0, 0, 1, 30, 5], width: 16, height: 16 } },
+    'source-icon-use': { id: 'source-icon-use', type: 'frame', name: 'Icon use', styles: { relativeTransform: [0.866, 0.5, -0.5, 0.866, 1, 1], width: 14, height: 14 } },
+    'icon-master': { id: 'icon-master', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 60, 0], width: 14, height: 14 } },
+    'icon-shape': { id: 'icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 1, 1], width: 12, height: 12 } },
+  },
+  relationships: {
+    ...flowDocument.relationships,
+    'source-face': { parentId: 'source', orderKey: 'V' },
+    'source-label': { parentId: 'source', orderKey: 'W' },
+    'source-slot': { parentId: 'source', orderKey: 'X' },
+    'source-icon-use': { parentId: 'source-slot', orderKey: 'V' },
+    'icon-master': { parentId: 'root_cloud', orderKey: 'X' },
+    'icon-shape': { parentId: 'icon-master', orderKey: 'V' },
+  },
+  componentModel: {
+    definitions: {
+      'component:icon': { id: 'component:icon', name: 'Icon', source: { kind: 'canvas', masterRootId: 'icon-master' }, revision: 0, properties: [], materials: [], parts: [{ id: 'part:shape', name: 'Shape', nodeId: 'icon-shape' }], interactions: [] },
+    },
+    instances: { 'source-icon-use': { id: 'source-icon-use', componentId: 'component:icon', values: {} } },
   },
 }
 
@@ -89,6 +122,8 @@ describe('UI-COLLAB-STATE-001 collaboration shell state', () => {
     expect(collaborationShellState('opening')).toBe('opening')
     expect(collaborationShellState('hydrating-local')).toBe('connecting')
     expect(collaborationShellState('admission-queued')).toBe('connecting')
+    expect(collaborationShellState('authorizing', true)).toBe('reconnecting')
+    expect(collaborationShellState('admission-queued', true)).toBe('reconnecting')
     expect(collaborationShellState('replaying')).toBe('reconnecting')
     expect(collaborationShellState('access-revoked')).toBe('access-removed')
     expect(collaborationShellState('incompatible-build')).toBe('update-required')
@@ -228,6 +263,23 @@ describe('cloud adapter', () => {
     expect((await adapter.createFile?.())?.id).toBe(metadata.id)
     await expect(adapter.openFile?.(metadata.id)).rejects.toThrow('Live sync is unavailable')
     expect(calls.some(call => call.endsWith('/document'))).toBe(false)
+  })
+
+  it('CLOUD-FILES-001 rejects the canonical malformed hosted document at the browser boundary', async () => {
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      ...scriptedSync(malformedHostedDocument()),
+      fetch: (async () => json({ file: metadata })) as typeof fetch,
+    })
+
+    const opening = adapter.openFile?.(metadata.id)
+    const rejected = expect(opening).rejects.toThrow('This file contains invalid data. Error ID: invalid-file-document')
+    await vi.waitFor(() => expect(adapter.collaboration?.getSnapshot()).toMatchObject({
+      status: 'error',
+      error: 'This file contains invalid data. Error ID: invalid-file-document',
+    }))
+    await rejected
+    adapter.dispose()
   })
 
   it('FILE-ASSET-LIFECYCLE-001 hydrates verified render bytes when opening a referenced cloud asset', async () => {
@@ -495,6 +547,76 @@ describe('cloud adapter', () => {
 
     expect(saved.file.nodes.button).toMatchObject({ componentId: 'sample-button', exportName: 'Button' })
     expect(socket!.sent.some(message => message.type === 'operation.submit')).toBe(true)
+    adapter.dispose()
+  })
+
+  it('CLOUD-SYNC-COMPONENT-001 CLOUD-SYNC-COMPONENT-002 keeps one live socket while advanced component metadata changes', async () => {
+    const sockets: ScriptedSocket[] = []
+    let envelope = roomEnvelope()
+    let sequence = 0
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test', loginOrigin: 'https://login.canvas.test', syncOrigin: 'wss://sync.canvas.test', syncClientId: 'tab-component-authoring', syncDurableStore: memoryOnlyDurableStore,
+      createWebSocket: () => {
+        const socket = new ScriptedSocket()
+        envelope = scriptRoom(socket, componentDocument, message => {
+          sequence += 1
+          socket.server({ type: 'operation.ack', envelope, mutationId: message.operation.mutationId, sequence: String(sequence), status: 'applied' })
+        })
+        sockets.push(socket)
+        return socket
+      },
+      fetch: (async (input: string | URL | Request) => String(input).endsWith('/api/session')
+        ? signedInSessionResponse()
+        : json({ file: metadata })) as typeof fetch,
+    })
+    await adapter.auth?.getSession()
+    await adapter.openFile?.(metadata.id)
+    const definition = {
+      id: 'component:surface', name: 'Surface', source: { kind: 'canvas' as const, masterRootId: 'source' }, revision: 0,
+      properties: [], materials: [], parts: [{ id: 'part:surface', name: 'Surface', nodeId: 'source' }], interactions: [],
+    }
+    const create = { type: 'component.create' as const, definition }
+    const createdFile = applyHostedFileCommand(componentDocument, create)
+    const created = await adapter.saveFile(createdFile, 0, { kind: 'commands', commands: [create] })
+    expect(adapter.collaboration?.getSnapshot().status).toBe('live')
+
+    const authored = {
+      ...definition,
+      revision: 1,
+      properties: [
+        {
+          id: 'property:state', name: 'State', type: 'variant' as const, defaultValueId: 'value:default',
+          values: [{ id: 'value:default', name: 'Default' }, { id: 'value:hover', name: 'Hover' }],
+          binding: { kind: 'variant' as const, nodeId: 'source-face', appearances: { 'value:default': {}, 'value:hover': { opacity: 0.8 } } },
+        },
+        {
+          id: 'property:tone', name: 'Tone', type: 'variant' as const, defaultValueId: 'value:neutral',
+          values: [{ id: 'value:neutral', name: 'Neutral' }, { id: 'value:danger', name: 'Danger' }],
+          binding: { kind: 'variant' as const, nodeId: 'source-face', appearances: { 'value:neutral': {}, 'value:danger': { opacity: 0.7 } } },
+        },
+        { id: 'property:label', name: 'Label', type: 'text' as const, defaultValue: 'Continue', binding: { kind: 'text' as const, nodeId: 'source-label' } },
+        { id: 'property:visible', name: 'Visible', type: 'boolean' as const, defaultValue: true, binding: { kind: 'visibility' as const, nodeId: 'source-face' } },
+        { id: 'property:content', name: 'Content', type: 'slot' as const, binding: { kind: 'slot' as const, nodeId: 'source-slot' } },
+        { id: 'property:icon', name: 'Icon', type: 'instance-swap' as const, defaultValue: 'component:icon', binding: { kind: 'instance-swap' as const, nodeId: 'source-icon-use' } },
+      ],
+      variantAppearances: { 'source-face': {
+        'property:state=value:default|property:tone=value:neutral': { opacity: 0.99 },
+        'property:state=value:default|property:tone=value:danger': { opacity: 0.9 },
+        'property:state=value:hover|property:tone=value:neutral': { opacity: 0.8 },
+        'property:state=value:hover|property:tone=value:danger': { opacity: 0.7 },
+      } },
+      materials: [{ id: 'material:surface', group: 'Base', name: 'Surface', appearance: {} }],
+      parts: [{ id: 'part:surface', name: 'Surface', nodeId: 'source-face', materialId: 'material:surface' }],
+      interactions: [{ id: 'interaction:hover', trigger: 'pointer-hover' as const, propertyId: 'property:state', valueId: 'value:hover' }],
+    }
+    const replace = { type: 'component.replace' as const, componentId: definition.id, expectedRevision: 0, definition: authored }
+    const authoredFile = applyHostedFileCommand(created.file, replace)
+    const saved = await adapter.saveFile(authoredFile, 1, { kind: 'commands', commands: [replace] })
+
+    expect(saved.file.componentModel.definitions[definition.id]).toEqual(authored)
+    expect(adapter.collaboration?.getSnapshot().status).toBe('live')
+    expect(sockets).toHaveLength(1)
+    expect(sockets[0]!.sent.filter(message => message.type === 'operation.submit')).toHaveLength(2)
     adapter.dispose()
   })
 
@@ -1062,5 +1184,392 @@ describe('cloud adapter', () => {
 
     stringify.mockRestore()
     adapter.dispose()
+  })
+
+  it('AT-REPO-LINK-001 completes the browser handoff against the open project', async () => {
+    const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const linkedMetadata = { ...metadata, projectId }
+    const repository = { id: '42', ownerLogin: 'canvas', name: 'editor', fullName: 'canvas/editor', isPrivate: true }
+    const calls: { url: string; method: string; body: unknown }[] = []
+    const replaced: string[] = []
+    const navigated: string[] = []
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      ...scriptedSync(document),
+      currentUrl: () => `https://canvas.test/file/${metadata.id}?pageId=page_cloud&github=connected&installationId=7`,
+      replaceUrl: url => replaced.push(url),
+      navigate: url => navigated.push(url),
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input)
+        calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null })
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: linkedMetadata })
+        if (url.endsWith(`/api/projects/${projectId}/repositories?installationId=7`)) return json({ installationId: '7', repositories: [repository] })
+        if (url.endsWith(`/api/projects/${projectId}/repository`)) return json({ installationId: '7', repository })
+        if (url.endsWith('/api/github/installations/start')) return json({ installationUrl: 'https://github.com/apps/canvas/installations/new', expiresAt: '2026-10-15T00:00:00.000Z' })
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    expect(adapter.hostedRepository?.returnInstallationId()).toBe('7')
+    expect(await adapter.hostedRepository?.listChoices('7')).toEqual([repository])
+    expect(await adapter.hostedRepository?.getConnection()).toEqual({ installationId: '7', repository })
+    expect(await adapter.hostedRepository?.link('7', '42')).toEqual({ installationId: '7', repository })
+    adapter.hostedRepository?.clearReturnLocation()
+    await adapter.hostedRepository?.startConnection()
+
+    expect(calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ url: `https://api.canvas.test/api/projects/${projectId}/repositories?installationId=7`, method: 'GET' }),
+      expect.objectContaining({ url: `https://api.canvas.test/api/projects/${projectId}/repository`, method: 'PUT', body: { installationId: '7', repositoryId: '42' } }),
+      expect.objectContaining({ url: 'https://api.canvas.test/api/github/installations/start', method: 'POST', body: { returnTo: `https://canvas.test/file/${metadata.id}?pageId=page_cloud` } }),
+    ]))
+    expect(replaced).toEqual([`https://canvas.test/file/${metadata.id}?pageId=page_cloud`])
+    expect(navigated).toEqual(['https://github.com/apps/canvas/installations/new'])
+    adapter.dispose()
+  })
+
+  it('AT-REPO-LINK-001 ignores malformed GitHub return markers', () => {
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      currentUrl: () => `https://canvas.test/file/${metadata.id}?github=connected&installationId=not-an-id`,
+      fetch: vi.fn() as unknown as typeof fetch,
+    })
+
+    expect(adapter.hostedRepository?.returnInstallationId()).toBeNull()
+    adapter.dispose()
+  })
+
+  it('COMP-V2-CODE-002 returns the exact hosted component catalog from a completed scan', async () => {
+    const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const jobId = '00000000-0000-4000-8000-000000000092'
+    const sourceRevision = 'a'.repeat(40)
+    const sourceHash = 'b'.repeat(64)
+    const componentId = 'shadcn:Button:1234567890abcdef'
+    const scan = {
+      adapterId: 'shadcn-v1',
+      configs: [],
+      components: [{ path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', declarationKind: 'function', sourceHash, fingerprint: 'b'.repeat(64), props: [{ name: 'tone', type: "'quiet' | 'solid'", optional: false }], slots: [] }],
+      tokens: [],
+      sourceHashes: { 'src/button.tsx': sourceHash },
+      diagnostics: [],
+      previewDependencies: [],
+      previewResolutions: [],
+    }
+    const request = {
+      version: 1,
+      entry: { componentId },
+      components: [{ componentId, entryPath: 'src/button.tsx', exportName: 'Button', integrity: `sha256-${Buffer.from(sourceHash, 'hex').toString('base64')}`, props: { tone: { kind: 'enum', values: ['quiet', 'solid'], optional: false } }, slots: [] }],
+      styles: [],
+      aliases: [],
+      dependencies: [],
+      resolutions: [],
+      themeAdapters: [],
+    }
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      ...scriptedSync(document),
+      fetch: (async (input: string | URL | Request) => {
+        const url = String(input)
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
+        if (url.endsWith(`/api/projects/${projectId}/repository/scan`)) return json({ job: { id: jobId, operation: 'scan', status: 'completed', attempt: 1, result: { sourceRevision, scan, request }, completedAt: metadata.updatedAt } })
+        if (url.endsWith(`/api/projects/${projectId}/repository/jobs`)) return json({ job: { id: jobId, operation: 'scan', status: 'completed', attempt: 1, result: { sourceRevision, scan, request }, completedAt: metadata.updatedAt } })
+        if (url.endsWith(`/api/repository-jobs/${jobId}`)) return json({ job: { id: jobId, operation: 'scan', status: 'completed', attempt: 1, result: { sourceRevision, scan, request }, completedAt: metadata.updatedAt } })
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    const fingerprint = hostedPreviewCatalogFingerprint(request)
+    await expect(adapter.hostedRepository?.getLatestScan()).resolves.toEqual({
+      jobId,
+      adapterId: 'shadcn-v1',
+      sourceRevision,
+      componentCount: 1,
+      registry: { fingerprint, components: [{ componentId, symbolKey: componentId, path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', sourceHash, fingerprint: 'b'.repeat(64), props: scan.components[0]!.props, slots: [] }] },
+    })
+    await expect(adapter.hostedRepository?.scan()).resolves.toEqual({
+      jobId,
+      adapterId: 'shadcn-v1',
+      sourceRevision,
+      componentCount: 1,
+      registry: { fingerprint, components: [{ componentId, symbolKey: componentId, path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', sourceHash, fingerprint: 'b'.repeat(64), props: scan.components[0]!.props, slots: [] }] },
+    })
+    await expect(adapter.hostedRepository?.getScan(jobId)).resolves.toEqual({
+      jobId,
+      adapterId: 'shadcn-v1',
+      sourceRevision,
+      componentCount: 1,
+      registry: { fingerprint, components: [{ componentId, symbolKey: componentId, path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', sourceHash, fingerprint: 'b'.repeat(64), props: scan.components[0]!.props, slots: [] }] },
+    })
+    adapter.dispose()
+  })
+
+  it('COMP-V2-BINDING-001 reads exact hosted source bindings and separates removed access from service failures', async () => {
+    const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const repository = { provider: 'github' as const, projectId, repositoryId: '42' }
+    const authority = {
+      repository,
+      scanId: '00000000-0000-4000-8000-000000000092',
+      sourceRevision: 'a'.repeat(40),
+      registryFingerprint: `sha256:${'b'.repeat(64)}`,
+      grantGeneration: 1,
+      adapterId: 'shadcn-v1',
+    }
+    const snapshot = { version: 1, authority, records: [], updatedAt: 1 }
+    let response: 'snapshot' | 'removed-401' | 'removed-404' | 'server' | 'network' | 'parser' | 'empty' = 'snapshot'
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      ...scriptedSync(document),
+      fetch: (async (input: string | URL | Request) => {
+        const url = String(input)
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
+        if (url.endsWith(`/api/projects/${projectId}/repository/source-bindings`)) {
+          if (response === 'removed-401') return json({ error: { code: 'unauthorized', message: 'Unauthorized.' } }, 401)
+          if (response === 'removed-404') return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+          if (response === 'server') return json({ error: { code: 'server_error', message: 'Failed.' } }, 500)
+          if (response === 'network') throw new TypeError('offline')
+          if (response === 'parser') return json({ ...snapshot, extra: true })
+          if (response === 'empty') return json(null)
+          return json(snapshot)
+        }
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    await expect(adapter.hostedRepository?.readSourceBindings()).resolves.toEqual({ status: 'authorized', snapshot })
+    response = 'empty'
+    await expect(adapter.hostedRepository?.readSourceBindings()).resolves.toEqual({ status: 'authorized', snapshot: null })
+    response = 'removed-401'
+    await expect(adapter.hostedRepository?.readSourceBindings()).resolves.toEqual({ status: 'access-removed' })
+    response = 'removed-404'
+    await expect(adapter.hostedRepository?.readSourceBindings()).resolves.toEqual({ status: 'access-removed' })
+    response = 'server'
+    await expect(adapter.hostedRepository?.readSourceBindings()).rejects.toMatchObject({ status: 500 })
+    response = 'network'
+    await expect(adapter.hostedRepository?.readSourceBindings()).rejects.toMatchObject({ status: 0, code: 'network_error' })
+    response = 'parser'
+    await expect(adapter.hostedRepository?.readSourceBindings()).rejects.toThrow('Invalid source binding snapshot')
+    adapter.dispose()
+  })
+
+  it('COMP-V2-BINDING-001 reconciles exact initial and existing binding commands with bounded outcomes', async () => {
+    const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const repository = { provider: 'github' as const, projectId, repositoryId: '42' }
+    const authority = {
+      repository,
+      scanId: '00000000-0000-4000-8000-000000000092',
+      sourceRevision: 'a'.repeat(40),
+      registryFingerprint: `sha256:${'b'.repeat(64)}`,
+      grantGeneration: 1,
+      adapterId: 'shadcn-v1',
+    }
+    const snapshot = { version: 1, authority, records: [], updatedAt: 1 }
+    const initial = { scanJobId: authority.scanId, expectedVersion: null, expectedAuthority: null, rebinds: [] }
+    const existing = { scanJobId: authority.scanId, expectedVersion: 1, expectedAuthority: authority, rebinds: [] }
+    const requests: { url: string; method: string; body: unknown }[] = []
+    let response: 'committed' | 'conflict' | 'unrelated-conflict' | 'removed-401' | 'removed-404' | 'server' | 'network' | 'malformed' = 'committed'
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      ...scriptedSync(document),
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input)
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
+        if (url.endsWith(`/api/projects/${projectId}/repository/source-bindings`)) {
+          requests.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null })
+          if (response === 'conflict') return json({ error: { code: 'source_bindings_changed', message: 'Repository source bindings changed.' } }, 409)
+          if (response === 'unrelated-conflict') return json({ error: { code: 'repository_scan_required', message: 'Scan required.' } }, 409)
+          if (response === 'removed-401') return json({ error: { code: 'unauthorized', message: 'Unauthorized.' } }, 401)
+          if (response === 'removed-404') return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+          if (response === 'server') return json({ error: { code: 'server_error', message: 'Failed.' } }, 500)
+          if (response === 'network') throw new TypeError('offline')
+          if (response === 'malformed') return json({ ...snapshot, extra: true })
+          return json(snapshot)
+        }
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(initial)).resolves.toEqual({ status: 'committed', snapshot })
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).resolves.toEqual({ status: 'committed', snapshot })
+    expect(requests).toEqual([
+      { url: `https://api.canvas.test/api/projects/${projectId}/repository/source-bindings`, method: 'PUT', body: initial },
+      { url: `https://api.canvas.test/api/projects/${projectId}/repository/source-bindings`, method: 'PUT', body: existing },
+    ])
+    const requestCount = requests.length
+    await expect(adapter.hostedRepository?.reconcileSourceBindings({ ...initial, projectId } as never)).rejects.toThrow('Invalid source binding reconcile command')
+    expect(requests).toHaveLength(requestCount)
+    response = 'conflict'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).resolves.toEqual({ status: 'conflict' })
+    response = 'unrelated-conflict'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).rejects.toMatchObject({ status: 409, code: 'repository_scan_required' })
+    response = 'removed-401'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).resolves.toEqual({ status: 'access-removed' })
+    response = 'removed-404'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).resolves.toEqual({ status: 'access-removed' })
+    response = 'server'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).rejects.toMatchObject({ status: 500 })
+    response = 'network'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).rejects.toMatchObject({ status: 0, code: 'network_error' })
+    response = 'malformed'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).rejects.toThrow('Invalid source binding snapshot')
+    adapter.dispose()
+  })
+
+  it('COMP-V2-BINDING-001 rejects source bindings when the active project changes before the response', async () => {
+    const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const nextProjectId = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff'
+    const nextMetadata = { ...metadata, id: '22222222-3333-4444-8555-666666666666', projectId: nextProjectId }
+    const nextDocument = createBlankFile(nextMetadata.id, 'page_next', 'root_next', 'Page 1')
+    const sourceBindings = deferred<Response>()
+    const sourceBindingReconcile = deferred<Response>()
+    const command = { scanJobId: '00000000-0000-4000-8000-000000000092', expectedVersion: null, expectedAuthority: null, rebinds: [] }
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      syncOrigin: 'wss://sync.canvas.test',
+      syncClientId: 'tab-project-recheck',
+      syncDurableStore: memoryOnlyDurableStore,
+      createWebSocket: url => {
+        const socket = new ScriptedSocket()
+        scriptRoom(socket, url.includes(nextMetadata.id) ? nextDocument : document)
+        return socket
+      },
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input)
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
+        if (url.endsWith(`/api/files/${nextMetadata.id}`)) return json({ file: nextMetadata })
+        if (url.endsWith(`/api/projects/${projectId}/repository/source-bindings`)) return init?.method === 'PUT' ? sourceBindingReconcile.promise : sourceBindings.promise
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    const pending = adapter.hostedRepository!.readSourceBindings()
+    const pendingReconcile = adapter.hostedRepository!.reconcileSourceBindings(command)
+    await adapter.openFile?.(nextMetadata.id)
+    sourceBindings.resolve(json(null))
+    sourceBindingReconcile.resolve(json({ invalid: true }))
+    await expect(pending).rejects.toThrow('Repository request was cancelled.')
+    await expect(pendingReconcile).rejects.toThrow('Repository request was cancelled.')
+    adapter.dispose()
+  })
+
+  it('COMP-V2-BINDING-001 rejects a scan response for a different requested job', async () => {
+    const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const requestedJobId = '00000000-0000-4000-8000-000000000092'
+    const returnedJobId = '00000000-0000-4000-8000-000000000093'
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      ...scriptedSync(document),
+      fetch: (async (input: string | URL | Request) => {
+        const url = String(input)
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
+        if (url.endsWith(`/api/repository-jobs/${requestedJobId}`)) return json({ job: { id: returnedJobId, operation: 'scan', status: 'queued', attempt: 0 } })
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    await expect(adapter.hostedRepository?.getScan(requestedJobId)).rejects.toThrow('another repository scan')
+    adapter.dispose()
+  })
+
+  it('AT-REPO-SCAN-001 stops polling on a terminal hosted scan failure', async () => {
+    const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const jobId = '00000000-0000-4000-8000-000000000091'
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      ...scriptedSync(document),
+      fetch: (async (input: string | URL | Request) => {
+        const url = String(input)
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
+        if (url.endsWith(`/api/projects/${projectId}/repository/jobs`)) return json({ job: { id: jobId, operation: 'scan', status: 'failed', attempt: 3, errorId: 'no-supported-components', failedAt: metadata.updatedAt } })
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    await expect(adapter.hostedRepository?.scan()).rejects.toThrow('Error ID: no-supported-components')
+    adapter.dispose()
+  })
+
+  it('COMP-V2-CODE-008 keeps hosted preview capabilities ephemeral and file-scoped', async () => {
+    const artifactId = '00000000-0000-4000-8000-000000000804'
+    const buildId = '00000000-0000-4000-8000-000000000808'
+    const previewUrl = `https://preview.canvas.test/hosted/${artifactId}/header.payload/index.html`
+    const calls: string[] = []
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      previewOrigin: 'https://preview.canvas.test',
+      editorOrigin: 'https://canvas.test',
+      ...scriptedSync(document),
+      fetch: (async (input: string | URL | Request) => {
+        const url = String(input)
+        calls.push(url)
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: metadata })
+        if (url.endsWith(`/api/files/${metadata.id}/hosted-preview-builds`)) return json({ job: { id: buildId, fileId: metadata.id, fileRevision: document.revision, status: 'queued', attempts: 0, createdAt: metadata.updatedAt } }, 202)
+        if (url.endsWith(`/api/hosted-preview-builds/${buildId}`)) return json({ job: { id: buildId, fileId: metadata.id, fileRevision: document.revision, status: 'completed', attempts: 1, createdAt: metadata.updatedAt, artifactId, completedAt: metadata.updatedAt } })
+        if (url.endsWith(`/api/files/${metadata.id}/hosted-preview-capability`)) return json({ preview: { artifactId, url: previewUrl, expiresAt: 1_800_000_120 } }, 201)
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    expect(adapter.capabilities?.hostedExecution.available).toBe(true)
+    await expect(adapter.hostedExecution?.startBuild()).rejects.toThrow('Open a file first')
+    await expect(adapter.hostedExecution?.getPreview(artifactId)).rejects.toThrow('Open a file first')
+    await adapter.openFile?.(metadata.id)
+    await expect(adapter.hostedExecution?.startBuild()).resolves.toMatchObject({ id: buildId, fileId: metadata.id, status: 'queued' })
+    await expect(adapter.hostedExecution?.getBuild(buildId)).resolves.toMatchObject({ id: buildId, fileId: metadata.id, status: 'completed', artifactId })
+    await expect(adapter.hostedExecution?.getPreview(artifactId)).resolves.toEqual({ artifactId, url: previewUrl, expiresAt: 1_800_000_120 })
+    expect(calls.filter(url => url.endsWith('/hosted-preview-capability'))).toHaveLength(1)
+    expect(JSON.stringify(adapter)).not.toContain('header.payload')
+    adapter.dispose()
+  })
+
+  it('COMP-V2-CODE-008 rejects a capability that resolves after another file starts opening', async () => {
+    const artifactId = '00000000-0000-4000-8000-000000000805'
+    const secondFileId = '00000000-0000-4000-8000-000000000806'
+    const capability = deferred<Response>()
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      previewOrigin: 'https://preview.canvas.test',
+      editorOrigin: 'https://canvas.test',
+      ...scriptedSync(document),
+      fetch: (async (input: string | URL | Request) => {
+        const url = String(input)
+        if (url.endsWith('/hosted-preview-capability')) return capability.promise
+        if (url.endsWith(`/api/files/${secondFileId}`)) return json({ file: { ...metadata, id: secondFileId } })
+        return json({ file: metadata })
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    const pending = adapter.hostedExecution!.getPreview(artifactId)
+    const switching = adapter.openFile?.(secondFileId).catch(error => error)
+    capability.resolve(json({ preview: { artifactId, url: `https://preview.canvas.test/hosted/${artifactId}/header.payload/index.html`, expiresAt: 1_800_000_120 } }, 201))
+    await expect(pending).rejects.toThrow('superseded')
+    adapter.dispose()
+    await switching
+  })
+
+  it('COMP-V2-CODE-008 rejects a capability that resolves after disposal', async () => {
+    const artifactId = '00000000-0000-4000-8000-000000000807'
+    const capability = deferred<Response>()
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      previewOrigin: 'https://preview.canvas.test',
+      editorOrigin: 'https://canvas.test',
+      ...scriptedSync(document),
+      fetch: (async (input: string | URL | Request) => String(input).endsWith('/hosted-preview-capability')
+        ? capability.promise
+        : json({ file: metadata })) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    const pending = adapter.hostedExecution!.getPreview(artifactId)
+    adapter.dispose()
+    capability.resolve(json({ preview: { artifactId, url: `https://preview.canvas.test/hosted/${artifactId}/header.payload/index.html`, expiresAt: 1_800_000_120 } }, 201))
+    await expect(pending).rejects.toThrow('superseded')
   })
 })

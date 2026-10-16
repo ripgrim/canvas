@@ -84,6 +84,7 @@ function bearer(request: IncomingMessage): string | null {
 }
 
 function reject(socket: Duplex, status: number, reason: string): void {
+  if (socket.destroyed) return
   const body = `${reason}\n`
   socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\nX-Content-Type-Options: nosniff\r\n\r\n${body}`)
 }
@@ -195,6 +196,9 @@ export function createMultiRoomHost(options: MultiRoomHostOptions): MultiRoomHos
   })
 
   server.on('upgrade', (request, socket, head) => {
+    // A browser may abandon a proxied upgrade while async ticket or room checks are still running.
+    // Keep that transport reset local to this connection instead of crashing the shared room host.
+    socket.on('error', () => undefined)
     socket.pause()
     if (phase !== 'accepting') { reject(socket, 503, 'Service Unavailable'); return }
     if (pendingUpgrades >= options.maxPendingUpgrades) { reject(socket, 503, 'Service Unavailable'); return }

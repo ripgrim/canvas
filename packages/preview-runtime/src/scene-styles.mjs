@@ -162,22 +162,21 @@ export function appearanceStyle(appearance, assets, kind) {
 }
 
 export function canvasElementStyle(element, assets = undefined, offset = { x: 0, y: 0 }) {
-  const transforms = [...(element.rotation ? [`rotate(${element.rotation}deg)`] : []), ...(element.flipX || element.flipY ? [`scale(${element.flipX ? -1 : 1}, ${element.flipY ? -1 : 1})`] : [])]
   const mode = element.layout?.mode ?? 'freeform'
   const declarations = element.layout?.declarations ?? {}
   const rightAnchored = mode === 'absolute' && Object.hasOwn(declarations, 'right') && !Object.hasOwn(declarations, 'left')
   const bottomAnchored = mode === 'absolute' && Object.hasOwn(declarations, 'bottom') && !Object.hasOwn(declarations, 'top')
   const style = {
     position: mode === 'flow' ? 'relative' : 'absolute',
-    left: mode === 'flow' || rightAnchored ? undefined : `${element.x - offset.x}px`,
-    top: mode === 'flow' || bottomAnchored ? undefined : `${element.y - offset.y}px`,
+    left: mode === 'flow' || rightAnchored ? undefined : '0px',
+    top: mode === 'flow' || bottomAnchored ? undefined : '0px',
     width: `${element.width}px`,
     height: `${element.height}px`,
     boxSizing: 'border-box',
     pointerEvents: 'none',
     margin: 0,
-    transformOrigin: 'center',
-    transform: transforms.length ? transforms.join(' ') : undefined,
+    transformOrigin: '0 0',
+    transform: `matrix(${element.relativeTransform[0]}, ${element.relativeTransform[1]}, ${element.relativeTransform[2]}, ${element.relativeTransform[3]}, ${mode === 'flow' ? 0 : element.relativeTransform[4] - offset.x}, ${mode === 'flow' ? 0 : element.relativeTransform[5] - offset.y})`,
     ...primitiveLayoutStyle(element.layout),
   }
   const appearance = appearanceStyle(element.appearance, assets, element.kind)
@@ -188,21 +187,19 @@ export function canvasElementStyle(element, assets = undefined, offset = { x: 0,
   const sizing = element.textSizing
   const widthFitsContent = sizing.width.mode === 'fit'
   const heightFitsContent = sizing.height.mode === 'fit'
-  const authoredLeft = element.x - offset.x
   const authoredTextAnchor = mode === 'freeform'
+  const anchorDistance = authoredTextAnchor && widthFitsContent
+    ? text.horizontalAlign === 'center' ? element.width / 2 : text.horizontalAlign === 'right' ? element.width : 0
+    : 0
   const anchorOffset = authoredTextAnchor && widthFitsContent && text.horizontalAlign === 'center'
     ? 'translateX(-50%)'
     : authoredTextAnchor && widthFitsContent && text.horizontalAlign === 'right'
       ? 'translateX(-100%)'
       : null
-  const anchoredLeft = !authoredTextAnchor
-    ? null
-    : widthFitsContent && text.horizontalAlign === 'center'
-    ? authoredLeft + element.width / 2
-    : widthFitsContent && text.horizontalAlign === 'right'
-      ? authoredLeft + element.width
-      : authoredLeft
-  const textTransforms = [...(anchorOffset ? [anchorOffset] : []), ...transforms]
+  const anchoredMatrix = anchorDistance
+    ? `matrix(${element.relativeTransform[0]}, ${element.relativeTransform[1]}, ${element.relativeTransform[2]}, ${element.relativeTransform[3]}, ${element.relativeTransform[4] - offset.x + element.relativeTransform[0] * anchorDistance}, ${element.relativeTransform[5] - offset.y + element.relativeTransform[1] * anchorDistance})`
+    : style.transform
+  const positionedTextTransform = anchorOffset ? `${anchoredMatrix} ${anchorOffset}` : anchoredMatrix
   const semanticTextSize = (property, axis, fallback) => {
     if (axis.mode !== 'fill') return freeformTextAxisSize(axis, fallback)
     const projected = declarations[property]
@@ -213,8 +210,7 @@ export function canvasElementStyle(element, assets = undefined, offset = { x: 0,
   return {
     ...style,
     ...appearance,
-    ...(anchoredLeft === null ? {} : { left: `${number(anchoredLeft)}px` }),
-    transform: textTransforms.length ? textTransforms.join(' ') : undefined,
+    transform: positionedTextTransform,
     width: semanticTextSize('width', sizing.width, element.width),
     height: semanticTextSize('height', sizing.height, element.height),
     fontFamily: text.fontFamily,

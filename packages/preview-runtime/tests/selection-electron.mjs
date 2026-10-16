@@ -44,7 +44,7 @@ try {
   process.stderr.write('selection phase: preview DOM ready\n')
   const generation = Number(generationText)
   const send = async payload => {
-    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 10, generation, ...payload }
     await window.webContents.executeJavaScript(`document.querySelector('iframe').contentWindow.postMessage(${JSON.stringify(command)},${JSON.stringify(new URL(previewUrl).origin)})`)
   }
   const observe = () => frame.executeJavaScript(`(() => {
@@ -55,18 +55,18 @@ try {
   await new Promise(resolve => setTimeout(resolve, 40))
   assert.equal((await observe()).count, 0)
   const document = {
-    version: 2, revision: 1, rootIds: ['card-1', 'button-1'], nodes: {
+    version: 3, revision: 1, rootIds: ['card-1', 'button-1'], nodes: {
       'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', theme: lightTheme, props: { heading: 'Sign in' }, children: { children: ['input-1'] } },
       'input-1': { id: 'input-1', componentId: 'atom-input', exportName: 'Input', theme: lightTheme, props: { id: 'native-email', type: 'email' }, children: {} },
       'button-1': { id: 'button-1', componentId: 'atom-button', exportName: 'Button', theme: lightTheme, props: { children: 'Go', type: 'button' }, children: {} },
     }, frame: { width: 480, height: 640, direction: 'column', gap: 16, padding: 24, clip: false },
     canvas: { elements: [
-      { id: 'hero', kind: 'frame', name: 'Hero', x: 2000, y: 2000, width: 320, height: 200, rotation: 0, appearance: { fills: [linear(135, 'srgb', [{ color: '#9b4dff', position: 0 }, { color: '#000000', position: 1 }])] }, parentId: null, clip: false },
-      { id: 'hero-glow', kind: 'shader', name: 'Glow', x: 16, y: 24, width: 80, height: 80, rotation: 0, appearance: { fills: [linear(90, 'srgb', [{ color: 'oklch(0.7 0.1 120)', position: 0 }, { color: '#ffffff', position: 0.5 }])] }, parentId: 'hero' },
-      { id: 'hero-title', kind: 'text', name: 'Title', x: 16, y: 120, width: 200, height: 20, rotation: 0, appearance: { fills: [linear(90, 'oklab', [{ color: '#ff0000', position: 0 }, { color: '#0000ff', position: 1 }])] }, text: 'Welcome', ...legacyTextProperties, parentId: 'hero' },
-      { id: 'hero-caption', kind: 'text', name: 'Caption', x: 16, y: 150, width: 200, height: 20, rotation: 0, appearance: { fills: [{ type: 'solid', color: '#64748b' }] }, text: 'Caption', ...legacyTextProperties, parentId: 'hero' },
-      { id: 'panel', kind: 'rectangle', name: 'Panel', x: 320, y: -300, width: 60, height: 40, rotation: 0, appearance: { fills: [{ type: 'solid', color: '#0000ff' }, { type: 'solid', color: '#ff000080' }] }, parentId: null },
-      { id: 'photo', kind: 'rectangle', name: 'Photo', x: 320, y: -240, width: 40, height: 20, rotation: 0, appearance: { fills: [{ type: 'image', assetId: 'swatch', fit: 'stretch' }] }, parentId: null },
+      { id: 'hero', kind: 'frame', name: 'Hero', relativeTransform: [1, 0, 0, 1, 2000, 2000], width: 320, height: 200, appearance: { fills: [linear(135, 'srgb', [{ color: '#9b4dff', position: 0 }, { color: '#000000', position: 1 }])] }, parentId: null, clip: false },
+      { id: 'hero-glow', kind: 'shader', name: 'Glow', relativeTransform: [1, 0, 0, 1, 16, 24], width: 80, height: 80, appearance: { fills: [linear(90, 'srgb', [{ color: 'oklch(0.7 0.1 120)', position: 0 }, { color: '#ffffff', position: 0.5 }])] }, parentId: 'hero' },
+      { id: 'hero-title', kind: 'text', name: 'Title', relativeTransform: [1, 0, 0, 1, 16, 120], width: 200, height: 20, appearance: { fills: [linear(90, 'oklab', [{ color: '#ff0000', position: 0 }, { color: '#0000ff', position: 1 }])] }, text: 'Welcome', ...legacyTextProperties, parentId: 'hero' },
+      { id: 'hero-caption', kind: 'text', name: 'Caption', relativeTransform: [1, 0, 0, 1, 16, 150], width: 200, height: 20, appearance: { fills: [{ type: 'solid', color: '#64748b' }] }, text: 'Caption', ...legacyTextProperties, parentId: 'hero' },
+      { id: 'panel', kind: 'rectangle', name: 'Panel', relativeTransform: [1, 0, 0, 1, 320, -300], width: 60, height: 40, appearance: { fills: [{ type: 'solid', color: '#0000ff' }, { type: 'solid', color: '#ff000080' }] }, parentId: null },
+      { id: 'photo', kind: 'rectangle', name: 'Photo', relativeTransform: [1, 0, 0, 1, 320, -240], width: 40, height: 20, appearance: { fills: [{ type: 'image', assetId: 'swatch', fit: 'stretch' }] }, parentId: null },
     ] },
     assets: { swatch: { mime: 'image/png', data: swatchPng } },
   }

@@ -32,6 +32,7 @@ export type ShadcnProp = Readonly<{ name: string; type: string; optional: boolea
 export type ShadcnComponent = Readonly<{
   path: string
   exportName: string
+  packageName: string | null
   declarationKind: 'function' | 'variable' | 'forwardRef' | 'memo'
   props: readonly ShadcnProp[]
   slots: readonly string[]
@@ -58,11 +59,13 @@ export type ShadcnScan = Readonly<{
   tokens: readonly ShadcnToken[]
   sourceHashes: Readonly<Record<string, string>>
   diagnostics: readonly ShadcnDiagnostic[]
+  previewDependencies?: readonly Readonly<{ path: string; integrity: string }>[]
+  previewResolutions?: readonly Readonly<{ importer: string; specifier: string; path: string }>[]
 }>
 
 export type ShadcnPreviewPropRule =
-  | Readonly<{ kind: 'string' | 'number' | 'boolean' }>
-  | Readonly<{ kind: 'enum'; values: readonly (string | number | boolean)[] }>
+  | Readonly<{ kind: 'string' | 'number' | 'boolean'; optional: boolean }>
+  | Readonly<{ kind: 'enum'; values: readonly string[]; optional: boolean }>
 
 export type ShadcnPreviewRegistryComponent = Readonly<{
   componentId: string
@@ -85,6 +88,7 @@ export type ShadcnPreviewRegistryRequest = Readonly<{
     paths: readonly Readonly<{ pattern: string; target: string }>[]
   }>[]
   dependencies?: readonly Readonly<{ path: string; integrity: string }>[]
+  resolutions?: readonly Readonly<{ importer: string; specifier: string; path: string }>[]
   provider?: Readonly<ShadcnPreviewProviderConfig & { integrity: string; evidence: Readonly<{ configPath: string; integrity: string }> }>
   themeAdapters?: readonly Readonly<ShadcnThemeAdapterConfig & { integrity: string; evidence: Readonly<{ configPath: string; integrity: string }> }>[]
 }>
@@ -99,12 +103,20 @@ export type ShadcnPreviewRegistry = Readonly<{
 /** Renderer-safe catalog derived from the exact scanned components admitted to the verified preview registry. */
 export type ShadcnComponentCatalogEntry = Readonly<{
   componentId: string
+  symbolKey: string
   path: string
   exportName: string
+  packageName: string
   sourceHash: string
+  fingerprint: string
   props: readonly ShadcnProp[]
   slots: readonly string[]
 }>
+
+/** Exact browser-safe wire evidence accepted by repository binding reconciliation. */
+export type ShadcnSourceSymbolEvidence = Readonly<Pick<ShadcnComponentCatalogEntry,
+  'symbolKey' | 'packageName' | 'path' | 'exportName' | 'sourceHash' | 'fingerprint'
+>>
 
 export type ShadcnComponentCatalog = Readonly<{
   fingerprint: string

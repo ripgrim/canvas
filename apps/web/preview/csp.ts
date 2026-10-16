@@ -5,18 +5,19 @@ const editorFrameAncestors = [
   'https://canvas.ripgrim.com',
 ]
 
-function validatedLoopbackOrigin(value: string) {
+function validatedEditorOrigin(value: string) {
   const origin = new URL(value)
   const loopback = origin.hostname === '127.0.0.1' || origin.hostname === 'localhost'
-  if (origin.protocol !== 'http:' || !loopback || origin.origin !== value) {
-    throw new Error('The preview editor origin must be an HTTP loopback origin.')
+  const secureRemote = origin.protocol === 'https:' && !loopback
+  if ((!secureRemote && (origin.protocol !== 'http:' || !loopback)) || origin.origin !== value) {
+    throw new Error('The preview editor origin must be HTTPS or HTTP loopback.')
   }
   return origin.origin
 }
 
 export function createPreviewContentSecurityPolicy(additionalEditorOrigin?: string) {
   const ancestors = additionalEditorOrigin
-    ? [...editorFrameAncestors, validatedLoopbackOrigin(additionalEditorOrigin)]
+    ? [...editorFrameAncestors, validatedEditorOrigin(additionalEditorOrigin)]
     : editorFrameAncestors
   return [
     "default-src 'none'",

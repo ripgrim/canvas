@@ -388,6 +388,7 @@ function OutlineSection({ context }: { context: Context }) {
 
 function BorderSection({ context }: { context: Context }) {
   const { ids, targets, disabled } = context
+  const [focusSide, setFocusSide] = useState<BorderKey | null>(null)
   const aggregate = aggregateBorders(targets.map(target => target.appearance))
   const add = () => { commands().addBorder(ids) }
   if (aggregate.state === 'absent') return <AppearanceSection id="border" title={copy.border} absent addLabel={copy.addBorder} onAdd={add} disabled={disabled} />
@@ -397,14 +398,14 @@ function BorderSection({ context }: { context: Context }) {
   const entries = aggregate.value
   return <AppearanceSection id="border" title={copy.border} addLabel={copy.addBorder} onAdd={add} disabled={disabled}>
     <AppearanceList label={copy.borders}>
-      {entries.map((entry, index) => <BorderRow key={entry.side} context={context} entry={entry} present={entries.map(item => item.side)} mixed={aggregate.state === 'field-mixed' ? aggregate.mixed[index] ?? [] : []} />)}
+      {entries.map((entry, index) => <BorderRow key={entry.side} context={context} entry={entry} present={entries.map(item => item.side)} mixed={aggregate.state === 'field-mixed' ? aggregate.mixed[index] ?? [] : []} focus={focusSide === entry.side} onMoveFocus={setFocusSide} onFocusMounted={() => setFocusSide(null)} />)}
     </AppearanceList>
   </AppearanceSection>
 }
 
 const sideKeys: readonly BorderKey[] = ['all', 'top', 'bottom', 'left', 'right']
 
-function BorderRow({ context, entry, present, mixed }: { context: Context; entry: BorderEntry; present: readonly BorderKey[]; mixed: readonly StrokeField[] }) {
+function BorderRow({ context, entry, present, mixed, focus, onMoveFocus, onFocusMounted }: { context: Context; entry: BorderEntry; present: readonly BorderKey[]; mixed: readonly StrokeField[]; focus: boolean; onMoveFocus: (side: BorderKey) => void; onFocusMounted: () => void }) {
   const { ids, targets, disabled } = context
   const { side, stroke } = entry
   const name = copy.sides[side]
@@ -419,6 +420,7 @@ function BorderRow({ context, entry, present, mixed }: { context: Context; entry
   }
   const moveTo = (next: BorderKey) => {
     if (next === side) return
+    onMoveFocus(next)
     if (next === 'all') { commands().updateBorder(ids, 'all', stroke); return }
     if (side !== 'all') { commands().moveBorderSide(ids, side, next); return }
     // An "all" record becomes the chosen single side; each node keeps its own stroke.
@@ -430,8 +432,8 @@ function BorderRow({ context, entry, present, mixed }: { context: Context; entry
   }
   const options = sideKeys.map(key => ({ value: key, label: copy.sides[key], disabled: key !== side && key !== 'all' && present.includes(key) }))
   return <AppearanceItem label={name}>
-    <AppearanceLine>
-      <AppearanceSelect id={`border-${side}-side`} label={copy.borderSide(name)} value={side} options={options} disabled={disabled} onChange={next => moveTo(next as BorderKey)} />
+    <AppearanceLine layout="border">
+      <AppearanceSelect id={`border-${side}-side`} label={copy.borderSide(name)} value={side} options={options} disabled={disabled} focusOnMount={focus} onFocusMounted={onFocusMounted} onChange={next => moveTo(next as BorderKey)} />
       <InspectorNumberField id={`border-${side}-width`} label={copy.borderWidth(name)} prefix={<AppearanceFieldGlyph name="stroke-width" />} value={mixed.includes('width') ? null : stroke.width} placeholder={copy.mixed} min={0} max={1000} disabled={disabled} onCommit={width => edit({ width })} onScrubStart={() => liveEdit(targets, (appearance, width) => withBorder(appearance, side, current => editStroke(current, { width })))} />
       <AppearanceSelect id={`border-${side}-style`} label={copy.borderStyle(name)} value={mixed.includes('style') ? null : stroke.style} placeholder={copy.mixed} options={strokeStyles} disabled={disabled} onChange={style => edit({ style: style as StrokeStyle })} />
       <AppearanceVisibilityButton visible={stroke.visible !== false && !mixed.includes('visible')} showLabel={copy.showBorder(name)} hideLabel={copy.hideBorder(name)} disabled={disabled} onChange={setVisible} />

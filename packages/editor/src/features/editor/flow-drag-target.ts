@@ -8,6 +8,7 @@ import { measuredFlexInsertIndex } from './flex-reorder'
 import type { FlexReorderSibling } from './flex-reorder'
 import { validFlowDragState } from './flow-drag-state'
 import type { FlowDragSourceRelationship, FlowDragTarget, PaperFlowDragState } from './flow-drag-state'
+import { isPlaceableAtom } from '@canvas/repo-engine/contracts'
 
 export type ResolveFlowDragTargetInput = Readonly<{
   authority: GestureAuthoritySnapshot
@@ -58,7 +59,7 @@ function currentAuthority(authority: GestureAuthoritySnapshot, state: PaperFlowD
 
 function componentSlot(authority: GestureAuthoritySnapshot, parent: Extract<FileNode, { type: 'component' }>, child: FileNode): FlowDragSourceRelationship['slot'] | null {
   if (child.type !== 'component') return null
-  const declarations = authority.atoms.filter(atom => atom.status === 'bound' && atom.componentId === parent.componentId && atom.exportName === parent.exportName)
+  const declarations = authority.atoms.filter(atom => isPlaceableAtom(atom) && atom.componentId === parent.componentId && atom.exportName === parent.exportName)
   if (declarations.length !== 1) return null
   const slots = getNodeSlots(declarations[0]!)
   if (slots.length !== 1 || !acceptsChild(parent, child, slots[0], [...authority.atoms])) return null

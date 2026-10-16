@@ -324,17 +324,20 @@ const operationFromRow = (row: OperationRow): CollaborationOperation => Object.f
   committedAt: iso(row.committed_at),
 })
 
-const projectionFromRow = (row: ProjectionRow): CollaborationProjection => Object.freeze({
-  fileId: row.file_id,
-  sequence: integer(row.sequence, 'projection sequence'),
-  documentSchemaVersion: row.document_schema_version,
-  document: Object.freeze(row.document),
-  documentDigest: row.document_digest,
-  generationId: row.generation_id,
-  fencingToken: integer(row.fencing_token, 'fencing token'),
-  authority: row.authority,
-  updatedAt: iso(row.updated_at),
-})
+const projectionFromRow = (row: ProjectionRow): CollaborationProjection => {
+  if (collaborationDocumentDigest(row.document) !== row.document_digest) throw new Error('Collaboration projection digest does not match its document.')
+  return Object.freeze({
+    fileId: row.file_id,
+    sequence: integer(row.sequence, 'projection sequence'),
+    documentSchemaVersion: row.document_schema_version,
+    document: Object.freeze(row.document),
+    documentDigest: row.document_digest,
+    generationId: row.generation_id,
+    fencingToken: integer(row.fencing_token, 'fencing token'),
+    authority: row.authority,
+    updatedAt: iso(row.updated_at),
+  })
+}
 
 const checkpointFromRow = (row: CheckpointRow): CollaborationCheckpoint => Object.freeze({
   fileId: row.file_id,

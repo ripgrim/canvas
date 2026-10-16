@@ -2,6 +2,8 @@ import { useRef, useState } from 'react'
 import type { KeyboardEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import { Select } from '@base-ui/react/select'
 import { Icon } from './atoms'
+import type { IconName } from './atoms'
+import { floatingPortalContainer } from './floating-portal'
 import './appearance.css'
 
 /** A pointer drag owned by the caller: `move` previews, `end` commits once, `cancel` restores exactly. */
@@ -95,7 +97,7 @@ export function AppearanceSection({ id, title, absent = false, actions, addLabel
 }
 
 /** One 24 px control row with 4 px vertical padding. `lead` keeps the first control compact. */
-export function AppearanceLine({ lead = false, layout = 'balanced', children }: { lead?: boolean; layout?: 'balanced' | 'value-actions'; children: ReactNode }) {
+export function AppearanceLine({ lead = false, layout = 'balanced', children }: { lead?: boolean; layout?: 'balanced' | 'value-actions' | 'border'; children: ReactNode }) {
   return <div className="appearance-line" data-lead={lead || undefined} data-layout={layout === 'balanced' ? undefined : layout}>{children}</div>
 }
 
@@ -176,17 +178,21 @@ export function AppearanceDragHandle({ label, disabled = false, onDragStart }: {
 
 // Inputs --------------------------------------------------------------------------------------------------------------
 
-export type AppearanceOption = Readonly<{ value: string; label: string; disabled?: boolean }>
+export type AppearanceOption = Readonly<{ value: string; label: string; icon?: IconName; disabled?: boolean }>
+export type AppearanceOptionGroup = Readonly<{ label?: string; options: readonly AppearanceOption[] }>
 
 /** A themed inspector select with grouped options, keyboard navigation, and focus restoration. */
-export function AppearanceSelect({ id, label, prefix, value, placeholder, options, groups, align = 'center', layer = 'default', placement = 'auto', disabled = false, onChange }: { id: string; label: string; prefix?: ReactNode; value: string | null; placeholder?: string; options?: readonly AppearanceOption[]; groups?: readonly (readonly AppearanceOption[])[]; align?: 'center' | 'start'; layer?: 'default' | 'popover'; placement?: 'auto' | 'bottom'; disabled?: boolean; onChange: (value: string) => void }) {
-  const sets = groups ?? [options ?? []]
+export function AppearanceSelect({ id, label, prefix, value, placeholder, options, groups, align = 'center', layer = 'default', placement = 'auto', className, disabled = false, focusOnMount = false, onFocusMounted, onChange }: { id: string; label: string; prefix?: ReactNode; value: string | null; placeholder?: string; options?: readonly AppearanceOption[]; groups?: readonly (readonly AppearanceOption[] | AppearanceOptionGroup)[]; align?: 'center' | 'start'; layer?: 'default' | 'popover' | 'dialog'; placement?: 'auto' | 'bottom'; className?: string; disabled?: boolean; focusOnMount?: boolean; onFocusMounted?: () => void; onChange: (value: string) => void }) {
+  const sets: readonly AppearanceOptionGroup[] = groups
+    ? groups.map(group => Array.isArray(group) ? { options: group as readonly AppearanceOption[] } : group as AppearanceOptionGroup)
+    : [{ options: options ?? [] }]
   const trigger = useRef<HTMLButtonElement>(null)
   const [container, setContainer] = useState<HTMLElement | null>(null)
-  const selected = sets.flat().find(option => option.value === value)
-  return <Select.Root value={value} disabled={disabled} onOpenChange={open => { if (open) setContainer(trigger.current?.closest<HTMLElement>('.editor-root') ?? null) }} onValueChange={next => { if (next !== null) onChange(next) }}>
-    <Select.Trigger ref={trigger} id={id} className="inspector-field inspector-select appearance-select" aria-label={label} title={label} data-align={align} data-disabled={disabled || undefined} data-mixed={value === null || undefined} data-prefix={prefix === undefined ? undefined : ''}>
-      {prefix !== undefined && <span className="inspector-field-prefix appearance-select-prefix" aria-hidden="true">{prefix}</span>}
+  const selected = sets.flatMap(set => set.options).find(option => option.value === value)
+  const selectedPrefix = prefix ?? (selected?.icon ? <Icon name={selected.icon} /> : undefined)
+  return <Select.Root value={value} disabled={disabled} onOpenChange={open => { if (open) setContainer(floatingPortalContainer(trigger.current)) }} onValueChange={next => { if (next !== null) onChange(next) }}>
+    <Select.Trigger ref={element => { trigger.current = element; if (element && focusOnMount) { element.focus(); onFocusMounted?.() } }} id={id} className={`inspector-field inspector-select appearance-select${className ? ` ${className}` : ''}`} aria-label={label} title={label} data-align={align} data-disabled={disabled || undefined} data-mixed={value === null || undefined} data-prefix={selectedPrefix === undefined ? undefined : ''}>
+      {selectedPrefix !== undefined && <span className="inspector-field-prefix appearance-select-prefix" aria-hidden="true">{selectedPrefix}</span>}
       <span className="inspector-input appearance-select-value">{selected?.label ?? placeholder}</span>
       <Select.Icon className="inspector-select-chevron"><Icon name="chevron" /></Select.Icon>
     </Select.Trigger>
@@ -194,9 +200,11 @@ export function AppearanceSelect({ id, label, prefix, value, placeholder, option
       <Select.Positioner className="appearance-select-positioner" data-align={align} data-layer={layer} side="bottom" sideOffset={4} alignItemWithTrigger={false} collisionAvoidance={placement === 'bottom' ? { side: 'none', align: 'shift', fallbackAxisSide: 'none' } : undefined}>
         <Select.Popup className="appearance-select-popup">
           <Select.List className="appearance-select-list">
-            {sets.map((set, index) => <Select.Group key={`group-${index}`} className="appearance-select-group">
+            {sets.map((set, index) => <Select.Group key={`${set.label ?? 'group'}-${index}`} className="appearance-select-group" {...(set.label ? { 'aria-label': set.label } : {})}>
               {index > 0 && <Select.Separator className="appearance-select-separator" />}
-              {set.map(option => <Select.Item key={option.value} className="appearance-select-item" value={option.value} disabled={option.disabled} label={option.label}>
+              {set.label && <span className="appearance-select-group-label" aria-hidden="true">{set.label}</span>}
+              {set.options.map(option => <Select.Item key={option.value} className="appearance-select-item" value={option.value} disabled={option.disabled} label={option.label} data-icon={option.icon ? '' : undefined}>
+                {option.icon && <span className="appearance-select-item-icon" aria-hidden="true"><Icon name={option.icon} /></span>}
                 <Select.ItemText className="appearance-select-item-text">{option.label}</Select.ItemText>
                 <Select.ItemIndicator className="appearance-select-indicator">✓</Select.ItemIndicator>
               </Select.Item>)}

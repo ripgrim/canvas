@@ -13,6 +13,10 @@ import type { Appearance, ColorToken, ColorValue, FileDocument, FileNode, NodeRe
 import { record, validateNodeLayout } from './document.js'
 import { orderKeySequence } from './order-keys.js'
 import { legacyTextProperties } from './text.js'
+import { matrixFromLegacyPose } from './layout-pose.js'
+import { multiplyTransforms, normalizeTransform, rotationTransform, scaleTransform } from './transform-matrix.js'
+import { reconcileVariantAppearances, validateComponentDefinition } from './component-model.js'
+import type { ComponentDefinition } from './component-model.js'
 
 export type LegacyPage = { id: string; name: string; document: EditorDocument }
 export type MigrationResult = { file: FileDocument; diagnostics: string[] }
@@ -35,7 +39,7 @@ const builtInTokenId = (name: string) => `legacy:builtin:${name}`
 
 export const isLegacyDocument = (value: unknown): value is EditorDocument => typeof value === 'object' && value !== null && (value as { version?: unknown }).version === 1
 /** Any stored design file this build can read, including every supported predecessor upgraded on read. */
-export const isFileDocumentShape = (value: unknown): value is FileDocument => typeof value === 'object' && value !== null && [2, 3, 4, 5, 6, 7, 8, fileSchemaVersion].includes((value as { schemaVersion?: unknown }).schemaVersion as number)
+export const isFileDocumentShape = (value: unknown): value is FileDocument => typeof value === 'object' && value !== null && [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, fileSchemaVersion].includes((value as { schemaVersion?: unknown }).schemaVersion as number)
 
 type LegacyPaint = { type: 'solid'; color: ColorValue; visible?: boolean } | { type: 'linear-gradient'; angle: number; stops: { id: string; position: number; color: ColorValue }[]; visible?: boolean }
 /** Version 2 kept `fills` top-first with the first visible paint drawn; version 3 stores bottom-to-top with stable ids. */
@@ -55,7 +59,7 @@ function upgradePaints(fills: unknown, nodeId: string): Appearance | undefined {
  * for the validator to reject.
  */
 export function upgradeFileDocument(input: unknown): unknown {
-  return upgradeV8ToV9(upgradeV7ToV8(upgradeV6ToV7(upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(input)))))))
+  return upgradeV12ToV13(upgradeV11ToV12(upgradeV10ToV11(upgradeV9ToV10(upgradeV8ToV9(upgradeV7ToV8(upgradeV6ToV7(upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(input)))))))))))
 }
 function upgradeV2ToV3(input: unknown): unknown {
   if (!record(input) || input.schemaVersion !== 2 || !record(input.nodes)) return input
@@ -122,7 +126,72 @@ function upgradeV8ToV9(input: unknown): unknown {
   if (!record(input) || input.schemaVersion !== 8 || !record(input.nodes)) return input
   // A v8 root or primitive could not own layout. Refuse to bless that formerly invalid shape as v9 input.
   if (Object.values(input.nodes).some(node => record(node) && node.type !== 'component' && own(node, 'layout'))) return input
-  return { ...input, schemaVersion: fileSchemaVersion }
+  return { ...input, schemaVersion: 9 }
+}
+
+/** Version 10 persists the component definition and instance registry. Existing files begin with an empty registry. */
+function upgradeV9ToV10(input: unknown): unknown {
+  if (!record(input) || input.schemaVersion !== 9 || own(input, 'componentModel')) return input
+  return { ...input, schemaVersion: 10, componentModel: { definitions: {}, instances: {} } }
+}
+
+const legacyStyleKeys = new Set(['left', 'top', 'width', 'height', 'rotation', 'flipX', 'flipY', 'overflow'])
+function migrateLegacyStyles(value: unknown): unknown {
+  if (!record(value) || Object.keys(value).some(key => !legacyStyleKeys.has(key))) return value
+  if (![value.left, value.top, value.width, value.height].every(item => typeof item === 'number' && Number.isFinite(item))) return value
+  if (own(value, 'rotation') && (typeof value.rotation !== 'number' || !Number.isFinite(value.rotation))) return value
+  if (own(value, 'flipX') && typeof value.flipX !== 'boolean' || own(value, 'flipY') && typeof value.flipY !== 'boolean') return value
+  const relativeTransform = matrixFromLegacyPose({ left: value.left as number, top: value.top as number, ...(own(value, 'rotation') ? { rotation: value.rotation as number } : {}), ...(value.flipX === true ? { flipX: true } : {}), ...(value.flipY === true ? { flipY: true } : {}) }, { width: value.width as number, height: value.height as number })
+  return { relativeTransform, width: value.width, height: value.height, ...(own(value, 'overflow') ? { overflow: value.overflow } : {}) }
+}
+
+/** Version 11 makes the affine relative transform the sole persisted pose authority. */
+function upgradeV10ToV11(input: unknown): unknown {
+  if (!record(input) || input.schemaVersion !== 10 || !record(input.nodes)) return input
+  const nodes: Record<string, unknown> = {}
+  for (const [id, node] of Object.entries(input.nodes)) nodes[id] = record(node) && node.type !== 'root' && node.type !== 'component' && own(node, 'styles')
+    ? { ...node, styles: migrateLegacyStyles(node.styles) }
+    : node
+  return { ...input, schemaVersion: 12, nodes }
+}
+
+function migrateComponentTransform(value: unknown): unknown {
+  if (!record(value) || Object.keys(value).some(key => key !== 'rotate' && key !== 'scale')) return value
+  const rotate = own(value, 'rotate') ? value.rotate : 0
+  const scale = own(value, 'scale') ? value.scale : 1
+  if (typeof rotate !== 'number' || !Number.isFinite(rotate)) return value
+  const scaleX = typeof scale === 'number' ? scale : record(scale) && Object.keys(scale).sort().join(',') === 'x,y' ? scale.x : null
+  const scaleY = typeof scale === 'number' ? scale : record(scale) && Object.keys(scale).sort().join(',') === 'x,y' ? scale.y : null
+  if (typeof scaleX !== 'number' || !Number.isFinite(scaleX) || typeof scaleY !== 'number' || !Number.isFinite(scaleY) || Math.abs(scaleX * scaleY) < 1e-12) return value
+  return { matrix: normalizeTransform(multiplyTransforms(rotationTransform(rotate), scaleTransform(scaleX, scaleY))) }
+}
+
+/** Version 12 stores a component root's complete affine transform instead of lossy rotate and scale fields. */
+function upgradeV11ToV12(input: unknown): unknown {
+  if (!record(input) || input.schemaVersion !== 11 || !record(input.nodes)) return input
+  const nodes: Record<string, unknown> = {}
+  for (const [id, node] of Object.entries(input.nodes)) {
+    if (!record(node) || node.type !== 'component' || !record(node.layout) || !record(node.layout.item) || !own(node.layout.item, 'transform')) { nodes[id] = node; continue }
+    const item = { ...node.layout.item, transform: migrateComponentTransform(node.layout.item.transform) }
+    nodes[id] = { ...node, layout: { ...node.layout, item } }
+  }
+  return { ...input, schemaVersion: 12, nodes }
+}
+
+/** Version 13 stores exact compound Variant appearance tables derived from v12 axes without changing rendered output. */
+function upgradeV12ToV13(input: unknown): unknown {
+  if (!record(input) || input.schemaVersion !== 12 || !record(input.componentModel) || !record(input.componentModel.definitions)) return input
+  const definitions: Record<string, unknown> = {}
+  for (const [id, definition] of Object.entries(input.componentModel.definitions)) {
+    try {
+      const legacy = definition as ComponentDefinition
+      const counts = new Map<string, number>()
+      for (const property of legacy.properties) if (property.type === 'variant' && property.binding) counts.set(property.binding.nodeId, (counts.get(property.binding.nodeId) ?? 0) + 1)
+      const tables = Object.fromEntries(Object.entries(reconcileVariantAppearances(legacy)).filter(([nodeId]) => (counts.get(nodeId) ?? 0) > 1))
+      definitions[id] = validateComponentDefinition(Object.keys(tables).length ? { ...legacy, variantAppearances: tables } : legacy)
+    } catch { definitions[id] = definition }
+  }
+  return { ...input, schemaVersion: fileSchemaVersion, componentModel: { ...input.componentModel, definitions } }
 }
 
 type TokenPlan = { tokens: Record<string, ColorToken>; byPage: Map<string, Map<string, string>>; order: string[] }
@@ -211,7 +280,7 @@ export function migrateLegacyPages(fileId: string, pages: LegacyPage[], atoms: A
       if (nodes[element.id]) throw new Error(`Node ${element.id} appears in more than one page`)
       nodes[element.id] = {
         id: element.id, type: element.kind, name: element.name,
-        styles: { left: element.x, top: element.y, width: element.width, height: element.height, ...(element.rotation ? { rotation: element.rotation } : {}), ...(element.kind === 'frame' ? { overflow: element.clip === false ? 'visible' : 'clip' } : {}) },
+        styles: { relativeTransform: matrixFromLegacyPose({ left: element.x, top: element.y, ...(element.rotation ? { rotation: element.rotation } : {}) }, element), width: element.width, height: element.height, ...(element.kind === 'frame' ? { overflow: element.clip === false ? 'visible' : 'clip' } : {}) },
         appearance: { fills: paintsFor(plan, page.id, element, diagnostics) },
         ...(element.kind === 'text' ? { text: element.text ?? '', ...legacyTextProperties() } : {}),
         themeMode: 'inherit',
@@ -226,7 +295,7 @@ export function migrateLegacyPages(fileId: string, pages: LegacyPage[], atoms: A
   }
   const tokenKeys = orderKeySequence(plan.order.length)
   plan.order.forEach((id, index) => { plan.tokens[id]!.orderKey = tokenKeys[index]! })
-  const file: FileDocument = { schemaVersion: fileSchemaVersion, fileId, revision: 0, pages: filePages, nodes, relationships, theme: { tokens: plan.tokens } }
+  const file: FileDocument = { schemaVersion: fileSchemaVersion, fileId, revision: 0, pages: filePages, nodes, relationships, theme: { tokens: plan.tokens }, componentModel: { definitions: {}, instances: {} } }
   return { file: validateFileDocument(file, atoms, options), diagnostics }
 }
 

@@ -2,7 +2,7 @@ import { createStore } from 'zustand/vanilla'
 import type { EditorProjectApi, EditorRepositoryConnection } from '../../capabilities'
 import { documentStore } from './document-store'
 import { editorStore } from './store'
-import { connectedRegistryAtoms, documentRegistryAtoms } from './component-registry'
+import { connectedRegistryAtoms, connectedRegistryDefinitions, documentRegistryAtoms } from './component-registry'
 
 type RepositoryConnectionState = Readonly<{
   status: 'idle' | 'busy' | 'ready' | 'error'
@@ -17,8 +17,16 @@ let api: EditorProjectApi | undefined
 let generation = 0
 let retry: (() => Promise<EditorRepositoryConnection | null>) | null = null
 let retryKind: Exclude<RepositoryConnectionState['operation'], null> = 'scan'
+let stopDocumentSync: (() => void) | null = null
 
 const message = (error: unknown) => error instanceof Error ? error.message : 'The repository could not be connected.'
+
+function syncConnection(connection: EditorRepositoryConnection) {
+  const active = connectedRegistryAtoms(connection)
+  const document = documentStore.getSnapshot()
+  const atoms = documentRegistryAtoms(document.file, active, document.atoms)
+  documentStore.commands.components.reconcileCodeDefinitions(connectedRegistryDefinitions(active), atoms)
+}
 
 async function run(kind: Exclude<RepositoryConnectionState['operation'], null>, operation: () => Promise<EditorRepositoryConnection | null>) {
   const current = ++generation
@@ -29,9 +37,7 @@ async function run(kind: Exclude<RepositoryConnectionState['operation'], null>, 
     const connection = await operation()
     if (current !== generation) return
     if (connection) {
-      const active = connectedRegistryAtoms(connection)
-      const document = documentStore.getSnapshot()
-      documentStore.setAtoms(documentRegistryAtoms(document.file, active, document.atoms))
+      syncConnection(connection)
       if (editorStore.getSnapshot().snapshot) await editorStore.refresh()
       if (current !== generation) return
       backing.setState({ status: 'ready', operation: null, connection, error: null })
@@ -46,6 +52,11 @@ export const repositoryConnectionService = {
   subscribe: backing.subscribe,
   getSnapshot: backing.getState,
   configure(next: EditorProjectApi | undefined) {
+    stopDocumentSync?.()
+    stopDocumentSync = documentStore.subscribe(() => {
+      const connection = backing.getState().connection
+      if (connection) syncConnection(connection)
+    })
     api = next
     generation += 1
     backing.setState(initialState, true)
@@ -73,6 +84,8 @@ export const repositoryConnectionService = {
     if (retry) void run(retryKind, retry)
   },
   dispose() {
+    stopDocumentSync?.()
+    stopDocumentSync = null
     generation += 1
     api = undefined
     retry = null

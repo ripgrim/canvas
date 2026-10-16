@@ -9,7 +9,7 @@ export type ContextMenuAction = {
   shortcut?: string
   disabled?: boolean
   reason?: string
-  onSelect?: () => void
+  onSelect?: (target?: EventTarget | null) => void
   children?: ContextMenuAction[]
 }
 
@@ -48,7 +48,7 @@ function MenuEntry({ action, onClose, focus, portalRoot }: { action: ContextMenu
     if (action.disabled) return
     if (hasSubmenu) { openSubmenu(); return }
     if (!action.onSelect) return
-    action.onSelect()
+    action.onSelect(triggerRef.current)
     onClose()
   }
   const navigateSubmenu = (event: KeyboardEvent<HTMLButtonElement>) => {

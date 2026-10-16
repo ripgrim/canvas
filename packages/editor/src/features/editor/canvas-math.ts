@@ -4,6 +4,9 @@
  * Every pointer, threshold, and HUD value is in CSS pixels. World units are document pixels at 100%.
  * screen = viewportCenter + camera + world * zoom. Constants cite outputs/wonder-canvas-evidence.md.
  */
+import { apply, invert, isFiniteMatrix } from '@canvas/repo-engine/layout-matrix'
+import type { Matrix } from '@canvas/repo-engine/layout-matrix'
+
 export type Camera = { x: number; y: number; zoom: number }
 export type Size = { width: number; height: number }
 export type Point = { x: number; y: number }
@@ -168,7 +171,7 @@ export type ResizeGestureState = Readonly<{
   phase: ResizeGesturePhase
   pointer: Point
   rect: Rect
-  rotationDegrees: number
+  nodeTransform: Matrix
   /** Handle used by the current rebased resize origin. */
   handle: ResizeHandle
   /** Handle currently under the pointer after any axis crossings. */
@@ -211,16 +214,16 @@ export function effectiveResizeHandle(handle: ResizeHandle, crossedX: boolean, c
   return resizeHandle(effectiveHorizontal, effectiveVertical)
 }
 
-/** World-space center of a visual resize handle after applying the node rotation around its center. */
-export function resizeHandleCenter(rect: Rect, handle: ResizeHandle, rotationDegrees: number): Point {
+const linearTransform = (matrix: Matrix): Matrix => [matrix[0], matrix[1], matrix[2], matrix[3], 0, 0]
+
+/** Parent-space center of a visual resize handle after applying the node's full affine linear transform. */
+export function resizeHandleCenter(rect: Rect, handle: ResizeHandle, nodeTransform: Matrix): Point {
   const horizontal = resizeDirection(handle, 'left', 'right')
   const vertical = resizeDirection(handle, 'top', 'bottom')
   const local = { x: horizontal * rect.width / 2, y: vertical * rect.height / 2 }
-  const radians = rotationDegrees * Math.PI / 180
-  const cosine = cardinalTrig(Math.cos(radians))
-  const sine = cardinalTrig(Math.sin(radians))
   const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
-  return { x: center.x + local.x * cosine - local.y * sine, y: center.y + local.x * sine + local.y * cosine }
+  const transformed = apply(linearTransform(nodeTransform), local)
+  return { x: center.x + transformed.x, y: center.y + transformed.y }
 }
 
 function resizeLocalRect(start: Rect, handle: ResizeHandle, localDelta: Point, options: ResizeOptions): ResizeResult {
@@ -288,31 +291,25 @@ export function resizeRect(start: Rect, handle: ResizeHandle, delta: Point, opti
   return resizeRectResult(start, handle, delta, options).rect
 }
 
-const cardinalTrig = (value: number) => Math.abs(value) < 1e-12 ? 0 : Math.abs(Math.abs(value) - 1) < 1e-12 ? Math.sign(value) : value
-
-/** Detailed rotation-aware resize state. Geometry is calculated in local axes, then projected back to world space. */
-export function resizeRotatedRectResult(start: Rect, handle: ResizeHandle, delta: Point, rotationDegrees: number, options: ResizeOptions): ResizeResult {
-  const radians = rotationDegrees * Math.PI / 180
-  const cosine = cardinalTrig(Math.cos(radians))
-  const sine = cardinalTrig(Math.sin(radians))
-  const localDelta = { x: delta.x * cosine + delta.y * sine, y: -delta.x * sine + delta.y * cosine }
+/** Detailed affine resize state. Geometry is calculated in node-local axes, then projected back to parent space. */
+export function resizeTransformedRectResult(start: Rect, handle: ResizeHandle, delta: Point, nodeTransform: Matrix, options: ResizeOptions): ResizeResult {
+  const linear = linearTransform(nodeTransform)
+  const inverse = isFiniteMatrix(linear) ? invert(linear) : null
+  if (!inverse) throw new Error('Resize transform must be finite and invertible')
+  const projectedDelta = apply(inverse, delta)
+  const localDelta = {
+    x: Math.abs(projectedDelta.x) < 1e-12 ? 0 : projectedDelta.x,
+    y: Math.abs(projectedDelta.y) < 1e-12 ? 0 : projectedDelta.y,
+  }
   const localStart = { x: -start.width / 2, y: -start.height / 2, width: start.width, height: start.height }
   const result = resizeLocalRect(localStart, handle, localDelta, options)
   const localCenter = { x: result.rect.x + result.rect.width / 2, y: result.rect.y + result.rect.height / 2 }
-  const worldCenterShift = {
-    x: localCenter.x * cosine - localCenter.y * sine,
-    y: localCenter.x * sine + localCenter.y * cosine,
-  }
-  const center = { x: start.x + start.width / 2 + worldCenterShift.x, y: start.y + start.height / 2 + worldCenterShift.y }
+  const parentCenterShift = apply(linear, localCenter)
+  const center = { x: start.x + start.width / 2 + parentCenterShift.x, y: start.y + start.height / 2 + parentCenterShift.y }
   return {
     ...result,
     rect: { x: center.x - result.rect.width / 2, y: center.y - result.rect.height / 2, width: result.rect.width, height: result.rect.height },
   }
-}
-
-/** Compatibility wrapper for callers that only need the next positive-dimension rectangle. */
-export function resizeRotatedRect(start: Rect, handle: ResizeHandle, delta: Point, rotationDegrees: number, options: ResizeOptions): Rect {
-  return resizeRotatedRectResult(start, handle, delta, rotationDegrees, options).rect
 }
 
 const axesForHandle = (handle: ResizeHandle): readonly ResizeAxis[] => [
@@ -321,9 +318,10 @@ const axesForHandle = (handle: ResizeHandle): readonly ResizeAxis[] => [
 ]
 
 /** Starts the pure resize/Space-move state machine at the pointer-down sample. */
-export function beginResizeGesture(start: Rect, handle: ResizeHandle, pointer: Point, rotationDegrees: number): ResizeGestureState {
+export function beginResizeGesture(start: Rect, handle: ResizeHandle, pointer: Point, nodeTransform: Matrix): ResizeGestureState {
+  if (!isFiniteMatrix(linearTransform(nodeTransform))) throw new Error('Resize transform must be finite and invertible')
   return {
-    phase: 'resize', pointer, rect: start, rotationDegrees, handle, effectiveHandle: handle,
+    phase: 'resize', pointer, rect: start, nodeTransform: linearTransform(nodeTransform), handle, effectiveHandle: handle,
     resizeOriginPointer: pointer, resizeOriginRect: start,
     spaceOriginPointer: pointer, spaceOriginRect: start,
     spaceEntrySymmetric: null,
@@ -342,9 +340,9 @@ export function advanceResizeGesture(state: ResizeGestureState, sample: ResizeGe
     const originPointer = entering ? state.pointer : state.spaceOriginPointer
     const originRect = entering ? state.rect : state.spaceOriginRect
     const delta = { x: sample.pointer.x - originPointer.x, y: sample.pointer.y - originPointer.y }
-    const activeControl = entering ? resizeHandleCenter(state.rect, state.effectiveHandle, state.rotationDegrees) : null
+    const activeControl = entering ? resizeHandleCenter(state.rect, state.effectiveHandle, state.nodeTransform) : null
     const oppositeControl = entering && sample.options.symmetric
-      ? resizeHandleCenter(state.rect, effectiveResizeHandle(state.effectiveHandle, true, true), state.rotationDegrees)
+      ? resizeHandleCenter(state.rect, effectiveResizeHandle(state.effectiveHandle, true, true), state.nodeTransform)
       : activeControl
     const resizeOriginPointer = activeControl && oppositeControl
       ? {
@@ -377,7 +375,7 @@ export function advanceResizeGesture(state: ResizeGestureState, sample: ResizeGe
   }
 
   const delta = { x: sample.pointer.x - state.resizeOriginPointer.x, y: sample.pointer.y - state.resizeOriginPointer.y }
-  const result = resizeRotatedRectResult(state.resizeOriginRect, state.handle, delta, state.rotationDegrees, sample.options)
+  const result = resizeTransformedRectResult(state.resizeOriginRect, state.handle, delta, state.nodeTransform, sample.options)
   return {
     ...state,
     pointer: sample.pointer, rect: result.rect, effectiveHandle: result.effectiveHandle,

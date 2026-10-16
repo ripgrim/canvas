@@ -22,7 +22,8 @@ const px = (value: number) => ({ kind: 'px' as const, value })
  * title has no layout at all.
  */
 const fixture = (): FileDocument => validateFileDocument({
-  schemaVersion: 9,
+  schemaVersion: 13,
+  componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 3,
   pages: [{ id: 'page-1', name: 'Layout', rootNodeId: 'root-1' }],
@@ -144,7 +145,9 @@ const samples: [string, unknown, boolean][] = [
   ['sizes', { width: 'fit-content', height: '100%', 'min-width': '10px', 'min-height': '10%', 'max-width': 'none', 'max-height': 'max-content' }, true],
   ['flex item', { 'flex-grow': '1', 'flex-shrink': '0', 'flex-basis': 'content' }, true],
   ['grid item', { 'grid-column-start': 'span 2', 'grid-column-end': '3', 'grid-row-start': '1', 'grid-row-end': 'span 4', 'justify-self': 'center', 'align-self': 'baseline', 'justify-items': 'start' }, true],
-  ['transform', { transform: 'rotate(45deg) scale(1.5, 2)', 'aspect-ratio': '1.5' }, true],
+  ['transform', { transform: 'matrix(1.06066017178, 1.06066017178, -1.414213562373, 1.414213562373, 0, 0)', 'aspect-ratio': '1.5' }, true],
+  ['legacy transform functions', { transform: 'rotate(45deg) scale(1.5, 2)' }, false],
+  ['translated matrix', { transform: 'matrix(1, 0, 0, 1, 2, 3)' }, false],
   ['spacing', { 'margin-left': 'auto', 'margin-top': '-4px', 'padding-top': '0px', 'padding-left': '16px' }, true],
   ['url value', { display: 'url(x)' }, false],
   ['inline display', { display: 'inline' }, false],

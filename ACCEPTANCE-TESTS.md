@@ -12,11 +12,11 @@ Verify the stored text model and migration, preview CSS, legacy visual preservat
 
 ### PAPER-FLEX-001 through PAPER-FLEX-008
 
-Verify Add flex, Wrap in flex, Remove flex, inference, absolute-child preservation, flow and absolute transitions, the Paper-order inspector, alignment matrix keyboard behavior, gaps, padding, baseline modes, reorder, duplicate, modifier drops, rotated resize, one semantic undo, and live two-client convergence. Negative controls must catch world-geometry drift, an absolute child entering flow, direction changes that preserve wrapping, a final commit that differs from the final live state, and more than one undo entry for one gesture.
+Verify Add flex, Wrap in flex, Remove flex, inference, absolute-child preservation, flow and absolute transitions, the Paper-order inspector, alignment matrix keyboard behavior, gaps, padding, baseline modes, reorder, duplicate, modifier drops, rotated resize, one semantic undo, and live two-client convergence. Add flex remains unavailable through a temporary geometry gap, recovers when a matching packet arrives, and rejects stale document or layout generations. Negative controls must catch world-geometry drift, an absolute child entering flow, direction changes that preserve wrapping, a final commit that differs from the final live state, and more than one undo entry for one gesture. Evidence: `packages/editor/src/features/editor/layout-flex-actions.test.ts`, `packages/editor/src/features/editor/preview-asset-connection.test.ts`.
 
 ### PAPER-CLIP-001 through PAPER-CLIP-008
 
-Verify MIME precedence, versioned internal payloads, editable-target bypass, SVG sanitization, image conversion and limits, same-file and cross-file insertion, asset and token reconciliation, placement, Paste on top, Paste to replace, partial multi-image success, one semantic batch, one undo entry, and live two-client convergence. Negative controls must reject scripts, event handlers, external SVG references, over-limit payloads, invalid tree relationships, private asset fields, unauthorized cut or replace, and a paste that commits before every required asset is verified.
+Verify MIME precedence, versioned internal payloads, editable-target bypass, SVG sanitization, image conversion and limits, same-file and cross-file insertion, asset and token reconciliation, placement, Paste on top, Paste to replace, partial multi-image success, one semantic batch, one undo entry, and live two-client convergence. Negative controls must reject scripts, event handlers, external SVG references, over-limit payloads, invalid tree relationships, private asset fields, unauthorized cut or replace, and a paste that commits before every required asset is verified. Evidence: `packages/editor/src/features/editor/editor-clipboard-service.client.test.ts`, `packages/editor/src/features/editor/clipboard-internal.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `apps/sync-room-core/tests/network.test.ts`.
 
 ## Evidence rules
 
@@ -25,6 +25,80 @@ Verify MIME precedence, versioned internal payloads, editable-target bypass, SVG
 - Critical tests include a negative control or targeted mutation that must fail.
 - Keep screenshots, recordings, diffs, and diagnostics with the test result.
 - Label unsupported adapters as unsupported. Do not rerun against a different adapter and claim the requested case passed.
+
+## Component system rebuild
+
+### COMP-V2-AUTHOR-001: Atomic master authoring
+
+Create and replace a complete component definition through the file command boundary. Require a new definition to start at revision zero, advance replacements exactly once, preserve stable component and source identity, and bump the file revision once.
+
+### COMP-V2-HISTORY-001: Checked component history
+
+Undo and redo component authoring through semantic file commands. The inverse must compare the complete expected definition and reject a same-revision mutation instead of blindly restoring old state.
+
+### COMP-V2-AUTHOR-NEG-001 and COMP-V2-AUTHOR-NEG-002: Closed and referenced masters
+
+Reject unknown command fields, invalid revisions, stale edits, source-identity changes, and deletion of a definition while an instance still references it.
+
+### COMP-V2-INSTANCE-002: Isolated instance values
+
+Create and replace one instance through the file command boundary. Preserve the master and peer instances byte-for-byte, retain only explicit overrides, and resolve unset values from the current master defaults.
+
+### COMP-V2-INSTANCE-HISTORY-001: Checked instance history
+
+Undo and redo instance creation and replacement through semantic file commands. Reject an inverse when the complete expected instance no longer matches current state.
+
+### COMP-V2-DOCS-001: Blume catalog
+
+Generate one deterministic, versioned catalog from the validated component model. Include stable routes, navigation, playground controls and defaults, variant combinations, and an Open in canvas target. Include a usage snippet only when a source adapter supplies exact code.
+
+### COMP-V2-DOCS-NEG-001: Honest docs output
+
+Reject duplicate routes, usage for missing definitions, and empty usage snippets. Mark canvas-only components and unmapped code components unavailable instead of inventing source examples.
+
+### COMP-V2-DOCS-002: Reviewed Blume source plan
+
+Turn the validated component catalog into deterministic Blume MDX, exact example modules, navigation, and a serialized manifest without writing the repository. Include only components with both an exact usage snippet and an exact example-source adapter. Preserve supplied example source byte-for-byte, report unsupported components as omissions, and reject unknown identities, duplicate bindings, extended example paths, and traversal-like paths. Evidence: `packages/repo-engine/tests/component-docs-blume.test.ts`.
+
+### COMP-V2-DOCS-003: Checked Blume source transaction
+
+Prepare every generated documentation file through the reviewed source transaction without changing repository bytes. Preserve unrelated navigation pages through a TypeScript AST merge, require a documentation build validator, reject an incorrect approval digest, and invalidate the review when any included non-`src` source changes. Recheck the same hashes under the source lock before an atomic Save. Evidence: `packages/repo-engine/tests/engine.test.ts`.
+
+### COMP-V2-DOCS-004: Explicit repository docs adapter
+
+Require a versioned repository mapping for the Blume layout, verified component identity, public import specifier, and example path. Generate usage and example source only from the verified export and represented component defaults. Reject unknown fields, duplicate identities, duplicate routes, unsafe paths, URL imports, canvas-only definitions, and components absent from verified scanner evidence. Evidence: `packages/repo-engine/tests/component-docs-adapter.test.ts`.
+
+### COMP-V2-DOCS-005: Hosted documentation review
+
+Persist prepare and Save as separate leased states bound to the exact file revision, document hash, completed scan, repository grant generation, branch ref, base commit, base tree, adapter, planned files, validation evidence, and approval digest. Reviewers may prepare and inspect. Only an owner or editor with live contents-write permission may approve Save. No prepare transition writes repository bytes. Save creates one Git commit for the complete reviewed file set, records the proposed commit before advancing the branch, and resumes safely after a worker interruption. Evidence: `packages/repo-engine/tests/hosted-source-review.test.ts`, `packages/github-app/tests/docs.test.ts`, `packages/database/tests/migrations.test.ts`, `apps/repository-jobs/tests/docs-save-worker.test.ts`.
+
+### COMP-V2-DOCS-NEG-002: Hosted review invalidation
+
+Reject unsafe or duplicate paths, unvalidated bundles, unknown fields, non-branch refs, digest mismatches, stale file revisions, revoked grants, changed grant generations, changed reviewed bytes, and a branch that moved after review. Evidence: `packages/repo-engine/tests/hosted-source-review.test.ts`, `packages/github-app/tests/docs.test.ts`, `apps/repository-jobs/tests/docs-save-worker.test.ts`.
+
+### COMP-V2-DOCS-006: Hosted Blume validation boundary
+
+Validate reviewed documentation in a dedicated immutable image using the pinned Blume CLI, never repository package scripts. Require a server-owned dependency profile, fail before execution when the root manifest, Bun lockfile, docs manifest, design-system manifest, or consumed TypeScript configuration drifts, and run both `blume check --isolated --strict` and `blume build --isolated --strict`. The container has no network, a read-only source mount, no Linux capabilities, no privilege escalation, fixed CPU, memory, process, file-descriptor, output, and time limits, and no application secrets. Evidence: `apps/repository-jobs/tests/docs-sandbox.test.ts`, `scripts/test-hosted-docs-validator.mjs`.
+
+### COMP-V2-DOCS-007: Explicit docs Save review
+
+Show every reviewed file and exact diff in one compact repository-docs review dialog. Keep Save disabled until the user explicitly confirms the review. Preparing never opens or approves Save automatically. After approval, show the queued, saving, saved, stale, or failed server state and require a new review when the file revision, unsaved canvas input, or repository branch changes. Cancel an in-flight preparation when its exact file input changes. Reloading or opening the file after the project restores its latest authorized review, including the exact saved commit, without persisting approval state in the browser. Evidence: `packages/editor/src/features/editor/hosted-repository-service.test.ts`, `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`, `packages/database/tests/postgres-acceptance.mjs`.
+
+### COMP-V2-ADMISSION-001: Verified code component admission
+
+Authorize the exact project repository through the GitHub App, scan it with a named adapter, and admit one component from the verified registry. The integrity-bound registry carries exact required or optional evidence for every scalar prop. The resulting component definition uses the opaque persistent binding ID, exposes only representable properties and slots, and carries no mutable repository path, export name, source hash, installation ID, or credential. Evidence: `packages/scanner/tests/shadcn-scan.test.ts`, `packages/scanner/tests/artifact.test.ts`, `packages/repo-engine/tests/component-admission.test.ts`.
+
+### COMP-V2-ADMISSION-NEG-001: Closed admission evidence
+
+Reject stale source hashes or registry fingerprints, malformed or missing optionality evidence, extra repository-access fields, missing or invented defaults, numeric props without an explicit adapter, non-string enum values, unsupported source paths, and scanner evidence that no longer matches the reviewed binding. Evidence: `packages/preview-runtime/tests/verified-registry.test.ts`, `packages/repo-engine/tests/component-admission.test.ts`.
+
+### COMP-V2-BINDING-001: Checked binding reconciliation
+
+Move or rename a verified source component through an explicit rebind operation. Verify the path, export, source hash, and registry fingerprint update while the persistent binding ID remains unchanged. A same-shape request with stale expected evidence must fail.
+
+### CLOUD-SYNC-LIFECYCLE-003: Admitted reconnect endurance
+
+After a room has admitted the client, stop the sync server long enough to exceed the initial admission failure limit. Keep the last authoritative document visible, continue bounded reconnect attempts, then resync a restarted room without refreshing the page. The initial never-connected path must remain capped.
 
 ## Pull request interaction evidence
 
@@ -38,7 +112,7 @@ Accept only the versioned manifest schema, safe relative paths, unique scenarios
 
 ### PR-EVIDENCE-003: Browser capture
 
-Run the transient-move pilot through public automation actions and real pointer input. Capture before, held, and after screenshots plus a recording. Verify preview geometry, HUD geometry, committed state, and viewport stability independently.
+Run the transient-move pilot through public automation actions and real pointer input. Capture before, held, and after screenshots plus a recording. Verify preview geometry, HUD geometry, committed state, and viewport stability independently. Default browser evidence ports are disjoint from the complete local service topology, while validated overrides keep parallel runs possible without stopping a healthy development service. Evidence: `tests/pr-evidence/ports.ts`, `tests/pr-evidence/ports.test.ts`, `tests/pr-evidence/playwright.config.ts`.
 
 ### PR-EVIDENCE-004: Electron capture
 
@@ -66,11 +140,11 @@ When the evidence system is introduced on an existing pull request, diff from th
 
 ### PR-EVIDENCE-010: Frame wiggle and flex
 
-Draw a 500 by 500 frame through real pointer input, move it around a closed path, set its fill to red through the inspector, and add flex through the keyboard command. During every held move, verify that preview and HUD geometry agree while stored geometry remains unchanged. After release, independently verify the stored size, fill, flex layout, screenshots, and recording.
+Draw a 500 by 500 frame through real pointer input, move it around a closed path, set its fill to red through the inspector, and add flex through the keyboard command. During every held move, verify that preview and HUD geometry agree while stored geometry remains unchanged. Keep the Add flex control mounted and visible throughout the gesture, disable it while pointer authority owns the node, and restore it immediately after release. After release, independently verify the stored size, fill, flex layout, screenshots, and recording.
 
 ### PR-EVIDENCE-011: Typed overlay and evidence crops
 
-Create a frame through public automation actions. Verify typed overlay bounds, eight resize handles, four rotation handles, and stale-overlay rejection after deselection. Capture a two-times compositor screenshot and an independent poster with node-relative padding and the current theme background. Record the moving node from real compositor frames at two-times scale. Verify motion remains the default, compositor capture requires a bounded crop, and normalization preserves the already-composited dimensions.
+Create a frame through public automation actions. Verify typed overlay bounds, eight resize handles, four rotation handles, and stale-overlay rejection after deselection. Interrupt the existing preview connection and verify the last valid overlay stays mounted through the readiness gap, then reconnect the same preview and verify fresh geometry replaces the retained frame. Capture a two-times compositor screenshot and an independent poster with node-relative padding and the current theme background. Record the moving node from real compositor frames at two-times scale. Verify motion remains the default, compositor capture requires a bounded crop, and normalization preserves the already-composited dimensions.
 
 ### PR-EVIDENCE-012: Hosted login surface
 
@@ -78,7 +152,27 @@ Render the hosted login application in a real browser. Verify the exact brand an
 
 ### PR-EVIDENCE-013: Typography controls
 
-Wait for the isolated preview handshake, create and commit text through real pointer and keyboard input, then open the font-family dialog. Verify the text inspector, focused search field, populated catalog list, screenshot, and recording.
+Wait for the isolated preview handshake, create and commit text through real pointer and keyboard input, then open the font-family dialog. Verify the text inspector, focused search field, populated catalog list, screenshot, and recording. Create two borders and verify the Top and Bottom side labels fit without clipping.
+
+### PR-EVIDENCE-014: Canvas component workflow
+
+Create a canvas component from one selected frame through the public automation API and continue directly into that component's Kit details. Reject duplicate creation on the same master, author every property type, bind State and Tone to the same real layer, and prove one exact compound appearance survives the master controls, Kit playground, placement, interactions, and generated sheet. Expose the component details and variant sheet, place one real instance, and verify the preview renders it. In the Kit playground, add transient Text and eligible canvas-component content to a bound Slot, prove the stored file and revision remain unchanged, capture the configured preview, place the complete tree in one transaction, capture the result, and Undo every created node and semantic instance together. Expose a nested canvas-component use as an Instance swap property, choose another eligible canvas component in the isolated Kit playground, and prove the stored master remains unchanged. Place the configured instance, verify the stable nested root now identifies the selected component, Reset it to the master default, and verify Undo and Redo restore both the physical subtree and sparse value atomically. Change and reset an instance-only variant override, proving the projected appearance returns to the master default and the reset action clears. Bind distinct Hover and Pressed appearances to a nested layer, then verify pointer input over component-root padding drives that target through Hover, Pressed, Hover, and the configured state without writing an instance override. Create one material from the same nested layer, assign it to a second named part, clear that assignment, Undo it, capture the visible Materials and Parts controls, and verify both assignments survive reload. Generate and Undo a real canvas Variant sheet, edit and reload the component documentation identity, move the instance through pointer input, and independently verify that its stored transform changes while the master's transform remains unchanged. Duplicate the authored master and prove the copy has fresh physical and semantic identities, a unique Kit identity, and no instances while the source remains unchanged. Copy and paste one configured instance and prove the clone remains linked to the source component while preserving sparse Variant, Text, Boolean, Slot, Instance swap, transform, and nested semantic state. Undo and Redo the complete pasted closure in one history step, reload, and verify Layers, Kit usage, and instance controls still resolve the same identities. Exercise semantic deletion, detachment, and Undo before writing the capture report, so every declared screenshot exists in the final artifact. Capture compound Variant master, playground, and sheet states, Instance swap playground and placement, Slot playground and placement, Hover, Pressed, Materials, component details, the placed instance, the generated Variant sheet, duplicated master, pasted instance, post-Undo state, and a screen recording.
+
+### PR-EVIDENCE-015: Theme color token editing
+
+Create a color token through public automation actions. Open its color picker from the large visible preview, verify the nested picker remains inside the owning editor portal, close it with Escape, and verify focus returns to the preview. Edit opacity independently without opening the picker. Switch editor appearance, reopen the token, and verify the picker inherits the new mode. Capture light, opacity-edited, and dark states plus a recording. The client boundary separately verifies that the nested picker remains inside an owning mobile sheet.
+
+### PR-EVIDENCE-016: Canvas text drop
+
+Drop plain text through the public clipboard automation boundary. Reject a drop outside the canvas, accept the same payload at a canvas pointer, select exactly one new text node, and verify its preview text and rendered bounds independently match the requested pointer. Capture the resulting canvas state.
+
+### PR-EVIDENCE-017: Mobile Properties menu
+
+At 390 by 844, open the real Properties bottom sheet for a selected rectangle. Add a border, open its custom side menu, and verify the listbox is portaled inside the owning sheet. Escape closes only the menu and restores focus to its trigger. Reopen the menu, change Top to Bottom, verify the visible value, close the sheet, and capture the open and committed states plus a recording.
+
+### PR-EVIDENCE-018: Stored font restoration
+
+Create text, choose Geist from the real font picker, and verify the loaded face is transferred to the isolated preview. Reload the same file without reopening the picker. The stored family remains on the text node, a fresh matching face loads into the new preview document, and the rendered text still uses Geist. Capture the selected and restored states plus a recording with deterministic font responses.
 
 ### PR-EVIDENCE-SEC-001: Untrusted capture boundary
 
@@ -250,6 +344,8 @@ Apply one compatible edit and one incompatible tree edit. Verify compatible stat
 
 Verify shallow select, deep select, parent and child traversal, multiselect, lock, hide, duplicate, reorder, frame selection, ungroup, and exact layer-tree targeting using mouse and keyboard.
 
+In Layers, `Alt+ArrowUp` and `Alt+ArrowDown` reorder the selected subtree roots, `Alt+ArrowRight` moves them into the nearest legal preceding parent, and `Alt+ArrowLeft` moves them out one level. A same-parent multiselection moves as one ordered transaction. Each operation preserves node identity and world position and is reversible with undo and redo. Evidence: `packages/editor/src/features/editor/DocumentLayers.client.test.ts`, `packages/editor/src/features/editor/layer-tree-gesture.test.ts`, and `packages/editor/src/features/editor/document-store.test.ts`.
+
 Layer visibility and lock actions appear on row hover or their own keyboard focus. A hidden node remains identified by reduced name and type-icon opacity. A direct lock also locks descendants, removes canvas hit targets and resize controls, and prevents layer drag reorder for that node. The locked node remains selectable from Layers and its inspector properties remain editable.
 
 ### AT-CAN-002: Layout and snap
@@ -278,7 +374,7 @@ Negative control: a test that advances only HUD geometry while rendered bounds r
 
 ### UI-MOBILE-001: Mobile editor sheets
 
-At 390 by 844, the canvas remains the primary surface. Layers and Properties open as mutually exclusive shadcn Base UI bottom sheets, stop at a useful partial height, preserve their real tree and inspector controls, trap focus, lock background scroll, and close by their close control, Escape, or an outside press. Read-only viewers can open Layers but cannot open Properties. Desktop rails and resize handles remain unchanged above the mobile breakpoint.
+At 390 by 844, the canvas remains the primary surface. Layers and Properties open as mutually exclusive shadcn Base UI bottom sheets, stop at a useful partial height, preserve their real tree and inspector controls, trap focus, lock background scroll, and close by their close control, Escape, or an outside press. Read-only viewers can open Layers but cannot open Properties. Desktop rails and resize handles remain unchanged above the mobile breakpoint. Evidence: `tests/pr-evidence/scenarios/mobile-properties-menu.spec.ts`.
 
 ### UI-MOBILE-002: Selected-node quick actions
 
@@ -336,6 +432,12 @@ Targeted mutation: trust the callback `installation_id` without the live install
 Call repository-link, scan, pull, patch preparation, and write APIs directly as Owner, Editor, Reviewer, Viewer, an unrelated signed-in user, and a signed-out user. Verify project membership, tenant installation grant, stable repository ID, repository selection, link status, grant generation, and current GitHub access at enqueue, job start, and immediately before a write. A cross-tenant installation, repository from another installation, removed membership, and suspended installation must fail without revealing repository metadata.
 
 Targeted mutations: independently remove the project-member predicate and the installation-repository predicate. Each weakened build must fail the suite.
+
+### AT-REPO-SCAN-001: Hosted repository scan boundary
+
+Claim a queued scan through a dedicated repository-scan service credential and an atomic expiring lease. Recheck project membership, installation grant, and the exact repository before minting a read-only installation token. Keep that token inside the isolated worker. Resolve one immutable commit, accept its archive only through the exact HTTPS codeload repository and revision, enforce compressed, expanded, entry, file, path, type, and mode limits, and extract only into a worker-owned temporary directory. Run the static scanner without installing packages or executing repository code, and commit the validated scan result only while the lease and repository grant are still current. The client receives no token, filesystem path, or unverified source bytes.
+
+Negative controls: two workers racing for one job, a stale lease, revoked membership, suspended installation, removed repository, wrong host or revision redirect, traversal path, symlink, submodule, duplicate path, oversized archive, expanded archive, entry set, or file, and unsupported mode must fail without publishing a scan result. The worker removes its temporary directory on success and failure.
 
 ## Electron and isolation
 
@@ -421,7 +523,7 @@ Run `pnpm test:cloudflare-config`, then `pnpm cloudflare:check`. Verify Wrangler
 
 ### CLOUD-FILES-001: Canonical hosted file persistence
 
-Create, list, open, and save a blank file through the hosted API against PostgreSQL. Verify the file summary and canonical document stay separate, revisions advance by compare-and-swap, and invalid identity, geometry, extra fields, stale revisions, signed-out access, and another account all fail without leaking file existence.
+Create, list, open, and save a blank file through the hosted API against PostgreSQL. Browser and Desktop must admit stored snapshots through the same canonical hosted-document validator. A structurally invalid stored snapshot terminates opening immediately with `Error ID: invalid-file-document`; it must not enter an endless reconnect loop. Verify the file summary and canonical document stay separate, revisions advance by compare-and-swap, and invalid identity, geometry, extra fields, stale revisions, signed-out access, and another account all fail without leaking file existence. Evidence: `packages/cloud-document/tests/hosted-document.test.ts`, `packages/sync-client/tests/collaboration-client.test.ts`, `apps/web/src/adapters/cloud.test.ts`, `apps/desktop/tests/cloud-files.test.ts`.
 
 ### FILE-ASSET-001: Private file assets
 
@@ -488,6 +590,12 @@ Negative control: expose a document or arbitrary fetch method through the contro
 Drive the client through `cold`, `opening`, `authorizing`, `hydrating-local`, `admission-queued`, `streaming`, `applying`, `live`, `read-only`, `offline-clean`, `offline-dirty`, `reconnecting`, `replaying`, `access-revoked`, `incompatible-build`, `capacity-refused`, `connection-failed`, `draining`, `parked`, `closing`, and `closed`. Verify only documented transitions occur, streamed state publishes atomically, terminal states do not reconnect, and visible copy stays limited to `Opening file…`, `Connecting…`, `Offline`, `Reconnecting…`, `Saving changes…`, `Read only`, `Access removed`, `Update required`, `File is busy`, and `Connection failed`.
 
 Negative control: force an undocumented transition from `access-revoked` to `replaying` and verify no operation reaches the transport.
+
+### FILE-OPEN-SLOW-001: Slow file opening and real failures
+
+Open an owned or shared file while file listing, authorization, admission, or snapshot loading remains pending. After 15 seconds, verify the route still waits for the real result and shows `This is taking longer than usual.` with `Try again` and `Back to files`. Verify retry cancels and supersedes the active open before starting another attempt, back cancels the active open before returning home, and a late result from a superseded attempt cannot mutate the open document. When the adapter or collaboration lifecycle reports a real failure, verify the route renders the standard file error panel with a unique error ID.
+
+Negative control: return a promise that never resolves from the file adapter and verify only the slow message appears, without manufacturing an error. Reject a separate adapter call and verify the resulting error includes a unique reference.
 
 ### CLOUD-SYNC-CACHE-001: Account-scoped local cache
 
@@ -599,6 +707,10 @@ Verify transport pings begin only after sync readiness and receive the platform 
 
 Negative controls: let a callback from the prior generation publish after reconnect and verify generation isolation fails the test. Start the client offline and verify it never remains stranded in authorizing. Delay initial snapshot delivery past one heartbeat interval and verify the client does not kill the healthy admission.
 
+### DEV-SYNC-001: Current local room semantics
+
+The local sync room executes its TypeScript source directly and watches its imported source dependency graph. Repo-engine command validation and hosted-catalog imports resolve to source, so a feature edit restarts the room with current semantics without rebuilding workspace `dist` trees or forcing editor Vite reloads. Evidence: `apps/sync-room-core/package.json`, `apps/sync-room-core/tsconfig.json`, `scripts/test-service-topology.mjs`.
+
 ### OBS-SYNC-001: Collaboration telemetry and visible failures
 
 Carry one request reference through Worker admission, generation DO startup, Container handling, PostgreSQL append, client state, toast, and operational log. Record phase, error code, protocol epoch, app platform, app version, generation, and fence without logging document content, operation payloads, cookies, capabilities, credentials, or source patches. Emit named load, replay, checkpoint, drain, and lease-loss phases without invented percentages. Deduplicate reconnect errors into one visible episode and keep blocking recovery actions available after the toast closes.
@@ -621,7 +733,9 @@ Open the same known color through Fill, Outline, Border, and Selection colors. V
 
 ### AT-UX-003: Shell, loading, and recovery states
 
-Use observable engine events to verify the four-region shell, project opening, and preview lifecycle. Confirm startup and file opening use indeterminate progress unless measured totals exist, preserve the prior file until new metadata resolves, and display only phases whose work actually started. Trigger load failure, offline state, preview stop, crash, and invalid source. Confirm each known failure has one primary recovery action, invalid source retains the last good preview with current diagnostics, and closing the preview disposes owned resources.
+Use observable engine events to verify the four-region shell, project opening, and preview lifecycle. Confirm startup and file opening use indeterminate progress unless measured totals exist, preserve the prior file until new metadata resolves, and display only phases whose work actually started. Trigger load failure, offline state, preview stop, crash, and invalid source. Confirm each known failure has one primary recovery action, invalid source retains the last good preview with current diagnostics, and closing the preview disposes owned resources. A transient hosted-auth outage keeps its error ID and one Try again action, retries the session without starting a new OAuth flow, and restores the requested file automatically when the auth service returns. Disposing or reconfiguring the auth adapter cancels stale recovery. Evidence: `apps/web/tests/file-open-startup.mjs`, `apps/web/src/shell/ApplicationDocument.test.ts`, `packages/editor/src/features/application/auth-service.test.ts`.
+
+A cold direct file URL server-renders the themed `Opening file` shell before authentication or client hydration. With cache disabled, 150 ms latency, a throttled 200 KB/s connection, and every client script delayed 900 ms, the first paint remains opaque and themed, the loader stays centered with no measurable drift, and hydration never returns to a rootless frame. Capture this in light and dark appearances. Evidence: `outputs/file-open-startup-light`, `outputs/file-open-startup-dark`.
 
 Visual review fixture: compare shell geometry and hierarchy against the supplied authorized Wonder/Paper reference evidence, including file bar, left rail, canvas/tool strip/zoom controls, and right inspector. Match only verified details; record unknown startup, autosave, conflict, and GitHub writeback behaviors as unknown rather than asserting parity. This is a design review criterion and must include screenshots plus the tested viewport and platform.
 
@@ -703,7 +817,7 @@ Drag a top-level rectangle into a frame. The stored relationship changes to the 
 
 ### AT-DOC-004: File-scoped tokens
 
-Create a token in the Theme tab, bind nodes on two pages, change the value once, delete with inline replacement, and undo. Both pages resolve the same token id; the delete rewrites every solid fill, gradient stop, and alias across the file in one undoable step; undo restores the token and the references. A second file has its own empty theme. Evidence: `document-architecture.mjs` checks 4, 5, 7; `file-document.test.ts` token cases.
+Create each supported token type in the Theme tab: color, opacity, radius, spacing, container, breakpoint, font family, font weight, font size, line height, and letter spacing. Edit and alias values only within the same type. Applicable numeric inspector fields expose compatible tokens through the themed, portaled menu instead of an invisible native select, and choosing one commits its resolved value. Bind a color token to nodes on two pages, change the value once, delete with inline replacement, and undo. Both pages resolve the same token id; the delete rewrites every solid fill, gradient stop, and alias across the file in one undoable step; scalar aliases retain their resolved literal; undo restores the token and the references. A second file has its own empty theme. Negative controls reject invalid domain values, cross-type aliases, and scalar tokens used as colors. Evidence: `document-architecture.mjs` checks 4, 5, 7; `file-document.test.ts` token cases; `document-store.test.ts` token creation cases; `packages/editor/src/design-system/inspector-atoms.client.test.ts`; `packages/editor/src/features/editor/layout-panels-flex.test.ts`.
 
 ### AT-DOC-005: Legacy migration
 
@@ -739,6 +853,12 @@ Eligibility follows the matrix (Text has no Outline or Border); absent, hidden, 
 
 When a solid fill color is token-bound, its fill opacity field remains editable. Committing the field preserves the token id, records one history entry, and survives save and reopen.
 
+The Theme token editor's visible color preview opens the color picker inside the owning editor or mobile-sheet portal. The opacity field remains a separate numeric editor. Evidence: `packages/editor/src/features/editor/ThemePanel.client.test.ts`, `tests/pr-evidence/scenarios/theme-token-color.spec.ts`.
+
+### THEME-TOKEN-MENU-001: Safe token context actions
+
+The token context menu exposes Cut, Copy, Paste, Paste over, Duplicate, Select all, ordered movement, and Delete in stable groups. Delete uses the same reference-aware path as the token editor: an unreferenced selection is removed directly, while referenced single or multi-token selections require confirmation and preserve the current resolved values at surviving reference sites. References between tokens in the same deletion are not presented as surviving references. Confirmation copy applies to every token type rather than describing all references as colors. Evidence: `packages/editor/src/features/editor/ThemePanel.client.test.ts`, `packages/repo-engine/tests/file-document.test.ts`.
+
 ### AT-APP-006: Image fill row
 
 Choosing Image for a fill without cached image state selects the bundled `flowers.webp` asset at 1600 by 1200. The fill row shows a 42 by 32 thumbnail, filename, dimensions, and an `Edit` overlay on hover and keyboard focus. The thumbnail opens the image picker. No separate replace, intrinsic-size, or fit control is rendered.
@@ -750,6 +870,342 @@ The picker accepts image inputs up to 25 MB. AVIF, PNG, JPEG, GIF, and WebP at o
 ### AT-APP-005: Component preservation and editor chrome
 
 Imported components stay real React components with working props, slots, and Interact mode; appearance overrides apply to the existing root without wrappers and component-owned inline styles are restored when an override is removed; Canvas2D selection chrome stays visible with a document outline, follows transient move and resize geometry while the pointer remains held, and the preview keeps `renderChrome: false`. A collaborator selection on the same locally manipulated node uses that live geometry instead of leaving a stale outline at the saved position. Evidence: `packages/preview-runtime/tests/selection-electron.mjs`, `apps/web/tests/appearance.mjs`, `apps/web/tests/transient-move.mjs`, `packages/editor/src/features/collaboration/CollaborationPresence.test.ts`.
+
+The last valid local selection HUD stays visible through a temporary preview readiness interruption only while file, page, selection, viewport, document revision, and layout generation remain unchanged. It retires on a real context or generation change, while geometry-backed writes and gestures stay unavailable until a fresh matching packet arrives. Evidence: `packages/editor/src/features/editor/canvas-hud-projection-service.test.ts`, `packages/editor/src/features/editor/scene-geometry.test.ts`, `packages/editor/src/features/editor/preview-asset-connection.test.ts`.
+
+## Component model v2
+
+### COMP-V2-PERSIST-001: Stored definitions and instances
+
+A current file stores a validated component registry with definitions and isolated instance values. New and migrated files always contain the registry, instance defaults resolve without mutating their definition or peer instances, and the same data survives local, hosted, and collaboration persistence. Evidence: `packages/repo-engine/tests/component-model.test.ts`, `packages/repo-engine/tests/file-migration*.test.ts`, `packages/cloud-document/tests/hosted-document.test.ts`, `apps/web/src/features/files/service.test.ts`.
+
+### COMP-V2-PERSIST-NEG-001: Closed persistence boundary
+
+Reject unknown definition fields, invalid appearances, duplicate or missing identities, orphaned instances, mismatched definition ids, invalid overrides, and collections beyond their explicit limits. A malformed predecessor is not relabeled as current. Evidence: `packages/repo-engine/tests/component-model.test.ts`, `packages/repo-engine/tests/file-document.test.ts`.
+
+### COMP-V2-PERSIST-ORPHAN-001: Historic orphan recovery
+
+A current hosted document affected by the historic component deletion defect may remove only instance metadata whose design node is already absent. The complete repaired graph must validate, the source stays unchanged, the semantic revision does not advance, persistence requires an exact source match, and an active collaboration lease blocks repair. Other malformed graphs remain rejected. Evidence: `packages/cloud-document/tests/hosted-document.test.ts`, `apps/api/tests/legacy-assets.test.ts`, `packages/database/tests/control-plane.test.ts`, `packages/database/tests/postgres-acceptance.mjs`.
+
+### COMP-V2-UI-001: Unified component kit
+
+The left rail exposes one Kit view backed by the stored component model. It contains canvas masters and verified code components, and the retired Components section does not return. Evidence: `packages/editor/src/features/editor/Editor.test.ts`.
+
+### COMP-V2-UI-002: Canvas master creation
+
+Selecting one drawable layer can create one uniquely named canvas component master. The same layer cannot silently become two masters, and a placed instance or any of its linked descendants cannot become a second master without first removing its instance semantics. Open master selects the real source layer. Evidence: `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-003: Isolated instance editing
+
+Placing an available component atomically creates its document node and model instance. Defaults project by source property name, editing stores a sparse override on only that instance, and undo restores the prior value. The inspector names instance controls separately from shared properties, shared materials, and shared layer assignments. It shows Reset only for an explicit override; Reset removes that sparse value and reprojects the master default. Evidence: `packages/editor/src/features/editor/document-store.test.ts`, `packages/editor/src/features/editor/ComponentModelProperties.client.test.ts`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`, `packages/repo-engine/tests/file-preview.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-004: Canvas instance placement
+
+Placing a canvas component duplicates its real master subtree beside the source, creates one model instance with the duplicated root's persistent identity, selects it, and removes both records in one undo. Evidence: `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-005: Linked canvas instance content
+
+Content, appearance, typography, sizing, visibility, and theme edits to a canvas master mirror into every structurally linked instance as one history transaction. Each instance root retains its own transform. Evidence: `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-006: Linked canvas instance structure
+
+Inserting, duplicating, reordering, reparenting, and deleting nodes in a canvas master mirrors the same tree operation into every linked instance. Undo restores the master and every instance together. Evidence: `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-007: Component property authoring
+
+Selecting a canvas master exposes one property authoring surface for Variant, Text, Boolean, and Slot definitions. New definitions begin on the first compatible named layer, and property types with no compatible layer are unavailable instead of creating inert schema. Definitions use stable ids, checked revisions, editable defaults and variant values. Removing a property or variant value atomically clears incompatible instance overrides and interactions, and Undo restores the complete valid graph. Evidence: `packages/editor/src/features/editor/document-store.test.ts`, `packages/editor/src/features/editor/ComponentMasterProperties.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-008: Bound instance properties
+
+Text and Boolean properties bind to stable master-layer ids and project sparse values onto only the edited canvas instance. Master default edits update unoverridden peers while preserving explicit overrides. Slot properties bind to a host layer and accept instance-only text, frame, or another available component. Component slot insertion creates a real nested instance, excludes both direct self-nesting and every component identity already present in the owning instance chain, remains isolated from peer instances and the master, and is removed by one Undo. Invalid recursive choices are absent from the menu and rejected again at the command boundary. Evidence: `packages/editor/src/features/editor/document-store.test.ts`, `packages/editor/src/features/editor/ComponentModelProperties.client.test.ts`, `packages/repo-engine/tests/component-model.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-009: Variants, materials, and interactions
+
+Variant properties capture appearance states on a bound layer, preserve per-instance values, and keep later state edits synchronized. A newly added option starts as an exact copy of the currently visible state and becomes the active editing state, so the next inspector change belongs to that option without an extra selection step. The compact property row shows only the property identity, bound layer, and active editing state; hover and press mappings stay in the property dialog instead of being truncated into the inspector card. A material definition can be assigned to multiple named component parts without moving it from an existing part. Capturing a material from one assigned part updates every other assigned master part and each linked instance part that is not explicitly controlled by a variant. Clearing one assignment preserves the material and the other assignments, and Undo restores it. Hover and press interactions project only their reviewed appearance and transition data into the isolated preview, run on the real canvas node in Interact mode, and remain inert in Select mode. Evidence: `packages/editor/src/features/editor/document-store.test.ts`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`, `packages/repo-engine/tests/file-preview.test.ts`, `packages/preview-runtime/tests/scene-protocol.test.ts`, `packages/preview-runtime/tests/component-interaction-browser-runtime.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-010: Component details, playground, and variant sheet
+
+Opening a component from the Kit shows its shared property controls, source, usage availability, and deterministic variant combinations. The detail route survives background document reconciliation, and unsaved playground choices survive placement, Undo, and unrelated document revisions while removed values resolve safely against the latest definition. The playground places one configured instance and each variant-sheet row places that exact sparse combination on the canvas. Placement, projected canvas state, model record, selection, and undo are one transaction. Open in canvas returns to Design only after selecting the real master. Evidence: `packages/editor/src/features/editor/ComponentKitPanel.tsx`, `packages/editor/src/features/editor/component-kit-navigation.test.ts`, `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `packages/repo-engine/tests/component-model.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-011: Browser component workflow
+
+The evidence SDK drives the visible editor to create one canvas component with a real nested text layer, rejects a second master on the same layer, authors bound Variant, Text, Boolean, and Slot properties, wires hover and press interactions, and changes distinct Hover and Pressed appearances through the real inspector. It proves one instance can override and reset its variant, label, visibility, and slot content without changing the master, including Undo for Text and Boolean resets. The slot menu excludes direct and ancestor recursion, inserts another canvas component as a real nested instance, undoes that insertion, then persists ordinary frame content. Interact mode renders Hover on pointer entry, Pressed on pointer down, Hover on pointer up, and Default on pointer leave without writing an override. Component details survive background document updates, the Playground and variant sheet place exact sparse configurations, and the Instances list follows Place and Undo. Opening a listed use selects the real instance; duplicating it preserves component identity and sparse values, and Undo removes the copy. Page duplication creates a second semantic use and Undo removes it. Keyboard deletion removes a selected instance or master without leaving orphaned component data, and Undo restores both; the same key cannot delete a component-owned descendant inside an instance. Open in canvas returns to Design with the master selected. The scenario then moves the original instance without changing the master's stored transform, renames the definition, reloads the browser, verifies the same component ID, full property schema, interactions, sparse values, slot child, and preview node survive, removes a referenced variant value without leaving an invalid interaction, undoes that removal, and exercises reversible component removal. Evidence independently covers the stored component model, layer tree, isolated preview, screenshots, and recording. Evidence: `tests/pr-evidence/scenarios/component-system.spec.ts`, `packages/editor-automation/src/playwright.ts`.
+
+### COMP-V2-UI-012: Component identity and direct authoring
+
+A canvas master and every placed canvas instance render as Component elements in the layer tree, with the Component icon and shared component name even when their physical render node is a frame or primitive. Selecting an instance exposes its instance values and the same shared Properties and Materials authoring controls as its component master. The inspector does not reduce the instance to an origin link. Evidence: `packages/editor/src/features/editor/component-canvas-link.ts`, `packages/editor/src/features/editor/DocumentLayers.tsx`, `packages/editor/src/features/editor/Editor.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-013: Focused component definition authoring
+
+The master inspector exposes the Variant currently being edited and per-part material assignments as compact selectors. The Variant dialog defines option names, the component default, and prototype mappings without duplicating the inspector's Editing control or silently switching appearances when an option is added. Material definitions stay separate from the Parts list, so one reusable material can be selected for multiple named layers. Creating or editing a Property, its Options, prototype transitions, or a Material happens in the editor's themed dialog and changes the model only after Save. Layer pickers expose only supported layer kinds with their real names and icons, and a second Variant property cannot bind to a layer whose full appearance is already owned by another Variant. Empty states stay empty instead of explaining the feature with instructional copy. Evidence: `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`, `packages/editor/src/features/editor/component-authoring-dialogs.test.ts`.
+
+### COMP-V2-UI-014: Reversible component removal
+
+Removing a canvas component clears its definition and every instance record in one checked transaction while preserving the master and placed layer trees as ordinary canvas content. Undo restores the definition, instance records, and component identities without recreating or replacing visual nodes. Evidence: `packages/editor/src/features/editor/document-store.test.ts`, `packages/editor/src/features/editor/ComponentKitPanel.tsx`.
+
+### COMP-V2-UI-015: Stable component rename
+
+Renaming a canvas component changes only its display name and revision. The persistent component ID, master binding, instance records, and layer identities remain unchanged, and Undo restores the prior name. Creation and rename reject case-insensitive duplicate names at both the visible form and command boundary so Kit actions and generated documentation remain unambiguous. Evidence: `packages/editor/src/features/editor/document-store.test.ts`, `packages/editor/src/features/editor/ComponentKitPanel.tsx`.
+
+### COMP-V2-UI-016: Component uses
+
+Component details list every live instance in real page order and number uses within each page. Opening a use switches to its owning page, selects the exact instance, and enters Design only after both operations succeed. Removed instances disappear from the list through the document model rather than a second usage index, and Undo restores them. Evidence: `packages/editor/src/features/editor/ComponentKitPanel.tsx`, `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-017: Semantic component duplication
+
+Duplicate, Alt-drag duplicate, layer-tree copy, outer-master placement, and canvas-component slot insertion copy every component-instance record whose physical node is in the copied subtree. The copy preserves stable definition identity and sparse instance values while receiving fresh node and instance IDs. Undo and Redo remove and restore the physical subtree and semantic records together. Evidence: `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-018: Semantic component deletion
+
+Deleting a placed instance removes its physical subtree and component-instance record in one transaction. Deleting a canvas master, directly or with its owning page, removes its definition and every instance record while leaving placed physical subtrees elsewhere as ordinary canvas content. Undo restores the deleted master or page, definition, instance records, and component identities together. Evidence: `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-019: Bound master-layer deletion
+
+Deleting a layer inside a canvas master removes the mirrored layer from every instance and removes properties, parts, interactions, sparse values, and nested component-instance records that referenced or lived inside the deleted branch. Unrelated materials, component definitions, and outer instance records remain intact. Undo restores the physical layers and semantic references together. File validation rejects a canvas definition whose source, property binding, or part points outside its master subtree. Evidence: `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `packages/repo-engine/src/file-document.ts`, `packages/repo-engine/tests/file-document.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-020: Linked instance structure protection
+
+Delete, Duplicate, layer-tree move, direct reparent, canvas move, keyboard nudge, resize, and layout commands reject component-owned descendants inside a placed instance, preserving the shared master structure and history. The guard runs before linked-instance expansion, so legitimate master edits still mirror into protected descendants. The instance root remains movable and duplicable. Content inserted through a declared Slot remains independently editable and deletable, and Undo restores it. Evidence: `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-021: Slot property cleanup
+
+Removing a Slot property through the component model or visible Edit property dialog removes every physical layer inserted through that Slot across all instances and removes nested component-instance records before their nodes. The property, content, and nested identities are one checked transaction, so Undo restores all of them together. Evidence: `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-022: Slot binding migration
+
+Changing a canvas Slot property's bound layer moves the existing Slot content in every instance to the corresponding new host without replacing physical or nested component identities. The dialog and direct component command use the same migration planner. Undo restores the prior binding and moves the same content back. Evidence: `packages/editor/src/features/editor/component-property-projection.ts`, `packages/editor/src/features/editor/component-authoring-dialogs.tsx`, `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-023: Property removal reconciliation
+
+Removing a bound Text, Boolean, or Variant property clears its sparse values and resets every canvas instance's affected layer to the master's real current text, visibility, or appearance. Undo restores the property, sparse value, and prior instance projection together. Evidence: `packages/editor/src/features/editor/component-property-projection.ts`, `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-024: Property binding migration
+
+Changing a canvas Text, Boolean, or Variant property's bound layer resets the old layer in every instance from the master before projecting the existing sparse value onto the new layer. The visible dialog and direct component command use the same reset planner. Undo restores the old binding and both layers' prior projected state. Evidence: `packages/editor/src/features/editor/component-property-projection.ts`, `packages/editor/src/features/editor/component-authoring-dialogs.tsx`, `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-025: Nested component structural mirroring
+
+Moving a live component instance into a canvas master mirrors its physical subtree and semantic instance record into every placed outer instance. Later nested instance-value changes mirror to each corresponding semantic record and physical layer. Undo removes the mirrored subtree and instance identity together. Evidence: `packages/editor/src/features/editor/component-canvas-link.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-026: Nested component duplication
+
+Duplicating a nested component inside a canvas master creates a new semantic component-instance record for the master copy and each corresponding copy inside placed outer instances. Undo removes the duplicated physical subtrees and semantic records together while preserving the original nested uses. Evidence: `packages/editor/src/features/editor/component-canvas-link.ts`, `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-027: Nested instance override isolation
+
+A component nested inside a placed canvas component remains a directly editable semantic instance. Changing one of its property values updates only that nested use and its physical layer, without mutating the nested source in the master or another outer instance. Editing the nested source in the master still mirrors its value to corresponding nested uses. Undo restores each scope independently. Evidence: `packages/editor/src/features/editor/component-canvas-link.ts`, `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-028: Nested component extraction
+
+Moving a nested component out of a canvas master removes its mirrored physical subtree and every semantic instance record inside that subtree from each placed outer instance. The moved source remains a live component instance at its new location. Undo restores the original nesting, mirrored nodes, and semantic identities. Evidence: `packages/editor/src/features/editor/component-canvas-link.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-029: Multi-instance nested synchronization
+
+Nested component adoption, source-value edits, duplication, extraction, and Undo apply to every placed outer instance. A property override made on one nested copy remains isolated from the nested source and sibling copies, while a source edit mirrors to all corresponding nested uses. Evidence: `packages/editor/src/features/editor/component-canvas-link.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-030: Recursive component validation
+
+Persisted component definitions cannot contain themselves directly or through another canvas component. An acyclic nested chain remains valid. Direct and indirect recursive layer reparenting fail atomically in the editor. This independent file validator protects imports, collaboration snapshots, and stored documents even when the editor UI is bypassed. Evidence: `packages/repo-engine/src/file-document.ts`, `packages/repo-engine/tests/file-document.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-031: Nested component reorder parity
+
+Reordering a nested component in a canvas master applies the same sibling order to every placed outer instance without replacing or changing any nested semantic instance record. Undo restores the prior order everywhere while preserving the same identities. Evidence: `packages/editor/src/features/editor/component-canvas-link.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-032: Deep component-tree synchronization
+
+In an A containing B containing C tree, source appearance edits and property defaults reach every C use inside multiple placed A instances while sparse overrides remain isolated. Removing a property reconciles every deep use to the real master value. Removing C as a component clears every deep semantic record while preserving the physical canvas content, and Undo restores the exact semantic graph. Evidence: `packages/editor/src/features/editor/component-canvas-link.ts`, `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-033: Deep variant-reference cleanup
+
+Removing a Variant value used by a deep component instance clears that sparse value, removes interactions targeting the deleted value, and projects the default appearance. Undo restores the value, interaction, and rendered state together. Evidence: `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-034: Nested material projection
+
+Capturing a Material from one assigned part updates every other assigned part on the canvas master and every linked instance, including instances nested inside another canvas component. Undo restores the previous Material definition and every projected appearance without rolling back the source appearance edit that preceded the capture; a second Undo restores that source edit. Removing a Material clears its assignments without changing the rendered parts, and Undo restores the exact definition. Evidence: `packages/editor/src/features/editor/component-material-projection.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-035: Configured component preview projection
+
+The component playground projects Variant, Text, and Boolean draft values into an isolated copy of the real canvas master subtree using the production preview document format. Unrelated page layers are absent, the master transform is normalized into a tight transparent frame, and the authoritative file remains byte-for-byte unchanged. The fitted camera centers that frame around the preview runtime's center-origin canvas with restrained padding. The preview uses a restrained transparency surface so white and transparent components remain visible without changing their rendered appearance. The playground remains in its loading state until the runtime acknowledges the exact sequenced document after its DOM render, surfaces runtime diagnostics as a concise retryable failure, and recovers through the same preview connection. Code components without a verified source adapter remain unavailable rather than receiving invented markup. Evidence: `packages/editor/src/features/editor/component-configured-preview.ts`, `packages/editor/src/features/editor/component-configured-preview.test.ts`, `packages/editor/src/features/editor/component-docs-preview-service.test.ts`, `packages/preview-runtime/tests/component-interaction-browser-runtime.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-036: Previewable variant combinations
+
+Each generated variant combination is a selectable preview choice, not a blind placement action. Selecting a row updates the playground's variant controls and real configured-component preview in one batch while preserving non-variant drafts. A single Reset playground action returns every control and the preview to the current master defaults, then disappears. The adjacent placement action continues to place that exact sparse combination. Evidence: `packages/editor/src/features/editor/ComponentKitPanel.tsx`, `packages/editor/src/features/editor/component-docs-preview-service.ts`, `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-037: Generated canvas variant sheet
+
+A canvas-authored component's Variant sheet has one explicit Place sheet action. It creates one real linked instance for every generated Variant combination in a non-overlapping grid beside the master, stores only sparse values, projects each configured appearance, and labels every cell with the same concise property/value summary shown in the Kit. The selected transparent frame is named for the component's variants, giving the whole generated sheet one movable selection without decorative editor UI. The whole sheet is one document transaction, so one Undo removes every generated node, label, and semantic instance and one Redo restores them. Code components do not expose this action until a verified source adapter can provide equivalent canvas geometry. Evidence: `packages/repo-engine/src/component-model.ts`, `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `packages/editor/src/features/editor/ComponentKitPanel.tsx`, `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-038: Contextual code-component properties
+
+The semantic component inspector appears only when one reconciled code-component instance is selected. Reconciliation adopts existing verified code nodes without rewriting supported props, and unsupported source values remain read-only. Ordinary layers, generated variant-sheet frames, and multiple selections do not receive an irrelevant component empty state or instructional copy. Evidence: `packages/editor/src/features/editor/ComponentModelProperties.tsx`, `packages/editor/src/features/editor/ComponentModelProperties.client.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-039: Reversible canvas instance detachment
+
+A selected canvas-component instance can detach into ordinary editable canvas layers without changing or replacing its physical subtree. Detachment removes only that outer instance record, preserves nested component instances as live semantic uses, and leaves code-component instances attached because their verified render identity cannot be converted into invented canvas primitives. One Undo restores the exact outer instance identity and values. Evidence: `packages/editor/src/features/editor/document-store.test.ts`, `packages/editor/src/features/editor/ComponentModelProperties.client.test.ts`.
+
+### COMP-V2-UI-040: Direct main-component navigation
+
+A selected canvas instance exposes a compact Open main component action beside its instance controls. The action selects the exact persisted master layer without changing the instance, its sparse values, or the current document. Code components do not expose a false canvas-master action. Evidence: `packages/editor/src/features/editor/ComponentModelProperties.client.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-041: Atomic reset of instance values
+
+Every configured canvas or verified code instance exposes one compact Reset all instance properties action in addition to each precise per-property reset. Reset all removes every sparse scalar value and reprojects the real current defaults in one transaction; it does not touch Slot content. One Undo restores the exact sparse values and rendered state. The action is absent when the instance already uses every default. Evidence: `packages/editor/src/features/editor/document-store.test.ts`, `packages/editor/src/features/editor/ComponentModelProperties.client.test.ts`.
+
+### COMP-V2-UI-042: Grouped component materials
+
+The shared Materials inspector renders each authored material under its named group instead of flattening all definitions into one list. Each row concisely reports Not assigned or the number of controlled layers. Group order follows first appearance and material order inside each group follows the component definition, so editing metadata does not silently rearrange the component API. Part assignment menus expose the same groups. Evidence: `packages/editor/src/features/editor/ComponentMasterProperties.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-043: Recognizable component property types
+
+The Add property menu pairs Variant, Text, Boolean, and Slot with their established editor icons while preserving unsupported-type disabling. Evidence: `packages/editor/src/features/editor/component-kit-copy.ts`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-044: Honest unbound property state
+
+An imported or legacy component property without a layer binding is labeled Unbound in the inspector instead of presenting the implementation phrase Layer · No layer. Bound properties continue to show the real layer name. Evidence: `packages/editor/src/features/editor/ComponentMasterProperties.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-045: Persistent property type identity
+
+Saved Variant, Text, Boolean, and Slot rows retain the same editor-native type icons used by the Add property menu without adding duplicate labels. Evidence: `packages/editor/src/design-system/component-kit-atoms.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-046: Stable material groups
+
+New materials default to the component's first authored group. Saving a case-insensitive match reuses the established group spelling instead of creating a visually duplicate section, while a genuinely new group remains available. Evidence: `packages/editor/src/features/editor/component-authoring-dialogs.tsx`, `packages/editor/src/features/editor/component-authoring-dialogs.test.ts`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-047: Visible component usage
+
+Each Kit row reports its source and live instance count in one muted line. Place, deletion, Undo, and other semantic instance changes update the count from the stored component model without a second usage index. Evidence: `packages/editor/src/features/editor/ComponentKitPanel.tsx`, `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`.
+
+### COMP-V2-UI-048: Contextual component creation
+
+Create component belongs to an eligible selected layer's context menu and opens the shared authoring dialog. Kit remains an inventory of existing components. Existing masters, placed instances, protected descendants, roots, empty selection, and multiple selection do not expose a dead action. Creation rechecks the live selection, rejects duplicate names before dispatch, and creates one semantic canvas definition without replacing the visual node. Evidence: `packages/editor/src/features/editor/component-creation-service.ts`, `packages/editor/src/features/editor/ComponentCreationDialog.tsx`, `packages/editor/src/features/editor/ComponentCreationDialog.client.test.ts`, `packages/editor/src/features/editor/NodeContextMenu.tsx`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-049: Honest unbound variant controls
+
+An unbound Variant remains visible and editable through its definition dialog, but its compact Canvas edits selector is disabled until a real layer binding exists. The inspector does not offer a state change that cannot produce an appearance. Evidence: `packages/editor/src/features/editor/ComponentMasterProperties.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-050: Direct property binding action
+
+Every unbound component property labels its repair action Bind and returns to Edit after a real layer binding exists. The same authoring dialog remains the single place that changes the definition. Evidence: `packages/editor/src/features/editor/ComponentMasterProperties.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-051: Consistent property binding flow
+
+Opening an unbound property's Bind action presents a Bind property dialog with the supported layer picker already focused on a valid component layer. Cancel remains non-mutating and a saved binding returns the row to Edit. Evidence: `packages/editor/src/features/editor/component-authoring-dialogs.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-052: Undoable Variant binding
+
+Saving Bind property on an existing unbound Variant captures the selected layer's current appearance for every authored value in one document transaction. The compact Canvas edits selector becomes usable immediately, and one Undo restores the unbound definition and Bind action without discarding the Variant values. Evidence: `packages/editor/src/features/editor/component-authoring-dialogs.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-053: Visible Variant edit target
+
+A bound Variant row names both the layer receiving edits and the currently selected appearance. Changing the compact Canvas edits selector updates that message immediately, so state authoring is visible without opening a second dialog or adding instructional empty-state copy. Evidence: `packages/editor/src/features/editor/ComponentMasterProperties.tsx`, `packages/editor/src/features/editor/component-kit-copy.ts`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-054: Component identity in the inspector
+
+Selecting either a canvas component master or one of its instances places the established component glyph beside the inspector title. Ordinary layers and pages keep the plain title, so the element's semantic type remains visible without a duplicate badge or explanatory section. Evidence: `packages/editor/src/features/editor/Editor.tsx`, `packages/editor/src/design-system/molecules.tsx`, `packages/editor/src/design-system/styles.css`, `packages/editor/src/features/editor/Editor.test.ts`.
+
+### COMP-V2-UI-055: Explain unavailable property types
+
+The Add property menu keeps the four supported property types visible, disables only types without a compatible component layer, and exposes the exact missing layer requirement as the disabled item's description and native tooltip. No permanent instruction block or failing toast is added. Evidence: `packages/editor/src/features/editor/ComponentMasterProperties.tsx`, `packages/editor/src/design-system/component-kit-atoms.tsx`, `packages/editor/src/features/editor/component-kit-copy.ts`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-056: Visible Variant options
+
+Each authored Variant row reports its number of options beside the property type. The compact inspector therefore exposes the size of the component API without opening its dialog or adding instructional copy. Evidence: `packages/editor/src/features/editor/ComponentMasterProperties.tsx`, `packages/editor/src/features/editor/component-kit-copy.ts`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-057: Actionable instance properties
+
+A canvas instance exposes controls only for properties bound to a real master layer. Unbound definitions remain repairable through Shared properties but do not create instance controls that store values without changing the canvas, or leave a Reset all action for hidden overrides. Verified code-component properties remain available without canvas bindings. Evidence: `packages/editor/src/features/editor/ComponentModelProperties.tsx`, `packages/editor/src/features/editor/ComponentModelProperties.client.test.ts`.
+
+### COMP-V2-UI-058: Actionable component playground
+
+The Kit playground and generated canvas Variant sheet include only properties bound to a real canvas layer. An unbound property remains authorable on the master but cannot create a no-op playground control, preview combination, configured value, or Variant-sheet instance. Verified code-component properties remain configurable through their source adapter. Evidence: `packages/editor/src/features/editor/component-property-projection.ts`, `packages/editor/src/features/editor/ComponentKitPanel.tsx`, `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-059: Bound-value command boundary
+
+Canvas placement and instance-value commands reject a non-null value for an unbound property before writing document history. The same commands continue to accept bound canvas properties and verified code-component properties, while null remains available to clear a stale sparse value. Evidence: `packages/editor/src/features/editor/document-store.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-060: Honest property repair action
+
+An unbound property says Bind only while a compatible, unclaimed layer is available. Without a valid target it remains editable as metadata through Edit property instead of opening a binding flow that cannot bind anything. Adding a compatible layer changes the same row to Bind without recreating the property. Evidence: `packages/editor/src/features/editor/ComponentMasterProperties.tsx`, `packages/editor/src/features/editor/component-authoring-dialogs.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-061: Authoritative inspector component identity
+
+The inspector names and marks a selection as a Component only when the stored semantic component model identifies that exact node as a master or instance. An unreconciled code node keeps its real layer name and ordinary-node presentation instead of borrowing partial component identity from the preview snapshot or source atom catalog. Evidence: `packages/editor/src/features/editor/Editor.tsx`, `packages/editor/src/features/editor/Editor.test.ts`.
+
+### COMP-V2-UI-062: Prepared source review only
+
+The global source-review entry appears only when a real prepared transaction exists. Ctrl or Cmd plus S is not claimed by an empty review surface, and the shortcut list does not advertise it. A prepared transaction still opens the same reviewed Save boundary, while repository documentation review remains a separate explicit flow. Evidence: `packages/editor/src/features/editor/Editor.tsx`, `packages/editor/src/features/editor/keyboard-service.ts`, `packages/editor/src/features/editor/Editor.test.ts`, `packages/editor/src/features/editor/keyboard-service.test.ts`.
+
+### COMP-V2-UI-063: Separate repository lifecycle
+
+The Kit presents existing components as one stable inventory. Repository connection, scanning, preview, documentation review, and Save state live in a separate Sources tab with their own feature owner. Repository state cannot change the meaning or empty state of the component inventory. The existing reviewed docs transaction still requires exact diffs and explicit approval before Save. Evidence: `packages/editor/src/features/editor/ComponentKitPanel.tsx`, `packages/editor/src/features/editor/ComponentRepositoryPanel.tsx`, `packages/editor/src/features/editor/Editor.test.ts`, `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`, `packages/editor/src/features/editor/hosted-repository-service.test.ts`.
+
+### COMP-V2-UI-064: Authored component documentation identity
+
+A canvas component's details view edits its name and concise documentation description in one checked component transaction. The first documentation edit derives a unique stable route slug without exposing route plumbing in the interface; later renames preserve that slug. The saved description appears with the component identity and flows into the deterministic Blume manifest. Duplicate names are rejected before dispatch, Cancel is non-mutating, and one Undo restores the exact prior definition. Evidence: `packages/editor/src/features/editor/ComponentKitPanel.tsx`, `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `packages/repo-engine/tests/component-model.test.ts`.
+
+### CLOUD-SYNC-COMPONENT-001: Component authoring stays on one live authority
+
+Creating a canvas component and replacing its authored Variant, Text, Boolean, Slot, Material, Part, Hover, and Pressed metadata use the existing semantic collaboration socket. Two real WebSocket clients converge on the complete definition, a placed instance with sparse overrides, and a nested component inside its slot. Exact mutation replay is idempotent; mutation-id reuse, stale component replacement, and stale instance history fail closed without advancing the persisted projection. A room and network restart reloads the same stable identities, instance values, nesting, master transform, and independent instance transform from persisted authority. Evidence: `apps/web/src/adapters/cloud.test.ts`, `apps/sync-room-core/tests/network.test.ts`, `packages/database/tests/collaboration-postgres-acceptance.mjs`.
+
+### CLOUD-SYNC-COMPONENT-002: Advanced component graph convergence
+
+Two real WebSocket clients converge on one schema-13 canvas-component graph containing two Variant axes bound to one layer with an exact appearance table, a nested component exposed through Instance swap, configured Slot content, Text and Boolean overrides, materials, parts, interactions, and independent master and instance transforms. Room drain, restart, reconnect, and persisted projection preserve the exact semantic records, physical nodes, relationships, tuple cells, and stable identities while valid advanced edits keep one live socket. Evidence: `apps/sync-room-core/tests/network.test.ts`, `apps/web/src/adapters/cloud.test.ts`, `packages/cloud-document/tests/hosted-document.test.ts`, `packages/sync-client/tests/collaboration-client.test.ts`, `packages/database/tests/collaboration-postgres-acceptance.mjs`.
+
+### CLOUD-SYNC-COMPONENT-NEG-002: Advanced component writes fail closed
+
+Mutation-id reuse with different bytes, stale component replacement, and stale instance history leave the room sequence and authoritative advanced graph unchanged. Hosted validation rejects missing or extra tuple cells and non-nested or recursive Instance swap roots without mutating its input document. PostgreSQL bootstrap rejects stored component bytes whose digest no longer matches instead of admitting the corrupt graph. Evidence: `apps/sync-room-core/tests/network.test.ts`, `packages/cloud-document/tests/hosted-document.test.ts`, `packages/database/tests/collaboration-postgres-acceptance.mjs`.
+
+### COMP-V2-CODE-001: Verified code component reconciliation
+
+An active verified registry reconciles stable code-component definitions into the same model used by canvas components. The adapter exposes only string, Boolean, string-enum, and declared Slot properties it can represent exactly, including explicit optionality from the integrity-bound registry; numeric behavior is not invented. Placement creates the real verified component node, property changes project onto only that node, declared slots accept instance content, and a disconnected definition remains readable but unavailable. Evidence: `packages/editor/src/features/editor/component-registry.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `packages/editor/src/features/editor/repository-service.test.ts`.
+
+### COMP-V2-CODE-002: Hosted component discovery
+
+A completed server-validated GitHub scan derives the same renderer-safe catalog used by local repository connections. Discovered definitions enter Kit with stable identities and exact representable properties and slots, but remain unavailable for placement until a verified hosted preview build binds their source. Refresh restores only the latest scan for the exact current repository grant; relinking or revocation cannot revive an older artifact. Rescans reconcile metadata without fabricating runtime support. Evidence: `packages/scanner/tests/component-catalog.test.ts`, `packages/github-app/tests/github-app.test.ts`, `apps/api/tests/app.test.ts`, `packages/cloud-client/tests/client.test.ts`, `apps/web/src/adapters/cloud.test.ts`, `packages/editor/src/features/editor/component-registry.test.ts`, `packages/editor/src/features/editor/hosted-repository-service.test.ts`.
+
+### COMP-V2-CODE-003: Hosted preview artifact admission
+
+A hosted preview artifact is accepted only when its exact source revision and canonical registry-request fingerprint agree, every declared component has one unique binding to a declared JavaScript module, the binding set exactly matches the requested catalog, and the complete immutable file set matches its declared paths, content types, byte lengths, and SHA-256 hashes. The trusted expectation is derived only from the server-validated scan artifact, including each integrity-bound component, style, dependency, provider, and theme adapter in its canonical request. Reject traversal, undeclared files, changed bytes, omitted components, duplicate identities, unsupported content types, and artifacts over the explicit count or byte limits before staging any bytes. A valid artifact is staged create-only under caller-persisted artifact and staging identities, then becomes visible through one atomic, idempotent storage-owned publication step. Failed staging and publication reconcile status before cleanup: continue the same attempt after a lost acknowledgement, discard only a confirmed-private receipt, preserve an already-published artifact, and leave an unknown attempt intact for later reconciliation. This contract does not execute repository scripts or replace the required operating-system sandbox for the external build worker. Evidence: `packages/scanner/tests/artifact.test.ts`, `packages/preview-runtime/tests/hosted-artifact.test.ts`.
+
+### COMP-V2-CODE-004: Private hosted artifact storage
+
+Store hosted preview files under a private, immutable staging identity and expose them only after one artifact state record changes from staged to published through an ETag compare-and-swap. Publication and discard race on that same record. A winning publication keeps every file; a winning discard tombstones the attempt before deleting its private files; a failed same-receipt retry must win that same discarded-state fence before cleanup and can never delete bytes another retry already published. A retry with the same persisted receipt is idempotent; another staging identity cannot replace an existing artifact. Resolve lost acknowledgements from stored state, rehash staged and served bytes, reject corrupt state, metadata, or bodies, and never serve staged or discarded bytes. Evidence: `packages/files/tests/hosted-preview-artifact.test.ts`, `packages/files/tests/file-assets-worker.test.ts`.
+
+### COMP-V2-CODE-005: Internal hosted artifact read boundary
+
+The file-assets Worker exposes an exact hosted artifact file only after its state is published and its stored metadata, byte length, and SHA-256 have been verified. The route accepts only GET and HEAD from an internal caller presenting the constant-time checked service token. It rejects browser Origin headers, does not emit CORS access, rejects encoded or traversal-like paths, and returns private no-store, nosniff, same-origin responses with the declared content type, length, and digest ETag. Staged, discarded, missing, and corrupt files are never returned. Evidence: `packages/files/tests/file-assets-worker.test.ts`, `apps/workers/src/index.ts`.
+
+### COMP-V2-CODE-006: Isolated hosted preview gateway
+
+The browser receives a short-lived HMAC capability bound to one artifact ID and one dedicated hosted-preview origin. Grants expire within five minutes, reject alternate encodings and signature changes, and cannot be replayed for another artifact or origin. The gateway accepts only a canonical capability-prefixed GET or HEAD path, follows no upstream redirects, validates the internal service response identity and digest headers, and never forwards its broad service credential to the browser. Every artifact response is private and no-store with no CORS, no referrer, nosniff, same-origin resource policy, a restrictive permissions policy, and an execution CSP that permits only same-origin scripts and styles while blocking network connections, forms, objects, workers, nested frames, and every frame ancestor except the configured editor origins. Application error logs redact the capability. Evidence: `packages/preview-runtime/tests/hosted-capability.test.ts`, `apps/preview/hosted-gateway.test.ts`, `apps/preview/hosted-gateway.ts`, `apps/preview/api/hosted/[...path].ts`.
+
+### COMP-V2-CODE-007: Authorized hosted preview grants
+
+A trusted publisher binds each immutable artifact ID to one exact file and current file revision before any browser capability can be issued. Registration is service-authenticated, create-only, idempotent only for the exact same metadata, and rejects stale file revisions or attempts to rebind an artifact identity. A signed-in owner or current viewer can request a short-lived capability only for an artifact bound to that file's current revision. Private cross-user requests, stale artifacts, mismatched file and artifact identities, and missing configuration are masked or rejected before signing. Evidence: `packages/database/migrations/0017_hosted_preview_artifacts.sql`, `packages/database/tests/migrations.test.ts`, `apps/api/tests/app.test.ts`.
+
+### COMP-V2-CODE-008: Ephemeral hosted preview client boundary
+
+The browser starts and polls a hosted build only for the currently open file. It requests a hosted preview only after that exact job completes with one server-owned artifact ID. It accepts only the configured isolated preview origin and the exact canonical capability path for that artifact, with no credentials, query, fragment, redirect, or traversal-like path. A response that arrives after a file switch or adapter disposal is rejected. The returned capability remains session-only and is never serialized into the file, repository scan, editor snapshot, or adapter state. The Kit presents the result as a repository preview without claiming the component is placeable. Hosted scans use the same canonical registry-request fingerprint as artifact admission, and discovered components remain unavailable until composition binding is separately verified. Evidence: `packages/cloud-client/tests/client.test.ts`, `apps/web/src/adapters/cloud.test.ts`, `packages/editor/src/features/editor/component-registry.test.ts`, `packages/editor/src/features/editor/hosted-repository-service.test.ts`.
+
+### COMP-V2-CODE-009: Hosted build publication ordering
+
+The build orchestrator validates the file, revision, artifact, staging, and scan identities before invoking the sandbox. The sandbox receives only the repository root and a canonical, deeply frozen build contract, never a GitHub installation token or service credential. Its complete output must pass the canonical scan-derived artifact admission and byte verification before private staging, atomic publication, and exact file-revision registration, in that order. Mismatched output never reaches storage or registration. A retry after an uncertain registration result must reuse the persisted artifact and staging IDs; published artifacts that never register require a separate retention and garbage-collection policy. This contract does not implement or weaken the required operating-system sandbox. Evidence: `apps/repository-jobs/tests/hosted-build.test.ts`, `packages/scanner/tests/artifact.test.ts`, `packages/preview-runtime/tests/hosted-artifact.test.ts`.
+
+### COMP-V2-CODE-010: Hosted build operating-system boundary
+
+The hosted builder launches only an immutable digest-pinned image under a fixed non-root identity. The repository is mounted read-only, writable output and temporary storage use size-limited in-container filesystems, networking is disabled, the root filesystem is read-only, Linux capabilities are dropped, privilege escalation is disabled, and process, memory, CPU, and time limits are explicit. The container receives only the canonical build contract through attached standard input plus fixed `HOME` and `CI` values; GitHub and service credentials are never forwarded. The host Docker client receives only `PATH`. Before bundling, the scanner pins the complete local import closure. The builder reads each declared source once, verifies its digest, and serves esbuild only those cached bytes; undeclared local imports and mutations after scanning fail closed. The builder returns one byte-limited JSON envelope through standard output instead of a writable host mount. The host drains the process pipes, then rejects malformed, duplicate, undeclared, oversized, or hash-mismatched files through the canonical artifact manifest and byte verification before publication admission. Timeout, input failure, and output overflow stop and await the Docker client, then force-remove the caller-named container before rejecting. The turnkey acceptance command builds the image, captures its immutable ID, and exercises real Chromium behavior plus changed-source and undeclared-import negative controls. Evidence: `apps/repository-jobs/tests/hosted-sandbox.test.ts`, `apps/repository-jobs/tests/hosted-builder.integration.test.ts`, `packages/scanner/tests/shadcn-scan.test.ts`, `apps/repository-jobs/src/hosted-sandbox.ts`, `infra/hosted-preview-builder/build.mjs`, `scripts/test-hosted-preview-builder.mjs`.
+
+### COMP-V2-CODE-011: File-scoped hosted build queue
+
+Starting a hosted preview build accepts no client-selected repository, scan, revision, artifact, staging, or lease identity. The server derives the current file revision and project, authorizes the latest completed scan against the current GitHub grant, generates every build identity, and creates at most one job for that file revision and scan. Internal claims use an expiring lease, recheck the completed scan against the live installation and repository grant before minting a read-only token, and return that token only to the authenticated build worker. Revoked grants fail the leased job before source access. Completion, retry, and failure require the exact current lease; only a completed owner-visible job reveals its artifact identity. Evidence: `apps/api/tests/app.test.ts`, `packages/database/tests/migrations.test.ts`, `packages/github-app/tests/github-app.test.ts`.
+
+### COMP-V2-CODE-012: Capability-bound hosted artifact writes
+
+After an authorized build claim, the API issues one short-lived write capability bound to the exact job, current lease, server-owned artifact, server-owned staging identity, and configured assets origin. The assets worker accepts that capability only on private no-Origin internal routes. Each file write is individually byte-bounded, path-checked, content-type-checked, and digest-checked against the canonical artifact metadata; staging is create-only and idempotent only for identical bytes. Commit verifies the complete stored file set against the canonical manifest before the artifact can be published. Status, publication, and discard remain bound to the same receipt. The build transport sends no GitHub token, browser credential, cookie, broad service token, or caller-selected receipt to storage. Wrong, expired, or cross-artifact capabilities and incomplete or changed files fail without making an artifact visible. Evidence: `packages/preview-runtime/tests/hosted-write-capability.test.ts`, `packages/files/tests/file-assets-worker.test.ts`, `packages/files/tests/hosted-preview-artifact.test.ts`, `apps/repository-jobs/tests/hosted-build.test.ts`, `apps/api/tests/app.test.ts`.
+
+### COMP-V2-UI-NEG-001: Honest unavailable states
+
+The editor refuses to place an unavailable code component or a canvas master whose source subtree is missing. It does not insert a static substitute. Evidence: `packages/editor/src/features/editor/document-store.test.ts`.
 
 ## Font family picker
 
@@ -764,6 +1220,10 @@ Workspace startup checks permission without prompting. A granted permission enum
 ### FONT-CACHE-001: Session catalog ownership
 
 Closing and reopening the picker does not rebuild the catalog. Favorites and discovered families remain in the workspace service until disposal, and normalized favorites persist for the browser profile. Evidence: `packages/editor/src/features/fonts/font-catalog-service.test.ts`.
+
+### FONT-RESTORE-001: Stored document font restoration
+
+Opening or refreshing a file automatically resolves every stored Google font after the background catalog arrives, then transfers the verified faces to the isolated preview before measurement. The user does not need to reopen the picker. Evidence: `packages/editor/src/features/fonts/font-catalog-service.test.ts`, `packages/editor/src/features/editor/preview-service.ts`.
 
 ### FONT-PREVIEW-001: Resolved family previews
 
@@ -788,3 +1248,133 @@ Open Features for a font with GSUB or GPOS features. The panel shows only suppor
 ### TEXT-FORMATTING-001: Formatting panel
 
 Open Formatting for one or more text nodes. The popup matches the Paper control order and preview treatment for alignment, case, wrap, keep words, and truncation. Hover previews do not write the document. Selecting a value commits through the text-properties command, preserves mixed state honestly, and produces one undo entry. Evidence: `packages/editor/src/features/editor/text-inspector.test.ts`, `packages/editor/src/design-system/typography-atoms.tsx`.
+
+## Transform matrix layout
+
+### MATRIX-LAYOUT-001: Canonical persisted transform
+
+Schema 12 stores each primitive pose only as `relativeTransform: [a, b, c, d, tx, ty]`. Width, height, and overflow remain separate size and clipping data. The current schema rejects legacy pose fields and malformed, non-finite, or singular matrices. Evidence: `packages/repo-engine/tests/file-transform-matrix.test.ts`, `packages/repo-engine/tests/transform-matrix.test.ts`, `packages/repo-engine/tests/file-document.test.ts`.
+
+### MATRIX-LAYOUT-002: Nested composition and reparenting
+
+World geometry composes parent and child matrices in parent-to-child order. Reparenting with world-position preservation writes the inverse target-parent composition without changing the visible world transform. Evidence: `packages/repo-engine/tests/file-transform-matrix.test.ts`, `packages/editor/src/features/editor/canvas-scene.test.ts`.
+
+### MATRIX-LAYOUT-003: Inverse geometry
+
+Hit testing maps world points through the inverse world matrix into local width and height bounds. Rotated frame corners outside the rendered face do not hit merely because they are inside its world AABB. Evidence: `packages/repo-engine/tests/file-transform-matrix.test.ts`, `packages/editor/src/features/editor/canvas-scene.test.ts`.
+
+### MATRIX-LAYOUT-004: Legacy visual parity
+
+Opening a schema 10 file converts primitive left, top, rotation, and reflections into one matrix around the same center without changing rendered bounds. Evidence: `packages/repo-engine/tests/file-migration.test.ts`, `packages/preview-runtime/tests/layout-pose-runtime.test.ts`.
+
+### MATRIX-LAYOUT-005: Resize and scale remain distinct
+
+Resize changes width and height while preserving the transform matrix. Matrix scale and skew remain transform operations and are not silently rewritten as size. Evidence: `packages/repo-engine/tests/file-transform-matrix.test.ts`, `packages/editor/src/features/editor/gesture-resize-command-planner.test.ts`.
+
+### MATRIX-LAYOUT-006: Lossless affine authoring boundary
+
+Canonical decomposition and composition round trip translation, rotation, non-uniform scale, reflection, and skew without changing point mapping. Evidence: `packages/repo-engine/tests/transform-matrix.test.ts`.
+
+### MATRIX-LAYOUT-007: Lossless primitive inspector edits
+
+Editing X or Y moves the rendered bounds without changing the matrix linear terms. Editing rotation or applying a quarter turn preserves the rendered center, non-uniform scale, reflection, and skew while setting the requested canonical rotation. The negative control proves the former local post-rotation shortcut does not set the requested rotation under skew and non-uniform scale. Evidence: `packages/editor/src/features/editor/matrix-style.test.ts`.
+
+### MATRIX-LAYOUT-008: Affine resize projection
+
+Resize maps pointer deltas through the inverse of the node's complete affine matrix. Scale and skew remain part of the immutable gesture authority, the opposite visual anchor stays fixed, and singular matrices fail closed. Evidence: `packages/editor/src/features/editor/canvas-math.test.ts`, `packages/editor/src/features/editor/layout-measure-resize.test.ts`, `packages/editor/src/features/editor/resize-projection.test.ts`.
+
+### MATRIX-LAYOUT-009: Unified affine rotation preview
+
+Rotation replaces only the canonical rotation component while preserving scale, reflection, and skew, then previews through the same strict matrix presentation used by resize. The runtime owns `transform` and `transform-origin` from protocol v9; the removed rotation-delta compatibility channel is rejected. Evidence: `packages/editor/src/features/editor/rotation-projection.test.ts`, `packages/editor/src/features/editor/canvas-gestures.test.ts`, `packages/preview-runtime/tests/protocol-negative-controls.test.ts`, `packages/preview-runtime/tests/transient-move-layer.test.ts`.
+
+### MATRIX-LAYOUT-010: Component affine authority
+
+Schema 12 stores a component root transform as one invertible linear affine matrix. Rotation, reflection, skew, and non-uniform scale survive inspector edits and cross-parent reparenting. Schema 11 component rotation and scale records migrate to the equivalent matrix, and collaboration cold-start admission upgrades schema 11 before validation. Evidence: `packages/repo-engine/tests/file-migration.test.ts`, `packages/editor/src/features/editor/layout-commands.test.ts`, `packages/editor/src/features/editor/layout-pose.test.ts`, `apps/sync-room-core/tests/legacy-document.test.ts`.
+
+### MATRIX-LAYOUT-011: Matrix-only runtime and source boundary
+
+The editor projects component transforms as a bounded linear CSS matrix with zero translation. The preview runtime and source-writing grammar accept that representation and reject legacy rotate or scale functions, translated matrices, hostile CSS, and coefficients outside the persisted transform bounds. Evidence: `packages/repo-engine/tests/layout.test.ts`, `packages/repo-engine/tests/promotion-layout.test.ts`, `packages/preview-runtime/tests/protocol-negative-controls.test.ts`, `packages/preview-runtime/tests/layout-pose-runtime.test.ts`.
+
+### MATRIX-LAYOUT-HISTORY-001: Atomic transform history
+
+Transform edits are one semantic command. Undo restores the exact prior serialized bytes and redo restores the exact transformed styles. Evidence: `packages/repo-engine/tests/file-transform-matrix.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### MATRIX-COLLAB-001: Collaboration and persistence round trip
+
+Current schema 12 matrices survive hosted persistence, collaboration snapshots, reconnect replay, and desktop or web cache boundaries. Schemas 6 through 11 are admitted only through the explicit migration path. Evidence: `packages/cloud-document/tests/hosted-document.test.ts`, `packages/database/tests/collaboration-persistence.test.ts`, `apps/sync-room-core/tests/legacy-document.test.ts`, `packages/sync-client/tests/collaboration-client.test.ts`.
+
+### COMP-V2-UI-065: Property descriptions stay with the component API
+
+A canvas component property can carry a concise description authored in the same New property or Edit property dialog as its name and type. Saving, reload, and Undo preserve the description. Component details show it beside the matching playground control, and the same text appears in the generated Blume property reference without adding permanent instruction copy to the master inspector. Evidence: `packages/editor/src/features/editor/component-authoring-dialogs.tsx`, `packages/editor/src/features/editor/ComponentKitPanel.tsx`, `packages/repo-engine/src/component-model.ts`, `packages/repo-engine/src/component-docs-blume.ts`.
+
+### COMP-V2-UI-066: Instance controls retain property intent
+
+When a component property has a description, the selected instance shows that same concise text directly below the matching control. Properties without descriptions keep the compact existing layout, so the inspector does not gain an empty state or permanent instruction block. Evidence: `packages/editor/src/features/editor/ComponentModelProperties.tsx`, `packages/editor/src/design-system/component-kit-atoms.tsx`, `packages/editor/src/features/editor/ComponentModelProperties.client.test.ts`.
+
+### COMP-V2-UI-067: Description inputs respect the persistence boundary
+
+Component, property, and material description fields share the exact model limit and prevent longer input before Save. The validator independently rejects serialized descriptions beyond that limit, so normal authoring cannot degrade into a generic invalid-operation failure. Evidence: `packages/repo-engine/src/component-model.ts`, `packages/editor/src/design-system/property-atoms.tsx`, `packages/editor/src/features/editor/component-authoring-dialogs.tsx`, `packages/editor/src/features/editor/ComponentKitPanel.tsx`.
+
+### COMP-V2-CODE-013: Optional code props preserve the component default
+
+Verified optional string, boolean, enum, and Slot props enter the shared component model instead of disappearing. The hosted builder accepts the scanner's required optional marker and omits optional props from its initial render so the React component keeps its source default. An untouched instance likewise omits those props from the runtime node and labels the control Component default. Choosing a value writes an explicit instance override; resetting it removes the prop so the React component owns its default again. Canvas-authored properties cannot claim optional source semantics. Evidence: `infra/hosted-preview-builder/contract.mjs`, `apps/repository-jobs/tests/hosted-builder-contract.test.ts`, `packages/editor/src/features/editor/component-registry.ts`, `packages/editor/src/features/editor/component-property-projection.ts`, `packages/editor/src/features/editor/ComponentModelProperties.tsx`, `packages/repo-engine/src/component-model.ts`.
+
+### COMP-V2-UI-068: Component edit scope is an action
+
+An instance with editable component properties exposes a compact Edit scope control instead of permanent explanatory copy. Instance is selected by default and preserves sparse per-instance overrides. Shared property, material, and part authoring controls are not mounted beneath the instance controls. For a canvas-authored component, choosing Shared component opens the real master and its authoring controls. A code component exposes only Instance until a verified source adapter can prepare a reviewed shared-component patch. Evidence: `packages/editor/src/features/editor/Editor.tsx`, `packages/editor/src/features/editor/ComponentModelProperties.tsx`, `packages/editor/src/features/editor/ComponentModelProperties.client.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-069: Variant definition and appearance editing are separate
+
+The property dialog owns the Variant schema: option names, the component default, and prototype mappings. Adding an option does not change the appearance being edited. The compact Canvas edits selector in the master inspector is the single control that changes the current authored appearance, and the row names that appearance directly. Removing the current option falls back to the component default when it still exists. Evidence: `packages/editor/src/features/editor/component-authoring-dialogs.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-070: Material capture follows the selected source
+
+Choosing an Appearance source in the material dialog immediately captures that named layer into the unsaved material draft. Save applies the captured appearance to every assigned layer; Cancel leaves the material and canvas unchanged. An existing source can be sampled again through the explicit Use current appearance action. Evidence: `packages/editor/src/features/editor/component-authoring-dialogs.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-071: Property rebinding captures the selected layer
+
+Choosing a different layer while editing a canvas Text or Boolean property updates the unsaved component default from that layer before Save. Saving moves the binding and its default together instead of applying a stale value from the previous layer. Cancel leaves the property and canvas unchanged. Variant rebinding follows the same rule through its captured appearance map. Evidence: `packages/editor/src/features/editor/component-authoring-dialogs.tsx`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`.
+
+### COMP-V2-UI-072: Component creation continues into its Kit details
+
+After Create component succeeds, the editor opens that exact file-scoped component in Kit under a semantic component heading. The canvas selection and master inspector remain authoritative, while Kit immediately exposes placement, details, playground, instances, and Variant-sheet actions as they become available. A later manual sidebar choice wins until another explicit component navigation request, and a stale request from another file cannot change the active view. Evidence: `packages/editor/src/features/editor/ComponentCreationDialog.tsx`, `packages/editor/src/features/editor/ComponentCreationDialog.client.test.ts`, `packages/editor/src/features/editor/component-kit-navigation.ts`, `packages/editor/src/features/editor/component-kit-navigation.test.ts`, `packages/editor/src/features/editor/Editor.tsx`, `packages/editor/src/design-system/component-kit-atoms.tsx`.
+
+### COMP-V2-UI-073: Component-root interaction ownership
+
+Hover and Pressed triggers belong to the exact canvas-component root even when their Variant appearance is bound to a nested layer. Entering component padding applies the reviewed appearance to that bound target. A nested interactive component takes nearest-owner precedence without activating its parent, and returning to parent padding restores the parent's Hover state. Evidence: `packages/repo-engine/tests/file-preview.test.ts`, `packages/preview-runtime/tests/scene-protocol.test.ts`, `packages/preview-runtime/tests/component-interaction-browser-runtime.test.ts`.
+
+### COMP-V2-UI-074: Cancel-safe transient component state
+
+Pointer leave, pointer cancellation, preview blur, interaction-mode change, and authoritative document replacement clear transient Hover or Pressed state and restore the configured instance appearance without writing an instance override. Select and Pan modes remain inert. Evidence: `packages/preview-runtime/tests/component-interaction-browser-runtime.test.ts`.
+
+### COMP-V2-UI-075: Configured Slot playground and atomic placement
+
+A bound canvas Slot accepts transient Text, Frame, and eligible canvas-component drafts in Kit. The isolated configured preview renders those drafts without changing document bytes, revision, or history. Place writes the outer instance, Slot children, nested semantic instances, property projection, and selection as one checked transaction; one Undo removes the complete tree. Evidence: `packages/editor/src/features/editor/component-configured-instance.test.ts`, `packages/editor/src/features/editor/component-configured-preview.test.ts`, `packages/editor/src/features/editor/component-docs-preview-service.test.ts`, `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-NEG-002: Closed Slot draft boundary
+
+Unbound or removed Slots, stale property identities, unavailable code components, duplicate draft identities, direct recursion, and ancestor recursion cannot enter configured preview or placement. Invalid draft sets produce no partial instance or history entry, while unrelated document revisions preserve still-valid transient drafts. Evidence: `packages/editor/src/features/editor/component-configured-instance.test.ts`, `packages/editor/src/features/editor/component-docs-preview-service.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-076: Canvas-authored Instance swap
+
+A canvas component may expose one nested canvas-component root as an Instance swap property. Authoring identifies the real nested layer and its component default. Kit preview, placement, and selected-instance controls share one eligible-component set and one stable-root planner. Applying or resetting a swap preserves the outer instance, bound root identity, relationship order, pose, unrelated overrides, and sibling instances; the physical nested subtree and sparse scalar value change as one Undo or Redo leaf. Rebinding or removing the property first restores overridden instances to the previous master default. Evidence: `packages/repo-engine/tests/component-model.test.ts`, `packages/repo-engine/tests/file-document.test.ts`, `packages/repo-engine/tests/file-preview.test.ts`, `packages/editor/src/features/editor/component-instance-swap.test.ts`, `packages/editor/src/features/editor/component-configured-preview.test.ts`, `packages/editor/src/features/editor/component-docs-preview-service.test.ts`, `packages/editor/src/features/editor/component-authoring-dialogs.test.ts`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`, `packages/editor/src/features/editor/ComponentModelProperties.client.test.ts`, `packages/editor/src/features/editor/ComponentKitPanel.client.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-NEG-003: Closed Instance swap boundary
+
+Only a bound nested semantic instance of an eligible canvas component may define or receive an Instance swap. Missing definitions, code components, stale physical or semantic roots, reused binding roots, invalid stored component ids, direct recursion, ancestor recursion, generated-id collisions, and protected-instance structural commands outside the validated semantic planner fail without document or history mutation. Master propagation stops at an overridden swap root while continuing through the rest of the linked subtree. Evidence: `packages/repo-engine/tests/component-model.test.ts`, `packages/repo-engine/tests/file-document.test.ts`, `packages/editor/src/features/editor/component-instance-swap.test.ts`, `packages/editor/src/features/editor/component-authoring-dialogs.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-077: Compound canvas Variant appearances
+
+Two or more canvas Variant properties may bind the same real layer. The complete value tuple resolves one exact appearance cell, so changing State never overwrites Tone and changing Tone never overwrites State. Canvas editing captures only the selected tuple; Kit preview, placed instances, generated sheets, interactions, linked peers, reload, and Undo or Redo resolve the same cell. Adding or removing axes and values reconciles the table deterministically in one checked component replacement. Evidence: `packages/repo-engine/tests/component-model.test.ts`, `packages/repo-engine/tests/file-migration.test.ts`, `packages/repo-engine/tests/file-preview.test.ts`, `packages/editor/src/features/editor/component-configured-preview.test.ts`, `packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-NEG-004: Bounded compound Variant boundary
+
+Compound Variant products are bounded to 256 exact cells before allocation or history mutation. Incomplete, extra, malformed, or stale tuple tables fail validation, and a tuple cannot resolve with a missing or invalid axis value. Legacy same-layer Variant bindings migrate deterministically without inventing a blended appearance. Evidence: `packages/repo-engine/tests/component-model.test.ts`, `packages/repo-engine/tests/file-migration.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`.
+
+### COMP-V2-UI-078: First-class canvas component duplication
+
+Duplicating a canvas component master creates one independent component with fresh node, definition, property, Variant value, material, part, interaction, and documentation identities. Existing instances remain linked to the source master. Duplicating or same-file copy-pasting an instance preserves the source component link, sparse property values, Slot children, Instance swap choice, transform, and nested semantic instances. Duplicate, Layers modifier-copy, Alt-drag, page duplication, and same-file paste commit their complete physical and semantic closure as one Undo or Redo leaf and survive reload with correct Layers and Kit identity. Evidence: `packages/editor/src/features/editor/component-duplicate.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`, `packages/editor/src/features/editor/clipboard-internal.test.ts`, `packages/editor/src/features/editor/editor-clipboard-service.client.test.ts`, `tests/pr-evidence/scenarios/component-system.spec.ts`.
+
+### COMP-V2-UI-NEG-005: Closed component duplication boundary
+
+Component duplication and clipboard insertion require the exact file, revision, physical graph, semantic graph, property bindings, tuple table, nested identities, dependency closure, and collision-free generated identifiers inspected by the planner. Malformed, recursive, stale, oversized, cross-file, or paste-to-replace canvas-component payloads fail before changing document bytes, history, selection, or Kit usage. Evidence: `packages/editor/src/features/editor/component-duplicate.test.ts`, `packages/editor/src/features/editor/clipboard-codec.client.test.ts`, `packages/editor/src/features/editor/clipboard-internal.test.ts`, `packages/editor/src/features/editor/document-store.test.ts`.

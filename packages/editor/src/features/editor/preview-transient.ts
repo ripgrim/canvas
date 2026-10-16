@@ -1,6 +1,7 @@
 import { isPreviewAppearance, isPreviewDocument } from '@canvas/preview-runtime/protocol'
 import type { PreviewAppearance, PreviewDocument, PreviewPresentationFence, PreviewResizeParentPaddingPresentation } from '@canvas/preview-runtime/protocol'
 import type { Appearance, FileDocument } from '@canvas/repo-engine/file-document'
+import { isFiniteMatrix } from '@canvas/repo-engine/layout-matrix'
 import type { CanvasTransient } from './document-store'
 import type { ResizePresentation } from './resize-projection'
 
@@ -11,7 +12,6 @@ export type PreviewTransientMove = Readonly<{
   duplicate?: true
   width?: number
   height?: number
-  rotationDelta?: number
   appearance?: PreviewAppearance
 }>
 
@@ -93,12 +93,22 @@ export function previewResizePresentation(input: PreviewResizePresentationInput)
   const seen = new Set<string>()
   const items: PreviewResizeParentPaddingPresentation['items'] = []
   for (const item of presentation.items) {
-    if (!validId(item.nodeId) || seen.has(item.nodeId) || item.coordinateSpace !== 'parent-padding' || !finiteRect(item.startRect) || !finiteRect(item.rect)) return null
+    if (!validId(item.nodeId) || seen.has(item.nodeId) || item.coordinateSpace !== 'parent-padding' || !finiteRect(item.startRect) || !finiteRect(item.rect)
+      || !isFiniteMatrix(item.nodeTransform) || item.nodeTransform[4] !== 0 || item.nodeTransform[5] !== 0
+      || !finiteCoordinate(item.transformOrigin.x) || !finiteCoordinate(item.transformOrigin.y)) return null
     const parentNodeId = item.parentId === pageRootNodeId ? null : item.parentId
     if (!validId(item.parentId) || !parents.has(item.nodeId) || parents.get(item.nodeId) !== parentNodeId) return null
     const appearance = item.appearance ? mergeProjectedImageGeometry(document, item.nodeId, item.appearance) : undefined
     if (item.appearance && !appearance) return null
-    items.push({ nodeId: item.nodeId, parentNodeId, startRect: { ...item.startRect }, rect: { ...item.rect }, ...(appearance ? { appearance } : {}) })
+    items.push({
+      nodeId: item.nodeId,
+      parentNodeId,
+      startRect: { ...item.startRect },
+      rect: { ...item.rect },
+      nodeTransform: [...item.nodeTransform],
+      transformOrigin: { ...item.transformOrigin },
+      ...(appearance ? { appearance } : {}),
+    })
     seen.add(item.nodeId)
   }
   return freezeGraph({ kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId, sampleSequence, fence, items })

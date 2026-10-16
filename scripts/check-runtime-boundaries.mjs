@@ -18,8 +18,8 @@ function prohibited(specifier) {
   if (specifier === 'server-only') return 'Server-only module import is forbidden in browser code'
   if (specifier.startsWith('node:') || builtins.has(specifier.split('?')[0])) return 'Node built-in import is forbidden in browser code'
   if (specifier === 'electron' || specifier.startsWith('electron/')) return 'Electron import is forbidden in browser code'
-  if ((specifier === '@canvas/repo-engine' || specifier.startsWith('@canvas/repo-engine/')) && !['@canvas/repo-engine/document', '@canvas/repo-engine/contracts', '@canvas/repo-engine/design-themes', '@canvas/repo-engine/file-document', '@canvas/repo-engine/hosted-catalog', '@canvas/repo-engine/appearance', '@canvas/repo-engine/file-migration', '@canvas/repo-engine/file-preview', '@canvas/repo-engine/color', '@canvas/repo-engine/order-keys', '@canvas/repo-engine/layout', '@canvas/repo-engine/grid-tracks', '@canvas/repo-engine/grid-placement', '@canvas/repo-engine/flex-inference', '@canvas/repo-engine/paper-sizing', '@canvas/repo-engine/layout-matrix', '@canvas/repo-engine/layout-css', '@canvas/repo-engine/node-theme'].includes(specifier)) return 'Use a browser-safe repo-engine contract subpath'
-  if ((specifier === '@canvas/preview-runtime' || specifier.startsWith('@canvas/preview-runtime/')) && !['@canvas/preview-runtime/protocol', '@canvas/preview-runtime/browser', '@canvas/preview-runtime/browser-contracts'].includes(specifier)) return 'Use a browser-safe preview-runtime subpath'
+  if ((specifier === '@canvas/repo-engine' || specifier.startsWith('@canvas/repo-engine/')) && !['@canvas/repo-engine/document', '@canvas/repo-engine/contracts', '@canvas/repo-engine/design-themes', '@canvas/repo-engine/file-document', '@canvas/repo-engine/hosted-catalog', '@canvas/repo-engine/appearance', '@canvas/repo-engine/file-migration', '@canvas/repo-engine/file-preview', '@canvas/repo-engine/color', '@canvas/repo-engine/order-keys', '@canvas/repo-engine/layout', '@canvas/repo-engine/grid-tracks', '@canvas/repo-engine/grid-placement', '@canvas/repo-engine/flex-inference', '@canvas/repo-engine/paper-sizing', '@canvas/repo-engine/layout-matrix', '@canvas/repo-engine/layout-pose', '@canvas/repo-engine/transform-matrix', '@canvas/repo-engine/layout-css', '@canvas/repo-engine/node-theme', '@canvas/repo-engine/component-model', '@canvas/repo-engine/component-admission'].includes(specifier)) return 'Use a browser-safe repo-engine contract subpath'
+  if ((specifier === '@canvas/preview-runtime' || specifier.startsWith('@canvas/preview-runtime/')) && !['@canvas/preview-runtime/protocol', '@canvas/preview-runtime/browser', '@canvas/preview-runtime/browser-contracts', '@canvas/preview-runtime/hosted-artifact'].includes(specifier)) return 'Use a browser-safe preview-runtime subpath'
   if (specifier === '@canvas/auth/electron' || specifier === '@canvas/auth/server' || specifier === '@canvas/auth/hosted') return 'Privileged auth implementation is forbidden in browser code'
   if (serverOnly(specifier)) return 'Server-only module import is forbidden in browser code'
   if (/^(?:pg|postgres)(?:\/|$)/.test(specifier) || specifier === 'better-auth' || /^better-auth\/(?:adapters|node)(?:\/|$)/.test(specifier)) return 'Hosted database or auth server import is forbidden in browser code'
@@ -158,8 +158,12 @@ function graphResolver(sources) {
     '@canvas/repo-engine/flex-inference': 'packages/repo-engine/src/flex-inference.ts',
     '@canvas/repo-engine/paper-sizing': 'packages/repo-engine/src/paper-sizing.ts',
     '@canvas/repo-engine/layout-matrix': 'packages/repo-engine/src/layout-matrix.ts',
+    '@canvas/repo-engine/layout-pose': 'packages/repo-engine/src/layout-pose.ts',
+    '@canvas/repo-engine/transform-matrix': 'packages/repo-engine/src/transform-matrix.ts',
     '@canvas/repo-engine/layout-css': 'packages/repo-engine/src/layout-css.ts',
     '@canvas/repo-engine/node-theme': 'packages/repo-engine/src/node-theme.ts',
+    '@canvas/repo-engine/component-model': 'packages/repo-engine/src/component-model.ts',
+    '@canvas/repo-engine/component-admission': 'packages/repo-engine/src/component-admission.ts',
     '@canvas/preview-runtime/protocol': 'packages/preview-runtime/src/protocol.ts',
     '@canvas/preview-runtime/browser': 'packages/preview-runtime/src/browser-runtime.mjs',
     '@canvas/preview-runtime/browser-contracts': 'packages/preview-runtime/src/browser-contracts.ts',

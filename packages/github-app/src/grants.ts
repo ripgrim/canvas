@@ -1,6 +1,7 @@
-import type { GitHubActor, GitHubGrantStore, GitHubProviderPort, InstallationGrant, LiveRepositoryOperation, ProjectAuthorizationPort, ProjectRepositoryOperation, RepositoryAccessSnapshot, RepositoryGrant } from './contracts.js'
+import type { GitHubActor, GitHubComponentAdmissionAccess, GitHubGrantStore, GitHubProviderPort, GitHubRepositoryIdentity, InstallationGrant, LiveRepositoryOperation, ProjectAuthorizationPort, ProjectRepositoryOperation, RepositoryAccessSnapshot, RepositoryGrant } from './contracts.js'
 import type { InstallationStateService } from './state.js'
-import { assertLiveRepositoryIntersection, GitHubAppError, githubId, opaqueId, validateActor, validateInstallation } from './validation.js'
+import { randomUUID } from 'node:crypto'
+import { assertLiveRepositoryIntersection, GitHubAppError, githubId, opaqueId, validateActor, validateInstallation, validateRepository } from './validation.js'
 
 export class GitHubGrantService {
   constructor(
@@ -9,6 +10,7 @@ export class GitHubGrantService {
     private readonly states: InstallationStateService,
     private readonly projectAuthorization: ProjectAuthorizationPort,
     private readonly now: () => number = Date.now,
+    private readonly createGrantId: () => string = randomUUID,
   ) {}
 
   async completeInstallation(input: Readonly<{
@@ -57,7 +59,8 @@ export class GitHubGrantService {
     if (!installationGrant) throw new GitHubAppError('INSTALLATION_NOT_ACTIVE', 'GitHub installation is not available.')
     const live = await this.loadLiveIntersection(actor, installationId, repositoryId)
     assertPermissionIntersection(live.installation.contentsPermission, live.repository.contentsPermission, 'scan')
-    const grant: RepositoryGrant = {
+    const grant = {
+      grantId: this.createGrantId(),
       tenantId,
       projectId,
       installationId,
@@ -65,8 +68,31 @@ export class GitHubGrantService {
       linkedByAccountId: actor.accountId,
       linkedAt: this.now(),
     }
-    await this.store.saveRepositoryGrant(grant)
-    return grant
+    const stored = await this.store.saveRepositoryGrant(grant)
+    if (!sameGrantInput(stored, grant) || !Number.isSafeInteger(stored.grantGeneration) || stored.grantGeneration < 1) {
+      throw new GitHubAppError('REPOSITORY_NOT_VISIBLE', 'GitHub repository is not available.')
+    }
+    return stored
+  }
+
+  async listLinkableRepositories(input: Readonly<{
+    actor: GitHubActor
+    tenantId: string
+    projectId: string
+    installationId: string
+  }>): Promise<readonly GitHubRepositoryIdentity[]> {
+    const actor = validateActor(input.actor)
+    const tenantId = opaqueId(input.tenantId)
+    const projectId = opaqueId(input.projectId)
+    const installationId = githubId(input.installationId)
+    await this.assertProjectAuthorization({ actor, tenantId, projectId, operation: 'link-repository' })
+    const installationGrant = await this.store.getActiveInstallationGrant({ tenantId, installationId })
+    if (!installationGrant) throw new GitHubAppError('INSTALLATION_NOT_ACTIVE', 'GitHub installation is not available.')
+    const visible = (await this.provider.listInstallationsForUser(actor)).map(validateInstallation).find(candidate => candidate.id === installationId)
+    if (!visible || visible.contentsPermission === 'none' || !this.provider.listRepositoriesForInstallation) throw new GitHubAppError('INSTALLATION_NOT_VISIBLE', 'GitHub installation is not available.')
+    const repositories = (await this.provider.listRepositoriesForInstallation({ actor, installationId })).map(validateRepository)
+    if (repositories.some(repository => repository.installationId !== installationId) || new Set(repositories.map(repository => repository.id)).size !== repositories.length) throw new GitHubAppError('REPOSITORY_NOT_VISIBLE', 'GitHub repository is not available.')
+    return Object.freeze(repositories.filter(repository => repository.contentsPermission !== 'none').sort((left, right) => left.fullName.localeCompare(right.fullName)))
   }
 
   async assertLiveRepositoryAccess(input: Readonly<{
@@ -84,6 +110,15 @@ export class GitHubGrantService {
     const after = await this.authorizedSnapshot(actor, tenantId, projectId, input.operation)
     if (!sameSnapshot(before, after)) throw new GitHubAppError('REPOSITORY_NOT_VISIBLE', 'GitHub repository is not available.')
     return { ...after.grant, repository: live.repository }
+  }
+
+  async authorizeComponentAdmission(input: Readonly<{
+    actor: GitHubActor
+    tenantId: string
+    projectId: string
+  }>): Promise<GitHubComponentAdmissionAccess> {
+    const grant = await this.assertLiveRepositoryAccess({ ...input, operation: 'scan' })
+    return { provider: 'github', projectId: grant.projectId, repositoryId: grant.repository.id }
   }
 
   private async assertProjectAuthorization(input: Readonly<{
@@ -133,9 +168,23 @@ function assertPermissionIntersection(
 }
 
 function sameSnapshot(left: RepositoryAccessSnapshot, right: RepositoryAccessSnapshot): boolean {
-  return left.grant.tenantId === right.grant.tenantId
+  return left.grant.grantId === right.grant.grantId
+    && left.grant.tenantId === right.grant.tenantId
     && left.grant.projectId === right.grant.projectId
     && left.grant.installationId === right.grant.installationId
     && left.grant.repository.id === right.grant.repository.id
+    && left.grant.linkedAt === right.grant.linkedAt
+    && left.grant.grantGeneration === right.grant.grantGeneration
     && left.installation.installation.id === right.installation.installation.id
+}
+
+function sameGrantInput(left: RepositoryGrant, right: Omit<RepositoryGrant, 'grantGeneration'>): boolean {
+  return left.grantId === right.grantId
+    && left.tenantId === right.tenantId
+    && left.projectId === right.projectId
+    && left.installationId === right.installationId
+    && left.repository.id === right.repository.id
+    && left.repository.installationId === right.repository.installationId
+    && left.linkedByAccountId === right.linkedByAccountId
+    && left.linkedAt === right.linkedAt
 }

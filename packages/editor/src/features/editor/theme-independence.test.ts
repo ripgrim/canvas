@@ -13,7 +13,7 @@ const appearanceKey = 'design-editor.appearance.v1'
 const viewKey = 'design-editor.view-state.v1'
 
 const file = (): FileDocument => ({
-  schemaVersion: 9, fileId: 'file-a', revision: 1,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'file-a', revision: 1,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: { 'root-1': { id: 'root-1', type: 'root' } },
   relationships: {},

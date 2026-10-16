@@ -102,7 +102,8 @@ Configure matching R2 lifecycle rules for `thumbnail-claims/` and
 windows. Do not apply a broad lifecycle rule to `thumbnails/`; superseded and
 uncommitted versions require the database-aware collector.
 
-Required secrets are `UPLOAD_INTENT_SECRET` and `API_SERVICE_TOKEN`. Local
+Required secrets are `UPLOAD_INTENT_SECRET`, `API_SERVICE_TOKEN`, and
+`HOSTED_PREVIEW_WRITE_SECRET`. Local
 values belong in `.dev.vars`, which is not committed. `FILE_ASSETS` is the R2
 binding and `API_ORIGIN` is a fixed hosted API origin.
 

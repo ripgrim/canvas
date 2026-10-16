@@ -1,9 +1,10 @@
-import { validateFileDocument } from '@canvas/repo-engine/file-document'
+import { fileSchemaVersion, validateFileDocument } from '@canvas/repo-engine/file-document'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import { upgradeFileDocument } from '@canvas/repo-engine/file-migration'
-import type { Atom } from '@canvas/repo-engine'
+import type { Atom } from '@canvas/repo-engine/contracts'
 import { validateImageAssetReference } from '@canvas/repo-engine/appearance'
 import type { ImageAssetReference, ImageExtension, ImageMime } from '@canvas/repo-engine/appearance'
+import { validateComponentModelState } from '@canvas/repo-engine/component-model'
 
 type ComponentShape = Readonly<{
   id: string
@@ -76,6 +77,34 @@ function hostedAtoms(value: unknown): Atom[] {
 export function validateHostedFileDocument(value: unknown): FileDocument {
   const upgraded = upgradeFileDocument(value)
   return validateFileDocument(upgraded, hostedAtoms(upgraded), { allowUnavailableBindings: true })
+}
+
+export type HostedDocumentInvariantRepairResult =
+  | Readonly<{ status: 'repaired'; source: Readonly<Record<string, unknown>>; document: FileDocument; removedInstanceIds: readonly string[] }>
+  | Readonly<{ status: 'not-repairable' }>
+
+/**
+ * Repairs the one historic component deletion defect whose node removal committed before its instance metadata.
+ * No design node or component definition is synthesized, and the complete candidate must validate afterward.
+ */
+export function repairHostedFileDocument(value: unknown): HostedDocumentInvariantRepairResult {
+  if (!record(value) || value.schemaVersion !== fileSchemaVersion || !record(value.nodes) || !record(value.componentModel)) return Object.freeze({ status: 'not-repairable' })
+  const nodes = value.nodes
+  const serializedComponentModel = value.componentModel
+  let componentModel
+  try { componentModel = validateComponentModelState(serializedComponentModel) }
+  catch { return Object.freeze({ status: 'not-repairable' }) }
+  const removedInstanceIds = Object.keys(componentModel.instances).filter(instanceId => !Object.hasOwn(nodes, instanceId)).sort()
+  if (!removedInstanceIds.length) return Object.freeze({ status: 'not-repairable' })
+  const candidate = structuredClone(value)
+  if (!record(candidate.componentModel) || !record(candidate.componentModel.instances)) return Object.freeze({ status: 'not-repairable' })
+  for (const instanceId of removedInstanceIds) delete candidate.componentModel.instances[instanceId]
+  try {
+    const document = validateHostedFileDocument(candidate)
+    return Object.freeze({ status: 'repaired', source: value, document, removedInstanceIds: Object.freeze(removedInstanceIds) })
+  } catch {
+    return Object.freeze({ status: 'not-repairable' })
+  }
 }
 
 export type LegacyHostedImageAsset = Readonly<{

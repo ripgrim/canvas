@@ -9,14 +9,14 @@ import { fixtureRegistry } from './fixture-registry.js'
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
 const image = { fills: [{ type: 'image' as const, assetId: 'photo', fit: 'cover' as const }] }
 const previewDocument = (revision = 12, includePrimitive = true) => ({
-  version: 2 as const,
+  version: 3 as const,
   revision,
   rootIds: ['button-1'],
   nodes: {
     'button-1': { id: 'button-1', componentId: 'atom-button', exportName: 'Button', props: { type: 'button', variant: 'quiet', children: 'Go' }, children: {}, appearance: image },
   },
   frame: { width: 800, height: 600, direction: 'column' as const, gap: 0, padding: 0, clip: false },
-  canvas: { elements: includePrimitive ? [{ id: 'selected', kind: 'rectangle' as const, name: 'Selected', x: 0, y: 0, width: 20, height: 20, rotation: 0, parentId: null, appearance: image }] : [] },
+  canvas: { elements: includePrimitive ? [{ id: 'selected', kind: 'rectangle' as const, name: 'Selected', relativeTransform: [1, 0, 0, 1, 0, 0], width: 20, height: 20, parentId: null, appearance: image }] : [] },
   assets: { photo: { mime: 'image/png' as const, data: 'AAAA' } },
 })
 
@@ -37,12 +37,12 @@ async function waitFor<T>(read: () => Promise<T>, predicate: (value: T) => boole
 }
 
 const send = async (payload: Record<string, unknown>) => {
-  const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
+  const command = { channel: 'design-editor-preview', version: 10, generation, ...payload }
   await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
 }
 
 const sendForGeneration = async (commandGeneration: number, payload: Record<string, unknown>) => {
-  const command = { channel: 'design-editor-preview', version: 8, generation: commandGeneration, ...payload }
+  const command = { channel: 'design-editor-preview', version: 10, generation: commandGeneration, ...payload }
   await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
 }
 
@@ -88,7 +88,7 @@ beforeAll(async () => {
 
 afterAll(async () => { await dispose?.() }, 30_000)
 
-describe('PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 v8 browser presentation runtime', () => {
+describe('PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 protocol-v10 browser presentation runtime', () => {
   it('applies one parent-padding projection, preserves transforms and assets, rejects stale samples, and restores every lifecycle edge', async () => {
     await send({ type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument(), theme: { attribute: null, colorScheme: 'light' } })
     await send({ type: 'set-camera', sequence: 1, camera: { x: -400, y: -300, zoom: 1, width: 800, height: 600 } })
@@ -121,8 +121,8 @@ describe('PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 v8 browser pres
     const presentation = (sampleSequence: number) => ({
       kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'resize-1', sampleSequence, fence,
       items: [
-        { nodeId: 'selected', parentNodeId: null, startRect: { x: 0, y: 0, width: 20, height: 20 }, rect: { x: 30, y: 10, width: 35, height: 50 }, appearance: { fills: [{ type: 'image', assetId: 'photo', fit: 'cover', geometry: { x: 4, y: 5, width: 60, height: 70 } }] } },
-        { nodeId: 'button-1', parentNodeId: null, startRect: { x: 0, y: 0, width: 40, height: 20 }, rect: { x: -8, y: 14, width: 80, height: 30 }, appearance: { fills: [{ type: 'image', assetId: 'photo', fit: 'cover', geometry: { x: 6, y: 7, width: 90, height: 45 } }] } },
+        { nodeId: 'selected', parentNodeId: null, startRect: { x: 0, y: 0, width: 20, height: 20 }, rect: { x: 30, y: 10, width: 35, height: 50 }, nodeTransform: [0, 2, -2, 0, 0, 0], transformOrigin: { x: 0, y: 0 }, appearance: { fills: [{ type: 'image', assetId: 'photo', fit: 'cover', geometry: { x: 4, y: 5, width: 60, height: 70 } }] } },
+        { nodeId: 'button-1', parentNodeId: null, startRect: { x: 0, y: 0, width: 40, height: 20 }, rect: { x: -8, y: 14, width: 80, height: 30 }, nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 40, y: 15 }, appearance: { fills: [{ type: 'image', assetId: 'photo', fit: 'cover', geometry: { x: 6, y: 7, width: 90, height: 45 } }] } },
       ],
     })
     await send({ type: 'set-transient-presentations', presentations: [presentation(1)] })
@@ -259,7 +259,7 @@ describe('PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 v8 browser pres
     await page.evaluate(([origin, activeGeneration, activeFence]) => {
       const target = document.querySelector('iframe')!.contentWindow!
       for (let index = 0; index < 501; index += 1) target.postMessage({
-        channel: 'design-editor-preview', version: 8, generation: activeGeneration, type: 'set-transient-presentations',
+        channel: 'design-editor-preview', version: 10, generation: activeGeneration, type: 'set-transient-presentations',
         presentations: [{ kind: 'move-world', coordinateSpace: 'world', interactionId: `bounded-${index}`, sampleSequence: 0, fence: activeFence, items: [{ nodeId: 'selected', dx: index, dy: 0 }] }],
       }, origin as string)
     }, [previewOrigin, generation, fence] as const)
@@ -292,7 +292,7 @@ describe('PAPER-FLEX-007, AT-CAN-006, and CLOUD-SYNC-GESTURE-001 v8 browser pres
       presentations: [{
         kind: 'resize-parent-padding', coordinateSpace: 'parent-padding', interactionId: 'dispose-resize', sampleSequence: 1,
         fence: disposeFence,
-        items: [{ nodeId: 'button-1', parentNodeId: null, startRect: { x: 0, y: 0, width: 40, height: 20 }, rect: { x: 3, y: 4, width: 70, height: 30 }, appearance: { fills: [{ type: 'image', assetId: 'photo', fit: 'cover', geometry: { x: 2, y: 3, width: 80, height: 40 } }] } }],
+        items: [{ nodeId: 'button-1', parentNodeId: null, startRect: { x: 0, y: 0, width: 40, height: 20 }, rect: { x: 3, y: 4, width: 70, height: 30 }, nodeTransform: [1, 0, 0, 1, 0, 0], transformOrigin: { x: 35, y: 15 }, appearance: { fills: [{ type: 'image', assetId: 'photo', fit: 'cover', geometry: { x: 2, y: 3, width: 80, height: 40 } }] } }],
       }],
     })
     expect(await waitFor(() => frame.$eval('[data-preview-instance="button-1"]', element => (element as HTMLElement).style.width), value => value === '70px')).toBe('70px')

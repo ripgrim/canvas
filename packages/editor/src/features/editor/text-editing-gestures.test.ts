@@ -19,13 +19,13 @@ const style: TextStyle = {
   keepWords: false,
 }
 const file = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'text-gesture-file',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
-    'text-1': { id: 'text-1', type: 'text', name: 'Text', text: 'Heading', textStyle: style, textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } }, styles: { left: 0, top: 0, width: 120, height: 40 } },
+    'text-1': { id: 'text-1', type: 'text', name: 'Text', text: 'Heading', textStyle: style, textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } }, styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 120, height: 40 } },
   },
   relationships: { 'text-1': { parentId: 'root-1', orderKey: 'V' } },
   theme: { tokens: {} },

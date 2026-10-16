@@ -14,13 +14,17 @@ import {
   type NodeOverlaySnapshot,
   type NodeRef,
   type NodeSnapshot,
+  type PanelsApi,
   type CaptureCrop,
+  type ClipboardApi,
+  type ComponentsApi,
   type RecordingOptions,
   type ResolvedScreenshotOptions,
   type ResolvedRecordingOptions,
   type ResizeHandle,
   type RotationHandle,
   type ScreenshotOptions,
+  type ThemeApi,
 } from "./index.js"
 
 export type PlaywrightEvidencePort<CheckpointName extends string> = Readonly<{
@@ -141,10 +145,29 @@ export function createPlaywrightAutomation<CheckpointName extends string>(option
     type: (text: string) => page.keyboard.type(text),
   })
 
+  const clipboard: ClipboardApi = Object.freeze({
+    dropText: async (text: string, target: GeometryTarget) => {
+      const point = await target.resolve()
+      return page.evaluate(({ text, point }) => {
+        const element = document.elementFromPoint(point.x, point.y)
+        if (!element) return false
+        const data = new DataTransfer()
+        data.setData("text/plain", text)
+        const over = new DragEvent("dragover", { bubbles: true, cancelable: true, clientX: point.x, clientY: point.y, dataTransfer: data })
+        element.dispatchEvent(over)
+        const drop = new DragEvent("drop", { bubbles: true, cancelable: true, clientX: point.x, clientY: point.y, dataTransfer: data })
+        element.dispatchEvent(drop)
+        return over.defaultPrevented && drop.defaultPrevented
+      }, { text, point })
+    },
+  })
+
   const layers: LayersApi = Object.freeze({
     node: (id: NodeId) => ref(id),
     named: async (name: string) => {
       const matches = page.getByRole("tree", { name: "Layers" }).getByRole("treeitem", { name, exact: true })
+      try { await matches.first().waitFor({ state: "attached" }) }
+      catch { throw new AutomationError("target-not-found", `Expected one layer named ${name}.`, { count: 0 }) }
       const count = await matches.count()
       if (count !== 1) throw new AutomationError(count ? "target-ambiguous" : "target-not-found", `Expected one layer named ${name}.`, { count })
       const id = await matches.getAttribute("data-instance-id")
@@ -154,6 +177,76 @@ export function createPlaywrightAutomation<CheckpointName extends string>(option
     selected: async () => {
       const ids = await page.locator('[data-instance-id][aria-selected="true"]').evaluateAll(elements => elements.map(element => element.getAttribute("data-instance-id")))
       return Object.freeze(ids.filter((id): id is string => Boolean(id)).map(id => ref(id as NodeId)))
+    },
+  })
+
+  const components: ComponentsApi = Object.freeze({
+    openKit: async () => {
+      await page.getByRole("tab", { name: "Kit", exact: true }).click()
+    },
+    createFromSelection: async (name: string) => {
+      await page.getByRole("tab", { name: "Design", exact: true }).click()
+      const selected = page.getByRole("tree", { name: "Layers" }).locator('[data-layer-node-id][aria-selected="true"]')
+      await selected.click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Create component", exact: true }).click()
+      const field = page.getByRole("dialog", { name: "Create component", exact: true }).getByLabel("Component name", { exact: true })
+      await field.fill(name)
+      await page.getByRole("dialog", { name: "Create component", exact: true }).getByRole("button", { name: "Create component", exact: true }).click()
+    },
+    inspect: async (name: string) => {
+      await page.getByRole("button", { name: `Open ${name} component details`, exact: true }).click()
+    },
+    place: async (name: string) => {
+      await page.getByRole("button", { name: `Place ${name}`, exact: true }).click()
+    },
+    openMaster: async (name: string) => {
+      await page.getByRole("button", { name: `Open ${name} master`, exact: true }).click()
+    },
+  })
+
+  const panels: PanelsApi = Object.freeze({
+    openMobile: async (panel: Parameters<PanelsApi["openMobile"]>[0]) => {
+      await page.getByRole("button", { name: `Show ${panel.toLowerCase()}`, exact: true }).click()
+      await page.getByRole("dialog", { name: panel, exact: true }).waitFor({ state: "visible" })
+    },
+    closeMobile: async (panel: Parameters<PanelsApi["closeMobile"]>[0]) => {
+      await page.getByRole("button", { name: `Close ${panel}`, exact: true }).click()
+      await page.getByRole("dialog", { name: panel, exact: true }).waitFor({ state: "hidden" })
+    },
+  })
+
+  const theme: ThemeApi = Object.freeze({
+    open: async () => {
+      await page.getByRole("tab", { name: "Theme", exact: true }).click()
+    },
+    createToken: async (type: Parameters<ThemeApi["createToken"]>[0]) => {
+      await page.getByRole("tab", { name: "Theme", exact: true }).click()
+      await page.getByRole("button", { name: "Add token", exact: true }).click()
+      await page.getByRole("menuitem", { name: type, exact: true }).click()
+    },
+    renameToken: async (name: string) => {
+      const field = page.getByRole("textbox", { name: "Token name", exact: true })
+      await field.fill(name)
+      await field.press("Enter")
+    },
+    openToken: async (name: string) => {
+      const row = page.locator(".theme-token-row").filter({ has: page.getByText(name, { exact: true }) })
+      const count = await row.count()
+      if (count !== 1) throw new AutomationError(count ? "target-ambiguous" : "target-not-found", `Expected one theme token named ${name}.`, { count })
+      await row.click()
+    },
+    openColorPicker: async (name: string) => {
+      const trigger = page.locator(".theme-editor .color-picker-trigger-preview")
+      const count = await trigger.count()
+      if (count !== 1) throw new AutomationError(count ? "target-ambiguous" : "target-not-found", `Expected one color preview for ${name}.`, { count })
+      if (await trigger.getAttribute("aria-label") !== `Edit ${name} color`) throw new AutomationError("target-not-found", `Color preview for ${name} is unavailable.`)
+      await trigger.click()
+    },
+    setColorOpacity: async (name: string, opacity: number) => {
+      if (!Number.isFinite(opacity) || opacity < 0 || opacity > 100) throw new AutomationError("unsupported-capability", "Color opacity must be between 0 and 100.")
+      const field = page.getByRole("textbox", { name: `${name} opacity`, exact: true })
+      await field.fill(String(opacity))
+      await field.press("Enter")
     },
   })
 
@@ -167,7 +260,7 @@ export function createPlaywrightAutomation<CheckpointName extends string>(option
     },
   })
 
-  return Object.freeze({ mouse, keyboard, layers, evidence })
+  return Object.freeze({ mouse, keyboard, clipboard, layers, components, panels, theme, evidence })
 }
 
 export async function resolveScreenshotOptions(page: Page, options: ScreenshotOptions): Promise<ResolvedScreenshotOptions> {

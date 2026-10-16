@@ -10,11 +10,11 @@ import { fixtureRegistry } from './fixture-registry.js'
 const repositoryRoot = resolve(import.meta.dirname, '../../../fixtures/component-repo')
 const policy = 'preserve-matching-committed-handoff'
 const document = (revision = 1) => ({
-  version: 2 as const, revision, rootIds: [], nodes: {},
+  version: 3 as const, revision, rootIds: [], nodes: {},
   frame: { width: 800, height: 600, direction: 'column' as const, gap: 0, padding: 0, clip: false },
   canvas: { elements: [
-    { id: 'absolute', kind: 'rectangle' as const, name: 'Absolute', x: 0, y: 0, width: 40, height: 20, rotation: 0, parentId: null, appearance: { fills: [{ type: 'solid' as const, color: '#ff0000' }] }, layout: { mode: 'absolute' as const, declarations: { position: 'absolute' } } },
-    { id: 'flow', kind: 'rectangle' as const, name: 'Flow', x: revision === 1 ? 200 : 210, y: revision === 1 ? 100 : 110, width: 40, height: 20, rotation: 0, parentId: null, appearance: { fills: [{ type: 'solid' as const, color: '#00ff00' }] } },
+    { id: 'absolute', kind: 'rectangle' as const, name: 'Absolute', relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 20, parentId: null, appearance: { fills: [{ type: 'solid' as const, color: '#ff0000' }] }, layout: { mode: 'absolute' as const, declarations: { position: 'absolute' } } },
+    { id: 'flow', kind: 'rectangle' as const, name: 'Flow', relativeTransform: [1, 0, 0, 1, revision === 1 ? 200 : 210, revision === 1 ? 100 : 110] as const, width: 40, height: 20, parentId: null, appearance: { fills: [{ type: 'solid' as const, color: '#00ff00' }] } },
   ] },
 })
 
@@ -35,7 +35,7 @@ async function waitFor<T>(read: () => Promise<T>, predicate: (value: T) => boole
 }
 const send = async (payload: Record<string, unknown>) => page.evaluate(([data, origin]) => {
   document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string)
-}, [{ channel: 'design-editor-preview', version: 8, generation, ...payload }, previewOrigin] as const)
+}, [{ channel: 'design-editor-preview', version: 10, generation, ...payload }, previewOrigin] as const)
 const measurement = async () => {
   let previous = -1
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -100,7 +100,7 @@ beforeAll(async () => {
 }, 90_000)
 afterAll(async () => { await dispose?.() }, 30_000)
 
-describe('PAPER-FLEX-006-RUNTIME-V8, PAPER-FLEX-007-RUNTIME-V8, AT-CAN-005-RUNTIME-V8, and CLOUD-SYNC-GESTURE-001-RUNTIME-V8', () => {
+describe('PAPER-FLEX-006-RUNTIME-V9, PAPER-FLEX-007-RUNTIME-V9, AT-CAN-005-RUNTIME-V9, and CLOUD-SYNC-GESTURE-001-RUNTIME-V9', () => {
   it('renders the optimistic Alt duplicate at the pointer while leaving the authored source untouched', async () => {
     await send({ type: 'set-document', flowDragTerminalPolicy: policy, document: document(), theme: { attribute: null, colorScheme: 'light' } })
     await frame.waitForSelector('[data-preview-canvas="flow"]')

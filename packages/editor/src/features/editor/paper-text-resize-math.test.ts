@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { resizeRectResult, resizeRotatedRectResult } from './canvas-math'
+import { rotation } from '@canvas/repo-engine/layout-matrix'
+import { resizeRectResult, resizeTransformedRectResult } from './canvas-math'
+
+const resizeRotatedRectResult = (start: Parameters<typeof resizeTransformedRectResult>[0], handle: Parameters<typeof resizeTransformedRectResult>[1], delta: Parameters<typeof resizeTransformedRectResult>[2], degrees: number, options: Parameters<typeof resizeTransformedRectResult>[4]) => resizeTransformedRectResult(start, handle, delta, rotation(degrees), options)
 
 const free = { symmetric: false, proportional: false }
 

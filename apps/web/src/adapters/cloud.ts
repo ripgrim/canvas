@@ -1,8 +1,9 @@
 import { CloudApiError, createCloudApiClient } from '@canvas/cloud-client'
-import type { CloudFileSummary } from '@canvas/cloud-client'
+import type { CloudFileSummary, CloudSourceBindingReconcileInput } from '@canvas/cloud-client'
+import { validateHostedFileDocument } from '@canvas/cloud-document'
 import { authSessionView } from '@canvas/auth'
 import type { AuthSessionView } from '@canvas/auth'
-import type { EditorAssetPreview, EditorAuthApi, EditorCapabilities, EditorCollaborationFlowAuthority, EditorCollaborationLocalProfile, EditorCollaborationRemoteFlowEvent, EditorCollaborationRole, EditorCollaborationSnapshot, EditorFile, EditorPersistenceIntent, EditorProjectApi, EditorProjectSnapshot } from '@canvas/editor/capabilities'
+import type { EditorAssetPreview, EditorAuthApi, EditorCapabilities, EditorCollaborationFlowAuthority, EditorCollaborationLocalProfile, EditorCollaborationRemoteFlowEvent, EditorCollaborationRole, EditorCollaborationSnapshot, EditorFile, EditorHostedRepository, EditorHostedRepositoryScan, EditorPersistenceIntent, EditorProjectApi, EditorProjectSnapshot } from '@canvas/editor/capabilities'
 import { UnavailableCapabilityError } from '@canvas/editor/capabilities'
 import { createEditorFlowTopologyAuthority } from '@canvas/editor/flow-drag-relay'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
@@ -13,6 +14,8 @@ import type { FileCommand } from '@canvas/repo-engine/file-document'
 import { collaborationDocumentSchemaVersion, collaborationWebSocketProtocol } from '@canvas/sync-protocol'
 import type { ClientLifecycleState, FlowDragPresentation, FlowDragTerminalBinding } from '@canvas/sync-protocol'
 import { appVersion } from '@canvas/tracking'
+import { componentCatalogFromShadcnScan } from '@canvas/scanner/component-catalog'
+import { hostedPreviewCatalogFingerprint } from '@canvas/preview-runtime/hosted-artifact'
 import { browserHollowAtoms, browserSampleComposition, browserSampleThemes } from './browser'
 import { createCloudAssetTransport } from './cloud-assets'
 
@@ -30,6 +33,8 @@ export type CloudAdapterOptions = Readonly<{
   syncDurableStore?: CollaborationDurableStore
   fetch?: typeof fetch
   navigate?: (url: string) => void
+  currentUrl?: () => string
+  replaceUrl?: (url: string) => void
   reload?: () => void
   reportError?: (error: unknown, operation: 'asset_hydration') => void
 }>
@@ -125,9 +130,9 @@ function browserSyncClientId(): string {
   }
 }
 
-export function collaborationShellState(lifecycle: ClientLifecycleState): Exclude<EditorCollaborationSnapshot['shellState'], undefined> {
+export function collaborationShellState(lifecycle: ClientLifecycleState, previouslyConnected = false): Exclude<EditorCollaborationSnapshot['shellState'], undefined> {
   if (lifecycle === 'opening') return 'opening'
-  if (['connecting', 'authorizing', 'hydrating-local', 'admission-queued', 'streaming', 'applying'].includes(lifecycle)) return 'connecting'
+  if (['connecting', 'authorizing', 'hydrating-local', 'admission-queued', 'streaming', 'applying'].includes(lifecycle)) return previouslyConnected ? 'reconnecting' : 'connecting'
   if (['offline-clean', 'offline-dirty', 'reconnecting', 'replaying', 'draining', 'parked', 'closing'].includes(lifecycle)) return 'reconnecting'
   if (lifecycle === 'access-revoked') return 'access-removed'
   if (lifecycle === 'incompatible-build') return 'update-required'
@@ -147,8 +152,122 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
   if (preview && preview === editor) throw new Error('Preview must use a separate origin')
   const client = createCloudApiClient<FileDocument>({
     apiOrigin: options.apiOrigin,
+    ...(preview ? { hostedPreviewOrigin: preview } : {}),
     ...(options.fetch ? { fetch: options.fetch } : {}),
-    validateDocument: value => validateFileDocument(value, browserHollowAtoms),
+    validateDocument: validateHostedFileDocument,
+  })
+  const currentUrl = options.currentUrl ?? (() => window.location.href)
+  const replaceUrl = options.replaceUrl ?? (url => window.history.replaceState(window.history.state, '', url))
+  const returnInstallationId = () => {
+    if (typeof window === 'undefined' && !options.currentUrl) return null
+    const url = new URL(currentUrl())
+    const installationId = url.searchParams.get('installationId')
+    return url.searchParams.get('github') === 'connected' && installationId && /^[1-9][0-9]{0,31}$/.test(installationId) ? installationId : null
+  }
+  const clearReturnLocation = () => {
+    if (typeof window === 'undefined' && !options.currentUrl) return
+    const url = new URL(currentUrl())
+    url.searchParams.delete('github')
+    url.searchParams.delete('installationId')
+    replaceUrl(url.toString())
+  }
+  const activeProjectId = () => {
+    const projectId = activeMetadata?.projectId ?? activeMetadata?.id
+    if (!projectId) throw new UnavailableCapabilityError('Open a file first')
+    return projectId
+  }
+  const recheckProject = (projectId: string) => {
+    if (disposed || (activeMetadata?.projectId ?? activeMetadata?.id) !== projectId) throw new Error('Repository request was cancelled.')
+  }
+  const completedScan = (job: Awaited<ReturnType<typeof client.getGitHubRepositoryScan>>, expectedJobId?: string): EditorHostedRepositoryScan => {
+    if (expectedJobId !== undefined && job.id !== expectedJobId) throw new Error('The server returned another repository scan.')
+    if (job.status !== 'completed' || !job.result) throw new Error('The repository scan is not completed.')
+    const registry = componentCatalogFromShadcnScan(job.result.scan, job.result.request, hostedPreviewCatalogFingerprint(job.result.request))
+    const adapterId = job.result.scan.adapterId
+    if (typeof adapterId !== 'string') throw new Error('The repository scan did not return an adapter identity.')
+    return {
+      jobId: job.id,
+      adapterId,
+      sourceRevision: job.result.sourceRevision,
+      componentCount: registry.components.length,
+      registry,
+    }
+  }
+  const hostedRepository = Object.freeze({
+    returnInstallationId,
+    clearReturnLocation,
+    async startConnection() {
+      activeProjectId()
+      if (typeof window === 'undefined' && !options.currentUrl) throw new UnavailableCapabilityError('Repository connection needs a browser location.')
+      const url = new URL(currentUrl())
+      url.searchParams.delete('github')
+      url.searchParams.delete('installationId')
+      const handoff = await client.startGitHubInstallation(url.toString())
+      ;(options.navigate ?? (target => window.location.assign(target)))(handoff.installationUrl)
+    },
+    listChoices: (installationId: string): Promise<readonly EditorHostedRepository[]> => client.listGitHubRepositories(activeProjectId(), installationId),
+    async getConnection() {
+      try { return await client.getGitHubRepository(activeProjectId()) }
+      catch (error) { if (error instanceof CloudApiError && error.status === 404) return null; throw error }
+    },
+    async getLatestScan(): Promise<EditorHostedRepositoryScan | null> {
+      const projectId = activeProjectId()
+      const job = await client.getLatestGitHubRepositoryScan(projectId)
+      recheckProject(projectId)
+      return job === null ? null : completedScan(job)
+    },
+    async getScan(scanJobId: string): Promise<EditorHostedRepositoryScan> {
+      const projectId = activeProjectId()
+      const job = await client.getGitHubRepositoryScan(scanJobId)
+      recheckProject(projectId)
+      return completedScan(job, scanJobId)
+    },
+    async readSourceBindings() {
+      const projectId = activeProjectId()
+      try {
+        const snapshot = await client.getGitHubSourceBindings(projectId)
+        recheckProject(projectId)
+        return { status: 'authorized' as const, snapshot }
+      } catch (error) {
+        recheckProject(projectId)
+        if (error instanceof CloudApiError && (error.status === 401 || error.status === 404)) return { status: 'access-removed' as const }
+        throw error
+      }
+    },
+    async reconcileSourceBindings(command: CloudSourceBindingReconcileInput) {
+      const projectId = activeProjectId()
+      try {
+        const snapshot = await client.reconcileGitHubSourceBindings(projectId, command)
+        recheckProject(projectId)
+        return { status: 'committed' as const, snapshot }
+      } catch (error) {
+        recheckProject(projectId)
+        if (error instanceof CloudApiError) {
+          if (error.status === 409 && error.code === 'source_bindings_changed') return { status: 'conflict' as const }
+          if (error.status === 401 || error.status === 404) return { status: 'access-removed' as const }
+        }
+        throw error
+      }
+    },
+    link: (installationId: string, repositoryId: string) => client.linkGitHubRepository(activeProjectId(), installationId, repositoryId),
+    async scan(): Promise<EditorHostedRepositoryScan> {
+      const projectId = activeProjectId()
+      let job = await client.startGitHubRepositoryScan(projectId)
+      while (job.status !== 'completed') {
+        if (job.status === 'failed') throw new Error(`Repository scan failed. Error ID: ${job.errorId ?? 'repository-scan-failed'}`)
+        await new Promise(resolve => setTimeout(resolve, 750))
+        if (disposed || activeProjectId() !== projectId) throw new Error('Repository scan was cancelled.')
+        job = await client.getGitHubRepositoryScan(job.id)
+      }
+      recheckProject(projectId)
+      return completedScan(job)
+    },
+    getLatestDocsReview(fileId: string) { return client.getLatestRepositoryDocsReview(activeProjectId(), fileId) },
+    prepareDocs(input: Readonly<{ fileId: string; fileRevision: number; scanJobId: string }>) {
+      return client.startRepositoryDocsReview({ projectId: activeProjectId(), ...input })
+    },
+    getDocsReview(reviewId: string) { return client.getRepositoryDocsReview(reviewId) },
+    saveDocs(reviewId: string, approvalDigest: string) { return client.saveRepositoryDocsReview(reviewId, approvalDigest) },
   })
   const assetTransport = assets ? createCloudAssetTransport({ assetsOrigin: assets, ...(options.fetch ? { fetch: options.fetch } : {}) }) : null
   const reportError = options.reportError ?? reportCloudError
@@ -177,7 +296,7 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
     ...(options.createWebSocket ? { createWebSocket: options.createWebSocket } : {}),
     ...(options.syncDurableStore ? { durableStore: options.syncDurableStore } : {}),
     ...(options.syncMaxMessageBytes ? { maxMessageBytes: options.syncMaxMessageBytes } : {}),
-    validateDocument: value => validateFileDocument(value, browserHollowAtoms),
+    validateDocument: validateHostedFileDocument,
     applyCommand: (document, command) => applyHostedFileCommand(document, command, browserHollowAtoms),
     resolveFlowAuthority: (document, pageId) => {
       const current = flowAuthority
@@ -227,7 +346,7 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
     if (['offline-clean', 'offline-dirty', 'reconnecting', 'replaying', 'draining', 'parked'].includes(current.lifecycle)) return 'reconnecting'
     if (['access-revoked', 'incompatible-build', 'capacity-refused', 'connection-failed'].includes(current.lifecycle) && current.error) return 'error'
     if (current.lifecycle === 'closed') return 'unavailable'
-    return 'connecting'
+    return authoritativeRole ? 'reconnecting' : 'connecting'
   }
   const readCollaborationSnapshot = (): EditorCollaborationSnapshot => {
     if (!syncClient) return Object.freeze({ status: 'unavailable', localClientId: null, localProfile: null, canMutate: false, canManageShare: false, participants: Object.freeze([]), agents: noAgents, error: null })
@@ -261,7 +380,7 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
     }
     return Object.freeze({
       status: collaborationStatus(),
-      shellState: collaborationShellState(current.lifecycle),
+      shellState: collaborationShellState(current.lifecycle, authoritativeRole !== null),
       localClientId: current.fileId ? current.clientId : null,
       localProfile,
       canMutate: authoritativeRole === 'owner',
@@ -561,8 +680,11 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
     publishCollaborationSnapshot()
   })
   const unavailable = async (): Promise<never> => { throw new UnavailableCapabilityError(sourceReason) }
+  const capabilities: EditorCapabilities = preview
+    ? { ...cloudCapabilities, hostedExecution: { available: true, reason: 'Hosted component previews run on the isolated preview origin.' } }
+    : cloudCapabilities
   return {
-    capabilities: cloudCapabilities,
+    capabilities,
     ...(auth ? { auth } : {}),
     ...(syncClient ? { collaboration: {
       subscribe: (listener: () => void) => { collaborationListeners.add(listener); return () => collaborationListeners.delete(listener) },
@@ -624,6 +746,33 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
           asset,
           preview: Object.freeze({ assetId: asset.id, sha256: asset.sha256, mime: asset.mime, data: base64(input.bytes) }),
         })
+      },
+    } } : {}),
+    hostedRepository,
+    ...(preview ? { hostedExecution: {
+      async startBuild() {
+        if (!activeFileId) throw new UnavailableCapabilityError('Open a file first')
+        const fileId = activeFileId
+        const generation = openGeneration
+        const result = await client.startHostedPreviewBuild(fileId)
+        if (disposed || activeFileId !== fileId || openGeneration !== generation) throw new Error('Hosted preview build request was superseded.')
+        return result
+      },
+      async getBuild(jobId: string) {
+        if (!activeFileId) throw new UnavailableCapabilityError('Open a file first')
+        const fileId = activeFileId
+        const generation = openGeneration
+        const result = await client.getHostedPreviewBuild(jobId)
+        if (disposed || activeFileId !== fileId || openGeneration !== generation || result.fileId !== fileId) throw new Error('Hosted preview build request was superseded.')
+        return result
+      },
+      async getPreview(artifactId: string) {
+        if (!activeFileId) throw new UnavailableCapabilityError('Open a file first')
+        const fileId = activeFileId
+        const generation = openGeneration
+        const result = await client.getHostedPreview(fileId, artifactId)
+        if (disposed || activeFileId !== fileId || openGeneration !== generation) throw new Error('Hosted preview request was superseded.')
+        return result
       },
     } } : {}),
     listFiles: async () => (await client.listFiles()).map(file => fileSummary(file, assets)),

@@ -12,6 +12,9 @@ import { fileFromLegacyDocument, loadFile, readDocumentState, saveDocument as pe
 import { designThemesFromTokens } from './design-themes.js'
 import { legacyPageDocument, pageNodes } from './file-document.js'
 import type { FileDocument } from './file-document.js'
+import { planBlumeComponentDocs } from './component-docs-blume.js'
+import type { BlumeComponentDocsLayout, BlumeComponentExample } from './component-docs-blume.js'
+import type { ComponentDocsCatalog } from './component-model.js'
 export * from './design-themes.js'
 export * from './file-document.js'
 export * from './file-migration.js'
@@ -19,7 +22,12 @@ export * from './file-preview.js'
 export * from './color.js'
 export * from './order-keys.js'
 export * from './node-theme.js'
+export * from './component-model.js'
+export * from './component-docs-blume.js'
+export * from './component-docs-adapter.js'
+export * from './hosted-source-review.js'
 export * from './layout.js'
+export * from './transform-matrix.js'
 export type { Rect as LayoutRect } from './flex-inference.js'
 export * from './grid-tracks.js'
 export * from './grid-placement.js'
@@ -30,6 +38,8 @@ import { documentPromotionSource, promotionLayoutStyles } from './document-promo
 export { promotionLayoutStyles } from './document-promotion.js'
 export type { LayoutStyles } from './document-promotion.js'
 import type { Atom, Composition, Conflict, EngineOptions, FileChange, PreparedChange, ProjectSnapshot, SaveResult } from './types.js'
+import { isHostedAtom, isPlaceableAtom, isRepositoryAtom } from './types.js'
+import type { HostedAtom, RepositoryAtom } from './types.js'
 
 export type * from './types.js'
 
@@ -44,12 +54,100 @@ type Transaction = {
   compositionBefore: Composition
   compositionAfter: Composition | null
   targetComposition: Composition | null
-  promotedBinding: Atom | null
-  reverseBinding: Atom | null
+  sourceTargetId: string | null
+  promotedBinding: RepositoryAtom | null
+  reverseBinding: RepositoryAtom | null
 }
 type Journal = { version: 1; id: string; status: 'writing' | 'saved' | 'rolled-back' | 'recovery-required'; files: FileChange[]; message: string }
 const adapterVersion = 'vite-client-fixture/1'
 const validationVersion = 'babel-postcss-typescript/1'
+const atomIdPattern = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/
+const atomKinds = new Set(['atom', 'component', 'hosted'])
+const bindingStatuses = new Set(['bound', 'missing', 'ambiguous'])
+
+const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+function exactKeys(value: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []): boolean {
+  const allowed = new Set([...required, ...optional])
+  return required.every(key => Object.hasOwn(value, key)) && Object.keys(value).every(key => allowed.has(key))
+}
+
+function metadataStrings(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.some(item => typeof item !== 'string') || new Set(value).size !== value.length) return null
+  return [...value]
+}
+
+function metadataProps(value: unknown): RepositoryAtom['props'] | null {
+  if (!Array.isArray(value)) return null
+  const names = new Set<string>()
+  const props: RepositoryAtom['props'] = []
+  for (const item of value) {
+    if (!record(item) || !exactKeys(item, ['name', 'type', 'optional'])
+      || typeof item.name !== 'string' || item.name.length === 0 || item.name.length > 128
+      || typeof item.type !== 'string' || item.type.length === 0 || item.type.length > 1_000
+      || typeof item.optional !== 'boolean' || names.has(item.name)) return null
+    names.add(item.name)
+    props.push({ name: item.name, type: item.type, optional: item.optional })
+  }
+  return props
+}
+
+function metadataAtom(value: unknown): Atom | null {
+  if (!record(value) || typeof value.kind !== 'string' || !atomKinds.has(value.kind)
+    || typeof value.componentId !== 'string' || !atomIdPattern.test(value.componentId)
+    || typeof value.status !== 'string' || !bindingStatuses.has(value.status)) return null
+  const candidates = metadataStrings(value.candidates)
+  const props = metadataProps(value.props)
+  const slots = Object.hasOwn(value, 'slots') ? metadataStrings(value.slots) : undefined
+  if (!candidates || !props || slots === null) return null
+  if (value.kind === 'hosted') {
+    if (!exactKeys(value, ['componentId', 'name', 'kind', 'status', 'candidates', 'props'], ['slots'])
+      || !(value.name === null || typeof value.name === 'string' && value.name.length > 0 && value.name.length <= 256)
+      || (value.status === 'bound' ? value.name === null || candidates.length !== 0 : value.name !== null)
+      || (value.status === 'ambiguous' ? candidates.length === 0 : candidates.length !== 0)) return null
+    return {
+      componentId: value.componentId,
+      name: value.name,
+      kind: 'hosted',
+      status: value.status as HostedAtom['status'],
+      candidates,
+      props,
+      ...(slots === undefined ? {} : { slots }),
+    }
+  }
+  if (!exactKeys(value, ['componentId', 'name', 'kind', 'path', 'exportName', 'fingerprint', 'sourceHash', 'status', 'candidates', 'props'], ['slots'])
+    || typeof value.name !== 'string' || value.name.length === 0 || value.name.length > 256
+    || typeof value.path !== 'string' || value.path.length === 0 || value.path.length > 1_000
+    || typeof value.exportName !== 'string' || value.exportName.length === 0 || value.exportName.length > 128
+    || typeof value.fingerprint !== 'string' || typeof value.sourceHash !== 'string'
+    || (value.status === 'ambiguous' ? candidates.length === 0 : candidates.length !== 0)) return null
+  return {
+    componentId: value.componentId,
+    name: value.name,
+    kind: value.kind as RepositoryAtom['kind'],
+    path: value.path,
+    exportName: value.exportName,
+    fingerprint: value.fingerprint,
+    sourceHash: value.sourceHash,
+    status: value.status as RepositoryAtom['status'],
+    candidates,
+    props,
+    ...(slots === undefined ? {} : { slots }),
+  }
+}
+
+function metadataAtoms(value: unknown): Atom[] | null {
+  if (!Array.isArray(value)) return null
+  const atoms: Atom[] = []
+  const ids = new Set<string>()
+  for (const item of value) {
+    const atom = metadataAtom(item)
+    if (!atom || ids.has(atom.componentId)) return null
+    ids.add(atom.componentId)
+    atoms.push(atom)
+  }
+  return atoms
+}
 
 async function atomicText(root: string, relative: string, value: string) {
   const target = await confined(root, relative)
@@ -90,11 +188,14 @@ export class RepoEngine {
     const canonical = await realpath(root)
     await metadataDirectory(canonical)
     const existing = await readOptional(canonical, '.design-editor/identity.json')
-    const metadata: Metadata = existing ? JSON.parse(existing) as Metadata : {
+    const parsed: unknown = existing ? JSON.parse(existing) : null
+    const atoms = existing && record(parsed) ? metadataAtoms(parsed.atoms) : null
+    const metadata: Metadata = existing && record(parsed) && atoms ? { ...parsed, atoms } as Metadata : {
       version: 1, projectId: randomUUID(), atoms: [],
       composition: { id: randomUUID(), name: 'Login', componentId: null, children: [] },
     }
-    if (metadata.version !== 1 || !Array.isArray(metadata.atoms) || typeof metadata.projectId !== 'string') throw new Error('Unsupported identity metadata')
+    if (existing && (!record(parsed) || !atoms)) throw new Error('Unsupported identity metadata')
+    if (metadata.version !== 1 || typeof metadata.projectId !== 'string') throw new Error('Unsupported identity metadata')
     // Older projects stored the design preview theme here; view state now lives with the editor, so it is dropped on the next write.
     delete (metadata as { previewTheme?: unknown }).previewTheme
     const engine = new RepoEngine(canonical, metadata, options)
@@ -122,21 +223,33 @@ export class RepoEngine {
     return Object.fromEntries(Object.entries(inputs).map(([file, value]) => [file, hash(value)]))
   }
 
+  private async transactionSources(paths: readonly string[] = []): Promise<Record<string, string>> {
+    const sources = await sourceFiles(this.root)
+    for (const relative of paths) {
+      await confined(this.root, relative)
+      const value = await readOptional(this.root, relative)
+      if (value !== null) sources[relative] = value
+    }
+    return sources
+  }
+
   private async snapshot(): Promise<ProjectSnapshot> {
     const files = await sourceFiles(this.root)
     const sourceHashes = await this.inputHashes(files)
-    this.metadata.atoms = reconcile(this.metadata.atoms, discover(this.root, files))
+    const hostedAtoms = this.metadata.atoms.filter(isHostedAtom)
+    this.metadata.atoms = [...reconcile(this.metadata.atoms.filter(isRepositoryAtom), discover(this.root, files)), ...hostedAtoms]
     if (!this.metadata.composition.children.length) {
       for (const [exportName, props] of [['Label', { htmlFor: 'email', children: 'Email' }], ['Input', { id: 'email', type: 'email', placeholder: 'you@example.com' }], ['Label', { htmlFor: 'password', children: 'Password' }], ['Input', { id: 'password', type: 'password' }], ['Button', { children: 'Sign in', variant: 'primary' }]] as [string, Record<string, string>][]) {
-        const atom = this.metadata.atoms.find(candidate => candidate.exportName === exportName && candidate.status === 'bound')
+        const atom = this.metadata.atoms.find(candidate => isPlaceableAtom(candidate) && candidate.exportName === exportName)
         if (atom) this.metadata.composition.children.push({ id: randomUUID(), componentId: atom.componentId, exportName, props })
       }
     }
-    const unresolved = this.metadata.atoms.filter(atom => atom.status !== 'bound')
+    const unresolved = this.metadata.atoms.filter((atom): atom is RepositoryAtom => isRepositoryAtom(atom) && atom.status !== 'bound')
     if (unresolved.length) this.conflict = { kind: 'identity', message: 'A component binding needs review before saving.', paths: unresolved.map(atom => atom.path) }
     for (const transaction of this.prepared.values()) {
       if (transaction.consumed) continue
-      const changes = changedPaths(transaction.inputs, sourceHashes)
+      const current = await this.inputHashes(await this.transactionSources(transaction.public.files.map(file => file.path)))
+      const changes = changedPaths(transaction.inputs, current)
       if (changes.length) this.conflict = { kind: 'external-change', message: 'Source changed. Review a new patch before saving.', paths: changes }
     }
     const tokens: ProjectSnapshot['tokens'] = []
@@ -178,14 +291,18 @@ export class RepoEngine {
     })
   }
 
-  private assertWritable() {
+  private assertWritable(sourceTargetId: string | null = null) {
     if (this.conflict?.kind === 'rollback') throw new Error(this.conflict.message)
-    if (this.metadata.atoms.some(atom => atom.status !== 'bound')) throw new Error('Resolve component identity before preparing a source change')
+    if (this.metadata.atoms.some(atom => isRepositoryAtom(atom) && atom.status !== 'bound')) throw new Error('Resolve component identity before preparing a source change')
+    if (sourceTargetId !== null) {
+      const target = this.metadata.atoms.find(atom => atom.componentId === sourceTargetId)
+      if (!target || !isRepositoryAtom(target) || target.status !== 'bound') throw new Error('The source component is unavailable')
+    }
   }
 
-  private async prepare(scope: PreparedChange['scope'], summary: string, changes: { path: string; after: string | null; expectedBefore: string | null }[], promotionName: string | null = null, reversal?: { action: 'undo' | 'redo'; composition: Composition | null; binding: Atom | null }): Promise<PreparedChange> {
-    this.assertWritable()
-    const sources = await sourceFiles(this.root)
+  private async prepare(scope: PreparedChange['scope'], summary: string, changes: { path: string; after: string | null; expectedBefore: string | null }[], promotionName: string | null = null, reversal?: { action: 'undo' | 'redo'; composition: Composition | null; binding: RepositoryAtom | null }, validation: 'preview' | 'documentation' = 'preview', sourceTargetId: string | null = null): Promise<PreparedChange> {
+    this.assertWritable(sourceTargetId)
+    const sources = await this.transactionSources(changes.map(change => change.path))
     const inputs = await this.inputHashes(sources)
     const files = changes.map(change => {
       const before = sources[change.path] ?? null
@@ -209,7 +326,8 @@ export class RepoEngine {
     const diagnostics = project.getPreEmitDiagnostics()
     if (diagnostics.length) throw new Error(`Source validation failed:\n${project.formatDiagnosticsWithColorAndContext(diagnostics)}`)
     const targetComposition = reversal?.composition ?? this.metadata.composition
-    const bound = reversal?.binding?.componentId === targetComposition.componentId ? reversal.binding : this.metadata.atoms.find(atom => atom.componentId === targetComposition.componentId)
+    const candidate = reversal?.binding?.componentId === targetComposition.componentId ? reversal.binding : this.metadata.atoms.find(atom => atom.componentId === targetComposition.componentId)
+    const bound = candidate && isRepositoryAtom(candidate) ? candidate : null
     const selectedBinding = promotionName
       ? { componentId: this.metadata.composition.id, entryPath: `src/components/${promotionName}.tsx`, exportName: promotionName }
       : { componentId: bound?.componentId ?? this.metadata.composition.id, entryPath: bound?.path ?? 'src/PreviewLogin.tsx', exportName: bound?.exportName ?? 'PreviewLogin' }
@@ -217,18 +335,22 @@ export class RepoEngine {
       ...selectedBinding,
       registry: [{ ...selectedBinding, props: {}, slots: [] }],
     }
-    if (this.options.validatePreview) await this.options.validatePreview({ root: this.root, files: staged, binding })
+    if (validation === 'preview' && this.options.validatePreview) await this.options.validatePreview({ root: this.root, files: staged, binding })
+    if (validation === 'documentation' && this.options.validateDocumentation) await this.options.validateDocumentation({ root: this.root, files: staged, changedPaths: files.map(file => file.path) })
+    const validationAvailable = validation === 'documentation' ? Boolean(this.options.validateDocumentation) : Boolean(this.options.validatePreview)
+    const validationName = validation === 'documentation' ? 'Documentation build' : 'Preview build'
+    const validationDetail = validation === 'documentation' ? 'The staged documentation candidate built successfully.' : 'The preview adapter built the staged candidate successfully.'
     const change: PreparedChange = {
       id, approvalDigest: '', scope, summary, files,
       validation: [
         { name: 'Parse', status: 'passed', detail: 'Changed TSX and CSS parsed successfully.' },
         { name: 'Types', status: 'passed', detail: 'The staged source passed TypeScript diagnostics.' },
-        { name: 'Preview build', status: this.options.validatePreview ? 'passed' : 'not-run', detail: this.options.validatePreview ? 'The preview adapter built the staged candidate successfully.' : 'Connect a preview validator before saving.' },
+        { name: validationName, status: validationAvailable ? 'passed' : 'not-run', detail: validationAvailable ? validationDetail : `Connect a ${validation === 'documentation' ? 'documentation' : 'preview'} validator before saving.` },
       ],
     }
     change.approvalDigest = digest(change, inputs, this.metadata.composition)
     this.prepared.clear()
-    this.prepared.set(id, { public: structuredClone(change), inputs, digest: change.approvalDigest, promotionName, consumed: false, reverseAction: reversal?.action === 'undo' ? 'redo' : 'undo', compositionBefore: structuredClone(this.metadata.composition), compositionAfter: null, targetComposition: reversal?.composition ?? null, promotedBinding: null, reverseBinding: reversal?.binding ?? null })
+    this.prepared.set(id, { public: structuredClone(change), inputs, digest: change.approvalDigest, promotionName, consumed: false, reverseAction: reversal?.action === 'undo' ? 'redo' : 'undo', compositionBefore: structuredClone(this.metadata.composition), compositionAfter: null, targetComposition: reversal?.composition ?? null, sourceTargetId, promotedBinding: null, reverseBinding: reversal?.binding ?? null })
     this.conflict = null
     return structuredClone(change)
   }
@@ -237,11 +359,11 @@ export class RepoEngine {
     return this.serial(async () => {
       await this.snapshot()
       this.assertWritable()
-      const label = this.metadata.atoms.find(atom => atom.exportName === 'Label' && atom.kind === 'atom')
-      if (!label) throw new Error('Label is not a discovered root atom')
+      const label = this.metadata.atoms.find(atom => isPlaceableAtom(atom) && atom.exportName === 'Label')
+      if (!label || !isPlaceableAtom(label)) throw new Error('Label is not a discovered root atom')
       const before = await readOptional(this.root, label.path)
       if (before === null) throw new Error('Label source is missing')
-      return this.prepare('Shared component', 'Change shared Label padding', [{ path: label.path, expectedBefore: before, after: patchLabelPadding(before, label.exportName, padding) }])
+      return this.prepare('Shared component', 'Change shared Label padding', [{ path: label.path, expectedBefore: before, after: patchLabelPadding(before, label.exportName, padding) }], null, undefined, 'preview', label.componentId)
     })
   }
 
@@ -271,11 +393,24 @@ export class RepoEngine {
       const output = document && documentChanged ? documentPromotionSource(name, document, this.metadata.atoms, relative, layoutStyles) : promotionSource(name, preview)
       if (await readOptional(this.root, relative) !== null) throw new Error('That component file already exists')
       const barrel = await readOptional(this.root, 'src/components/index.ts')
-      const names = new Set(this.metadata.atoms.map(atom => atom.exportName))
+      const names = new Set(this.metadata.atoms.filter(isRepositoryAtom).map(atom => atom.exportName))
       if (names.has(name)) throw new Error('That component export already exists')
       for (const required of ['Input', 'Button', 'Card', 'Label']) if (!names.has(required)) throw new Error(`Required atom ${required} is missing`)
       const summary = Object.keys(layoutStyles).length ? `Promote Login to ${name} with layout written as inline style props` : `Promote Login to ${name}`
       return this.prepare('Instance', summary, [{ path: relative, expectedBefore: null, after: output }, { path: 'src/components/index.ts', expectedBefore: barrel, after: appendExport(barrel ?? '', name) }], name)
+    })
+  }
+
+  prepareBlumeDocs(catalog: ComponentDocsCatalog, examples: readonly BlumeComponentExample[], layout: Omit<BlumeComponentDocsLayout, 'navigationSource'>): Promise<PreparedChange> {
+    return this.serial(async () => {
+      await this.snapshot()
+      const validated = planBlumeComponentDocs(catalog, examples, { ...layout, navigationSource: null })
+      const navigationPath = validated.files.find(file => file.role === 'navigation')?.path
+      if (!navigationPath) throw new Error('Blume navigation output is missing')
+      const navigationSource = await readOptional(this.root, navigationPath)
+      const plan = planBlumeComponentDocs(catalog, examples, { ...layout, navigationSource })
+      const changes = await Promise.all(plan.files.map(async file => ({ path: file.path, expectedBefore: await readOptional(this.root, file.path), after: file.content })))
+      return this.prepare('Shared component', 'Update component documentation', changes, null, undefined, 'documentation')
     })
   }
 
@@ -284,8 +419,8 @@ export class RepoEngine {
       const transaction = this.prepared.get(id)
       if (!transaction || transaction.consumed || transaction.digest !== approvalDigest || digest(transaction.public, transaction.inputs, this.metadata.composition) !== approvalDigest) throw new Error('Approval is missing, expired, or does not match this change')
       if (transaction.public.validation.some(check => check.status !== 'passed')) throw new Error('Complete preview build validation before saving')
-      this.assertWritable()
-      const sources = await sourceFiles(this.root)
+      this.assertWritable(transaction.sourceTargetId ?? null)
+      const sources = await this.transactionSources(transaction.public.files.map(file => file.path))
       const changes = changedPaths(transaction.inputs, await this.inputHashes(sources))
       if (changes.length) {
         transaction.consumed = true
@@ -299,7 +434,7 @@ export class RepoEngine {
       const metadataBefore = structuredClone(this.metadata)
       transaction.consumed = true
       try {
-        const lockedInputs = await sourceFiles(this.root)
+        const lockedInputs = await this.transactionSources(transaction.public.files.map(file => file.path))
         if (changedPaths(transaction.inputs, await this.inputHashes(lockedInputs)).length) throw new Error('Source changed while acquiring the transaction lock')
         await atomicText(this.root, '.design-editor/transaction.json', JSON.stringify(journal, null, 2))
         for (const file of transaction.public.files) {
@@ -313,7 +448,7 @@ export class RepoEngine {
         this.saved.set(id, transaction)
         if (transaction.promotionName) {
           await this.snapshot()
-          const promoted = this.metadata.atoms.find(atom => atom.exportName === transaction.promotionName && atom.kind === 'component')
+          const promoted = this.metadata.atoms.find((atom): atom is RepositoryAtom => isRepositoryAtom(atom) && atom.exportName === transaction.promotionName && atom.kind === 'component' && atom.status === 'bound')
           if (!promoted) throw new Error('The promoted component could not be rebound')
           this.metadata.composition.componentId = promoted.componentId
           this.metadata.composition.name = transaction.promotionName
@@ -371,7 +506,7 @@ export class RepoEngine {
       const changesBinding = transaction.compositionAfter?.componentId !== transaction.compositionBefore.componentId
       if (changesBinding && this.metadata.composition.componentId !== transaction.compositionAfter?.componentId) throw new Error('The composition binding changed. Refresh before reviewing source history.')
       const summary = transaction.public.summary.replace(/^(?:(?:Undo|Redo): )+/, '')
-      return this.prepare(transaction.public.scope, `${action === 'undo' ? 'Undo' : 'Redo'}: ${summary}`, transaction.public.files.map(file => ({ path: file.path, expectedBefore: file.after, after: file.before })), null, { action, composition: changesBinding ? transaction.compositionBefore : null, binding: transaction.promotedBinding })
+      return this.prepare(transaction.public.scope, `${action === 'undo' ? 'Undo' : 'Redo'}: ${summary}`, transaction.public.files.map(file => ({ path: file.path, expectedBefore: file.after, after: file.before })), null, { action, composition: changesBinding ? transaction.compositionBefore : null, binding: transaction.promotedBinding }, 'preview', transaction.sourceTargetId ?? null)
     })
   }
 
@@ -381,7 +516,7 @@ export class RepoEngine {
   confirmIdentity(componentId: string, candidate: string): Promise<ProjectSnapshot> {
     return this.serial(async () => {
       const old = this.metadata.atoms.find(atom => atom.componentId === componentId)
-      if (!old || old.status !== 'ambiguous' || !old.candidates.includes(candidate)) throw new Error('Choose a current identity candidate')
+      if (!old || !isRepositoryAtom(old) || old.status !== 'ambiguous' || !old.candidates.includes(candidate)) throw new Error('Choose a current identity candidate')
       const current = discover(this.root, await sourceFiles(this.root)).find(atom => `${atom.path}#${atom.exportName}` === candidate && atom.fingerprint === old.fingerprint)
       if (!current) throw new Error('Identity evidence changed. Refresh and review again.')
       const documentState = await readDocumentState(this.root, this.metadata.projectId, this.metadata.atoms, { allowUnavailableBindings: true })

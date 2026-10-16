@@ -19,6 +19,14 @@
     "./preview-registry": {
       "types": "./dist/preview-registry.d.ts",
       "import": "./dist/preview-registry.js"
+    },
+    "./artifact": {
+      "types": "./dist/artifact.d.ts",
+      "import": "./dist/artifact.js"
+    },
+    "./component-catalog": {
+      "types": "./dist/component-catalog.d.ts",
+      "import": "./dist/component-catalog.js"
     }
   },
   "scripts": {
@@ -27,6 +35,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@canvas/preview-runtime": "workspace:*",
     "postcss": "^8.5.0",
     "ts-morph": "^27.0.0"
   },

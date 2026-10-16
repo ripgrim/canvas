@@ -11,6 +11,8 @@ import { RepositoryProcess } from './repo-process'
 import { bundledAssetResponse, bundledScriptHashes } from './assets'
 import { resolveFixtureGrant } from './fixture-grant'
 import { createDocument } from '@canvas/repo-engine/document'
+import { isPlaceableAtom, isRepositoryAtom } from '@canvas/repo-engine/contracts'
+import type { RepositoryAtom } from '@canvas/repo-engine/contracts'
 import { createPreviewRuntime } from '@canvas/preview-runtime'
 import type { PreviewBinding } from '@canvas/preview-runtime'
 import type { ProjectSnapshot, SaveResult } from '@canvas/repo-engine'
@@ -134,8 +136,8 @@ function disposeServices(): Promise<void> {
 function previewBinding(snapshot: ProjectSnapshot): PreviewBinding {
   // The bound composition document never carries drawn primitives; source bindings only read its component nodes.
   const { canvas: _canvas, ...legacySourceDocument } = createDocument(snapshot.atoms, snapshot.composition)
-  const sourceDocument = { ...legacySourceDocument, version: 2 as const }
-  const promoted = snapshot.atoms.find((atom) => atom.componentId === snapshot.composition.componentId && atom.status === 'bound')
+  const sourceDocument = { ...legacySourceDocument, version: 3 as const }
+  const promoted = snapshot.atoms.find((atom): atom is RepositoryAtom => isRepositoryAtom(atom) && atom.status === 'bound' && atom.componentId === snapshot.composition.componentId)
   const selectedBinding = {
     componentId: promoted?.componentId ?? snapshot.composition.id,
     entryPath: promoted?.path ?? 'src/PreviewLogin.tsx',
@@ -158,7 +160,7 @@ function previewBinding(snapshot: ProjectSnapshot): PreviewBinding {
     usedNamesByComponent.set(node.componentId, names)
     usedValuesByComponent.set(node.componentId, values)
   }
-  const componentSchema = (atom: ProjectSnapshot['atoms'][number]) => {
+  const componentSchema = (atom: RepositoryAtom) => {
     const usedNames = usedNamesByComponent.get(atom.componentId) ?? new Set<string>()
     const slots = [...new Set(atom.slots ?? atom.props
       .filter(prop => usedNames.has(prop.name) && (prop.name === 'children' || /React(?:Node|Element)/.test(prop.type)))
@@ -167,7 +169,7 @@ function previewBinding(snapshot: ProjectSnapshot): PreviewBinding {
     const props = Object.fromEntries(atom.props.flatMap(prop => {
       if (!usedNames.has(prop.name) || slotNames.has(prop.name)) return []
       const values = [...(usedValuesByComponent.get(atom.componentId)?.get(prop.name) ?? [])]
-      const rule = shadcnPreviewPropRule(prop.type) ?? (values.length ? { kind: 'enum' as const, values } : null)
+      const rule = shadcnPreviewPropRule(prop.type, prop.optional) ?? (values.length ? { kind: 'enum' as const, values, optional: prop.optional } : null)
       if (!rule) throw new Error(`The preview cannot represent ${atom.exportName}.${prop.name}.`)
       return [[prop.name, rule]]
     }))
@@ -176,7 +178,7 @@ function previewBinding(snapshot: ProjectSnapshot): PreviewBinding {
   const registry = [
     { ...selectedBinding, ...(promoted ? componentSchema(promoted) : { props: {}, slots: [] }) },
     ...snapshot.atoms
-      .filter(atom => atom.kind === 'atom' && atom.status === 'bound' && atom.componentId !== selectedBinding.componentId)
+      .filter((atom): atom is RepositoryAtom => isPlaceableAtom(atom) && atom.componentId !== selectedBinding.componentId)
       .map(atom => ({ componentId: atom.componentId, entryPath: atom.path, exportName: atom.exportName, ...componentSchema(atom) })),
   ]
   return {

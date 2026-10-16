@@ -42,6 +42,31 @@ describe('FONT-LOCAL-001 session discovery', () => {
     service.dispose()
   })
 
+  it('enumerates immediately when browser permission becomes granted', async () => {
+    let state: 'granted' | 'prompt' = 'prompt'
+    let changed: (() => void) | undefined
+    const query = vi.fn(async () => [{ family: 'Approved Sans', style: 'Regular' }])
+    const service = createFontCatalogService(environment({
+      permission: async () => ({
+        get state() { return state },
+        addEventListener: (_type, listener) => { changed = listener },
+        removeEventListener: () => { changed = undefined },
+      }),
+      queryLocalFonts: query,
+    }))
+    service.start()
+    await vi.waitFor(() => expect(service.getSnapshot().localStatus).toBe('prompt'))
+
+    state = 'granted'
+    changed?.()
+
+    await vi.waitFor(() => expect(service.getSnapshot().localStatus).toBe('loaded'))
+    expect(query).toHaveBeenCalledOnce()
+    expect(service.getSnapshot().options.some(option => option.family === 'Approved Sans')).toBe(true)
+    service.dispose()
+    expect(changed).toBeUndefined()
+  })
+
   it('keeps a late result after the five second UI deadline', async () => {
     vi.useFakeTimers()
     let complete: ((fonts: readonly { family: string }[]) => void) | undefined
@@ -121,6 +146,23 @@ describe('FONT-CATALOG-001 background catalog', () => {
     await service.load(option, { style: 'normal', weight: 400 })
     expect(load).toHaveBeenCalledTimes(1)
     expect(service.getLoadedFonts()).toEqual([{ key: 'google-abel-normal-400-0', family: 'Abel', style: 'normal', weight: 400, data: 'data:font/ttf;base64,QQ==' }])
+    service.dispose()
+  })
+
+  it('FONT-RESTORE-001 resolves a document font after the background catalog arrives', async () => {
+    let completeCatalog: ((fonts: readonly { family: string; label: string; source: 'google'; styles: readonly { style: 'normal'; weight: number }[] }[]) => void) | undefined
+    const load = vi.fn(async () => [{ key: 'google-geist-normal-500-0', family: 'Geist', style: 'normal' as const, weight: 500, data: 'data:font/woff2;base64,QQ==' }])
+    const service = createFontCatalogService(environment({
+      googleFonts: () => new Promise(resolve => { completeCatalog = resolve }),
+      loadGoogleFont: load,
+    }))
+    service.start()
+    service.require('Geist', { style: 'normal', weight: 500 })
+    expect(load).not.toHaveBeenCalled()
+    completeCatalog?.([{ family: 'Geist', label: 'Geist', source: 'google', styles: [{ style: 'normal', weight: 500 }] }])
+    await vi.waitFor(() => expect(service.getLoadedFonts()).toHaveLength(1))
+    expect(load).toHaveBeenCalledOnce()
+    expect(service.getLoadedFonts()[0]).toMatchObject({ family: 'Geist', weight: 500 })
     service.dispose()
   })
 })

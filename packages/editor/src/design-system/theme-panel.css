@@ -53,6 +53,7 @@
 .theme-swatch { position: relative; display: inline-block; flex-shrink: 0; width: 16px; height: 16px; overflow: hidden; border-radius: var(--radius-xs); box-shadow: var(--border-shadow-s); background-image: repeating-conic-gradient(var(--neutral-4) 0 25%, var(--neutral-3) 0 50%); background-size: var(--space-xs) var(--space-xs); }
 .theme-swatch[data-size="preview"] { width: 100%; height: 56px; border-radius: var(--radius-s); background-size: var(--space-s) var(--space-s); }
 .theme-swatch-fill { display: block; width: 100%; height: 100%; }
+.theme-token-glyph { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 16px; height: 16px; color: var(--neutral-6); font-family: var(--font-data); font-size: var(--size-xxs); line-height: 1; }
 .theme-swatch[data-unresolved]::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to top right, var(--color-none) calc(50% - 0.5px), var(--error) 50%, var(--color-none) calc(50% + 0.5px)); }
 .theme-color-value { display: inline-flex; align-items: center; gap: var(--space-xs); color: var(--neutral-7); font-variant-numeric: tabular-nums; }
 .theme-color-hex { font-family: var(--font-data); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-data-regular); text-transform: uppercase; }
@@ -85,3 +86,8 @@
 .theme-editor-actions > :first-child { margin-right: auto; }
 .theme-confirm { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-xs); padding-top: var(--space-xs); }
 @media (prefers-reduced-motion: reduce) { .theme-group-chevron .icon { transition: none; } }
+.theme-token-type-positioner { z-index: 300; }
+.theme-token-type-menu { display: flex; flex-direction: column; min-width: 168px; max-height: min(420px, var(--available-height)); overflow-y: auto; padding: var(--space-xxs); border: 0; border-radius: var(--radius-m); background: var(--neutral-2); box-shadow: var(--border-shadow-s), var(--shadow-m); color: var(--neutral-10); font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); }
+.theme-token-type-item { min-height: 28px; padding: 0 var(--space-s); border: 0; border-radius: var(--radius-xs); background: transparent; color: inherit; font: inherit; text-align: left; cursor: default; }
+.theme-token-type-item[data-section-start] { margin-top: var(--space-xxs); border-top: var(--border-s) solid var(--cte-border); border-top-left-radius: 0; border-top-right-radius: 0; }
+.theme-token-type-item:hover, .theme-token-type-item:focus-visible { background: var(--neutral-3); outline: none; }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { CloudFile, CloudFileDocument, CloudFileSummary, CloudProject, ControlPlaneStore, FileShare, FileThumbnailMetadata, JsonValue, SharedFile, ThumbnailCaptureJob } from './index.js'
+import type { CloudFile, CloudFileDocument, CloudFileSummary, CloudProject, ControlPlaneStore, FileShare, FileThumbnailMetadata, HostedPreviewArtifactRecord, HostedPreviewBuildJob, JsonValue, SharedFile, ThumbnailCaptureJob } from './index.js'
 import { emptyCanvasDocument } from './index.js'
 
 type OwnedProject = CloudProject & Readonly<{ ownerUserId: string }>
@@ -21,6 +21,8 @@ export function createMemoryControlPlane(options: MemoryControlPlaneOptions = {}
   const captureJobs = new Map<string, CaptureRecord>()
   const shares = new Map<string, FileShare>()
   const accessEpochs = new Map<string, bigint>()
+  const hostedPreviewArtifacts = new Map<string, HostedPreviewArtifactRecord>()
+  const hostedPreviewBuildJobs = new Map<string, HostedPreviewBuildJob & Readonly<{ ownerUserId: string }>>()
   const store: ControlPlaneStore = {
     async listProjects(ownerUserId) {
       return Object.freeze([...projects.values()].filter(project => project.ownerUserId === ownerUserId).sort(updatedFirst).map(publicProject))
@@ -42,7 +44,10 @@ export function createMemoryControlPlane(options: MemoryControlPlaneOptions = {}
     async createFile(ownerUserId, name, projectId) {
       if (projectId && projects.get(projectId)?.ownerUserId !== ownerUserId) throw new Error('Project was not found.')
       const timestamp = now()
-      const file = Object.freeze({ id: randomUUID(), ownerUserId, projectId, name, headRevision: 0, thumbnailKey: null, thumbnailEtag: null, createdAt: timestamp, updatedAt: timestamp })
+      const id = randomUUID()
+      const resolvedProjectId = projectId ?? id
+      if (!projectId) projects.set(id, Object.freeze({ id, ownerUserId, name, createdAt: timestamp, updatedAt: timestamp }))
+      const file = Object.freeze({ id, ownerUserId, projectId: resolvedProjectId, name, headRevision: 0, thumbnailKey: null, thumbnailEtag: null, createdAt: timestamp, updatedAt: timestamp })
       files.set(file.id, file)
       accessEpochs.set(file.id, 1n)
       documents.set(file.id, Object.freeze({ fileId: file.id, ownerUserId, revision: 0, document: emptyCanvasDocument(file.id, randomUUID(), randomUUID()), updatedAt: timestamp }))
@@ -53,6 +58,14 @@ export function createMemoryControlPlane(options: MemoryControlPlaneOptions = {}
       const file = files.get(fileId)
       if (!file || file.ownerUserId !== ownerUserId) return null
       return publicFile(file)
+    },
+    async renameFile(ownerUserId, fileId, expectedRevision, name) {
+      const file = files.get(fileId)
+      if (!file || file.ownerUserId !== ownerUserId) return Object.freeze({ status: 'not-found' })
+      if (file.headRevision !== expectedRevision) return Object.freeze({ status: 'conflict', currentRevision: file.headRevision })
+      const renamed = Object.freeze({ ...file, name, updatedAt: now() })
+      files.set(fileId, renamed)
+      return Object.freeze({ status: 'saved', file: publicFile(renamed) })
     },
     async getFileThumbnail(ownerUserId, fileId) {
       const file = files.get(fileId)
@@ -112,6 +125,16 @@ export function createMemoryControlPlane(options: MemoryControlPlaneOptions = {}
       documents.set(fileId, saved)
       return Object.freeze({ status: 'saved', document: publicDocument(saved) })
     },
+    async repairFileDocumentInvariant(fileId, expectedRevision, source, document) {
+      const current = documents.get(fileId)
+      if (!current) return Object.freeze({ status: 'not-found' })
+      if (current.revision !== expectedRevision) return Object.freeze({ status: 'conflict', currentRevision: current.revision })
+      if (equalJson(current.document, document)) return Object.freeze({ status: 'unchanged', document: publicDocument(current) })
+      if (!equalJson(current.document, source)) return Object.freeze({ status: 'conflict', currentRevision: current.revision })
+      const saved = Object.freeze({ ...current, document: Object.freeze(structuredClone(document)) })
+      documents.set(fileId, saved)
+      return Object.freeze({ status: 'saved', document: publicDocument(saved) })
+    },
     async saveFileDocument(ownerUserId, fileId, expectedRevision, document) {
       const current = documents.get(fileId)
       if (!current || current.ownerUserId !== ownerUserId) return Object.freeze({ status: 'not-found' })
@@ -159,8 +182,106 @@ export function createMemoryControlPlane(options: MemoryControlPlaneOptions = {}
       captureJobs.set(jobId, Object.freeze({ ...job, status: 'queued', leaseId: null, leaseExpiresAt: null }))
       return true
     },
+    async createHostedPreviewBuildJob(input) {
+      const file = files.get(input.fileId)
+      if (!file || file.ownerUserId !== input.ownerUserId || file.projectId !== input.projectId || file.headRevision !== input.fileRevision) return null
+      const existing = [...hostedPreviewBuildJobs.values()].find(job => job.fileId === input.fileId && job.fileRevision === input.fileRevision && job.scanJobId === input.scanJobId)
+      if (existing) {
+        if (existing.status !== 'failed') return publicHostedPreviewBuildJob(existing)
+        const retried = Object.freeze({ ...existing, status: 'queued' as const, nextAttemptAt: input.createdAt.toISOString(), errorId: null, failedAt: null })
+        hostedPreviewBuildJobs.set(existing.id, retried)
+        return publicHostedPreviewBuildJob(retried)
+      }
+      const job = Object.freeze({
+        id: input.id,
+        ownerUserId: input.ownerUserId,
+        fileId: input.fileId,
+        fileRevision: input.fileRevision,
+        projectId: input.projectId,
+        scanJobId: input.scanJobId,
+        artifactId: input.artifactId,
+        stagingId: input.stagingId,
+        status: 'queued' as const,
+        attempts: 0,
+        leaseId: null,
+        leaseExpiresAt: null,
+        nextAttemptAt: input.createdAt.toISOString(),
+        errorId: null,
+        createdAt: input.createdAt.toISOString(),
+        completedAt: null,
+        failedAt: null,
+      })
+      hostedPreviewBuildJobs.set(job.id, job)
+      return publicHostedPreviewBuildJob(job)
+    },
+    async getHostedPreviewBuildJob(ownerUserId, jobId) {
+      const job = hostedPreviewBuildJobs.get(jobId)
+      return job?.ownerUserId === ownerUserId ? publicHostedPreviewBuildJob(job) : null
+    },
+    async claimHostedPreviewBuildJob(current, leaseExpiresAt) {
+      const nowMs = current.getTime()
+      const candidate = [...hostedPreviewBuildJobs.values()]
+        .filter(job => (job.status === 'queued' && Date.parse(job.nextAttemptAt!) <= nowMs) || (job.status === 'leased' && Date.parse(job.leaseExpiresAt!) <= nowMs))
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))[0]
+      if (!candidate) return null
+      const leased = Object.freeze({ ...candidate, status: 'leased' as const, attempts: candidate.attempts + 1, leaseId: randomUUID(), leaseExpiresAt: leaseExpiresAt.toISOString(), nextAttemptAt: null })
+      hostedPreviewBuildJobs.set(candidate.id, leased)
+      return publicHostedPreviewBuildJob(leased)
+    },
+    async isCurrentHostedPreviewBuildLease(jobId, leaseId, now) {
+      const job = hostedPreviewBuildJobs.get(jobId)
+      return job?.status === 'leased' && job.leaseId === leaseId && Date.parse(job.leaseExpiresAt!) > now.getTime()
+    },
+    async completeHostedPreviewBuildJob(jobId, leaseId, completedAt) {
+      const job = hostedPreviewBuildJobs.get(jobId)
+      if (job?.status !== 'leased' || job.leaseId !== leaseId || Date.parse(job.leaseExpiresAt!) <= completedAt.getTime()) return false
+      const artifact = hostedPreviewArtifacts.get(job.artifactId)
+      if (artifact?.fileId !== job.fileId || artifact.fileRevision !== job.fileRevision) return false
+      hostedPreviewBuildJobs.set(jobId, Object.freeze({ ...job, status: 'completed', leaseId: null, leaseExpiresAt: null, completedAt: completedAt.toISOString() }))
+      return true
+    },
+    async retryHostedPreviewBuildJob(jobId, leaseId, retryAt, nextAttemptAt) {
+      const job = hostedPreviewBuildJobs.get(jobId)
+      if (job?.status !== 'leased' || job.leaseId !== leaseId || Date.parse(job.leaseExpiresAt!) <= retryAt.getTime()) return false
+      hostedPreviewBuildJobs.set(jobId, Object.freeze({ ...job, status: 'queued', leaseId: null, leaseExpiresAt: null, nextAttemptAt: nextAttemptAt.toISOString() }))
+      return true
+    },
+    async failHostedPreviewBuildJob(jobId, leaseId, errorId, failedAt) {
+      const job = hostedPreviewBuildJobs.get(jobId)
+      if (job?.status !== 'leased' || job.leaseId !== leaseId || Date.parse(job.leaseExpiresAt!) <= failedAt.getTime()) return false
+      hostedPreviewBuildJobs.set(jobId, Object.freeze({ ...job, status: 'failed', leaseId: null, leaseExpiresAt: null, errorId, failedAt: failedAt.toISOString() }))
+      return true
+    },
+    async registerHostedPreviewArtifact(artifact) {
+      const file = files.get(artifact.fileId)
+      if (!file) return Object.freeze({ status: 'not-found' })
+      if (file.headRevision !== artifact.fileRevision) return Object.freeze({ status: 'revision-conflict', currentRevision: file.headRevision })
+      const existing = hostedPreviewArtifacts.get(artifact.artifactId)
+      if (existing) return equalHostedPreviewArtifact(existing, artifact)
+        ? Object.freeze({ status: 'unchanged', artifact: existing })
+        : Object.freeze({ status: 'identity-conflict' })
+      const stored = Object.freeze({ ...artifact })
+      hostedPreviewArtifacts.set(stored.artifactId, stored)
+      return Object.freeze({ status: 'registered', artifact: stored })
+    },
+    async authorizeHostedPreviewArtifact(subjectUserId, fileId, artifactId) {
+      const access = await store.resolveFileAccess(subjectUserId, fileId)
+      const artifact = hostedPreviewArtifacts.get(artifactId)
+      const file = files.get(fileId)
+      return access && artifact?.fileId === fileId && file?.headRevision === artifact.fileRevision ? artifact : null
+    },
   }
   return Object.freeze(store)
+}
+
+function publicHostedPreviewBuildJob(job: HostedPreviewBuildJob & Readonly<{ ownerUserId: string }>): HostedPreviewBuildJob {
+  const { ownerUserId: _owner, ...value } = job
+  return Object.freeze(value)
+}
+
+function equalHostedPreviewArtifact(left: HostedPreviewArtifactRecord, right: HostedPreviewArtifactRecord): boolean {
+  return left.artifactId === right.artifactId && left.fileId === right.fileId && left.fileRevision === right.fileRevision
+    && left.sourceRevision === right.sourceRevision && left.registryFingerprint === right.registryFingerprint && left.entrypoint === right.entrypoint
 }
 
 const updatedFirst = <T extends { updatedAt: string; id?: string; fileId?: string }>(left: T, right: T) => right.updatedAt.localeCompare(left.updatedAt) || (left.id ?? left.fileId ?? '').localeCompare(right.id ?? right.fileId ?? '')

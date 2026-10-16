@@ -12,7 +12,7 @@ const measurementRevision = 19
 
 function file(): FileDocument {
   return {
-    schemaVersion: 9,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'resize-file',
     revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
@@ -20,7 +20,7 @@ function file(): FileDocument {
       root: { id: 'root', type: 'root' },
       child: {
         id: 'child', type: 'rectangle', name: 'Child',
-        styles: { left: 0, top: 0, width: 100, height: 50 },
+        styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 50 },
         layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 0 }, top: { kind: 'px', value: 0 } } } },
       },
     },
@@ -72,14 +72,14 @@ function copyAuthority(): GestureAuthoritySnapshot {
 function nestedSnapshot(selection = ['child'], lockChild = false, lockParent = false): GestureAuthoritySnapshot {
   const source = file()
   source.nodes.parent = {
-    id: 'parent', type: 'frame', name: 'Parent', styles: { left: 10, top: 20, width: 100, height: 100 },
+    id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 100, height: 100 },
     layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 10 }, top: { kind: 'px', value: 20 } } } },
     ...(lockParent ? { isLocked: true } : {}),
   }
   source.relationships.parent = { parentId: 'root', orderKey: 'F' }
   source.relationships.child!.parentId = 'parent'
   source.nodes.child = {
-    id: 'child', type: 'rectangle', name: 'Child', styles: { left: 5, top: 6, width: 10, height: 20 },
+    id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 5, 6], width: 10, height: 20 },
     layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 5 }, top: { kind: 'px', value: 6 } } } },
     ...(lockChild ? { isLocked: true } : {}),
   }
@@ -108,7 +108,7 @@ function rotatedSnapshot(): GestureAuthoritySnapshot {
   const source = file()
   const node = source.nodes.child
   if (!node || node.type === 'root' || node.type === 'component') throw new Error('Expected primitive fixture.')
-  node.styles = { left: 10, top: 20, width: 100, height: 50, rotation: 90 }
+  node.styles = { relativeTransform: [0, 1, -1, 0, 85, -5], width: 100, height: 50 }
   const measured = geometry()
   measured.nodes.child = {
     canvasKind: 'rectangle', documentRevision: revision, layoutGeneration,
@@ -132,7 +132,7 @@ describe('immutable resize geometry authority', () => {
       startRect: { x: 0, y: 0, width: 100, height: 50 },
       groupToWorld: [0, 2, -2, 0, 0, 0],
       worldToGroup: [0, -0.5, 0.5, 0, 0, 0],
-      rotationDegrees: 0,
+      nodeTransform: [1, 0, 0, 1, 0, 0],
       transformOrigin: { x: 50, y: 25 },
     })
     expect(Object.isFrozen(authority)).toBe(true)
@@ -198,7 +198,7 @@ describe('immutable resize geometry authority', () => {
   it('keeps the selected rotation separate from the parent group matrix so projection rotates exactly once', () => {
     const authority = resizeGeometryAuthority(rotatedSnapshot(), 'child')
     expect(authority?.groupToWorld).toEqual([1, 0, 0, 1, 0, 0])
-    expect(authority?.rotationDegrees).toBe(90)
+    expect(authority?.nodeTransform).toEqual([0, 1, -1, 0, 0, 0])
     expect(projectResizeRectToWorld(authority!, authority!.startRect)).toStrictEqual({
       quad: [{ x: 85, y: -5 }, { x: 85, y: 95 }, { x: 35, y: 95 }, { x: 35, y: -5 }],
       aabb: { x: 35, y: -5, width: 50, height: 100 },
@@ -293,7 +293,7 @@ describe('immutable resize geometry authority', () => {
     expect(resizeGeometryAuthority(snapshot(source, drifted), 'child')).toBeNull()
   })
 
-  it('rejects semantic locks, selected scale, reflections, page mismatch, and cyclic or incomplete parent chains', () => {
+  it('rejects semantic locks, reflections, singular transforms, page mismatch, and cyclic or incomplete parent chains while admitting selected scale', () => {
     const locked = file()
     const lockedNode = locked.nodes.child
     if (!lockedNode || lockedNode.type === 'root') throw new Error('Expected selectable fixture.')
@@ -303,13 +303,13 @@ describe('immutable resize geometry authority', () => {
     const reflected = file()
     const reflectedNode = reflected.nodes.child
     if (!reflectedNode || reflectedNode.type === 'root' || reflectedNode.type === 'component') throw new Error('Expected primitive fixture.')
-    reflectedNode.styles.flipX = true
+    reflectedNode.styles.relativeTransform = [-1, 0, 0, 1, reflectedNode.styles.width, 0]
     expect(resizeGeometryAuthority(snapshot(reflected, geometry()), 'child')).toBeNull()
 
     const scaled = file()
     scaled.nodes.child = {
       id: 'child', type: 'component', componentId: 'button', exportName: 'Button', props: {},
-      layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 0 }, top: { kind: 'px', value: 0 } }, transform: { scale: 2 } } },
+      layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 0 }, top: { kind: 'px', value: 0 } }, transform: { matrix: [2, 0, 0, 2, 0, 0] } } },
     }
     const scaledGeometry = geometry()
     scaledGeometry.nodes.child = {
@@ -319,7 +319,11 @@ describe('immutable resize geometry authority', () => {
       offsetParentNodeId: null, offsetParentToRoot: [1, 0, 0, 1, 0, 0], offsetParentInstanceId: null, parentInstanceId: null,
       directChild: true, transform: [2, 0, 0, 2, 0, 0],
     }
-    expect(resizeGeometryAuthority(snapshot(scaled, scaledGeometry), 'child')).toBeNull()
+    expect(resizeGeometryAuthority(snapshot(scaled, scaledGeometry), 'child')?.nodeTransform).toEqual([2, 0, 0, 2, 0, 0])
+
+    const singular = structuredClone(scaledGeometry)
+    singular.nodes.child!.transform = [1, 0, 0, 0, 0, 0]
+    expect(resizeGeometryAuthority(snapshot(scaled, singular), 'child')).toBeNull()
 
     const wrongPage = { ...copyAuthority(), pageId: 'missing' }
     expect(resizeGeometryAuthority(wrongPage, 'child')).toBeNull()

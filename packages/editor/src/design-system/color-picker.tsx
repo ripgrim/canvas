@@ -7,6 +7,7 @@ import type { Color, Hsv } from '../features/editor/color'
 import { InspectorScrubHandle } from './inspector-atoms'
 import { colorRailPosition, colorRailValue } from './color-picker-rail'
 import type { ColorRailDirection } from './color-picker-rail'
+import { floatingPortalContainer } from './floating-portal'
 import './color-picker.css'
 
 export type ColorPickerProps = {
@@ -21,8 +22,8 @@ export type ColorPickerProps = {
   disabled?: boolean
   mode?: 'light' | 'dark'
   allowAlpha?: boolean
-  /** `swatch` renders only a compact swatch trigger for use inside a color field. */
-  variant?: 'field' | 'swatch'
+  /** Swatch variants render a color-only trigger for compact fields or a larger preview. */
+  variant?: 'field' | 'swatch' | 'preview'
   /** Controlled popup state, for opening the picker from another gesture such as a double-click. */
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -335,8 +336,11 @@ export function ColorDraft({ label, value, onPreview, onCancel, onChange, allowA
 
 export function ColorPicker({ label, value, onPreview, onCancel, onChange, disabled = false, mode = 'light', allowAlpha = true, variant = 'field', open: controlledOpen, onOpenChange }: ColorPickerProps) {
   const [ownOpen, setOwnOpen] = useState(false)
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
   const open = controlledOpen ?? ownOpen
-  const setOpen = (next: boolean) => { setOwnOpen(next); onOpenChange?.(next) }
+  const setOpen = (next: boolean) => { if (next) setContainer(floatingPortalContainer(trigger.current)); setOwnOpen(next); onOpenChange?.(next) }
   const color = parseColor(value)
-  return <Popover.Root open={open} onOpenChange={setOpen}><Popover.Trigger className={variant === 'swatch' ? 'color-picker-trigger color-picker-trigger-swatch' : 'color-picker-trigger'} disabled={disabled} aria-label={copy.open(label)} title={variant === 'swatch' ? copy.open(label) : undefined}><span className="color-picker-swatch" aria-hidden="true"><span className="color-picker-swatch-fill" style={{ backgroundColor: color ? formatRgb(color) : 'transparent' }} /></span>{variant === 'field' && <span>{value}</span>}</Popover.Trigger><Popover.Portal className={`theme-${mode}`}><Popover.Positioner side="left" align="start" sideOffset={8} className="color-picker-positioner"><Popover.Popup className="color-picker-popup"><ColorDraft label={label} value={value} onPreview={onPreview} onCancel={onCancel} onChange={onChange} allowAlpha={allowAlpha} close={<Popover.Close className="color-picker-close" aria-label={copy.close}><Icon name="close" /></Popover.Close>} /></Popover.Popup></Popover.Positioner></Popover.Portal></Popover.Root>
+  const triggerClass = variant === 'swatch' ? 'color-picker-trigger color-picker-trigger-swatch' : variant === 'preview' ? 'color-picker-trigger color-picker-trigger-preview' : 'color-picker-trigger'
+  return <Popover.Root open={open} onOpenChange={setOpen} onOpenChangeComplete={next => { if (!next) trigger.current?.focus({ preventScroll: true }) }}><Popover.Trigger ref={trigger} className={triggerClass} disabled={disabled} aria-label={copy.open(label)} title={variant === 'field' ? undefined : copy.open(label)}><span className="color-picker-swatch" aria-hidden="true"><span className="color-picker-swatch-fill" style={{ backgroundColor: color ? formatRgb(color) : 'transparent' }} /></span>{variant === 'field' && <span>{value}</span>}{variant === 'preview' && <span className="color-picker-preview-action" aria-hidden="true"><Icon name="eyedropper" /></span>}</Popover.Trigger><Popover.Portal container={container} className={`theme-${mode}`}><Popover.Positioner side="left" align="start" sideOffset={8} className="color-picker-positioner"><Popover.Popup className="color-picker-popup" finalFocus={trigger} onKeyDown={event => { if (event.key === 'Escape') event.stopPropagation() }}><ColorDraft label={label} value={value} onPreview={onPreview} onCancel={onCancel} onChange={onChange} allowAlpha={allowAlpha} close={<Popover.Close className="color-picker-close" aria-label={copy.close}><Icon name="close" /></Popover.Close>} /></Popover.Popup></Popover.Positioner></Popover.Portal></Popover.Root>
 }

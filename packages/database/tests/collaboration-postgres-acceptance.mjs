@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { canonicalCollaborationJson, collaborationDocumentDigest, createPostgresCollaborationPersistence } from '../dist/collaboration.js'
 import { applyMigrations, loadMigrations } from '../dist/migrations.js'
@@ -43,6 +43,7 @@ async function runAcceptance(pool) {
   const persistence = currentSchemaPersistence(pool)
   const controlPlane = createPostgresControlPlane(pool)
   await assertCloudSyncClientCanonicalProjectionReads(pool, persistence, controlPlane)
+  await assertCanvasComponentProjectionPersistence(pool, persistence, controlPlane)
   await assertBootstrapCutoverRace(pool, persistence, controlPlane)
   await assertUniformLockOrderRace(pool)
   await assertAdmissionLockOrderRace(pool, controlPlane)
@@ -133,7 +134,7 @@ async function runAcceptance(pool) {
 
   const staleAppend = await persistence.appendOperation(operationInput({ fileId, lease: expiring.lease, mutationId: 'stale-append', baseSequence: 0n, revision: 1, name: 'Stale', expectedAccessEpoch: 3n }))
   assert.equal(staleAppend.status, 'stale-fence')
-  assert.equal((await persistence.bootstrapProjectionFromLegacy({ fileId, generationId: waitingGeneration, protocolEpoch: 3, fencingToken: expiring.lease.fencingToken, documentSchemaVersion: 9 })).status, 'stale-fence')
+  assert.equal((await persistence.bootstrapProjectionFromLegacy({ fileId, generationId: waitingGeneration, protocolEpoch: 3, fencingToken: expiring.lease.fencingToken, documentSchemaVersion: 13 })).status, 'stale-fence')
   const staleCheckpoint = await persistence.commitVerifiedCheckpoint({
     fileId,
     generationId: waitingGeneration,
@@ -144,7 +145,7 @@ async function runAcceptance(pool) {
     objectDigest: 'f'.repeat(64),
     documentDigest: 'e'.repeat(64),
     compressedBytes: 64n,
-    documentSchemaVersion: 9,
+    documentSchemaVersion: 13,
   })
   assert.equal(staleCheckpoint.status, 'stale-fence')
 
@@ -154,7 +155,7 @@ async function runAcceptance(pool) {
   const legacyThumbnailKey = `thumbnails/${fileId}/versions/1/before-cutover.avif`
   assert.equal((await controlPlane.setFileThumbnail('collaboration-acceptance', fileId, 1, legacyThumbnailKey, '"before-cutover"')).status, 'saved')
 
-  const bootstrapInput = { fileId, generationId: replacementGeneration, protocolEpoch: 3, fencingToken: replacement.lease.fencingToken, documentSchemaVersion: 9 }
+  const bootstrapInput = { fileId, generationId: replacementGeneration, protocolEpoch: 3, fencingToken: replacement.lease.fencingToken, documentSchemaVersion: 13 }
   const bootstrapped = await Promise.all([
     persistence.bootstrapProjectionFromLegacy(bootstrapInput),
     persistence.bootstrapProjectionFromLegacy(bootstrapInput),
@@ -228,7 +229,7 @@ async function runAcceptance(pool) {
     objectDigest: 'a'.repeat(64),
     documentDigest: projection.documentDigest,
     compressedBytes: 256n,
-    documentSchemaVersion: 9,
+    documentSchemaVersion: 13,
   }
   assert.equal((await persistence.commitVerifiedCheckpoint(checkpointInput)).status, 'committed')
   assert.equal((await persistence.commitVerifiedCheckpoint(checkpointInput)).status, 'replayed')
@@ -245,6 +246,195 @@ async function runAcceptance(pool) {
   assert.deepEqual(pruned, { status: 'pruned', throughSequence: 2n, deletedCount: 2n })
   const remaining = await persistence.listOperationsAfter(fileId, 0n, 10)
   assert.deepEqual(remaining.map(operation => operation.sequence), [3n])
+}
+
+async function assertCanvasComponentProjectionPersistence(pool, persistence, controlPlane) {
+  const ownerUserId = 'component-persistence-owner'
+  const file = await controlPlane.createFile(ownerUserId, 'Component persistence', null)
+  const initial = await controlPlane.getFileDocument(ownerUserId, file.id)
+  const definition = {
+    id: 'component:button', name: 'Button', source: { kind: 'canvas', masterRootId: 'button-master' }, revision: 1,
+    properties: [
+      {
+        id: 'property:state', name: 'State', type: 'variant', defaultValueId: 'value:default',
+        values: [{ id: 'value:default', name: 'Default' }, { id: 'value:hover', name: 'Hover' }],
+        binding: { kind: 'variant', nodeId: 'button-face', appearances: { 'value:default': {}, 'value:hover': { opacity: 0.8 } } },
+      },
+      {
+        id: 'property:tone', name: 'Tone', type: 'variant', defaultValueId: 'value:neutral',
+        values: [{ id: 'value:neutral', name: 'Neutral' }, { id: 'value:danger', name: 'Danger' }],
+        binding: { kind: 'variant', nodeId: 'button-face', appearances: { 'value:neutral': {}, 'value:danger': { opacity: 0.7 } } },
+      },
+      { id: 'property:label', name: 'Label', type: 'text', defaultValue: 'Continue', binding: { kind: 'text', nodeId: 'button-label' } },
+      { id: 'property:visible', name: 'Visible', type: 'boolean', defaultValue: true, binding: { kind: 'visibility', nodeId: 'button-face' } },
+      { id: 'property:content', name: 'Content', type: 'slot', binding: { kind: 'slot', nodeId: 'button-slot' } },
+      { id: 'property:icon', name: 'Icon', type: 'instance-swap', defaultValue: 'component:icon', binding: { kind: 'instance-swap', nodeId: 'button-icon-use' } },
+    ],
+    variantAppearances: { 'button-face': {
+      'property:state=value:default|property:tone=value:neutral': { opacity: 0.99 },
+      'property:state=value:default|property:tone=value:danger': { opacity: 0.9 },
+      'property:state=value:hover|property:tone=value:neutral': { opacity: 0.8 },
+      'property:state=value:hover|property:tone=value:danger': { opacity: 0.7 },
+    } },
+    materials: [{ id: 'material:surface', group: 'Interaction', name: 'Surface', appearance: { opacity: 0.95 } }],
+    parts: [{ id: 'part:face', name: 'Face', nodeId: 'button-face', materialId: 'material:surface' }],
+    interactions: [{ id: 'interaction:hover', trigger: 'pointer-hover', propertyId: 'property:state', valueId: 'value:hover' }],
+  }
+  const iconDefinition = {
+    id: 'component:icon', name: 'Icon', source: { kind: 'canvas', masterRootId: 'icon-master' }, revision: 0,
+    properties: [], materials: [], parts: [{ id: 'part:shape', name: 'Shape', nodeId: 'icon-shape' }], interactions: [],
+  }
+  const alternateIconDefinition = {
+    id: 'component:alternate-icon', name: 'Alternate icon', source: { kind: 'canvas', masterRootId: 'alternate-master' }, revision: 0,
+    properties: [], materials: [], parts: [{ id: 'part:alternate-shape', name: 'Alternate shape', nodeId: 'alternate-shape' }], interactions: [],
+  }
+  const buttonInstance = { id: 'button-instance', componentId: definition.id, values: { 'property:label': 'Review' } }
+  const iconInstance = { id: 'icon-instance', componentId: iconDefinition.id, values: {} }
+  const storedDocument = {
+    ...initial.document,
+    revision: 1,
+    nodes: {
+      ...initial.document.nodes,
+      'button-master': { id: 'button-master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 48 } },
+      'button-face': { id: 'button-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 48 } },
+      'button-label': {
+        id: 'button-label', type: 'text', name: 'Label', styles: { relativeTransform: [1, 0, 0, 1, 16, 14], width: 96, height: 20 }, text: 'Continue',
+        textStyle: {
+          fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16,
+          lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false,
+        },
+        textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+      },
+      'button-slot': { id: 'button-slot', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 128, 12], width: 24, height: 24 } },
+      'button-icon-use': { id: 'button-icon-use', type: 'frame', name: 'Icon use', styles: { relativeTransform: [0.866, 0.5, -0.5, 0.866, 2, 1], width: 20, height: 20 } },
+      'icon-master': { id: 'icon-master', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 220, 0], width: 24, height: 24 } },
+      'icon-shape': { id: 'icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 4, 4], width: 16, height: 16 } },
+      'alternate-master': { id: 'alternate-master', type: 'frame', name: 'Alternate icon', styles: { relativeTransform: [1, 0, 0, 1, 260, 0], width: 32, height: 24 } },
+      'alternate-shape': { id: 'alternate-shape', type: 'rectangle', name: 'Alternate shape', styles: { relativeTransform: [1, 0, 0, 1, 6, 2], width: 20, height: 20 } },
+      'button-instance': { id: 'button-instance', type: 'frame', name: 'Button instance', styles: { relativeTransform: [1, 0, 0, 1, 0, 120], width: 160, height: 48 } },
+      'button-instance-face': { id: 'button-instance-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 48 } },
+      'button-instance-label': {
+        id: 'button-instance-label', type: 'text', name: 'Label', styles: { relativeTransform: [1, 0, 0, 1, 16, 14], width: 96, height: 20 }, text: 'Review',
+        textStyle: {
+          fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16,
+          lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false,
+        },
+        textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+      },
+      'button-instance-slot': { id: 'button-instance-slot', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 128, 12], width: 24, height: 24 } },
+      'icon-instance': { id: 'icon-instance', type: 'frame', name: 'Icon instance', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 24, height: 24 } },
+      'icon-instance-shape': { id: 'icon-instance-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 4, 4], width: 16, height: 16 } },
+    },
+    relationships: {
+      ...initial.document.relationships,
+      'button-master': { parentId: initial.document.pages[0].rootNodeId, orderKey: 'V' },
+      'button-face': { parentId: 'button-master', orderKey: 'V' },
+      'button-label': { parentId: 'button-master', orderKey: 'W' },
+      'button-slot': { parentId: 'button-master', orderKey: 'X' },
+      'button-icon-use': { parentId: 'button-slot', orderKey: 'V' },
+      'icon-master': { parentId: initial.document.pages[0].rootNodeId, orderKey: 'W' },
+      'icon-shape': { parentId: 'icon-master', orderKey: 'V' },
+      'alternate-master': { parentId: initial.document.pages[0].rootNodeId, orderKey: 'X' },
+      'alternate-shape': { parentId: 'alternate-master', orderKey: 'V' },
+      'button-instance': { parentId: initial.document.pages[0].rootNodeId, orderKey: 'Y' },
+      'button-instance-face': { parentId: 'button-instance', orderKey: 'V' },
+      'button-instance-label': { parentId: 'button-instance', orderKey: 'W' },
+      'button-instance-slot': { parentId: 'button-instance', orderKey: 'X' },
+      'icon-instance': { parentId: 'button-instance-slot', orderKey: 'V' },
+      'icon-instance-shape': { parentId: 'icon-instance', orderKey: 'V' },
+    },
+    componentModel: {
+      definitions: { [definition.id]: definition, [iconDefinition.id]: iconDefinition, [alternateIconDefinition.id]: alternateIconDefinition },
+      instances: { [buttonInstance.id]: buttonInstance, [iconInstance.id]: iconInstance, 'button-icon-use': { id: 'button-icon-use', componentId: iconDefinition.id, values: {} } },
+    },
+  }
+  assert.equal((await controlPlane.saveFileDocument(ownerUserId, file.id, 0, storedDocument)).status, 'saved')
+
+  const componentGenerationId = randomUUID()
+  assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId: componentGenerationId, protocolEpoch: 4 })).status, 'registered')
+  const acquired = await persistence.acquireLease({ fileId: file.id, generationId: componentGenerationId, protocolEpoch: 4, leaseDurationMs: 30_000 })
+  assert.equal(acquired.status, 'acquired')
+  const bootstrap = await persistence.bootstrapProjectionFromLegacy({
+    fileId: file.id, generationId: componentGenerationId, protocolEpoch: 4,
+    fencingToken: acquired.lease.fencingToken, documentSchemaVersion: 13,
+  })
+  assert.equal(bootstrap.status, 'seeded')
+  assert.deepEqual(bootstrap.projection.document.componentModel, storedDocument.componentModel)
+
+  const changedInstance = { ...buttonInstance, values: { ...buttonInstance.values, 'property:state': 'value:hover', 'property:tone': 'value:danger', 'property:visible': false, 'property:icon': alternateIconDefinition.id } }
+  const advancedOperation = {
+    type: 'batch',
+    commands: [
+      { type: 'component.instance.delete', instanceId: iconInstance.id, expected: iconInstance },
+      { type: 'node.delete', nodeIds: [iconInstance.id] },
+      { type: 'node.duplicate', nodeId: 'alternate-master', ids: { 'alternate-master': iconInstance.id, 'alternate-shape': 'alternate-instance-shape' } },
+      { type: 'component.instance.create', instance: { id: iconInstance.id, componentId: alternateIconDefinition.id, values: {} } },
+      { type: 'node.reparent', nodeId: iconInstance.id, placement: { parentId: 'button-instance-slot' } },
+      { type: 'node.setStyles', nodeId: iconInstance.id, styles: { relativeTransform: [1, 0, 0, 1, 0, 0] } },
+      { type: 'node.setLayout', nodeId: iconInstance.id, layout: null },
+      { type: 'component.instance.replace', instanceId: buttonInstance.id, expected: buttonInstance, instance: changedInstance },
+      { type: 'node.setAppearance', nodeId: 'button-instance-face', appearance: { opacity: 0.7 } },
+      { type: 'node.setText', nodeId: 'button-instance-label', text: 'Review' },
+      { type: 'node.setBlending', nodeId: 'button-instance-face', visible: false },
+    ],
+  }
+  const nextDocument = {
+    ...storedDocument,
+    revision: 2,
+    nodes: {
+      ...Object.fromEntries(Object.entries(storedDocument.nodes).filter(([id]) => id !== 'icon-instance-shape')),
+      'button-instance-face': { ...storedDocument.nodes['button-instance-face'], appearance: { visible: false, opacity: 0.7 } },
+      'icon-instance': { id: 'icon-instance', type: 'frame', name: 'Alternate icon', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 32, height: 24 } },
+      'alternate-instance-shape': { id: 'alternate-instance-shape', type: 'rectangle', name: 'Alternate shape', styles: { relativeTransform: [1, 0, 0, 1, 6, 2], width: 20, height: 20 } },
+    },
+    relationships: {
+      ...Object.fromEntries(Object.entries(storedDocument.relationships).filter(([id]) => id !== 'icon-instance-shape')),
+      'icon-instance': { parentId: 'button-instance-slot', orderKey: 'V' },
+      'alternate-instance-shape': { parentId: 'icon-instance', orderKey: 'V' },
+    },
+    componentModel: {
+      ...storedDocument.componentModel,
+      instances: {
+        ...storedDocument.componentModel.instances,
+        [buttonInstance.id]: changedInstance,
+        [iconInstance.id]: { id: iconInstance.id, componentId: alternateIconDefinition.id, values: {} },
+      },
+    },
+  }
+  const append = await persistence.appendOperation({
+    fileId: file.id,
+    generationId: componentGenerationId,
+    protocolEpoch: 4,
+    fencingToken: acquired.lease.fencingToken,
+    expectedSubjectId: ownerUserId,
+    expectedAccessEpoch: 1n,
+    clientId: 'component-persistence-client',
+    clientMutationId: 'component-instance-persist-0001',
+    operationType: 'batch',
+    operationPayload: advancedOperation,
+    baseSequence: 0n,
+    projection: { documentSchemaVersion: 13, document: nextDocument },
+  })
+  assert.equal(append.status, 'committed')
+
+  const storedRow = await pool.query('SELECT sequence, document, document_digest FROM app_collaboration_projection WHERE file_id = $1', [file.id])
+  assert.equal(BigInt(storedRow.rows[0].sequence), 1n)
+  assert.deepEqual(storedRow.rows[0].document, nextDocument)
+  const independentlyExpectedDigest = createHash('sha256').update(independentCanonicalJson(nextDocument)).digest('hex')
+  assert.equal(storedRow.rows[0].document_digest, independentlyExpectedDigest)
+  const restartedPersistence = currentSchemaPersistence(pool)
+  const restartedProjection = await restartedPersistence.getProjection(file.id)
+  assert.deepEqual(restartedProjection.document, nextDocument)
+  assert.equal(restartedProjection.documentDigest, independentlyExpectedDigest)
+  await pool.query("UPDATE app_collaboration_projection SET document = jsonb_set(document, '{componentModel,instances,button-instance,values,property:label}', to_jsonb('Corrupted'::text)) WHERE file_id = $1", [file.id])
+  await assert.rejects(restartedPersistence.getProjection(file.id), /projection digest does not match/)
+  assert.equal(await persistence.releaseLease({ fileId: file.id, generationId: componentGenerationId, protocolEpoch: 4, fencingToken: acquired.lease.fencingToken }), true)
+}
+
+function independentCanonicalJson(value) {
+  if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(independentCanonicalJson).join(',')}]`
+  return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${independentCanonicalJson(value[key])}`).join(',')}}`
 }
 
 async function assertCloudSyncClientCanonicalProjectionReads(pool, persistence, controlPlane) {
@@ -264,7 +454,7 @@ async function assertCloudSyncClientCanonicalProjectionReads(pool, persistence, 
   assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId, protocolEpoch: 3 })).status, 'registered')
   const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 3, leaseDurationMs: 30_000 })
   assert.equal(acquired.status, 'acquired')
-  const bootstrapInput = { fileId: file.id, generationId, protocolEpoch: 3, fencingToken: acquired.lease.fencingToken, documentSchemaVersion: 9 }
+  const bootstrapInput = { fileId: file.id, generationId, protocolEpoch: 3, fencingToken: acquired.lease.fencingToken, documentSchemaVersion: initial.document.schemaVersion }
   assert.equal((await persistence.bootstrapProjectionFromLegacy(bootstrapInput)).status, 'seeded')
 
   const unpublishedDocument = {
@@ -304,7 +494,7 @@ async function assertCloudSyncClientCanonicalProjectionReads(pool, persistence, 
     operationType: 'page.rename',
     operationPayload: { pageId: legacyDocument.pages[0].id, name: 'Live' },
     baseSequence: 0n,
-    projection: { documentSchemaVersion: 9, document: liveDocument },
+    projection: { documentSchemaVersion: 13, document: liveDocument },
   })
   assert.equal(appended.status, 'committed')
 
@@ -398,6 +588,7 @@ async function assertBootstrapCutoverRace(pool, persistence, controlPlane) {
   assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId, protocolEpoch: 3 })).status, 'registered')
   const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 3, leaseDurationMs: 30_000 })
   assert.equal(acquired.status, 'acquired')
+  const source = await controlPlane.getFileDocument('cutover-race-owner', file.id)
 
   const advisoryKey = 1_143_920_117
   const blocker = await pool.connect()
@@ -417,10 +608,9 @@ async function assertBootstrapCutoverRace(pool, persistence, controlPlane) {
       generationId,
       protocolEpoch: 3,
       fencingToken: acquired.lease.fencingToken,
-      documentSchemaVersion: 9,
+      documentSchemaVersion: source.document.schemaVersion,
     })
     await waitForAdvisoryWaiter(pool)
-    const source = await controlPlane.getFileDocument('cutover-race-owner', file.id)
     const legacySave = controlPlane.saveFileDocument('cutover-race-owner', file.id, 0, { ...source.document, revision: 1, racedLegacySave: true })
     await blocker.query('COMMIT')
 
@@ -448,7 +638,7 @@ async function assertUniformLockOrderRace(pool) {
   const acquired = await persistence.acquireLease({ fileId: file.id, generationId, protocolEpoch: 3, leaseDurationMs: 30_000 })
   assert.equal(acquired.status, 'acquired')
   const lease = acquired.lease
-  const bootstrapInput = { fileId: file.id, generationId, protocolEpoch: 3, fencingToken: lease.fencingToken, documentSchemaVersion: 9 }
+  const bootstrapInput = { fileId: file.id, generationId, protocolEpoch: 3, fencingToken: lease.fencingToken, documentSchemaVersion: 13 }
   assert.equal((await persistence.bootstrapProjectionFromLegacy(bootstrapInput)).status, 'seeded')
   const firstInput = operationInput({ fileId: file.id, lease, mutationId: 'lock-order-mutation', baseSequence: 0n, revision: 1, name: 'Lock order', expectedSubjectId: 'lock-order-owner', expectedAccessEpoch: 1n })
   assert.equal((await persistence.appendOperation(firstInput)).status, 'committed')
@@ -463,7 +653,7 @@ async function assertUniformLockOrderRace(pool) {
     objectDigest: 'c'.repeat(64),
     documentDigest: projection.documentDigest,
     compressedBytes: 128n,
-    documentSchemaVersion: 9,
+    documentSchemaVersion: 13,
   }
 
   const appendBarrier = queryBarrier()
@@ -644,7 +834,7 @@ async function waitForAdvisoryWaiter(pool) {
 }
 
 function operationInput({ fileId, lease, mutationId, baseSequence, revision, name, failureMarker, expectedSubjectId = 'collaboration-acceptance', expectedAccessEpoch }) {
-  const document = { schemaVersion: 9, fileId, revision, name, ...(failureMarker ? { failureMarker } : {}) }
+  const document = { schemaVersion: 13, fileId, revision, name, ...(failureMarker ? { failureMarker } : {}) }
   return {
     fileId,
     generationId: lease.generationId,
@@ -657,7 +847,7 @@ function operationInput({ fileId, lease, mutationId, baseSequence, revision, nam
     operationType: 'document.edit',
     operationPayload: { kind: 'rename', name },
     baseSequence,
-    projection: { documentSchemaVersion: 9, document },
+    projection: { documentSchemaVersion: 13, document },
   }
 }
 

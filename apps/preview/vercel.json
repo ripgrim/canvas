@@ -5,6 +5,15 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --dir ../.. run build:preview:vercel",
   "outputDirectory": "dist",
+  "functions": {
+    "api/hosted/[...path].ts": {
+      "maxDuration": 10,
+      "supportsCancellation": true
+    }
+  },
+  "rewrites": [
+    { "source": "/hosted/:path*", "destination": "/api/hosted/:path*" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

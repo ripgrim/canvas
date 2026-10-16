@@ -7,13 +7,13 @@ import { acceptPreviewCommand, acceptPreviewEvent, isPreviewDocument, isPreviewN
 const editorOrigin = 'http://127.0.0.1:4319'
 const previewOrigin = 'http://127.0.0.1:4400'
 const parent = {} as Window
-const envelope = { channel: 'design-editor-preview', version: 8, generation: 7 } as const
+const envelope = { channel: 'design-editor-preview', version: 10, generation: 7 } as const
 const deliver = (data: unknown) => acceptPreviewCommand({ origin: editorOrigin, source: parent, data }, editorOrigin, parent, 7)
 const receive = (data: unknown) => acceptPreviewEvent({ origin: previewOrigin, source: parent, data }, previewOrigin, parent, 7)
 
 const darkTheme = () => ({ mode: 'dark', designThemeId: 'dark', attribute: 'dark', colorScheme: 'dark', explicit: true }) as Record<string, unknown>
 const document = (cardTheme: unknown = darkTheme()): PreviewDocument => ({
-  version: 2, revision: 1, rootIds: ['card-1'],
+  version: 3, revision: 1, rootIds: ['card-1'],
   nodes: {
     'card-1': { id: 'card-1', componentId: 'atom-card', exportName: 'Card', props: {}, children: { children: ['button-1'] }, theme: cardTheme as PreviewNodeTheme },
     'button-1': { id: 'button-1', componentId: 'atom-button', exportName: 'Button', props: { children: 'Go' }, children: {}, theme: { mode: 'dark', designThemeId: 'dark', attribute: 'dark', colorScheme: 'dark', explicit: false } },
