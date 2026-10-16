@@ -1,0 +1,155 @@
+packages/editor/src/features/editor/component-property-projection.ts
+  s_012c57818fbf95::t_33b300f57aaedd 79
+packages/repo-engine/tests/component-model.test.ts
+  s_012c57818fbf95::t_57907492db437c 88-89,97
+  s_012c57818fbf95::t_5a5c8a8f7bd99e 64-87,90-96,98-104
+packages/repo-engine/tests/file-document.test.ts
+  s_012c57818fbf95::t_0cb2297ac2554a 188-218,220,222,225-227
+  s_012c57818fbf95::t_c4905698c492f6 219,221,223-224
+packages/editor/src/features/editor/ComponentKitPanel.tsx
+  s_012c57818fbf95::t_4168b531226aa8 17,19,45,82
+  s_012c57818fbf95::t_5e68f5386e2970 59
+  s_012c57818fbf95::t_cf66b3fde788c9 54-58,63
+  s_012c57818fbf95::t_f2d6596de324cb 12-13,36,132-133,147
+  s_012c57818fbf95::t_188b128457ca69 83
+packages/editor/src/features/editor/component-kit-copy.ts
+  s_012c57818fbf95::t_4168b531226aa8 31,37,84,91,98
+packages/editor/src/features/editor/component-configured-preview.ts
+  s_012c57818fbf95::t_18ac9799563112 9,27,41,50-53,57-60
+  s_012c57818fbf95::t_42e27afe7f5d30 54-56,61-63
+docs/plans/canvas-authored-component-closure.md
+  s_012c57818fbf95::t_2fc4798ab8a866 83-98
+  s_012c57818fbf95::t_33276b5c8a7335 82,99-100,109
+packages/editor/src/features/editor/ComponentModelProperties.tsx
+  s_012c57818fbf95::t_188b128457ca69 51
+  s_012c57818fbf95::t_4168b531226aa8 13,49-50,52
+packages/editor/src/features/editor/component-authoring-dialogs.test.ts
+  s_012c57818fbf95::t_20e3009babce24 31,35-39
+  s_012c57818fbf95::t_98de7d658720c5 34
+packages/repo-engine/src/file-preview.ts
+  s_012c57818fbf95::t_850589338d24cd 42
+tests/pr-evidence/scenarios/component-system.spec.ts
+  s_012c57818fbf95::t_ec855fe0a70677 12-14,17-19
+  s_012c57818fbf95::t_7ea7c7107abb24 768-769
+  s_012c57818fbf95::t_b5420c1a859aa5 369
+  s_012c57818fbf95::t_155f300ec87659 574-577
+  s_012c57818fbf95::t_13912788936991 889-890,896-898,905,910-912
+  s_012c57818fbf95::t_6ccce3353f2090 503
+  s_012c57818fbf95::t_3e2fad0b075ab8 696-701,706,723-726,729,732
+  s_012c57818fbf95::t_53d1ac93210774 611,613,616-618,625,627-628,643-645
+  s_012c57818fbf95::t_2252a525eae030 23,371
+  s_012c57818fbf95::t_a83a64dac9964e 368,370,372-373,527-537,539-571,984
+  s_012c57818fbf95::t_f0e1ed4339ba8a 631,633-634,636,641-642,647,649,651,656,658,660,662,665,667,669,671,688,690,693,703,705,709,711,714,717,720-721,728,731
+  s_012c57818fbf95::t_8d0a62a1f570ed 572-573
+packages/editor/src/features/editor/component-instance-swap.test.ts
+  s_012c57818fbf95::t_3d91a3e9ee95f2 1-74,80-81,83-92,114
+  s_012c57818fbf95::t_49f2b9315695cb 75-79,82
+  s_012c57818fbf95::t_e8e78ee169d3c7 93-113
+packages/editor/src/features/editor/ComponentModelProperties.client.test.ts
+  s_012c57818fbf95::t_e3354e7a815e8a 185-189
+  s_012c57818fbf95::t_3462887de8de01 11,164-184,190-215
+  s_012c57818fbf95::t_d3533791e96c2e 216-217
+packages/editor/src/features/editor/ComponentMasterProperties.tsx
+  s_012c57818fbf95::t_4168b531226aa8 29-30,52,75
+  s_012c57818fbf95::t_7e3a8c7a813d40 24-25,31-32
+  s_012c57818fbf95::t_da66a7572e4fa2 34,36,63-67,90-94
+packages/editor/src/features/editor/component-kit-navigation.test.ts
+  s_012c57818fbf95::t_9c7359d0b06d2a 2,4-7,12,42-72
+  s_012c57818fbf95::t_2effddc7026ee0 8-11
+  s_012c57818fbf95::t_e17e7c50ca3609 20-24,28
+packages/editor/src/features/editor/document-store.ts
+  s_012c57818fbf95::t_6c1afa198c6f04 1638
+  s_012c57818fbf95::t_2f2e010bcf2634 1450
+  s_012c57818fbf95::t_8c9034e7651a17 692,734-737,905
+  s_012c57818fbf95::t_b1e713e11c8b73 1464-1467,1477-1492,1494-1496
+  s_012c57818fbf95::t_33b300f57aaedd 59,561,774,1002,1005-1021,1448,1456-1459,1617-1626,1636-1637,1727-1728,1734-1737,1842-1844,1846,1864-1871
+  s_012c57818fbf95::t_42e27afe7f5d30 545,699,760-773
+  s_012c57818fbf95::t_73f75d44dfd802 1741
+  s_012c57818fbf95::t_2807ecf0e19fa9 1872
+  s_e18d232d8e09ca::t_656811758148ca 554-560,1845
+packages/editor/src/features/editor/component-configured-preview.test.ts
+  s_012c57818fbf95::t_d03f1474f67a2a 76,89-91,93
+  s_012c57818fbf95::t_d79f8e465e3cd1 77,79
+  s_012c57818fbf95::t_e8e78ee169d3c7 73,80-81,87-88,97-100,103,106,110-111
+  s_012c57818fbf95::t_84aa2880ee9ed6 72,74-75,78,82-86,92,94-96,101-102,104-105,107-109,112-114
+packages/editor/src/features/editor/component-instance-swap.ts
+  s_012c57818fbf95::t_86c5ee90eda703 45
+  s_012c57818fbf95::t_3d91a3e9ee95f2 1-2,5-35,39-44,46-115,118-119
+  s_012c57818fbf95::t_d79f8e465e3cd1 116
+  s_012c57818fbf95::t_49f2b9315695cb 3-4,117
+  s_012c57818fbf95::t_2f2e010bcf2634 36-38
+packages/editor/src/features/editor/component-docs-preview-service.ts
+  s_012c57818fbf95::t_f2d6596de324cb 66,68,73,75,80-81,92-94,137-138,144-145
+  s_012c57818fbf95::t_18ac9799563112 3,10,53,55,61,67,69
+  s_012c57818fbf95::t_9c7359d0b06d2a 70,77
+packages/repo-engine/tests/file-preview.test.ts
+  s_012c57818fbf95::t_0cb2297ac2554a 215-236
+packages/repo-engine/src/file-document.ts
+  s_012c57818fbf95::t_850589338d24cd 284-290,362-370
+packages/editor/src/features/editor/document-store.test.ts
+  s_012c57818fbf95::t_bd98bc4a46a103 1058-1059,1066,1068-1072,1075-1077,1098-1122,1125-1140
+  s_012c57818fbf95::t_73f75d44dfd802 1494-1498,1500,1505,1510,1513
+  s_012c57818fbf95::t_b0b8490650f7e4 1063-1065,1123-1124
+  s_012c57818fbf95::t_80314f4d5be99a 1078-1084
+  s_012c57818fbf95::t_d09cafda1e3f03 1034-1057,1060-1062,1067,1073-1074,1085-1097,1141-1142
+packages/editor/src/features/editor/component-authoring-dialogs.tsx
+  s_012c57818fbf95::t_4168b531226aa8 16,22,41,68,77,108,190,192,221-222,234,253,268
+  s_012c57818fbf95::t_b1e713e11c8b73 137
+packages/editor/src/features/editor/component-configured-instance.ts
+  s_012c57818fbf95::t_42e27afe7f5d30 38-48
+packages/editor/src/features/editor/ComponentMasterProperties.client.test.ts
+  s_012c57818fbf95::t_c1b2f8beef458f 509-556
+  s_012c57818fbf95::t_3faafbe2fcac62 117,122,125,129
+tests/pr-evidence/registry.json
+  s_012c57818fbf95::t_58c1e446cf57e7 129,131,250-251
+packages/editor/src/features/editor/component-kit-navigation.ts
+  s_012c57818fbf95::t_9c7359d0b06d2a 2,6,23,37-45
+  s_012c57818fbf95::t_f2d6596de324cb 1,3,5,9,18-22,24-27,34-36,46-49
+packages/editor/src/features/editor/ComponentKitPanel.client.test.ts
+  s_012c57818fbf95::t_084574bc91456a 303
+  s_012c57818fbf95::t_a305370f4554bf 253-260,262-286,300-302,304
+  s_012c57818fbf95::t_e17e7c50ca3609 13,27,228-232,247-250,287-289
+  s_012c57818fbf95::t_0501d545ed895e 261
+  s_012c57818fbf95::t_155f300ec87659 290-299,305-306
+  s_012c57818fbf95::t_bfd1eacf8a6670 251-252
+packages/repo-engine/src/component-model.ts
+  s_012c57818fbf95::t_5a5c8a8f7bd99e 144,329,336-367,548,551
+  s_012c57818fbf95::t_850589338d24cd 14,25-26,161,213-216,253,260,316-328,333-335,533,593
+  s_012c57818fbf95::t_c4905698c492f6 549-550
+packages/editor/src/features/editor/component-canvas-link.ts
+  s_012c57818fbf95::t_86c5ee90eda703 64,66-68,72-73,75-81
+  s_012c57818fbf95::t_2f2e010bcf2634 74
+packages/editor/src/features/editor/component-docs-preview-service.test.ts
+  s_012c57818fbf95::t_84aa2880ee9ed6 74-77,87-92
+  s_012c57818fbf95::t_2f2e010bcf2634 78-86
+  s_012c57818fbf95::t_9c7359d0b06d2a 164,168
+  s_012c57818fbf95::t_084574bc91456a 160-161
+  s_012c57818fbf95::t_f2d6596de324cb 103,147
+  s_012c57818fbf95::t_e17e7c50ca3609 159,162-163,165-167,169
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_1503c2129184a6 159,1349-1356
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1e267c08f5e7733bda9e68972e76facdf0fc868b",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
