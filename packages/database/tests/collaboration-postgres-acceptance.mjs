@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { canonicalCollaborationJson, collaborationDocumentDigest, createPostgresCollaborationPersistence } from '../dist/collaboration.js'
 import { applyMigrations, loadMigrations } from '../dist/migrations.js'
@@ -43,6 +43,7 @@ async function runAcceptance(pool) {
   const persistence = currentSchemaPersistence(pool)
   const controlPlane = createPostgresControlPlane(pool)
   await assertCloudSyncClientCanonicalProjectionReads(pool, persistence, controlPlane)
+  await assertCanvasComponentProjectionPersistence(pool, persistence, controlPlane)
   await assertBootstrapCutoverRace(pool, persistence, controlPlane)
   await assertUniformLockOrderRace(pool)
   await assertAdmissionLockOrderRace(pool, controlPlane)
@@ -245,6 +246,129 @@ async function runAcceptance(pool) {
   assert.deepEqual(pruned, { status: 'pruned', throughSequence: 2n, deletedCount: 2n })
   const remaining = await persistence.listOperationsAfter(fileId, 0n, 10)
   assert.deepEqual(remaining.map(operation => operation.sequence), [3n])
+}
+
+async function assertCanvasComponentProjectionPersistence(pool, persistence, controlPlane) {
+  const ownerUserId = 'component-persistence-owner'
+  const file = await controlPlane.createFile(ownerUserId, 'Component persistence', null)
+  const initial = await controlPlane.getFileDocument(ownerUserId, file.id)
+  const definition = {
+    id: 'component:button', name: 'Button', source: { kind: 'canvas', masterRootId: 'button-master' }, revision: 1,
+    properties: [
+      {
+        id: 'property:state', name: 'State', type: 'variant', defaultValueId: 'value:default',
+        values: [{ id: 'value:default', name: 'Default' }, { id: 'value:hover', name: 'Hover' }],
+        binding: { kind: 'variant', nodeId: 'button-face', appearances: { 'value:default': {}, 'value:hover': { opacity: 0.8 } } },
+      },
+      { id: 'property:label', name: 'Label', type: 'text', defaultValue: 'Continue', binding: { kind: 'text', nodeId: 'button-label' } },
+      { id: 'property:visible', name: 'Visible', type: 'boolean', defaultValue: true, binding: { kind: 'visibility', nodeId: 'button-face' } },
+      { id: 'property:content', name: 'Content', type: 'slot', binding: { kind: 'slot', nodeId: 'button-slot' } },
+    ],
+    materials: [{ id: 'material:surface', group: 'Interaction', name: 'Surface', appearance: { opacity: 0.95 } }],
+    parts: [{ id: 'part:face', name: 'Face', nodeId: 'button-face', materialId: 'material:surface' }],
+    interactions: [{ id: 'interaction:hover', trigger: 'pointer-hover', propertyId: 'property:state', valueId: 'value:hover' }],
+  }
+  const iconDefinition = {
+    id: 'component:icon', name: 'Icon', source: { kind: 'canvas', masterRootId: 'icon-master' }, revision: 0,
+    properties: [], materials: [], parts: [{ id: 'part:shape', name: 'Shape', nodeId: 'icon-shape' }], interactions: [],
+  }
+  const buttonInstance = { id: 'button-instance', componentId: definition.id, values: { 'property:label': 'Review' } }
+  const iconInstance = { id: 'icon-instance', componentId: iconDefinition.id, values: {} }
+  const storedDocument = {
+    ...initial.document,
+    revision: 1,
+    nodes: {
+      ...initial.document.nodes,
+      'button-master': { id: 'button-master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 48 } },
+      'button-face': { id: 'button-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 48 } },
+      'button-label': {
+        id: 'button-label', type: 'text', name: 'Label', styles: { relativeTransform: [1, 0, 0, 1, 16, 14], width: 96, height: 20 }, text: 'Continue',
+        textStyle: {
+          fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16,
+          lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false,
+        },
+        textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+      },
+      'button-slot': { id: 'button-slot', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 128, 12], width: 24, height: 24 } },
+      'icon-master': { id: 'icon-master', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 220, 0], width: 24, height: 24 } },
+      'icon-shape': { id: 'icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 4, 4], width: 16, height: 16 } },
+      'button-instance': { id: 'button-instance', type: 'frame', name: 'Button instance', styles: { relativeTransform: [1, 0, 0, 1, 0, 120], width: 160, height: 48 } },
+      'button-instance-slot': { id: 'button-instance-slot', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 128, 12], width: 24, height: 24 } },
+      'icon-instance': { id: 'icon-instance', type: 'frame', name: 'Icon instance', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 24, height: 24 } },
+    },
+    relationships: {
+      ...initial.document.relationships,
+      'button-master': { parentId: initial.document.pages[0].rootNodeId, orderKey: 'V' },
+      'button-face': { parentId: 'button-master', orderKey: 'V' },
+      'button-label': { parentId: 'button-master', orderKey: 'W' },
+      'button-slot': { parentId: 'button-master', orderKey: 'X' },
+      'icon-master': { parentId: initial.document.pages[0].rootNodeId, orderKey: 'W' },
+      'icon-shape': { parentId: 'icon-master', orderKey: 'V' },
+      'button-instance': { parentId: initial.document.pages[0].rootNodeId, orderKey: 'X' },
+      'button-instance-slot': { parentId: 'button-instance', orderKey: 'V' },
+      'icon-instance': { parentId: 'button-instance-slot', orderKey: 'V' },
+    },
+    componentModel: {
+      definitions: { [definition.id]: definition, [iconDefinition.id]: iconDefinition },
+      instances: { [buttonInstance.id]: buttonInstance, [iconInstance.id]: iconInstance },
+    },
+  }
+  assert.equal((await controlPlane.saveFileDocument(ownerUserId, file.id, 0, storedDocument)).status, 'saved')
+
+  const componentGenerationId = randomUUID()
+  assert.equal((await persistence.registerGeneration({ fileId: file.id, generationId: componentGenerationId, protocolEpoch: 4 })).status, 'registered')
+  const acquired = await persistence.acquireLease({ fileId: file.id, generationId: componentGenerationId, protocolEpoch: 4, leaseDurationMs: 30_000 })
+  assert.equal(acquired.status, 'acquired')
+  const bootstrap = await persistence.bootstrapProjectionFromLegacy({
+    fileId: file.id, generationId: componentGenerationId, protocolEpoch: 4,
+    fencingToken: acquired.lease.fencingToken, documentSchemaVersion: 12,
+  })
+  assert.equal(bootstrap.status, 'seeded')
+  assert.deepEqual(bootstrap.projection.document.componentModel, storedDocument.componentModel)
+
+  const changedInstance = { ...buttonInstance, values: { ...buttonInstance.values, 'property:state': 'value:hover', 'property:visible': false } }
+  const nextDocument = {
+    ...storedDocument,
+    revision: 2,
+    componentModel: {
+      ...storedDocument.componentModel,
+      instances: { ...storedDocument.componentModel.instances, [buttonInstance.id]: changedInstance },
+    },
+  }
+  const append = await persistence.appendOperation({
+    fileId: file.id,
+    generationId: componentGenerationId,
+    protocolEpoch: 4,
+    fencingToken: acquired.lease.fencingToken,
+    expectedSubjectId: ownerUserId,
+    expectedAccessEpoch: 1n,
+    clientId: 'component-persistence-client',
+    clientMutationId: 'component-instance-persist-0001',
+    operationType: 'component.instance.replace',
+    operationPayload: { type: 'component.instance.replace', instanceId: buttonInstance.id, expected: buttonInstance, instance: changedInstance },
+    baseSequence: 0n,
+    projection: { documentSchemaVersion: 12, document: nextDocument },
+  })
+  assert.equal(append.status, 'committed')
+
+  const storedRow = await pool.query('SELECT sequence, document, document_digest FROM app_collaboration_projection WHERE file_id = $1', [file.id])
+  assert.equal(BigInt(storedRow.rows[0].sequence), 1n)
+  assert.deepEqual(storedRow.rows[0].document, nextDocument)
+  const independentlyExpectedDigest = createHash('sha256').update(independentCanonicalJson(nextDocument)).digest('hex')
+  assert.equal(storedRow.rows[0].document_digest, independentlyExpectedDigest)
+  const restartedPersistence = currentSchemaPersistence(pool)
+  const restartedProjection = await restartedPersistence.getProjection(file.id)
+  assert.deepEqual(restartedProjection.document, nextDocument)
+  assert.equal(restartedProjection.documentDigest, independentlyExpectedDigest)
+  await pool.query("UPDATE app_collaboration_projection SET document = jsonb_set(document, '{componentModel,instances,button-instance,values,property:label}', to_jsonb('Corrupted'::text)) WHERE file_id = $1", [file.id])
+  await assert.rejects(restartedPersistence.getProjection(file.id), /projection digest does not match/)
+  assert.equal(await persistence.releaseLease({ fileId: file.id, generationId: componentGenerationId, protocolEpoch: 4, fencingToken: acquired.lease.fencingToken }), true)
+}
+
+function independentCanonicalJson(value) {
+  if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(independentCanonicalJson).join(',')}]`
+  return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${independentCanonicalJson(value[key])}`).join(',')}}`
 }
 
 async function assertCloudSyncClientCanonicalProjectionReads(pool, persistence, controlPlane) {

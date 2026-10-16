@@ -166,6 +166,10 @@ export class FakePersistence implements CollaborationPersistence {
   accessEpoch = 1n
   append?: (input: Parameters<CollaborationPersistence['appendOperation']>[0]) => Promise<AppendCollaborationOperationResult>
   readonly calls: string[] = []
+  readonly committedMutations = new Map<string, Readonly<{
+    fingerprint: string
+    result: Extract<AppendCollaborationOperationResult, { status: 'committed' }>
+  }>>()
   async registerGeneration() { this.calls.push('register'); return { status: 'registered' as const, generation: { fileId, generationId, protocolEpoch: 4, status: 'candidate' as const, fencingToken: null, createdAt: new Date(0).toISOString(), activatedAt: null, endedAt: null } } }
   async resolveAdmissionGeneration(input: Parameters<CollaborationPersistence['resolveAdmissionGeneration']>[0]) { this.calls.push('resolve-admission'); return { status: 'candidate' as const, generationId: input.generationId } }
   async acquireLease() { this.calls.push('acquire'); return { status: 'acquired' as const, lease } }
@@ -178,9 +182,18 @@ export class FakePersistence implements CollaborationPersistence {
     if (input.expectedSubjectId !== this.ownerSubjectId) return { status: 'access-revoked' as const }
     if (input.expectedAccessEpoch !== this.accessEpoch) return { status: 'access-conflict' as const, currentAccessEpoch: this.accessEpoch }
     if (this.append) return this.append(input)
+    const fingerprint = JSON.stringify({ operationType: input.operationType, operationPayload: input.operationPayload })
+    const mutationKey = `${input.clientId}:${input.clientMutationId}`
+    const committed = this.committedMutations.get(mutationKey)
+    if (committed) return committed.fingerprint === fingerprint
+      ? { status: 'replayed' as const, operation: committed.result.operation }
+      : { status: 'mutation-conflict' as const }
+    if (input.baseSequence !== this.current.sequence) return { status: 'sequence-conflict' as const, currentSequence: this.current.sequence }
     const next = projection(input.projection.document, input.baseSequence + 1n)
     this.current = next
-    return { status: 'committed' as const, projection: next, operation: { fileId, sequence: next.sequence, generationId, protocolEpoch: 4, fencingToken: 1n, subjectId: input.expectedSubjectId, clientId: input.clientId, clientMutationId: input.clientMutationId, operationType: input.operationType, operationPayload: input.operationPayload, contentDigest: 'a'.repeat(64), committedAt: new Date(0).toISOString() } }
+    const result = { status: 'committed' as const, projection: next, operation: { fileId, sequence: next.sequence, generationId, protocolEpoch: 4, fencingToken: 1n, subjectId: input.expectedSubjectId, clientId: input.clientId, clientMutationId: input.clientMutationId, operationType: input.operationType, operationPayload: input.operationPayload, contentDigest: 'a'.repeat(64), committedAt: new Date(0).toISOString() } }
+    this.committedMutations.set(mutationKey, { fingerprint, result })
+    return result
   }
   async listOperationsAfter() { return [] }
   async getProjection() { return this.current }

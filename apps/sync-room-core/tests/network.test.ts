@@ -1,5 +1,5 @@
 import { once } from 'node:events'
-import { applyHostedFileCommand, validateFileDocument, type FileDocument } from '@canvas/repo-engine/file-document'
+import { applyHostedFileCommand, legacyTextProperties, validateFileDocument, type FileDocument } from '@canvas/repo-engine/file-document'
 import { createCollaborationClient, createCollaborationDurableStore, type CollaborationWebSocket } from '@canvas/sync-client'
 import { parseCollaborationServerMessage } from '@canvas/sync-protocol'
 import { WebSocket } from 'ws'
@@ -61,6 +61,62 @@ async function waitForClientDocument(
     await new Promise<void>(resolve => setImmediate(resolve))
   }
   throw new Error('Expected collaboration client document was not received')
+}
+
+function componentSeedDocument(): FileDocument {
+  return validateFileDocument(document({
+    nodes: {
+      'root-1': { id: 'root-1', type: 'root' },
+      'button-master': { id: 'button-master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 48 } },
+      'button-face': { id: 'button-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 48 } },
+      'button-label': { id: 'button-label', type: 'text', name: 'Label', styles: { relativeTransform: [1, 0, 0, 1, 16, 14], width: 96, height: 20 }, text: 'Continue', ...legacyTextProperties() },
+      'button-slot': { id: 'button-slot', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 128, 12], width: 24, height: 24 } },
+      'icon-master': { id: 'icon-master', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 220, 0], width: 24, height: 24 } },
+      'icon-shape': { id: 'icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 4, 4], width: 16, height: 16 } },
+    },
+    relationships: {
+      'button-master': { parentId: 'root-1', orderKey: 'V' },
+      'button-face': { parentId: 'button-master', orderKey: 'V' },
+      'button-label': { parentId: 'button-master', orderKey: 'W' },
+      'button-slot': { parentId: 'button-master', orderKey: 'X' },
+      'icon-master': { parentId: 'root-1', orderKey: 'W' },
+      'icon-shape': { parentId: 'icon-master', orderKey: 'V' },
+    },
+  }), [])
+}
+
+const buttonDraft = {
+  id: 'component:button', name: 'Button', source: { kind: 'canvas' as const, masterRootId: 'button-master' }, revision: 0,
+  properties: [], materials: [], parts: [], interactions: [],
+}
+
+const buttonDefinition = {
+  ...buttonDraft,
+  revision: 1,
+  properties: [
+    {
+      id: 'property:state', name: 'State', type: 'variant' as const, defaultValueId: 'value:default',
+      values: [{ id: 'value:default', name: 'Default' }, { id: 'value:hover', name: 'Hover' }, { id: 'value:pressed', name: 'Pressed' }],
+      binding: { kind: 'variant' as const, nodeId: 'button-face', appearances: {
+        'value:default': {}, 'value:hover': { opacity: 0.8 }, 'value:pressed': { opacity: 0.6 },
+      } },
+    },
+    { id: 'property:label', name: 'Label', type: 'text' as const, defaultValue: 'Continue', binding: { kind: 'text' as const, nodeId: 'button-label' } },
+    { id: 'property:visible', name: 'Visible', type: 'boolean' as const, defaultValue: true, binding: { kind: 'visibility' as const, nodeId: 'button-face' } },
+    { id: 'property:content', name: 'Content', type: 'slot' as const, binding: { kind: 'slot' as const, nodeId: 'button-slot' } },
+  ],
+  materials: [{ id: 'material:surface', group: 'Interaction', name: 'Surface', description: 'Button surface states.', appearance: { opacity: 0.95 } }],
+  parts: [{ id: 'part:face', name: 'Face', nodeId: 'button-face', materialId: 'material:surface' }, { id: 'part:label', name: 'Label', nodeId: 'button-label' }],
+  interactions: [
+    { id: 'interaction:hover', trigger: 'pointer-hover' as const, propertyId: 'property:state', valueId: 'value:hover' },
+    { id: 'interaction:pressed', trigger: 'pointer-press' as const, propertyId: 'property:state', valueId: 'value:pressed' },
+  ],
+  docs: { slug: 'button', description: 'Triggers an action.' },
+}
+
+const iconDefinition = {
+  id: 'component:icon', name: 'Icon', source: { kind: 'canvas' as const, masterRootId: 'icon-master' }, revision: 0,
+  properties: [], materials: [], parts: [{ id: 'part:shape', name: 'Shape', nodeId: 'icon-shape' }], interactions: [],
 }
 
 describe('room network boundary', () => {
@@ -184,6 +240,198 @@ describe('room network boundary', () => {
       assets: { 'clipboard-asset': { sha256: '9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a' } },
       nodes: { 'clipboard-node': { appearance: { fills: [{ assetId: 'clipboard-asset' }, { color: { tokenId: 'clipboard-color' } }] } } },
       relationships: { 'clipboard-node': { parentId: 'root-1' } },
+    })
+  })
+
+  it('CLOUD-SYNC-COMPONENT-001 converges and rejects stale canvas component edits across real WebSocket clients', async () => {
+    const persistence = new FakePersistence()
+    persistence.current = projection(componentSeedDocument())
+    const room = new CollaborationRoomCore({
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+    }, { persistence, tickets: tickets(), projector: createSemanticProjector(), checkpoints })
+    await room.start()
+    let activeNetwork = createRoomNetworkServer({ room, allowedOrigins: [origin], maxMessageBytes: 256 * 1024, handshakeTimeoutMs: 2_000 })
+    const address = await activeNetwork.listen(0)
+    let authorClient: ReturnType<typeof createCollaborationClient<FileDocument>> | null = null
+    let observerClient: ReturnType<typeof createCollaborationClient<FileDocument>> | null = null
+    let replayAuthor: Readonly<{ socket: WebSocket; messages: string[] }> | null = null
+    cleanup = async () => {
+      authorClient?.dispose()
+      observerClient?.dispose()
+      replayAuthor?.socket.close()
+      await activeNetwork.close()
+    }
+
+    const owner = await openObservedSocket(address.port, connectionNonce, clientId, 'component-owner')
+    const authorClientId = 'component-author'
+    const authorNonce = 'F'.repeat(24)
+    const observerClientId = 'component-observer'
+    const observerNonce = 'D'.repeat(24)
+    let clientRequest = 0
+    const componentClient = (socketClientId: string, nonce: string, requestPrefix: string) => createCollaborationClient<FileDocument>({
+      syncOrigin: `ws://${address.hostname}:${address.port}`,
+      buildId: 'test-build',
+      clientId: socketClientId,
+      durableStore: memoryCollaborationStore(),
+      validateDocument: value => validateFileDocument(value, []),
+      applyCommand: (value, command) => applyHostedFileCommand(value, command),
+      createId: () => `${requestPrefix}-${++clientRequest}`,
+      lifecycleTarget: null,
+      reconnectDelaysMs: [0],
+      createWebSocket(_url, protocol) {
+        const url = `ws://${address.hostname}:${address.port}/sync/${fileId}/${generationId}?clientId=${socketClientId}&connectionNonce=${nonce}`
+        return new WebSocket(url, protocol, { origin, headers: { Authorization: `Bearer ${ticket}` } }) as unknown as CollaborationWebSocket
+      },
+    })
+    authorClient = componentClient(authorClientId, authorNonce, 'component-author-request')
+    observerClient = componentClient(observerClientId, observerNonce, 'component-observer-request')
+    await Promise.all([
+      authorClient.start({ fileId, cache: { accountId: 'component-account', documentSchemaVersion: 12 } }),
+      observerClient.start({ fileId, cache: { accountId: 'component-account', documentSchemaVersion: 12 } }),
+    ])
+    await Promise.all([
+      waitForClientDocument(authorClient, value => value.revision === 0),
+      waitForClientDocument(observerClient, value => value.revision === 0),
+    ])
+
+    await expect(authorClient.submit({ mutationId: 'component-create-0001', command: { type: 'component.create', definition: buttonDraft } })).resolves.toMatchObject({ sequence: '1' })
+    await expect(authorClient.submit({ mutationId: 'component-author-0002', command: { type: 'component.replace', componentId: buttonDraft.id, expectedRevision: 0, definition: buttonDefinition } })).resolves.toMatchObject({ sequence: '2' })
+    await expect(authorClient.submit({ mutationId: 'component-icon-0003', command: { type: 'component.create', definition: iconDefinition } })).resolves.toMatchObject({ sequence: '3' })
+
+    const buttonInstance = { id: 'button-instance', componentId: buttonDefinition.id, values: { 'property:label': 'Review' } }
+    const iconInstance = { id: 'icon-instance', componentId: iconDefinition.id, values: {} }
+    const placement: Parameters<typeof applyHostedFileCommand>[1] = {
+      type: 'batch', commands: [
+        { type: 'node.insert', node: { id: 'button-instance', type: 'frame', name: 'Button instance', styles: { relativeTransform: [1, 0, 0, 1, 0, 120], width: 160, height: 48 } }, placement: { parentId: 'root-1' } },
+        { type: 'node.insert', node: { id: 'button-instance-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 48 } }, placement: { parentId: 'button-instance' } },
+        { type: 'node.insert', node: { id: 'button-instance-label', type: 'text', name: 'Label', styles: { relativeTransform: [1, 0, 0, 1, 16, 14], width: 96, height: 20 }, text: 'Review', ...legacyTextProperties() }, placement: { parentId: 'button-instance' } },
+        { type: 'node.insert', node: { id: 'button-instance-slot', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 128, 12], width: 24, height: 24 } }, placement: { parentId: 'button-instance' } },
+        { type: 'node.insert', node: { id: 'icon-instance', type: 'frame', name: 'Icon instance', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 24, height: 24 } }, placement: { parentId: 'button-instance-slot' } },
+        { type: 'node.insert', node: { id: 'icon-instance-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 4, 4], width: 16, height: 16 } }, placement: { parentId: 'icon-instance' } },
+        { type: 'component.instance.create', instance: buttonInstance },
+        { type: 'component.instance.create', instance: iconInstance },
+      ],
+    }
+    await expect(authorClient.submit({ mutationId: 'component-place-0004', command: placement })).resolves.toMatchObject({ sequence: '4' })
+    const [authorPlaced, observerPlaced] = await Promise.all([
+      waitForClientDocument(authorClient, value => value.revision === 4),
+      waitForClientDocument(observerClient, value => value.revision === 4),
+    ])
+    expect(observerPlaced).toEqual(authorPlaced)
+    expect(observerPlaced.componentModel).toMatchObject({
+      definitions: {
+        [buttonDefinition.id]: buttonDefinition,
+        [iconDefinition.id]: iconDefinition,
+      },
+      instances: {
+        [buttonInstance.id]: buttonInstance,
+        [iconInstance.id]: iconInstance,
+      },
+    })
+    expect(observerPlaced.relationships).toMatchObject({
+      'icon-instance': { parentId: 'button-instance-slot' },
+      'icon-instance-shape': { parentId: 'icon-instance' },
+    })
+    expect(observerPlaced.nodes).toMatchObject({
+      'icon-instance': { id: 'icon-instance', type: 'frame' },
+      'icon-instance-shape': { id: 'icon-instance-shape', type: 'rectangle' },
+    })
+
+    const changedInstance = { ...buttonInstance, values: { 'property:label': 'Review', 'property:state': 'value:hover', 'property:visible': false } }
+    const observerReceipt = observerClient.submit({
+      mutationId: 'component-instance-0005',
+      command: { type: 'component.instance.replace', instanceId: buttonInstance.id, expected: buttonInstance, instance: changedInstance },
+    })
+    await expect(observerReceipt).resolves.toMatchObject({ mutationId: 'component-instance-0005', sequence: '5' })
+    await expect(waitForWire(owner.messages, value => value.type === 'operation.applied' && value.mutationId === 'component-instance-0005')).resolves.toMatchObject({ sequence: '5' })
+    const [authorChanged, observerChanged] = await Promise.all([
+      waitForClientDocument(authorClient, value => value.revision === 5),
+      waitForClientDocument(observerClient, value => value.revision === 5),
+    ])
+    expect(authorChanged).toEqual(observerChanged)
+
+    authorClient.dispose()
+    authorClient = null
+    replayAuthor = await openObservedSocket(address.port, authorNonce, authorClientId, 'component-author-replay')
+    replayAuthor.socket.send(JSON.stringify({
+      type: 'operation.submit',
+      operation: { mutationId: 'component-create-0001', baseSequence: '0', command: { type: 'component.create', definition: buttonDraft } },
+    }))
+    await expect(waitForWire(replayAuthor.messages, value => value.type === 'operation.ack' && value.mutationId === 'component-create-0001' && value.status === 'duplicate')).resolves.toMatchObject({ sequence: '1' })
+
+    replayAuthor.socket.send(JSON.stringify({
+      type: 'operation.submit',
+      operation: {
+        mutationId: 'component-create-0001', baseSequence: '5',
+        command: { type: 'component.replace', componentId: buttonDefinition.id, expectedRevision: 1, definition: { ...buttonDefinition, revision: 2, name: 'Reused mutation' } },
+      },
+    }))
+    await expect(waitForWire(replayAuthor.messages, value => value.type === 'room.error' && value.mutationId === 'component-create-0001')).resolves.toMatchObject({ code: 'mutation_id_reused', retry: 'none' })
+
+    replayAuthor.socket.send(JSON.stringify({
+      type: 'operation.submit',
+      operation: {
+        mutationId: 'component-stale-0006', baseSequence: '5',
+        command: { type: 'component.replace', componentId: buttonDraft.id, expectedRevision: 0, definition: { ...buttonDefinition, name: 'Stale button' } },
+      },
+    }))
+    await expect(waitForWire(replayAuthor.messages, value => value.type === 'room.error' && value.mutationId === 'component-stale-0006')).resolves.toMatchObject({ code: 'invalid_operation', retry: 'none' })
+
+    replayAuthor.socket.send(JSON.stringify({
+      type: 'operation.submit',
+      operation: {
+        mutationId: 'component-stale-undo-0007', baseSequence: '5',
+        command: { type: 'component.instance.restore', instanceId: buttonInstance.id, expected: buttonInstance, source: null },
+      },
+    }))
+    await expect(waitForWire(replayAuthor.messages, value => value.type === 'room.error' && value.mutationId === 'component-stale-undo-0007')).resolves.toMatchObject({ code: 'invalid_operation', retry: 'none' })
+
+    expect(persistence.current.sequence).toBe(5n)
+    expect(persistence.current.document.componentModel).toMatchObject({
+      definitions: { [buttonDefinition.id]: buttonDefinition, [iconDefinition.id]: iconDefinition },
+      instances: { [buttonInstance.id]: changedInstance, [iconInstance.id]: iconInstance },
+    })
+    const persistedDocument = validateFileDocument(persistence.current.document, [])
+    expect(persistedDocument.nodes['button-master']).toMatchObject({ styles: { relativeTransform: [1, 0, 0, 1, 0, 0] } })
+    expect(persistedDocument.nodes['button-instance']).toMatchObject({ styles: { relativeTransform: [1, 0, 0, 1, 0, 120] } })
+
+    observerClient.dispose()
+    observerClient = null
+    replayAuthor.socket.close()
+    replayAuthor = null
+    owner.socket.close()
+    await activeNetwork.close()
+    await room.drain()
+
+    const restartedRoom = new CollaborationRoomCore({
+      identity: { fileId, generationId, protocolEpoch: 4 }, leaseDurationMs: 60_000, leaseRenewalMs: 30_000, drainTimeoutMs: 2_000,
+    }, { persistence, tickets: tickets(), projector: createSemanticProjector(), checkpoints })
+    await restartedRoom.start()
+    activeNetwork = createRoomNetworkServer({ room: restartedRoom, allowedOrigins: [origin], maxMessageBytes: 256 * 1024, handshakeTimeoutMs: 2_000 })
+    const restartedAddress = await activeNetwork.listen(0)
+    const reconnectClientId = 'component-reconnect'
+    const reconnectNonce = 'E'.repeat(24)
+    observerClient = createCollaborationClient<FileDocument>({
+      syncOrigin: `ws://${restartedAddress.hostname}:${restartedAddress.port}`,
+      buildId: 'test-build',
+      clientId: reconnectClientId,
+      durableStore: memoryCollaborationStore(),
+      validateDocument: value => validateFileDocument(value, []),
+      applyCommand: (value, command) => applyHostedFileCommand(value, command),
+      createId: () => `component-reconnect-request-${++clientRequest}`,
+      lifecycleTarget: null,
+      reconnectDelaysMs: [0],
+      createWebSocket(_url, protocol) {
+        const url = `ws://${restartedAddress.hostname}:${restartedAddress.port}/sync/${fileId}/${generationId}?clientId=${reconnectClientId}&connectionNonce=${reconnectNonce}`
+        return new WebSocket(url, protocol, { origin, headers: { Authorization: `Bearer ${ticket}` } }) as unknown as CollaborationWebSocket
+      },
+    })
+    await observerClient.start({ fileId, cache: { accountId: 'component-account', documentSchemaVersion: 12 } })
+    const restarted = await waitForClientDocument(observerClient, value => value.revision === 5)
+    expect(restarted).toEqual(validateFileDocument(persistence.current.document, []))
+    expect(restarted.relationships).toMatchObject({
+      'icon-instance': { parentId: 'button-instance-slot' },
+      'icon-instance-shape': { parentId: 'icon-instance' },
     })
   })
 

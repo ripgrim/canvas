@@ -56,5 +56,6 @@ If the boundary proves defective, changes may extend only to `apps/sync-room-cor
 - The prior dirty tree is clean and split into nine reversible commits on `staging` through `685918a`.
 - Theme-token deletion uses one reference-aware path for editor and context-menu actions.
 - The complete component browser workflow passes, including a centered configured-preview assertion.
-- Hosted collaboration and persistence closure is planned and has not started implementation.
+- The hosted collaboration boundary now has a complete two-client real-WebSocket graph test, stale-write and mutation-id negative controls, and room restart recovery.
+- PostgreSQL component graph persistence coverage is implemented and type-checked, but the real disposable-database run remains open because this shell does not provide `COLLABORATION_TEST_DATABASE_URL` or `COLLABORATION_TEST_ALLOW_DISPOSABLE=1`.
 - Repository source sync remains deferred.

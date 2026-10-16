@@ -1145,7 +1145,7 @@ A canvas component's details view edits its name and concise documentation descr
 
 ### CLOUD-SYNC-COMPONENT-001: Component authoring stays on one live authority
 
-Creating a canvas component and replacing its authored Variant, Material, and Part metadata use the existing semantic collaboration socket. Both writes receive operation acknowledgements, keep collaboration live, and do not create a replacement socket. Evidence: `apps/web/src/adapters/cloud.test.ts`.
+Creating a canvas component and replacing its authored Variant, Text, Boolean, Slot, Material, Part, Hover, and Pressed metadata use the existing semantic collaboration socket. Two real WebSocket clients converge on the complete definition, a placed instance with sparse overrides, and a nested component inside its slot. Exact mutation replay is idempotent; mutation-id reuse, stale component replacement, and stale instance history fail closed without advancing the persisted projection. A room and network restart reloads the same stable identities, instance values, nesting, master transform, and independent instance transform from persisted authority. Evidence: `apps/web/src/adapters/cloud.test.ts`, `apps/sync-room-core/tests/network.test.ts`, `packages/database/tests/collaboration-postgres-acceptance.mjs`.
 
 ### COMP-V2-CODE-001: Verified code component reconciliation
 

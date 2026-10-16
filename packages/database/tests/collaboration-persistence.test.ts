@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import type { Pool, PoolClient, QueryResult } from 'pg'
 import { describe, expect, it, vi } from 'vitest'
-import { canonicalCollaborationJson, collaborationOperationDigest, createPostgresCollaborationPersistence } from '../src/collaboration'
+import { canonicalCollaborationJson, collaborationDocumentDigest, collaborationOperationDigest, createPostgresCollaborationPersistence } from '../src/collaboration'
 import type { CollaborationJson } from '../src/collaboration'
 
 const fileId = '11111111-1111-4111-8111-111111111111'
@@ -139,7 +139,7 @@ describe('collaboration operation identity', () => {
       if (sql.startsWith('UPDATE app_collaboration_projection')) {
         expect(parameters?.[1]).toBe(12)
         expect(JSON.parse(String(parameters?.[2]))).toEqual(migrated)
-        expect(parameters?.slice(4)).toEqual(['2', 8, 'd'.repeat(64)])
+        expect(parameters?.slice(4)).toEqual(['2', 8, collaborationDocumentDigest(source)])
         return result([projectionRow({ document: migrated, sequence: '2', authority: 'room' })])
       }
       throw new Error(`Unexpected query: ${sql}`)
@@ -174,6 +174,23 @@ describe('collaboration operation identity', () => {
     await expect(createPostgresCollaborationPersistence(poolWith(refusedClient)).bootstrapProjectionFromLegacy(bootstrapInput())).resolves.toEqual({ status: 'invalid-source', reason: 'schema-version' })
     expect(refusedClient.statements.some(sql => sql.startsWith('UPDATE app_collaboration_projection'))).toBe(false)
     expect(refusedClient.statements.at(-1)).toBe('ROLLBACK')
+  })
+
+  it('CLOUD-SYNC-PG-001 rejects a persisted projection whose digest does not match its document', async () => {
+    const document = { schemaVersion: 12, fileId, revision: 4 }
+    const client = scriptedClient((sql) => {
+      if (sql === 'BEGIN' || sql === 'ROLLBACK') return result()
+      if (sql.includes('FROM app_file WHERE id') && sql.includes('FOR UPDATE')) return result([{ id: fileId }])
+      if (sql.includes('FROM app_collaboration_lease') && sql.includes('FOR UPDATE')) return result([{ file_id: fileId }])
+      if (sql.includes('FROM app_collaboration_projection') && sql.includes('FOR UPDATE')) {
+        return result([projectionRow({ document, sequence: '2', authority: 'room', documentDigest: 'd'.repeat(64) })])
+      }
+      throw new Error(`Unexpected query: ${sql}`)
+    })
+    const persistence = createPostgresCollaborationPersistence(poolWith(client))
+
+    await expect(persistence.bootstrapProjectionFromLegacy(bootstrapInput())).rejects.toThrow('Collaboration projection digest does not match its document.')
+    expect(client.statements.at(-1)).toBe('ROLLBACK')
   })
 
   it('CLOUD-SYNC-SCHEMA-001 fences, validates, and persists an asset-free schema 6 migration before seeding the room', async () => {
@@ -568,7 +585,7 @@ describe('collaboration operation identity', () => {
       if (sql.includes('FROM app_collaboration_lease') && sql.includes('FOR UPDATE')) return result([{ file_id: fileId }])
       if (sql.includes('FROM app_collaboration_checkpoint') && sql.includes('checkpoint_sequence')) return result()
       if (sql.includes('FROM app_collaboration_projection') && sql.includes('FOR UPDATE')) {
-        return result([projectionRow({ document: { schemaVersion: 12, fileId, revision: 0 }, sequence: '0', authority: 'legacy-seed', documentDigest })])
+        return result([projectionRow({ document: { schemaVersion: 12, fileId, revision: 0 }, sequence: '0', authority: 'legacy-seed' })])
       }
       throw new Error(`Unexpected query: ${sql}`)
     })
@@ -727,7 +744,7 @@ function legacyVersion6Document(assets: Record<string, CollaborationJson> = {}) 
   }
 }
 
-function projectionRow({ document, sequence, authority, documentDigest = 'd'.repeat(64) }: { document: Record<string, unknown>; sequence: string; authority: 'legacy-seed' | 'room'; documentDigest?: string }) {
+function projectionRow({ document, sequence, authority, documentDigest = collaborationDocumentDigest(document as Readonly<Record<string, CollaborationJson>>) }: { document: Record<string, unknown>; sequence: string; authority: 'legacy-seed' | 'room'; documentDigest?: string }) {
   return {
     file_id: fileId,
     sequence,
