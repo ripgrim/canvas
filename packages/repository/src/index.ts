@@ -25,3 +25,5 @@ export function parseGitHubCloneRequest(value: unknown): GitHubCloneRequest {
   if (!segment.test(record.owner) || !segment.test(record.name) || record.owner === '.' || record.name === '.') throw new Error('Invalid GitHub repository.')
   return { owner: record.owner, name: record.name.replace(/\.git$/i, '') }
 }
+
+export * from './source-binding.js'

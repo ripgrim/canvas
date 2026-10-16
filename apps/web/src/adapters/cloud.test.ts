@@ -1245,8 +1245,26 @@ describe('cloud adapter', () => {
     const sourceRevision = 'a'.repeat(40)
     const sourceHash = 'b'.repeat(64)
     const componentId = 'shadcn:Button:1234567890abcdef'
-    const scan = { components: [{ path: 'src/button.tsx', exportName: 'Button', sourceHash, props: [{ name: 'tone', type: "'quiet' | 'solid'", optional: false }], slots: [] }] }
-    const request = { components: [{ componentId, entryPath: 'src/button.tsx', exportName: 'Button', props: { tone: { kind: 'enum', values: ['quiet', 'solid'] } }, slots: [] }] }
+    const scan = {
+      adapterId: 'shadcn-v1',
+      configs: [],
+      components: [{ path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', declarationKind: 'function', sourceHash, fingerprint: 'b'.repeat(64), props: [{ name: 'tone', type: "'quiet' | 'solid'", optional: false }], slots: [] }],
+      tokens: [],
+      sourceHashes: { 'src/button.tsx': sourceHash },
+      diagnostics: [],
+      previewDependencies: [],
+      previewResolutions: [],
+    }
+    const request = {
+      version: 1,
+      entry: { componentId },
+      components: [{ componentId, entryPath: 'src/button.tsx', exportName: 'Button', integrity: `sha256-${Buffer.from(sourceHash, 'hex').toString('base64')}`, props: { tone: { kind: 'enum', values: ['quiet', 'solid'], optional: false } }, slots: [] }],
+      styles: [],
+      aliases: [],
+      dependencies: [],
+      resolutions: [],
+      themeAdapters: [],
+    }
     const adapter = createCloudAdapter({
       apiOrigin: 'https://api.canvas.test',
       ...scriptedSync(document),
@@ -1265,13 +1283,13 @@ describe('cloud adapter', () => {
       jobId,
       sourceRevision,
       componentCount: 1,
-      registry: { fingerprint, components: [{ componentId, path: 'src/button.tsx', exportName: 'Button', sourceHash, props: scan.components[0]!.props, slots: [] }] },
+      registry: { fingerprint, components: [{ componentId, symbolKey: componentId, path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', sourceHash, fingerprint: 'b'.repeat(64), props: scan.components[0]!.props, slots: [] }] },
     })
     await expect(adapter.hostedRepository?.scan()).resolves.toEqual({
       jobId,
       sourceRevision,
       componentCount: 1,
-      registry: { fingerprint, components: [{ componentId, path: 'src/button.tsx', exportName: 'Button', sourceHash, props: scan.components[0]!.props, slots: [] }] },
+      registry: { fingerprint, components: [{ componentId, symbolKey: componentId, path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', sourceHash, fingerprint: 'b'.repeat(64), props: scan.components[0]!.props, slots: [] }] },
     })
     adapter.dispose()
   })

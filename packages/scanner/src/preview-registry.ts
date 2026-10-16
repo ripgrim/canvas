@@ -7,35 +7,17 @@ import type {
   ShadcnPreviewRegistryRequest,
   ShadcnScan,
 } from './contracts.js'
+import { shadcnPreviewPropRule } from './preview-prop-rule.js'
+import { compareText } from './ordering.js'
 import { scanShadcnRepository } from './shadcn.js'
+
+export { shadcnPreviewPropRule } from './preview-prop-rule.js'
 
 const hash = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex')
 const integrity = (hexDigest: string) => `sha256-${Buffer.from(hexDigest, 'hex').toString('base64')}`
 
 export function shadcnPreviewComponentId(component: Pick<ShadcnComponent, 'path' | 'exportName'>): string {
   return `shadcn:${component.exportName}:${hash(`${component.path}\0${component.exportName}`).slice(0, 16)}`
-}
-
-function literalValue(source: string): string | number | boolean | undefined {
-  const text = source.trim()
-  if ((text.startsWith("'") && text.endsWith("'")) || (text.startsWith('"') && text.endsWith('"'))) {
-    try { return JSON.parse(text.startsWith("'") ? `"${text.slice(1, -1).replaceAll('"', '\\"')}"` : text) as string } catch { return undefined }
-  }
-  if (text === 'true') return true
-  if (text === 'false') return false
-  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(text)) {
-    const value = Number(text)
-    return Number.isFinite(value) ? value : undefined
-  }
-  return undefined
-}
-
-export function shadcnPreviewPropRule(source: string, optional: boolean): ShadcnPreviewPropRule | null {
-  const members = source.split('|').map(member => member.trim()).filter(member => member !== 'undefined' && member !== 'null')
-  if (members.length === 1 && ['string', 'number', 'boolean'].includes(members[0]!)) return { kind: members[0] as 'string' | 'number' | 'boolean', optional }
-  const values = members.map(literalValue)
-  if (values.length && values.every((value): value is string | number | boolean => value !== undefined)) return { kind: 'enum', values, optional }
-  return null
 }
 
 export function shadcnPreviewRegistryComponent(component: ShadcnComponent): ShadcnPreviewRegistryComponent | null {
@@ -63,7 +45,7 @@ export function registryRequestFromShadcnScan(scan: ShadcnScan, components: read
   const aliases = scan.configs.flatMap(config => {
     const moduleConfig = config.moduleConfig
     if (!moduleConfig || !Object.keys(moduleConfig.paths).length) return []
-    const paths = Object.entries(moduleConfig.paths).sort(([left], [right]) => left.localeCompare(right)).map(([pattern, targets]) => {
+    const paths = Object.entries(moduleConfig.paths).sort(([left], [right]) => compareText(left, right)).map(([pattern, targets]) => {
       if (targets.length !== 1) throw new Error(`Path alias ${pattern} must have exactly one verified target.`)
       const target = targets[0]!
       const patternWildcards = [...pattern].filter(character => character === '*').length

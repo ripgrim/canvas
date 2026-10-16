@@ -16,7 +16,7 @@ const sourceHash = 'b'.repeat(64)
 const componentId = 'shadcn:Button:8f9171d59b1041d3'
 const scan = Object.freeze({
   sourceRevision,
-  scan: Object.freeze({ adapterId: 'shadcn-v1' as const, configs: [], components: [{ path: 'src/button.tsx', exportName: 'Button', declarationKind: 'function' as const, props: [], slots: [], sourceHash, fingerprint: 'c'.repeat(64) }], tokens: [], sourceHashes: { 'src/button.tsx': sourceHash }, diagnostics: [] }),
+  scan: Object.freeze({ adapterId: 'shadcn-v1' as const, configs: [], components: [{ path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', declarationKind: 'function' as const, props: [], slots: [], sourceHash, fingerprint: 'c'.repeat(64) }], tokens: [], sourceHashes: { 'src/button.tsx': sourceHash }, diagnostics: [] }),
   request: Object.freeze({ version: 1 as const, entry: { componentId }, components: [{ componentId, entryPath: 'src/button.tsx', exportName: 'Button', integrity: `sha256-${Buffer.from(sourceHash, 'hex').toString('base64')}`, props: {}, slots: [] }], styles: [] }),
 })
 const job = Object.freeze({

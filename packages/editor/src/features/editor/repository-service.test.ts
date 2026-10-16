@@ -6,8 +6,8 @@ import { repositoryConnectionService as service } from './repository-service'
 
 const connection: EditorRepositoryConnection = {
   repository: { id: 'repository-1', name: 'UI library', source: 'local' },
-  scan: { adapterId: 'shadcn-v1', configs: [], components: [{ path: 'components/ui/button.tsx', exportName: 'Button', declarationKind: 'function', props: [{ name: 'variant', type: 'string', optional: true }], slots: ['children'], sourceHash: 'a', fingerprint: 'b' }], tokens: [], sourceHashes: {}, diagnostics: [] },
-  registry: { fingerprint: 'sha256-registry', components: [{ componentId: 'shadcn:Button:1234567890abcdef', path: 'components/ui/button.tsx', exportName: 'Button', sourceHash: 'a', props: [{ name: 'variant', type: 'string', optional: true }, { name: 'children', type: 'ReactNode', optional: true }], slots: ['children'] }] },
+  scan: { adapterId: 'shadcn-v1', configs: [], components: [{ path: 'components/ui/button.tsx', exportName: 'Button', packageName: '@acme/ui', declarationKind: 'function', props: [{ name: 'variant', type: 'string', optional: true }], slots: ['children'], sourceHash: 'a', fingerprint: 'b' }], tokens: [], sourceHashes: {}, diagnostics: [] },
+  registry: { fingerprint: 'sha256-registry', components: [{ componentId: 'shadcn:Button:1234567890abcdef', symbolKey: 'shadcn:Button:1234567890abcdef', path: 'components/ui/button.tsx', exportName: 'Button', packageName: '@acme/ui', sourceHash: 'a', fingerprint: 'b', props: [{ name: 'variant', type: 'string', optional: true }, { name: 'children', type: 'ReactNode', optional: true }], slots: ['children'] }] },
 }
 
 function waitFor(status: 'idle' | 'busy' | 'ready' | 'error') {

@@ -14,7 +14,7 @@ const scanResult = Object.freeze({
   componentCount: 1,
   registry: {
     fingerprint: `github:${'a'.repeat(40)}`,
-    components: [{ componentId, path: 'components/ui/button.tsx', exportName: 'Button', sourceHash: 'b'.repeat(64), props: [{ name: 'tone', type: "'quiet' | 'solid'", optional: false }], slots: [] }],
+    components: [{ componentId, symbolKey: componentId, path: 'components/ui/button.tsx', exportName: 'Button', packageName: '@acme/ui', sourceHash: 'b'.repeat(64), fingerprint: 'c'.repeat(64), props: [{ name: 'tone', type: "'quiet' | 'solid'", optional: false }], slots: [] }],
   },
 })
 

@@ -7,7 +7,7 @@ const sourceHash = 'b'.repeat(64)
 const componentId = 'shadcn:Button:8f9171d59b1041d3'
 const artifact = Object.freeze({
   sourceRevision: 'a'.repeat(40),
-  scan: Object.freeze({ adapterId: 'shadcn-v1', configs: [], components: [{ path: 'src/button.tsx', exportName: 'Button', declarationKind: 'function', props: [], slots: [], sourceHash, fingerprint: 'c'.repeat(64) }], tokens: [], sourceHashes: { 'src/button.tsx': sourceHash }, diagnostics: [] }),
+  scan: Object.freeze({ adapterId: 'shadcn-v1', configs: [], components: [{ path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', declarationKind: 'function', props: [], slots: [], sourceHash, fingerprint: 'c'.repeat(64) }], tokens: [], sourceHashes: { 'src/button.tsx': sourceHash }, diagnostics: [] }),
   request: Object.freeze({ version: 1, entry: { componentId }, components: [{ componentId, entryPath: 'src/button.tsx', exportName: 'Button', integrity: `sha256-${Buffer.from(sourceHash, 'hex').toString('base64')}`, props: {}, slots: [] }], styles: [] }),
 })
 
@@ -45,6 +45,9 @@ describe('hosted scan artifact validation', () => {
 
   it('AT-REPO-SCAN-001 rejects incomplete and inconsistent nested results', () => {
     expect(() => parseShadcnScanArtifact({ ...artifact, scan: { adapterId: 'shadcn-v1' } })).toThrow('invalid')
+    expect(() => parseShadcnScanArtifact({ ...artifact, scan: { ...artifact.scan, components: [{ ...artifact.scan.components[0], packageName: 'Bad Package' }] } })).toThrow('invalid')
+    const { packageName: _packageName, ...withoutPackage } = artifact.scan.components[0]!
+    expect(() => parseShadcnScanArtifact({ ...artifact, scan: { ...artifact.scan, components: [withoutPackage] } })).toThrow('invalid')
     expect(() => parseShadcnScanArtifact({ ...artifact, request: { ...artifact.request, components: [{ ...artifact.request.components[0], integrity: `sha256-${Buffer.from('d'.repeat(64), 'hex').toString('base64')}` }] } })).toThrow('invalid')
     expect(() => parseShadcnScanArtifact({ ...artifact, request: { ...artifact.request, dependencies: [{ path: 'src/button.tsx', integrity: artifact.request.components[0]!.integrity }, { path: 'src/button.tsx', integrity: artifact.request.components[0]!.integrity }] } })).toThrow('invalid')
   })

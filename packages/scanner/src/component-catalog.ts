@@ -1,51 +1,116 @@
-import type { ShadcnComponentCatalog, ShadcnComponentCatalogEntry, ShadcnProp } from './contracts.js'
+import type { ShadcnComponent, ShadcnComponentCatalog, ShadcnComponentCatalogEntry, ShadcnPreviewPropRule, ShadcnProp, ShadcnSourceSymbolEvidence } from './contracts.js'
+import { compareText } from './ordering.js'
+import { shadcnPreviewPropRule } from './preview-prop-rule.js'
+import { parseShadcnPreviewRegistryRequest, parseShadcnScan } from './strict-contract.js'
 
-const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
-const text = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || !value.length) throw new Error(`Invalid ${label}.`)
+const bindingPackagePattern = /^(?:@[A-Za-z0-9][A-Za-z0-9._-]{0,126}\/)?[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
+const bindingPathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+-]+)*$/
+const bindingSymbolPattern = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/
+const bindingExportPattern = /^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/
+
+function invalid(message: string): never {
+  throw new Error(message)
+}
+
+function bindingText(value: string, pattern: RegExp, label: string, maximum: number): string {
+  if (value.length < 1 || value.length > maximum || value.trim() !== value || !pattern.test(value)) invalid(`Invalid ${label}.`)
   return value
 }
-const list = (value: unknown, label: string): unknown[] => {
-  if (!Array.isArray(value)) throw new Error(`Invalid ${label}.`)
-  return value
+
+function base64Digest(hex: string): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  const bytes = Array.from({ length: hex.length / 2 }, (_, index) => Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16))
+  let result = ''
+  for (let index = 0; index < bytes.length; index += 3) {
+    const first = bytes[index]!
+    const second = bytes[index + 1]
+    const third = bytes[index + 2]
+    result += alphabet[first >> 2]
+    result += alphabet[(first & 3) << 4 | (second ?? 0) >> 4]
+    result += second === undefined ? '=' : alphabet[(second & 15) << 2 | (third ?? 0) >> 6]
+    result += third === undefined ? '=' : alphabet[third & 63]
+  }
+  return result
 }
 
-function scannedComponent(value: unknown): Readonly<{ path: string; exportName: string; sourceHash: string; props: readonly ShadcnProp[]; slots: readonly string[] }> {
-  if (!record(value)) throw new Error('Invalid scanned component.')
-  const props = list(value.props, 'scanned component props').map(prop => {
-    if (!record(prop) || typeof prop.optional !== 'boolean') throw new Error('Invalid scanned component prop.')
-    return { name: text(prop.name, 'scanned component prop name'), type: text(prop.type, 'scanned component prop type'), optional: prop.optional }
+function canonicalProps(props: readonly ShadcnProp[]): readonly ShadcnProp[] {
+  return [...props].sort((left, right) => compareText(left.name, right.name))
+}
+
+function canonicalRules(rules: Readonly<Record<string, ShadcnPreviewPropRule>>): Readonly<Record<string, ShadcnPreviewPropRule>> {
+  return Object.fromEntries(Object.entries(rules).sort(([left], [right]) => compareText(left, right)))
+}
+
+function expectedRules(component: ShadcnComponent): Readonly<Record<string, ShadcnPreviewPropRule>> {
+  const slotNames = new Set(component.slots)
+  const entries = component.props.filter(prop => !slotNames.has(prop.name)).map(prop => {
+    const rule = shadcnPreviewPropRule(prop.type, prop.optional)
+    if (!rule) invalid('The scanned component needs an explicit prop adapter.')
+    return [prop.name, rule] as const
   })
-  const slots = list(value.slots, 'scanned component slots').map(slot => text(slot, 'scanned component slot'))
-  const sourceHash = text(value.sourceHash, 'scanned component source hash')
-  if (!/^[a-f0-9]{64}$/.test(sourceHash)) throw new Error('Invalid scanned component source hash.')
-  return { path: text(value.path, 'scanned component path'), exportName: text(value.exportName, 'scanned component export'), sourceHash, props, slots }
+  return canonicalRules(Object.fromEntries(entries))
 }
 
-/** Derives the renderer-safe catalog shared by local and hosted repository connections. */
+/**
+ * Publishes immutable scanner evidence in the repository binding shape.
+ * Components without an unambiguous package owner or binding-safe locator fail closed.
+ */
 export function componentCatalogFromShadcnScan(scanInput: unknown, requestInput: unknown, fingerprint: string): ShadcnComponentCatalog {
-  if (!record(scanInput) || !record(requestInput) || !fingerprint.trim()) throw new Error('Invalid component catalog source.')
-  const scanned = new Map(list(scanInput.components, 'scanner components').map(value => {
-    const component = scannedComponent(value)
-    return [`${component.path}\0${component.exportName}`, component] as const
-  }))
-  const seen = new Set<string>()
-  const components: ShadcnComponentCatalogEntry[] = list(requestInput.components, 'registry components').map(value => {
-    if (!record(value) || !record(value.props)) throw new Error('Invalid registry component.')
-    const componentId = text(value.componentId, 'registry component id')
-    const path = text(value.entryPath, 'registry component path')
-    const exportName = text(value.exportName, 'registry component export')
-    if (seen.has(componentId)) throw new Error('Duplicate registry component identity.')
-    seen.add(componentId)
-    const source = scanned.get(`${path}\0${exportName}`)
-    if (!source) throw new Error('The verified registry component is missing from the scanner result.')
-    const propNames = new Set(Object.keys(value.props))
-    const slots = list(value.slots, 'registry component slots').map(slot => text(slot, 'registry component slot'))
-    const slotNames = new Set(slots)
-    if (slotNames.size !== slots.length || [...propNames].some(name => slotNames.has(name))) throw new Error('Invalid registry component schema.')
-    const props = source.props.filter(prop => propNames.has(prop.name) || slotNames.has(prop.name))
-    if (props.length !== propNames.size + slotNames.size) throw new Error('The verified component schema does not match the scanner result.')
-    return { componentId, path, exportName, sourceHash: source.sourceHash, props, slots }
-  })
+  const scan = parseShadcnScan(scanInput)
+  const request = parseShadcnPreviewRegistryRequest(requestInput)
+  if (typeof fingerprint !== 'string' || !fingerprint.length || fingerprint.length > 512 || fingerprint.trim() !== fingerprint || /[\u0000-\u001f\u007f]/u.test(fingerprint)) invalid('Invalid component catalog fingerprint.')
+
+  const scanned = new Map<string, ShadcnComponent>()
+  for (const component of scan.components) {
+    const locator = `${component.path}\0${component.exportName}`
+    if (scanned.has(locator)) invalid('Duplicate scanned component locator.')
+    scanned.set(locator, component)
+  }
+
+  const identities = new Set<string>()
+  const locators = new Set<string>()
+  const components: ShadcnComponentCatalogEntry[] = request.components.map(component => {
+    const symbolKey = bindingText(component.componentId, bindingSymbolPattern, 'source symbol key', 128)
+    const componentPath = bindingText(component.entryPath, bindingPathPattern, 'source path', 1_000)
+    const locator = `${componentPath}\0${component.exportName}`
+    if (identities.has(symbolKey)) invalid('Duplicate registry component identity.')
+    if (locators.has(locator)) invalid('Duplicate registry component locator.')
+    identities.add(symbolKey)
+    locators.add(locator)
+
+    const source = scanned.get(locator)
+    if (!source) invalid('The verified registry component is missing from the scanner result.')
+    if (source.packageName === null) invalid('The scanned component needs an explicit package owner.')
+    const packageName = bindingText(source.packageName, bindingPackagePattern, 'source package name', 128)
+    const exportName = bindingText(source.exportName, bindingExportPattern, 'source export name', 128)
+    if (component.integrity !== `sha256-${base64Digest(source.sourceHash)}`) invalid('The verified component integrity does not match the scanner result.')
+    if (JSON.stringify(component.slots) !== JSON.stringify(source.slots)) invalid('The verified component slots do not match the scanner result.')
+    if (JSON.stringify(canonicalRules(component.props)) !== JSON.stringify(expectedRules(source))) invalid('The verified component props do not match the scanner result.')
+
+    return {
+      componentId: symbolKey,
+      symbolKey,
+      packageName,
+      path: componentPath,
+      exportName,
+      sourceHash: source.sourceHash,
+      fingerprint: source.fingerprint,
+      props: canonicalProps(source.props),
+      slots: source.slots,
+    }
+  }).sort((left, right) => compareText(left.path, right.path) || compareText(left.exportName, right.exportName) || compareText(left.symbolKey, right.symbolKey))
+
   return { fingerprint, components }
+}
+
+/** Removes preview-only catalog fields before evidence crosses the repository binding boundary. */
+export function sourceSymbolEvidenceFromCatalogEntry(entry: ShadcnComponentCatalogEntry): ShadcnSourceSymbolEvidence {
+  return Object.freeze({
+    symbolKey: entry.symbolKey,
+    packageName: entry.packageName,
+    path: entry.path,
+    exportName: entry.exportName,
+    sourceHash: entry.sourceHash,
+    fingerprint: entry.fingerprint,
+  })
 }

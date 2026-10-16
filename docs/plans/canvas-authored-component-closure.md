@@ -155,6 +155,21 @@ It excludes cross-file canvas-component portability, code-component root clipboa
 
 The completed slice gives Duplicate, modifier-copy, Alt-drag, page duplication, and same-file paste one checked semantic clone planner. Master copies receive fresh and fully remapped component identities; configured instance copies preserve their source identity, sparse values, Slot content, Instance swap choice, and nested semantic instances. Fresh `PR-EVIDENCE-014` browser evidence proves Layers and Kit identity, one-step Undo or Redo, and reload persistence, while malformed, recursive, stale, oversized, cross-file, and paste-to-replace inputs fail before mutation.
 
+## Active source-sync slice: hosted pull binding reconciliation
+
+One completed immutable hosted scan must reconcile into stable repository-scoped source bindings before any general source-writing work begins. The pull result publishes an exact `bound`, `missing`, or `ambiguous` catalog keyed by opaque binding identity, then updates code definitions through checked document commands. Mutable repository path, export, source hash, span, adapter, revision, installation, and credential data remain outside `FileDocument`.
+
+Dependency order:
+
+1. Add a pure source-binding contract that seeds already admitted identities, assigns opaque ids only to new symbols, preserves ids across non-semantic edits and one verified move or rename, and refuses ambiguous replacement.
+2. Extend immutable scanner evidence with only the package, symbol, and source facts required by that contract.
+3. Persist bindings under exact repository, scan, source revision, registry fingerprint, and grant-generation authority.
+4. Expose a renderer-safe binding delta and reconcile code definitions through the existing checked command boundary.
+5. Retain the last-good catalog and preview when new scan or binding evidence is invalid.
+6. Independently review cross-tenant, revoked-grant, stale-scan, ambiguous-match, and path-derived-id negative controls.
+
+The slice is gated by `COMP-V2-ADMISSION-001`, `COMP-V2-ADMISSION-NEG-001`, `COMP-V2-BINDING-001`, `AT-ID-001` through `AT-ID-003`, `AT-SYNC-001`, `AT-PRV-002` through `AT-PRV-004`, `AT-REPO-LINK-001`, and `AT-REPO-SCAN-001`. It excludes source or docs writes, Git ref changes, runtime admission, new UI, local watchers, promotion, automatic publication, and Save approval. The rollback boundary is one additive binding-reconciliation staging commit based on `8346627`.
+
 ## Current status
 
 - Staging is organized as one reversible commit per closed slice.

@@ -11,7 +11,7 @@ const connection: EditorRepositoryConnection = {
   scan: { adapterId: 'shadcn-v1', configs: [], components: [], tokens: [], sourceHashes: {}, diagnostics: [] },
   registry: {
     fingerprint: `sha256-${'A'.repeat(43)}=`,
-    components: [{ componentId: 'shadcn:LoginForm:1234567890abcdef', path: 'components/ui/LoginForm.tsx', exportName: 'LoginForm', sourceHash: 'source-hash', props: [{ name: 'title', type: 'string', optional: true }, { name: 'footer', type: 'ReactNode', optional: true }], slots: ['footer'] }],
+    components: [{ componentId: 'shadcn:LoginForm:1234567890abcdef', symbolKey: 'shadcn:LoginForm:1234567890abcdef', path: 'components/ui/LoginForm.tsx', exportName: 'LoginForm', packageName: '@acme/ui', sourceHash: 'source-hash', fingerprint: 'declaration-fingerprint', props: [{ name: 'title', type: 'string', optional: true }, { name: 'footer', type: 'ReactNode', optional: true }], slots: ['footer'] }],
   },
 }
 

@@ -729,7 +729,7 @@ describe('hosted control-plane API', () => {
     const componentId = 'shadcn:Button:8f9171d59b1041d3'
     const artifact = {
       sourceRevision: 'a'.repeat(40),
-      scan: { adapterId: 'shadcn-v1', configs: [], components: [{ path: 'src/button.tsx', exportName: 'Button', declarationKind: 'function', props: [], slots: [], sourceHash, fingerprint: 'c'.repeat(64) }], tokens: [], sourceHashes: { 'src/button.tsx': sourceHash }, diagnostics: [] },
+      scan: { adapterId: 'shadcn-v1', configs: [], components: [{ path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', declarationKind: 'function', props: [], slots: [], sourceHash, fingerprint: 'c'.repeat(64) }], tokens: [], sourceHashes: { 'src/button.tsx': sourceHash }, diagnostics: [] },
       request: { version: 1, entry: { componentId }, components: [{ componentId, entryPath: 'src/button.tsx', exportName: 'Button', integrity: `sha256-${Buffer.from(sourceHash, 'hex').toString('base64')}`, props: {}, slots: [] }], styles: [] },
     }
     expect((await internalJob(`/internal/repository-jobs/${jobId}/complete`, repositoryJobServiceToken, { leaseId: startedBody.lease.id, result: { sourceRevision: 'a'.repeat(40), scan: { adapterId: 'shadcn-v1' }, request: { version: 1 } } })).status).toBe(400)

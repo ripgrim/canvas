@@ -107,7 +107,7 @@ describe('COMP-V2-UI-015 component names', () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     const registry = {
       fingerprint: 'github:revision',
-      components: [{ componentId: 'component:hosted-button', path: 'src/button.tsx', exportName: 'Button', sourceHash: 'a'.repeat(64), props: [{ name: 'tone', type: "'quiet' | 'solid'", optional: true }], slots: [] }],
+      components: [{ componentId: 'component:hosted-button', symbolKey: 'component:hosted-button', path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', sourceHash: 'a'.repeat(64), fingerprint: 'b'.repeat(64), props: [{ name: 'tone', type: "'quiet' | 'solid'", optional: true }], slots: [] }],
     }
     const atoms = discoveredRegistryAtoms(registry)
     documentStore.load(createBlankFile('hosted-components', 'page', 'root'), atoms, { replace: true, pageId: 'page' })
