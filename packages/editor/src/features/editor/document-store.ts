@@ -56,6 +56,7 @@ import type { InternalClipboardAssetPreviews } from './clipboard-internal-buffer
 import type { InternalClipboardPayload } from './clipboard-codec'
 import { planComponentSlotDrafts } from './component-configured-instance'
 import type { ComponentSlotDraft } from './component-configured-instance'
+import { planComponentInstanceSwap } from './component-instance-swap'
 
 export type Viewport = Camera
 export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text' | 'rectangle' | 'shape' | 'interact'
@@ -541,7 +542,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   const executeWithPersistence = (command: FileCommand, selection?: string[], pageId?: string, trackPersistence = false, persistenceCommand?: FileCommand, preCommitGuard?: () => boolean, persistenceIntent?: EditorPersistenceIntent): PersistenceCommit => {
     const state = backing.getState()
     if (!state.file || persistenceBlocked || textSession) return noPersistenceCommit
-    if (commandMutatesProtectedInstanceStructure(state.file, command)) return noPersistenceCommit
+    if (commandMutatesProtectedInstanceStructure(state.file, command) || commandMutatesInstanceSwapState(state.file, command)) return noPersistenceCommit
     try {
       const linkedCommand = linkCanvasComponentCommand(state.file, command, state.atoms, makeId)
       return commitWithPersistence(applyFileCommandWithHistory(state.file, linkedCommand, state.atoms, { allowUnavailableBindings: true }), selection ?? state.selection, pageId, trackPersistence, persistenceCommand ?? linkedCommand, preCommitGuard, persistenceIntent)
@@ -550,6 +551,14 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   }
   const execute = (command: FileCommand, selection?: string[], pageId?: string) => executeWithPersistence(command, selection, pageId).committed
   const executeBatch = (commands: FileCommand[], selection?: string[]) => commands.length ? execute(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, selection) : false
+  const executePlannedComponentBatch = (commands: FileCommand[], selection?: string[]) => {
+    const state = backing.getState()
+    if (!commands.length || !state.file || persistenceBlocked || textSession) return false
+    const command: FileCommand = commands.length === 1 ? commands[0]! : { type: 'batch', commands }
+    try {
+      return commitWithPersistence(applyFileCommandWithHistory(state.file, command, state.atoms, { allowUnavailableBindings: true }), selection ?? state.selection, state.pageId!, false, command).committed
+    } catch (error) { fail(error); return false }
+  }
   const executeBatchWithPersistence = (commands: FileCommand[], selection?: string[]) => commands.length
     ? executeWithPersistence(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, selection, undefined, true)
     : noPersistenceCommit
@@ -680,15 +689,14 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     const instance = file.componentModel.instances[sourceId]
     return instance ? [{ type: 'component.instance.create', instance: { ...structuredClone(instance), id } }] : []
   })
-  const semanticCleanupCommands = (file: FileDocument, removed: ReadonlySet<string>): FileCommand[] => {
-    const removedNodeIds = new Set(removed)
+  const semanticCleanupCommands = (file: FileDocument, removed: ReadonlySet<string>, removedNodeIds = new Set(removed)): FileCommand[] => {
     for (const definition of Object.values(file.componentModel.definitions)) {
       if (definition.source.kind !== 'canvas' || removedNodeIds.has(definition.source.masterRootId)) continue
       const removedMasterIds = [definition.source.masterRootId, ...descendantsOf(file, definition.source.masterRootId)].filter(nodeId => removedNodeIds.has(nodeId))
       if (!removedMasterIds.length) continue
       for (const instance of Object.values(file.componentModel.instances)) {
         if (instance.componentId !== definition.id) continue
-        const map = mapParallelComponentSubtrees(file, definition.source.masterRootId, instance.id)
+        const map = mapParallelComponentSubtrees(file, definition.source.masterRootId, instance.id, { includeOverriddenSwapRoots: true })
         if (!map) continue
         for (const masterId of removedMasterIds) {
           const instanceId = map.get(masterId)
@@ -723,7 +731,10 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   }
   const semanticDeleteCommands = (file: FileDocument, nodeIds: readonly string[]): FileCommand[] => {
     const removed = new Set(nodeIds.flatMap(nodeId => [nodeId, ...descendantsOf(file, nodeId)]))
-    return [...semanticCleanupCommands(file, removed), { type: 'node.delete', nodeIds: [...nodeIds] }]
+    const removedNodeIds = new Set(removed)
+    const cleanup = semanticCleanupCommands(file, removed, removedNodeIds)
+    const roots = [...removedNodeIds].filter(nodeId => !ancestorsOf(file, nodeId).some(parentId => removedNodeIds.has(parentId)))
+    return [...cleanup, { type: 'node.delete', nodeIds: roots }]
   }
   const isProtectedInstanceDescendant = (file: FileDocument, nodeId: string) => {
     let current = nodeId
@@ -745,6 +756,21 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     if (command.type === 'node.unwrap') return command.groups.some(group => isProtectedInstanceDescendant(file, group.wrapperId) || group.children.some(child => isProtectedInstanceDescendant(file, child.nodeId)))
     if (command.type === 'node.removeFlex') return command.groups.some(group => isProtectedInstanceDescendant(file, group.parent.nodeId) || group.children.some(child => isProtectedInstanceDescendant(file, child.nodeId)))
     return false
+  }
+  const commandMutatesInstanceSwapState = (file: FileDocument, command: FileCommand): boolean => {
+    if (command.type === 'batch') return command.commands.some(inner => commandMutatesInstanceSwapState(file, inner))
+    if (command.type !== 'component.instance.create' && command.type !== 'component.instance.replace' && command.type !== 'component.instance.restore') return false
+    const before = command.type === 'component.instance.create' ? null : command.type === 'component.instance.replace' ? command.expected : command.expected
+    const after = command.type === 'component.instance.create' ? command.instance : command.type === 'component.instance.replace' ? command.instance : command.source
+    const componentId = after?.componentId ?? before?.componentId
+    const definition = componentId ? file.componentModel.definitions[componentId] : undefined
+    if (!definition) return false
+    return definition.properties.some(property => {
+      if (property.type !== 'instance-swap') return false
+      const beforeOwns = Boolean(before && Object.hasOwn(before.values, property.id))
+      const afterOwns = Boolean(after && Object.hasOwn(after.values, property.id))
+      return beforeOwns !== afterOwns || beforeOwns && before!.values[property.id] !== after!.values[property.id]
+    })
   }
   const duplicate = (nodeId?: string) => {
     const state = backing.getState()
@@ -876,7 +902,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     if (!state.file || !ids.length) return false
     if (ids.some(id => isProtectedInstanceDescendant(state.file!, id))) return false
     const commands = semanticDeleteCommands(state.file, ids)
-    return execute(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, [])
+    return executePlannedComponentBatch(commands, [])
   }
   const movedPrimitiveMatrix = (file: FileDocument, id: string, targetParentId: string, x: number, y: number) => {
     const item = file.nodes[id]
@@ -973,7 +999,25 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       return property?.type === 'text' && typeof value === 'string'
         || property?.type === 'boolean' && typeof value === 'boolean'
         || property?.type === 'variant' && typeof value === 'string' && property.values.some(option => option.id === value)
+        || property?.type === 'instance-swap' && typeof value === 'string'
     }))
+  }
+  const planInstanceSwapValues = (file: FileDocument, definition: ComponentDefinition, instanceId: string, values: ComponentInstanceValues) => {
+    let working = file
+    const commands: FileCommand[] = []
+    for (const property of definition.properties) {
+      if (property.type !== 'instance-swap') continue
+      const instance = working.componentModel.instances[instanceId]
+      if (!instance) return null
+      const desired = typeof values[property.id] === 'string' ? values[property.id] as string : property.defaultValue
+      const current = typeof instance.values[property.id] === 'string' ? instance.values[property.id] as string : property.defaultValue
+      if (current === desired) continue
+      const plan = planComponentInstanceSwap({ file: working, owner: definition, ownerRootId: instanceId, propertyId: property.id, componentId: desired, atoms: backing.getState().atoms, makeId })
+      if (!plan) return null
+      commands.push(...plan.commands)
+      working = plan.file
+    }
+    return { file: working, commands }
   }
   const replaceComponentPropertyCommands = (file: FileDocument, definition: ComponentDefinition, properties: readonly ComponentPropertyDefinition[]) => {
     const propertyById = new Map(properties.map(property => [property.id, property]))
@@ -1401,20 +1445,26 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           const masterIds = definition.source.kind === 'canvas' ? [definition.source.masterRootId, ...descendantsOf(file, definition.source.masterRootId)] : []
           const textNode = masterIds.map(nodeId => file.nodes[nodeId]).find(candidate => candidate?.type === 'text')
           const masterNode = definition.source.kind === 'canvas' ? file.nodes[definition.source.masterRootId] : undefined
+          const swapInstance = type === 'instance-swap' ? masterIds.map(nodeId => file.componentModel.instances[nodeId]).find(candidate => candidate && file.componentModel.definitions[candidate.componentId]?.source.kind === 'canvas') : undefined
           const defaultValueId = type === 'variant' ? makeId() : null
-          const property: ComponentPropertyDefinition = type === 'variant'
+          const property: ComponentPropertyDefinition | null = type === 'variant'
             ? { id, name, type, defaultValueId: defaultValueId!, currentValueId: defaultValueId!, values: [], ...(masterNode && masterNode.type !== 'root' ? { binding: { kind: 'variant' as const, nodeId: masterNode.id, appearances: { [defaultValueId!]: structuredClone(nodeAppearance(masterNode) ?? {}) } } } : {}) }
             : type === 'text'
               ? { id, name, type, defaultValue: textNode?.type === 'text' ? textNode.text ?? '' : 'Text', ...(textNode?.type === 'text' ? { binding: { kind: 'text' as const, nodeId: textNode.id } } : {}) }
               : type === 'boolean'
                 ? { id, name, type, defaultValue: masterNode ? nodeAppearance(masterNode)?.visible !== false : true, ...(masterNode && masterNode.type !== 'root' ? { binding: { kind: 'visibility' as const, nodeId: masterNode.id } } : {}) }
-                : { id, name, type, ...(masterNode && masterNode.type !== 'root' ? { binding: { kind: 'slot' as const, nodeId: masterNode.id } } : {}) }
+                : type === 'instance-swap'
+                  ? swapInstance ? { id, name, type, defaultValue: swapInstance.componentId, binding: { kind: 'instance-swap' as const, nodeId: swapInstance.id } } : null
+                  : { id, name, type, ...(masterNode && masterNode.type !== 'root' ? { binding: { kind: 'slot' as const, nodeId: masterNode.id } } : {}) }
+          if (!property) return null
           const complete = property.type === 'variant' ? { ...property, values: [{ id: property.defaultValueId, name: 'Default' }] } : property
           return replaceComponentProperties(componentId, [...definition.properties, complete]) ? id : null
         },
         setProperty: (componentId: string, property: ComponentPropertyDefinition) => {
-          const definition = backing.getState().file?.componentModel.definitions[componentId]
-          if (!definition || !definition.properties.some(candidate => candidate.id === property.id) || componentPropertyNameExists(definition, property.name, property.id)) return false
+          const state = backing.getState()
+          const definition = state.file?.componentModel.definitions[componentId]
+          const previousProperty = definition?.properties.find(candidate => candidate.id === property.id)
+          if (!state.file || !definition || !previousProperty || previousProperty.type !== property.type || componentPropertyNameExists(definition, property.name, property.id)) return false
           let nextProperty = property
           if (property.type === 'variant') {
             const names = property.values.map(value => value.name.trim().toLocaleLowerCase())
@@ -1424,12 +1474,26 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
               ? property
               : { ...property, currentValueId: property.defaultValueId }
           }
-          const file = backing.getState().file
-          if (!file) return false
+          if (previousProperty.type === 'instance-swap' && nextProperty.type === 'instance-swap') {
+            const structuralChange = previousProperty.binding.nodeId !== nextProperty.binding.nodeId || previousProperty.defaultValue !== nextProperty.defaultValue
+            let working = state.file
+            const commands: FileCommand[] = []
+            if (structuralChange) {
+              for (const instance of Object.values(working.componentModel.instances)) {
+                if (instance.componentId !== componentId || !Object.hasOwn(instance.values, previousProperty.id)) continue
+                const plan = planComponentInstanceSwap({ file: working, owner: definition, ownerRootId: instance.id, propertyId: previousProperty.id, componentId: previousProperty.defaultValue, atoms: state.atoms, makeId })
+                if (!plan) return false
+                commands.push(...plan.commands)
+                working = plan.file
+              }
+            }
+            commands.push(...replaceComponentPropertyCommands(working, definition, definition.properties.map(candidate => candidate.id === property.id ? nextProperty : candidate)))
+            return structuralChange ? executePlannedComponentBatch(commands) : executeBatch(commands)
+          }
           return executeBatch([
-            ...componentPropertyRebindingResetCommands(file, definition, nextProperty),
-            ...componentSlotRebindingCommands(file, definition, nextProperty),
-            ...replaceComponentPropertyCommands(file, definition, definition.properties.map(candidate => candidate.id === property.id ? nextProperty : candidate)),
+            ...componentPropertyRebindingResetCommands(state.file, definition, nextProperty),
+            ...componentSlotRebindingCommands(state.file, definition, nextProperty),
+            ...replaceComponentPropertyCommands(state.file, definition, definition.properties.map(candidate => candidate.id === property.id ? nextProperty : candidate)),
           ])
         },
         addVariantValue: (componentId: string, propertyId: string) => {
@@ -1550,6 +1614,16 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           const property = definition?.properties.find(candidate => candidate.id === propertyId)
           if (!state.file || !definition || !property) return false
           const commands: FileCommand[] = []
+          let working = state.file
+          if (property.type === 'instance-swap') {
+            for (const instance of Object.values(working.componentModel.instances)) {
+              if (instance.componentId !== componentId || !Object.hasOwn(instance.values, property.id)) continue
+              const plan = planComponentInstanceSwap({ file: working, owner: definition, ownerRootId: instance.id, propertyId: property.id, componentId: property.defaultValue, atoms: state.atoms, makeId })
+              if (!plan) return false
+              commands.push(...plan.commands)
+              working = plan.file
+            }
+          }
           if (property.type === 'slot') {
             const slotNodes: string[] = []
             for (const instance of Object.values(state.file.componentModel.instances)) {
@@ -1559,9 +1633,9 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
               if (hostId) slotNodes.push(...childrenOf(state.file, hostId, definition.source.kind === 'canvas' ? property.id : property.name))
             }
             if (slotNodes.length) commands.push(...semanticDeleteCommands(state.file, slotNodes))
-          } else commands.push(...componentPropertyRemovalResetCommands(state.file, definition, property))
-          commands.push(...replaceComponentPropertyCommands(state.file, definition, definition.properties.filter(candidate => candidate.id !== propertyId)))
-          return executeBatch(commands)
+          } else if (property.type !== 'instance-swap') commands.push(...componentPropertyRemovalResetCommands(working, definition, property))
+          commands.push(...replaceComponentPropertyCommands(working, definition, definition.properties.filter(candidate => candidate.id !== propertyId)))
+          return property.type === 'instance-swap' ? executePlannedComponentBatch(commands) : executeBatch(commands)
         },
         remove: (componentId: string) => {
           const state = backing.getState()
@@ -1650,16 +1724,21 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
             const width = master.type === 'component' ? legacyLayout(master.layout).width ?? 0 : master.styles.width
             const commands: FileCommand[] = [{ type: 'node.duplicate', nodeId: master.id, ids, offset: { x: width + duplicateGap, y: 0 } }, ...duplicatedInstanceCommands(state.file, ids)]
             if (state.file.relationships[master.id]?.parentId !== targetRoot) commands.push({ type: 'node.reparent', nodeId: instanceId, placement: { parentId: targetRoot }, preserveWorldPosition: true })
-            const instance = { id: instanceId, componentId, values }
+            const scalarValues = Object.fromEntries(Object.entries(values).filter(([propertyId]) => definition.properties.find(property => property.id === propertyId)?.type !== 'instance-swap'))
+            const instance = { id: instanceId, componentId, values: scalarValues }
             commands.push({ type: 'component.instance.create', instance })
             let projected = applyFileCommand(state.file, { type: 'batch', commands }, state.atoms, { allowUnavailableBindings: true })
             const propertyCommands = componentPropertyProjectionCommands(projected, definition, instance, definition.properties)
             commands.push(...propertyCommands)
             if (propertyCommands.length) projected = applyFileCommand(projected, { type: 'batch', commands: propertyCommands }, state.atoms, { allowUnavailableBindings: true })
+            const swapPlan = planInstanceSwapValues(projected, definition, instanceId, values)
+            if (!swapPlan) return false
+            commands.push(...swapPlan.commands)
+            projected = swapPlan.file
             const slotPlan = planComponentSlotDrafts({ file: projected, owner: definition, ownerRootId: instanceId, drafts: slotDrafts, atoms: state.atoms, makeId, editorMode: options.editorMode?.() ?? 'light' })
             if (!slotPlan) return false
             commands.push(...slotPlan.commands)
-            return executeBatch(commands, [instanceId])
+            return swapPlan.commands.length || slotPlan.commands.length ? executePlannedComponentBatch(commands, [instanceId]) : executeBatch(commands, [instanceId])
           }
           if (slotDrafts.length) return false
           const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
@@ -1760,6 +1839,11 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           const values = { ...instance.values }
           if (value === null) delete values[propertyId]
           else values[propertyId] = value
+          if (property.type === 'instance-swap') {
+            if (!state.file) return false
+            const plan = planInstanceSwapValues(state.file, definition, instanceId, values)
+            return plan ? executePlannedComponentBatch([...plan.commands]) : false
+          }
           const next = { ...instance, values }
           const commands: FileCommand[] = [{ type: 'component.instance.replace', instanceId, expected: instance, instance: next }]
           if (state.file) commands.push(...componentPropertyProjectionCommands(state.file, definition, next, [property]))
@@ -1777,11 +1861,15 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           const instance = state.file?.componentModel.instances[instanceId]
           const definition = instance ? state.file?.componentModel.definitions[instance.componentId] : undefined
           if (!state.file || !instance || !definition || Object.keys(instance.values).length === 0) return false
-          const next = { ...instance, values: {} }
-          return executeBatch([
-            { type: 'component.instance.replace', instanceId, expected: instance, instance: next },
-            ...componentPropertyProjectionCommands(state.file, definition, next, definition.properties),
-          ])
+          const swapPlan = planInstanceSwapValues(state.file, definition, instanceId, {})
+          if (!swapPlan) return false
+          const current = swapPlan.file.componentModel.instances[instanceId]
+          if (!current) return false
+          const next = { ...current, values: {} }
+          const commands = [...swapPlan.commands]
+          if (Object.keys(current.values).length) commands.push({ type: 'component.instance.replace', instanceId, expected: current, instance: next })
+          commands.push(...componentPropertyProjectionCommands(swapPlan.file, definition, next, definition.properties))
+          return swapPlan.commands.length ? executePlannedComponentBatch(commands) : executeBatch(commands)
         },
         openMaster: (componentId: string) => {
           const definition = backing.getState().file?.componentModel.definitions[componentId]

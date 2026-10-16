@@ -185,6 +185,46 @@ describe('file validation', () => {
     expect(thrown(() => validateFileDocument(missingPartLayer, atoms))).toBe('A component part references a missing master layer')
   })
 
+  it('[COMP-V2-UI-076] admits an Instance swap only when it binds a nested canvas-component instance matching the default', () => {
+    const file = fixture()
+    file.componentModel = {
+      definitions: {
+        owner: {
+          id: 'owner', name: 'Owner', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 0,
+          properties: [{ id: 'leading', name: 'Leading', type: 'instance-swap', defaultValue: 'leaf', binding: { kind: 'instance-swap', nodeId: 'inner' } }],
+          materials: [], parts: [], interactions: [],
+        },
+        leaf: { id: 'leaf', name: 'Leaf', source: { kind: 'canvas', masterRootId: 'label' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+      },
+      instances: { inner: { id: 'inner', componentId: 'leaf', values: {} } },
+    }
+    const validated = validateFileDocument(file, atoms)
+    expect(validated.componentModel.definitions.owner!.properties[0]).toMatchObject({ type: 'instance-swap', defaultValue: 'leaf', binding: { kind: 'instance-swap', nodeId: 'inner' } })
+  })
+
+  it('[COMP-V2-UI-NEG-003] rejects Instance swap bindings without a nested instance root or with a mismatched nested default', () => {
+    const valid = fixture()
+    valid.componentModel = {
+      definitions: {
+        owner: {
+          id: 'owner', name: 'Owner', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 0,
+          properties: [{ id: 'leading', name: 'Leading', type: 'instance-swap', defaultValue: 'leaf', binding: { kind: 'instance-swap', nodeId: 'inner' } }],
+          materials: [], parts: [], interactions: [],
+        },
+        leaf: { id: 'leaf', name: 'Leaf', source: { kind: 'canvas', masterRootId: 'label' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+        alternate: { id: 'alternate', name: 'Alternate', source: { kind: 'canvas', masterRootId: 'box' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+      },
+      instances: { inner: { id: 'inner', componentId: 'leaf', values: {} } },
+    }
+    const missingInstance = { ...structuredClone(valid), componentModel: { ...valid.componentModel, instances: {} } }
+    expect(thrown(() => validateFileDocument(missingInstance, atoms))).toBe('An Instance swap property needs a nested component instance root')
+    const mismatched = { ...structuredClone(valid), componentModel: { ...valid.componentModel, instances: { inner: { id: 'inner', componentId: 'alternate', values: {} } } } }
+    expect(thrown(() => validateFileDocument(mismatched, atoms))).toBe('An Instance swap default must match its nested component instance')
+    const rootOwner = { ...valid.componentModel.definitions.owner!, properties: [{ id: 'leading', name: 'Leading', type: 'instance-swap' as const, defaultValue: 'leaf', binding: { kind: 'instance-swap' as const, nodeId: 'outer' } }] }
+    const rootBinding = { ...structuredClone(valid), componentModel: { definitions: { ...valid.componentModel.definitions, owner: rootOwner }, instances: { ...valid.componentModel.instances, outer: { id: 'outer', componentId: 'leaf', values: {} } } } }
+    expect(thrown(() => validateFileDocument(rootBinding, atoms))).toBe('An Instance swap property needs a nested component instance root')
+  })
+
   it('COMP-V2-UI-030 rejects recursive canvas component dependencies', () => {
     const component = (id: string, masterRootId: string) => ({
       id, name: id, source: { kind: 'canvas' as const, masterRootId }, revision: 0,

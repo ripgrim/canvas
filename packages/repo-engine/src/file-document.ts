@@ -281,6 +281,13 @@ export function validateFileDocument(input: unknown, atoms: Atom[], options: Fil
     if (!master || master.type === 'root') throw invalid('A canvas component needs its master node')
     const sourceNodes = new Set([definition.source.masterRootId, ...descendantsOf(file, definition.source.masterRootId)])
     if (definition.properties.some(property => property.binding && !sourceNodes.has(property.binding.nodeId))) throw invalid('A component property references a missing master layer')
+    for (const property of definition.properties) {
+      if (property.type !== 'instance-swap') continue
+      const target = file.componentModel.instances[property.binding.nodeId]
+      if (!target || property.binding.nodeId === definition.source.masterRootId) throw invalid('An Instance swap property needs a nested component instance root')
+      if (target.componentId !== property.defaultValue) throw invalid('An Instance swap default must match its nested component instance')
+      if (file.componentModel.definitions[target.componentId]?.source.kind !== 'canvas') throw invalid('Instance swap requires a nested canvas component instance')
+    }
     if (definition.parts.some(part => !sourceNodes.has(part.nodeId))) throw invalid('A component part references a missing master layer')
   }
   validateComponentDependencyCycles(file)
@@ -352,6 +359,15 @@ function validateComponentDependencyCycles(file: FileDocument): void {
     if (definition.source.kind !== 'canvas') continue
     const sourceNodes = new Set([definition.source.masterRootId, ...descendantsOf(file, definition.source.masterRootId)])
     for (const instance of instances) if (sourceNodes.has(instance.id)) targets.add(instance.componentId)
+    for (const property of definition.properties) {
+      if (property.type !== 'instance-swap') continue
+      targets.add(property.defaultValue)
+      for (const owner of instances) {
+        if (owner.componentId !== definition.id) continue
+        const value = owner.values[property.id]
+        if (typeof value === 'string') targets.add(value)
+      }
+    }
   }
 
   const visited = new Set<string>()

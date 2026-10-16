@@ -11,6 +11,7 @@ export type ComponentPropertyBinding =
   | Readonly<{ kind: 'text'; nodeId: string }>
   | Readonly<{ kind: 'visibility'; nodeId: string }>
   | Readonly<{ kind: 'slot'; nodeId: string }>
+  | Readonly<{ kind: 'instance-swap'; nodeId: string }>
 export type VariantProperty = ComponentPropertyBase & Readonly<{
   type: 'variant'
   defaultValueId: string
@@ -21,7 +22,8 @@ export type VariantProperty = ComponentPropertyBase & Readonly<{
 export type TextProperty = ComponentPropertyBase & Readonly<{ type: 'text'; defaultValue: string; binding?: Extract<ComponentPropertyBinding, { kind: 'text' }> }>
 export type BooleanProperty = ComponentPropertyBase & Readonly<{ type: 'boolean'; defaultValue: boolean; binding?: Extract<ComponentPropertyBinding, { kind: 'visibility' }> }>
 export type SlotProperty = ComponentPropertyBase & Readonly<{ type: 'slot'; binding?: Extract<ComponentPropertyBinding, { kind: 'slot' }> }>
-export type ComponentPropertyDefinition = VariantProperty | TextProperty | BooleanProperty | SlotProperty
+export type InstanceSwapProperty = ComponentPropertyBase & Readonly<{ type: 'instance-swap'; defaultValue: string; binding: Extract<ComponentPropertyBinding, { kind: 'instance-swap' }> }>
+export type ComponentPropertyDefinition = VariantProperty | TextProperty | BooleanProperty | SlotProperty | InstanceSwapProperty
 
 export type ComponentMaterial = Readonly<{
   id: string
@@ -139,6 +141,7 @@ const validRevision = (value: unknown): value is number => Number.isSafeInteger(
 function validateProperty(property: ComponentPropertyDefinition): void {
   validId(property.id, 'component property id')
   validName(property.name, 'component property name')
+  if (property.type === 'instance-swap') validId(property.defaultValue, 'Instance swap component id')
   if (property.type !== 'variant') return
   if (!property.values.length) invalid('A variant property needs at least one value')
   unique(property.values.map(value => value.id), 'variant value id')
@@ -155,7 +158,7 @@ function validatePropertyBinding(property: ComponentPropertyDefinition, value: u
   exact(binding, ['kind', 'nodeId'], property.type === 'variant' ? ['appearances'] : [], 'component property binding')
   const nodeId = typeof binding.nodeId === 'string' ? binding.nodeId : invalid('Invalid component property binding')
   validId(nodeId, 'component property binding node id')
-  const expected = property.type === 'variant' ? 'variant' : property.type === 'text' ? 'text' : property.type === 'boolean' ? 'visibility' : property.type === 'slot' ? 'slot' : null
+  const expected = property.type === 'variant' ? 'variant' : property.type === 'text' ? 'text' : property.type === 'boolean' ? 'visibility' : property.type === 'slot' ? 'slot' : property.type === 'instance-swap' ? 'instance-swap' : null
   if (binding.kind !== expected) invalid('Invalid component property binding')
   if (property.type === 'variant') {
     const appearances = asRecord(binding.appearances, 'Invalid component variant appearances')
@@ -207,6 +210,10 @@ export function validateComponentDefinition(input: unknown): ComponentDefinition
       exact(property, ['id', 'name', 'type', 'defaultValue'], [...optional, 'binding'], 'component property')
       if (typeof property.defaultValue !== 'boolean') invalid('Invalid component property')
     } else if (property.type === 'slot') exact(property, ['id', 'name', 'type'], [...optional, 'binding'], 'component property')
+    else if (property.type === 'instance-swap') {
+      exact(property, ['id', 'name', 'type', 'defaultValue', 'binding'], optional, 'component property')
+      if (typeof property.defaultValue !== 'string') invalid('Invalid component property')
+    }
     else invalid('Invalid component property')
     if (own(property, 'description') && !validDescription(property.description)) invalid('Invalid component property description')
     if (own(property, 'optional') && property.optional !== true) invalid('Invalid component property optionality')
@@ -243,12 +250,14 @@ export function validateComponentDefinition(input: unknown): ComponentDefinition
   }
   const definition = candidate as unknown as ComponentDefinition
   if (definition.source.kind !== 'code' && definition.properties.some(property => property.optional)) invalid('Canvas component properties cannot be optional')
+  if (definition.source.kind === 'code' && definition.properties.some(property => property.type === 'instance-swap')) invalid('Code components cannot define Instance swap properties')
   validId(definition.id, 'component id')
   validName(definition.name, 'component name')
   if (definition.source.kind === 'canvas') validId(definition.source.masterRootId, 'component master root id')
   else validId(definition.source.bindingId, 'component source binding id')
   unique(definition.properties.map(property => property.id), 'component property id')
   unique(definition.properties.map(property => property.name.toLocaleLowerCase()), 'component property name')
+  unique(definition.properties.filter((property): property is InstanceSwapProperty => property.type === 'instance-swap').map(property => property.binding.nodeId), 'component Instance swap binding')
   definition.properties.forEach(validateProperty)
   for (const property of definition.properties) {
     if (property.type === 'variant' && property.currentValueId !== undefined && !property.values.some(value => value.id === property.currentValueId)) invalid('Current variant value is missing')
@@ -304,7 +313,56 @@ export function validateComponentModelState(input: unknown): ComponentModelState
     resolveComponentInstanceValues(definition, value.values)
     instances[id] = value
   }
+  for (const definition of Object.values(definitions)) {
+    for (const property of definition.properties) {
+      if (property.type !== 'instance-swap') continue
+      validateInstanceSwapComponent(definitions, property.defaultValue)
+    }
+  }
+  for (const instance of Object.values(instances)) {
+    const definition = definitions[instance.componentId]!
+    for (const property of definition.properties) {
+      if (property.type !== 'instance-swap') continue
+      validateInstanceSwapComponent(definitions, String(instance.values[property.id] ?? property.defaultValue))
+    }
+  }
+  validateInstanceSwapCycles(definitions, instances)
   return { definitions, instances }
+}
+
+function validateInstanceSwapComponent(definitions: Readonly<Record<string, ComponentDefinition>>, componentId: string): void {
+  const target = definitions[componentId]
+  if (!target) invalid('Instance swap references a missing component definition')
+  if (target?.source.kind !== 'canvas') invalid('Instance swap requires a canvas component definition')
+}
+
+function validateInstanceSwapCycles(definitions: Readonly<Record<string, ComponentDefinition>>, instances: Readonly<Record<string, ComponentInstanceRecord>>): void {
+  const dependencies = new Map<string, Set<string>>()
+  for (const definition of Object.values(definitions)) {
+    const targets = new Set<string>()
+    dependencies.set(definition.id, targets)
+    for (const property of definition.properties) if (property.type === 'instance-swap') targets.add(property.defaultValue)
+  }
+  for (const instance of Object.values(instances)) {
+    const definition = definitions[instance.componentId]!
+    const targets = dependencies.get(definition.id)!
+    for (const property of definition.properties) {
+      if (property.type !== 'instance-swap') continue
+      const value = instance.values[property.id]
+      if (typeof value === 'string') targets.add(value)
+    }
+  }
+  const visited = new Set<string>()
+  const active = new Set<string>()
+  const visit = (componentId: string): void => {
+    if (active.has(componentId)) invalid('Components cannot contain themselves recursively')
+    if (visited.has(componentId)) return
+    active.add(componentId)
+    for (const dependency of dependencies.get(componentId) ?? []) visit(dependency)
+    active.delete(componentId)
+    visited.add(componentId)
+  }
+  for (const componentId of dependencies.keys()) visit(componentId)
 }
 
 function validateInstanceRecord(input: unknown): ComponentInstanceRecord {
@@ -472,6 +530,7 @@ export function componentDefaultValues(definition: ComponentDefinition): Compone
     if (property.type === 'variant') values[property.id] = property.defaultValueId
     if (property.type === 'text') values[property.id] = property.defaultValue
     if (property.type === 'boolean') values[property.id] = property.defaultValue
+    if (property.type === 'instance-swap') values[property.id] = property.defaultValue
   }
   return values
 }
@@ -486,6 +545,10 @@ export function resolveComponentInstanceValues(definition: ComponentDefinition, 
     if (property.type === 'variant' && (typeof value !== 'string' || !property.values.some(option => option.id === value))) invalid('Component instance has an invalid variant value')
     if (property.type === 'text' && typeof value !== 'string') invalid('Component instance has an invalid text value')
     if (property.type === 'boolean' && typeof value !== 'boolean') invalid('Component instance has an invalid boolean value')
+    if (property.type === 'instance-swap') {
+      if (typeof value === 'string') validId(value, 'Instance swap component id')
+      else invalid('Component instance has an invalid Instance swap value')
+    }
     values[propertyId] = value
   }
   return values
@@ -527,6 +590,7 @@ export function componentDocsManifest(definition: ComponentDefinition, exactUsag
     type: property.type,
     ...(!property.optional && property.type === 'variant' ? { defaultValue: property.defaultValueId } : {}),
     ...(!property.optional && (property.type === 'text' || property.type === 'boolean') ? { defaultValue: property.defaultValue } : {}),
+    ...(property.type === 'instance-swap' ? { defaultValue: property.defaultValue } : {}),
     ...(property.type === 'variant' ? { options: property.values.map(value => ({ ...value })) } : {}),
   }))
   const slug = valid.docs?.slug ?? componentDocsSlug(valid.name, valid.id)

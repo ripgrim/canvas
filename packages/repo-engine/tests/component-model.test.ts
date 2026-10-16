@@ -61,6 +61,47 @@ describe('component model v2', () => {
     expect(() => resolveComponentInstanceValues(definition, { 'property:disabled': 'true' })).toThrow('invalid boolean value')
   })
 
+  it('[COMP-V2-UI-076] validates and resolves a canvas-only Instance swap property by component definition id', () => {
+    const icon = { ...button(), id: 'component:icon', name: 'Icon', source: { kind: 'canvas' as const, masterRootId: 'node:icon-master' }, properties: [], interactions: [] }
+    const definition: ComponentDefinition = {
+      ...button(),
+      properties: [
+        ...button().properties,
+        { id: 'property:icon', name: 'Icon', type: 'instance-swap', defaultValue: icon.id, binding: { kind: 'instance-swap', nodeId: 'node:icon-instance' } },
+      ],
+    }
+    expect(componentDefaultValues(definition)['property:icon']).toBe(icon.id)
+    expect(resolveComponentInstanceValues(definition, { 'property:icon': 'component:alternate-icon' })['property:icon']).toBe('component:alternate-icon')
+    const state = validateComponentModelState({
+      definitions: { [definition.id]: definition, [icon.id]: icon, 'component:alternate-icon': { ...icon, id: 'component:alternate-icon', source: { kind: 'canvas', masterRootId: 'node:alternate-icon-master' } } },
+      instances: { instance: { id: 'instance', componentId: definition.id, values: { 'property:icon': 'component:alternate-icon' } } },
+    })
+    expect(state.definitions[definition.id]!.properties.at(-1)).toEqual({ id: 'property:icon', name: 'Icon', type: 'instance-swap', defaultValue: icon.id, binding: { kind: 'instance-swap', nodeId: 'node:icon-instance' } })
+    expect(state.instances.instance!.values['property:icon']).toBe('component:alternate-icon')
+    expect(componentDocsManifest(definition).controls.at(-1)).toMatchObject({ type: 'instance-swap', defaultValue: icon.id })
+  })
+
+  it('[COMP-V2-UI-NEG-003] rejects malformed, unavailable, code-backed, duplicate, and recursive Instance swap references', () => {
+    const icon = { ...button(), id: 'component:icon', name: 'Icon', source: { kind: 'canvas' as const, masterRootId: 'node:icon-master' }, properties: [], interactions: [] }
+    const swap = { id: 'property:icon', name: 'Icon', type: 'instance-swap' as const, defaultValue: icon.id, binding: { kind: 'instance-swap' as const, nodeId: 'node:icon-instance' } }
+    const owner = { ...button(), properties: [...button().properties, swap] }
+    const { defaultValue: _missingDefault, ...withoutDefault } = swap
+    expect(() => validateComponentDefinition({ ...owner, properties: [...button().properties, withoutDefault] })).toThrow('Invalid component property')
+    expect(() => validateComponentDefinition({ ...owner, properties: [...button().properties, { ...swap, binding: { kind: 'text', nodeId: swap.binding.nodeId } }] })).toThrow('Invalid component property binding')
+    expect(() => validateComponentDefinition({ ...owner, properties: [...button().properties, { ...swap, defaultValue: 'not an id' }] })).toThrow('Invalid Instance swap component id')
+    expect(() => validateComponentDefinition({ ...owner, properties: [...button().properties, swap, { ...swap, id: 'property:icon-two', name: 'Icon two' }] })).toThrow('Duplicate component Instance swap binding')
+    expect(() => validateComponentDefinition({ ...owner, source: { kind: 'code', bindingId: owner.id } })).toThrow('Code components cannot define Instance swap properties')
+    expect(() => validateComponentModelState({ definitions: { [owner.id]: owner }, instances: {} })).toThrow('missing component definition')
+    const codeIcon = { ...icon, source: { kind: 'code' as const, bindingId: icon.id } }
+    expect(() => validateComponentModelState({ definitions: { [owner.id]: owner, [icon.id]: codeIcon }, instances: {} })).toThrow('requires a canvas component definition')
+    expect(() => validateComponentModelState({ definitions: { [owner.id]: owner, [icon.id]: icon, code: { ...codeIcon, id: 'code', source: { kind: 'code', bindingId: 'code' } } }, instances: { instance: { id: 'instance', componentId: owner.id, values: { [swap.id]: 'code' } } } })).toThrow('requires a canvas component definition')
+    expect(() => validateComponentModelState({ definitions: { [owner.id]: owner, [icon.id]: icon }, instances: { instance: { id: 'instance', componentId: owner.id, values: { [swap.id]: 'component:missing' } } } })).toThrow('missing component definition')
+    expect(() => resolveComponentInstanceValues(owner, { [swap.id]: false })).toThrow('invalid Instance swap value')
+    expect(() => validateComponentModelState({ definitions: { [owner.id]: { ...owner, properties: [...button().properties, { ...swap, defaultValue: owner.id }] }, [icon.id]: icon }, instances: {} })).toThrow('recursively')
+    const ancestor = { ...icon, properties: [{ ...swap, id: 'property:owner', name: 'Owner', defaultValue: owner.id, binding: { ...swap.binding, nodeId: 'node:owner-instance' } }] }
+    expect(() => validateComponentModelState({ definitions: { [owner.id]: owner, [icon.id]: ancestor }, instances: {} })).toThrow('recursively')
+  })
+
   it('[COMP-V2-MATERIAL-001] requires every part material and interaction target to resolve by stable id', () => {
     expect(validateComponentDefinition(button()).parts[0]).toMatchObject({ id: 'part:face', materialId: 'material:quiet' })
     expect(() => validateComponentDefinition({ ...button(), parts: [{ id: 'part:face', name: 'Face', nodeId: 'node:button-face', materialId: 'material:missing' }] })).toThrow('missing material')

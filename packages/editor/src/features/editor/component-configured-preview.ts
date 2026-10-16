@@ -6,6 +6,7 @@ import { projectPreviewPage } from '@canvas/repo-engine/file-preview'
 import type { PreviewPageDocument, PreviewProjection } from '@canvas/repo-engine/file-preview'
 import { planComponentSlotDrafts } from './component-configured-instance'
 import type { ComponentSlotDraft } from './component-configured-instance'
+import { planComponentInstanceSwap } from './component-instance-swap'
 import type { Atom } from './types'
 
 function withAppearance(node: Exclude<FileNode, { type: 'root' }>, appearance: Appearance): Exclude<FileNode, { type: 'root' }> {
@@ -23,7 +24,7 @@ function configuredFile(file: FileDocument, definition: ComponentDefinition, val
   const resolved = resolveComponentInstanceValues(definition, values)
   const nodes = { ...file.nodes }
   for (const property of definition.properties) {
-    if (!property.binding || property.type === 'slot') continue
+    if (!property.binding || property.type === 'slot' || property.type === 'instance-swap') continue
     const node = nodes[property.binding.nodeId]
     if (!node || node.type === 'root') continue
     if (property.type === 'variant') {
@@ -37,8 +38,7 @@ function configuredFile(file: FileDocument, definition: ComponentDefinition, val
     }
     if (property.type === 'boolean') nodes[node.id] = withAppearance(node, visibleAppearance(node, Boolean(resolved[property.id])))
   }
-  const projected = { ...file, nodes }
-  if (!drafts.length) return projected
+  let projected = { ...file, nodes }
   const occupied = new Set(Object.keys(file.nodes))
   let sequence = 0
   const makeId = () => {
@@ -47,7 +47,20 @@ function configuredFile(file: FileDocument, definition: ComponentDefinition, val
     occupied.add(id)
     return id
   }
-  return planComponentSlotDrafts({ file: projected, owner: definition, ownerRootId: definition.source.kind === 'canvas' ? definition.source.masterRootId : '', drafts, atoms, makeId, editorMode })?.file ?? null
+  for (const property of definition.properties) {
+    if (property.type !== 'instance-swap') continue
+    const desired = resolved[property.id]
+    if (typeof desired !== 'string' || desired === property.defaultValue) continue
+    const workingDefinition = projected.componentModel.definitions[definition.id]
+    if (!workingDefinition || workingDefinition.source.kind !== 'canvas') return null
+    const plan = planComponentInstanceSwap({ file: projected, owner: workingDefinition, ownerRootId: workingDefinition.source.masterRootId, propertyId: property.id, componentId: desired, atoms, makeId, transientMaster: true })
+    if (!plan) return null
+    projected = plan.file
+  }
+  if (!drafts.length) return projected
+  const workingDefinition = projected.componentModel.definitions[definition.id]
+  if (!workingDefinition || workingDefinition.source.kind !== 'canvas') return null
+  return planComponentSlotDrafts({ file: projected, owner: workingDefinition, ownerRootId: workingDefinition.source.masterRootId, drafts, atoms, makeId, editorMode })?.file ?? null
 }
 
 function transformedBounds(matrix: readonly [number, number, number, number, number, number], width: number, height: number) {

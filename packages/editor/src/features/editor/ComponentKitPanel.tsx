@@ -9,12 +9,14 @@ import { PropertyField, PropertyGroup, PropertyHint, PropertySelect, PropertyTog
 import { documentStore } from './document-store'
 import { componentKitCopy as copy } from './component-kit-copy'
 import { componentKitNavigation } from './component-kit-navigation'
-import { createComponentDocsPreviewService, validComponentPreviewValues } from './component-docs-preview-service'
+import { validComponentPreviewValues } from './component-docs-preview-service'
+import type { createComponentDocsPreviewService } from './component-docs-preview-service'
 import { editorStore } from './store'
 import { componentConfigurableDefinition } from './component-property-projection'
 import { eligibleSlotDraftComponents } from './component-configured-instance'
+import { eligibleInstanceSwapComponents } from './component-instance-swap'
 
-const defaultFor = (property: ComponentDefinition['properties'][number]): ComponentScalarValue | undefined => property.type === 'variant' ? property.defaultValueId : property.type === 'text' || property.type === 'boolean' ? property.defaultValue : undefined
+const defaultFor = (property: ComponentDefinition['properties'][number]): ComponentScalarValue | undefined => property.type === 'variant' ? property.defaultValueId : property.type === 'text' || property.type === 'boolean' || property.type === 'instance-swap' ? property.defaultValue : undefined
 
 function sparseValues(definition: ComponentDefinition, values: ComponentInstanceValues, authored: ComponentInstanceValues = values): ComponentInstanceValues {
   return Object.fromEntries(definition.properties.flatMap(property => {
@@ -31,16 +33,16 @@ function combinationIsSelected(definition: ComponentDefinition, combination: Com
 
 type ComponentUse = Readonly<{ id: string; pageId: string; pageName: string; index: number }>
 
-function ComponentDocsView({ definition, uses, available, blocked, previewUrl, onBack, onOpenCanvas, onOpenUse }: { definition: ComponentDefinition; uses: readonly ComponentUse[]; available: boolean; blocked: boolean; previewUrl: string | null; onBack: () => void; onOpenCanvas: () => void; onOpenUse: (use: ComponentUse) => void }) {
+function ComponentDocsView({ definition, uses, available, blocked, previewUrl, previewService, onBack, onOpenCanvas, onOpenUse }: { definition: ComponentDefinition; uses: readonly ComponentUse[]; available: boolean; blocked: boolean; previewUrl: string | null; previewService: ReturnType<typeof createComponentDocsPreviewService>; onBack: () => void; onOpenCanvas: () => void; onOpenUse: (use: ComponentUse) => void }) {
   const configurableDefinition = componentConfigurableDefinition(definition)
   const manifest = componentDocsManifest(configurableDefinition)
   const hasProperties = configurableDefinition.properties.length > 0
   const hasVariants = configurableDefinition.properties.some(property => property.type === 'variant')
-  const [previewService] = useState(() => createComponentDocsPreviewService(definition.id))
   const preview = useSyncExternalStore(previewService.subscribe, previewService.getSnapshot, previewService.getSnapshot)
   const resolvedValues = resolveComponentInstanceValues(configurableDefinition, validComponentPreviewValues(configurableDefinition, preview.values))
   const currentFile = documentStore.getSnapshot().file
   const slotComponents = currentFile ? eligibleSlotDraftComponents(currentFile, configurableDefinition) : []
+  const swapComponents = currentFile ? eligibleInstanceSwapComponents(currentFile, configurableDefinition) : []
   const [draftDetails, setDraftDetails] = useState<Readonly<{ name: string; description: string; container: HTMLElement | null }> | null>(null)
   const detailsError = draftDetails && Object.values(documentStore.getSnapshot().file?.componentModel.definitions ?? {}).some(candidate => candidate.id !== definition.id && candidate.name.localeCompare(draftDetails.name.trim(), undefined, { sensitivity: 'accent' }) === 0) ? copy.nameExists : undefined
   const update = (propertyId: string, value: ComponentScalarValue) => previewService.setValue(propertyId, value)
@@ -49,11 +51,16 @@ function ComponentDocsView({ definition, uses, available, blocked, previewUrl, o
     previewService.connect(element.contentWindow, { width: element.clientWidth, height: element.clientHeight })
   }, [previewService])
   const readyPreview = useCallback(() => previewService.ping(), [previewService])
-  const place = (next: ComponentInstanceValues) => documentStore.commands.components.place(definition.id, next, preview.slotDrafts)
+  const place = (next: ComponentInstanceValues, drafts = previewService.getSnapshot().slotDrafts) => documentStore.commands.components.place(definition.id, next, drafts)
+  const placeConfigured = () => {
+    const current = previewService.getSnapshot()
+    const resolved = resolveComponentInstanceValues(configurableDefinition, validComponentPreviewValues(configurableDefinition, current.values))
+    return place(sparseValues(configurableDefinition, resolved, current.values), current.slotDrafts)
+  }
   return <>
     <ComponentDocsHeader name={definition.name} source={definition.source.kind === 'code' ? copy.fromKit : copy.fromCanvas} {...(manifest.description ? { description: manifest.description } : {})} backLabel={copy.backToComponents} onBack={onBack} />
     <ComponentDocsActions>
-      <Button variant="primary" disabled={!available || blocked} onClick={() => place(sparseValues(configurableDefinition, resolvedValues, preview.values))}><Icon name="plus" />{copy.placeConfigured}</Button>
+      <Button variant="primary" disabled={!available || blocked} onClick={placeConfigured}><Icon name="plus" />{copy.placeConfigured}</Button>
       {definition.source.kind === 'canvas' && <Button variant="outline" disabled={blocked} onClick={() => { if (documentStore.commands.components.openMaster(definition.id)) onOpenCanvas() }}><Icon name="target" />{copy.openCanvas}</Button>}
       {definition.source.kind === 'canvas' && <Button label={copy.editComponentDetails(definition.name)} variant="ghost" disabled={blocked || draftDetails !== null} onClick={event => setDraftDetails({ name: definition.name, description: definition.docs?.description ?? '', container: event.currentTarget.closest<HTMLElement>('.editor-root') })}>{copy.editDetails}</Button>}
       {definition.source.kind === 'canvas' && <Button label={copy.removeComponent(definition.name)} variant="ghost" disabled={blocked} onClick={() => { if (documentStore.commands.components.remove(definition.id)) onBack() }}><Icon name="trash" />{copy.removeComponentAction}</Button>}
@@ -72,6 +79,8 @@ function ComponentDocsView({ definition, uses, available, blocked, previewUrl, o
               ? <PropertySelect id={id} label={property.name} value={overridden ? String(resolvedValues[property.id]) : ''} options={[{ value: '', label: copy.componentDefault }, { value: 'true', label: copy.on }, { value: 'false', label: copy.off }]} disabled={blocked} onChange={value => value === '' ? previewService.resetValue(property.id) : update(property.id, value === 'true')} />
               : property.type === 'boolean'
                 ? <PropertyToggle id={id} label={property.name} checked={Boolean(resolvedValues[property.id])} disabled={blocked} onChange={value => update(property.id, value)} />
+              : property.type === 'instance-swap'
+                ? <PropertySelect id={id} label={property.name} value={String(resolvedValues[property.id])} options={swapComponents.map(candidate => ({ value: candidate.id, label: candidate.name, icon: 'component' as const }))} disabled={blocked || swapComponents.length === 0} onChange={componentId => previewService.setValue(property.id, componentId)} />
               : property.type === 'slot' && definition.source.kind === 'canvas'
                 ? (() => {
                     const drafts = preview.slotDrafts.filter(draft => draft.propertyId === property.id)
@@ -120,7 +129,8 @@ export function ComponentKitPanel({ atoms, onOpenCanvas }: { atoms: Atom[]; onOp
   const instanceCounts = Object.values(document.file?.componentModel.instances ?? {}).reduce((counts, instance) => counts.set(instance.componentId, (counts.get(instance.componentId) ?? 0) + 1), new Map<string, number>())
   const openComponentId = kitLocation && kitLocation.fileId === document.file?.fileId ? kitLocation.componentId : null
   const openDefinition = openComponentId ? definitions.find(definition => definition.id === openComponentId) : undefined
-  if (openDefinition) {
+  const previewService = componentKitNavigation.playground(kitLocation)
+  if (openDefinition && previewService) {
     const available = openDefinition.source.kind !== 'code' || atoms.some(atom => atom.componentId === openDefinition.id && atom.status === 'bound')
     const pageIndex = new Map(document.file!.pages.map((page, index) => [page.id, index]))
     const nodeIndex = new Map(document.file!.pages.flatMap(page => pageNodes(document.file!, page.id).map((nodeId, index) => [nodeId, index] as const)))
@@ -134,7 +144,7 @@ export function ComponentKitPanel({ atoms, onOpenCanvas }: { atoms: Atom[]; onOp
       documentStore.select(use.id)
       if (documentStore.getSnapshot().selection[0] === use.id) onOpenCanvas()
     }
-    return <ComponentDocsView key={openDefinition.id} definition={openDefinition} uses={uses} available={available} blocked={document.blocked} previewUrl={previewUrl} onBack={() => componentKitNavigation.back()} onOpenCanvas={onOpenCanvas} onOpenUse={openUse} />
+    return <ComponentDocsView key={openDefinition.id} definition={openDefinition} uses={uses} available={available} blocked={document.blocked} previewUrl={previewUrl} previewService={previewService} onBack={() => componentKitNavigation.back()} onOpenCanvas={onOpenCanvas} onOpenUse={openUse} />
   }
   const content = definitions.length === 0 ? <ComponentKitEmpty title={copy.emptyTitle} /> : <ComponentKitList label={copy.label}>{definitions.map(definition => {
     const fromCode = definition.source.kind === 'code'

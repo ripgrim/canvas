@@ -21,14 +21,19 @@ export function ComponentMasterProperties() {
   if (!file || selection.length !== 1) return null
   const definition = Object.values(file.componentModel.definitions).find(candidate => candidate.source.kind === 'canvas' && candidate.source.masterRootId === selection[0])
   if (!definition || definition.source.kind !== 'canvas') return null
-  const nodeIds = [definition.source.masterRootId, ...descendantsOf(file, definition.source.masterRootId)]
+  const masterRootId = definition.source.masterRootId
+  const nodeIds = [masterRootId, ...descendantsOf(file, masterRootId)]
   const nodes = nodeIds.flatMap(nodeId => {
     const node = file.nodes[nodeId]
     const presentation = layerPresentation(file, nodeId)
-    return node && node.type !== 'root' && presentation ? [{ id: node.id, name: presentation.name, type: node.type, icon: presentation.icon }] : []
+    const instance = file.componentModel.instances[nodeId]
+    const nested = instance ? file.componentModel.definitions[instance.componentId] : undefined
+    const componentId = nodeId !== masterRootId && nested?.source.kind === 'canvas' ? nested.id : undefined
+    return node && node.type !== 'root' && presentation ? [{ id: node.id, name: componentId ? nested?.name ?? presentation.name : presentation.name, type: node.type, icon: componentId ? 'component' as const : presentation.icon, ...(componentId ? { componentId } : {}) }] : []
   })
+  const unavailableSwapNodeIds = definition.properties.flatMap(property => property.type === 'instance-swap' ? [property.binding.nodeId] : [])
   const propertyOptions = copy.propertyOptions.map(option => {
-    const disabled = componentPropertyBindingNodes(nodes, option.value).length === 0
+    const disabled = componentPropertyBindingNodes(nodes, option.value, option.value === 'instance-swap' ? unavailableSwapNodeIds : []).length === 0
     return { ...option, disabled, ...(disabled ? { reason: copy.propertyUnavailable[option.value] } : {}) }
   })
   const propertyIcon = (type: ComponentPropertyDefinition['type']) => {
@@ -44,6 +49,7 @@ export function ComponentMasterProperties() {
     const value = property.values.find(candidate => candidate.id === valueId)
     return copy.variantEditing(nodeName(property.binding.nodeId), value?.name ?? '')
   }
+  const componentName = (componentId: string) => file.componentModel.definitions[componentId]?.name ?? componentId
   const materialGroups = definition.materials.reduce<Array<{ name: string; materials: Array<(typeof definition.materials)[number]> }>>((groups, material) => {
     const group = groups.find(candidate => candidate.name === material.group)
     if (group) group.materials.push(material)
@@ -54,7 +60,11 @@ export function ComponentMasterProperties() {
     <PropertyGroup title={copy.properties} action={<ComponentPropertyTypeMenu label={copy.addProperty} disabled={blocked} options={propertyOptions} onSelect={(type, target) => setEditor({ kind: 'property', type: type as ComponentPropertyDefinition['type'], container: editorContainer(target) })} />}>
       <ComponentDefinitionList>{definition.properties.map(property => {
         const edit = (target: EventTarget | null) => setEditor({ kind: 'property', propertyId: property.id, type: property.type, container: editorContainer(target) })
-        const unavailableNodeIds = property.type === 'variant' ? definition.properties.flatMap(candidate => candidate.id !== property.id && candidate.type === 'variant' && candidate.binding ? [candidate.binding.nodeId] : []) : []
+        const unavailableNodeIds = property.type === 'variant'
+          ? definition.properties.flatMap(candidate => candidate.id !== property.id && candidate.type === 'variant' && candidate.binding ? [candidate.binding.nodeId] : [])
+          : property.type === 'instance-swap'
+            ? definition.properties.flatMap(candidate => candidate.id !== property.id && candidate.type === 'instance-swap' ? [candidate.binding.nodeId] : [])
+            : []
         const canBind = componentPropertyBindingNodes(nodes, property.type, unavailableNodeIds).length > 0
         const action = property.binding || !canBind ? { editLabel: copy.editProperty(property.name), editText: copy.edit } : { editLabel: copy.bindProperty(property.name), editText: copy.bind }
         if (property.type === 'variant') {
@@ -62,6 +72,7 @@ export function ComponentMasterProperties() {
         }
         if (property.type === 'text') return <ComponentDefinitionRow key={property.id} name={property.name} type={copy.propertyType[property.type]} typeIcon={propertyIcon(property.type)} detail={propertyDetail(property)} {...action} disabled={blocked} onEdit={edit} control={<PropertyValue label={copy.defaultValue} value={property.defaultValue} />} />
         if (property.type === 'boolean') return <ComponentDefinitionRow key={property.id} name={property.name} type={copy.propertyType[property.type]} typeIcon={propertyIcon(property.type)} detail={propertyDetail(property)} {...action} disabled={blocked} onEdit={edit} control={<PropertyValue label={copy.defaultValue} value={property.defaultValue ? copy.on : copy.off} />} />
+        if (property.type === 'instance-swap') return <ComponentDefinitionRow key={property.id} name={property.name} type={copy.propertyType[property.type]} typeIcon={propertyIcon(property.type)} detail={propertyDetail(property)} {...action} disabled={blocked} onEdit={edit} control={<PropertyValue label={copy.defaultValue} value={componentName(property.defaultValue)} />} />
         return <ComponentDefinitionRow key={property.id} name={property.name} type={copy.propertyType[property.type]} typeIcon={propertyIcon(property.type)} detail={propertyDetail(property)} {...action} disabled={blocked} onEdit={edit} />
       })}</ComponentDefinitionList>
     </PropertyGroup>
@@ -76,7 +87,11 @@ export function ComponentMasterProperties() {
     </PropertyGroup>}
     {editor?.kind === 'property' && (() => {
       const property = editor.propertyId ? definition.properties.find(candidate => candidate.id === editor.propertyId) : undefined
-      const unavailableNodeIds = editor.type === 'variant' ? definition.properties.flatMap(candidate => candidate.id !== editor.propertyId && candidate.type === 'variant' && candidate.binding ? [candidate.binding.nodeId] : []) : []
+      const unavailableNodeIds = editor.type === 'variant'
+        ? definition.properties.flatMap(candidate => candidate.id !== editor.propertyId && candidate.type === 'variant' && candidate.binding ? [candidate.binding.nodeId] : [])
+        : editor.type === 'instance-swap'
+          ? definition.properties.flatMap(candidate => candidate.id !== editor.propertyId && candidate.type === 'instance-swap' ? [candidate.binding.nodeId] : [])
+          : []
       return <ComponentPropertyDialog key={`${editor.propertyId ?? 'new'}:${editor.type}`} componentId={definition.id} {...(property ? { property } : {})} type={editor.type} nodes={nodes} unavailableNodeIds={unavailableNodeIds} interactions={definition.interactions} siblingNames={definition.properties.filter(candidate => candidate.id !== editor.propertyId).map(candidate => candidate.name)} container={editor.container} disabled={blocked} onClose={() => setEditor(null)} />
     })()}
     {editor?.kind === 'material' && (() => {

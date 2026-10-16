@@ -1031,6 +1031,115 @@ describe('component model editor commands', () => {
     expect(file(store).componentModel.definitions.canvas!.properties[0]).toEqual(property)
   })
 
+  it('COMP-V2-UI-076 rebinds an Instance swap after resetting sparse overrides', () => {
+    let id = 0
+    const store = createDocumentStore(() => `swap-rebind-${++id}`)
+    store.load(createBlankFile('swap-rebind', 'page-1', 'root-1'), [])
+    store.commands.insertCanvas('rectangle', { x: 320, y: 0 })
+    expect(store.commands.components.createFromSelection('Badge')).toBe(true)
+    const badge = Object.values(file(store).componentModel.definitions).find(candidate => candidate.name === 'Badge')!
+    store.commands.insertCanvas('rectangle', { x: 480, y: 0 })
+    expect(store.commands.components.createFromSelection('Avatar')).toBe(true)
+    const avatar = Object.values(file(store).componentModel.definitions).find(candidate => candidate.name === 'Avatar')!
+    store.commands.insertCanvas('frame', { x: 0, y: 0 })
+    expect(store.commands.components.createFromSelection('Button')).toBe(true)
+    const button = Object.values(file(store).componentModel.definitions).find(candidate => candidate.name === 'Button')!
+    if (button.source.kind !== 'canvas') throw new Error('Expected canvas Button')
+    expect(store.commands.components.place(badge.id)).toBe(true)
+    const badgeUse = store.getSnapshot().selection[0]!
+    expect(store.commands.move(badgeUse, { parentId: button.source.masterRootId, index: 0 })).toBe(true)
+    expect(store.commands.components.place(avatar.id)).toBe(true)
+    const avatarUse = store.getSnapshot().selection[0]!
+    expect(store.commands.move(avatarUse, { parentId: button.source.masterRootId, index: 1 })).toBe(true)
+    store.select(button.source.masterRootId)
+    const propertyId = store.commands.components.addProperty(button.id, 'instance-swap')!
+    expect(store.commands.components.place(button.id)).toBe(true)
+    const outerId = store.getSnapshot().selection[0]!
+    expect(store.commands.components.place(button.id)).toBe(true)
+    const peerId = store.getSnapshot().selection[0]!
+    let definition = file(store).componentModel.definitions[button.id]!
+    let property = definition.properties.find(candidate => candidate.id === propertyId)
+    if (property?.type !== 'instance-swap') throw new Error('Expected Instance swap')
+    const outerBadgeUse = childrenOf(file(store), outerId).find(nodeId => file(store).componentModel.instances[nodeId]?.componentId === badge.id)!
+    const outerAvatarUse = childrenOf(file(store), outerId).find(nodeId => file(store).componentModel.instances[nodeId]?.componentId === avatar.id)!
+    const peerBadgeUse = childrenOf(file(store), peerId).find(nodeId => file(store).componentModel.instances[nodeId]?.componentId === badge.id)!
+    const peerBefore = structuredClone(file(store).nodes[peerBadgeUse])
+
+    const rawBefore = structuredClone(file(store))
+    const rawInstance = file(store).componentModel.instances[outerId]!
+    expect(store.commands.execute({ type: 'component.instance.replace', instanceId: outerId, expected: rawInstance, instance: { ...rawInstance, values: { [propertyId]: avatar.id } } })).toBe(false)
+    expect(file(store)).toEqual(rawBefore)
+
+    expect(store.commands.components.setInstanceValue(outerId, propertyId, avatar.id)).toBe(true)
+    expect(file(store).componentModel.instances[outerBadgeUse]?.componentId).toBe(avatar.id)
+    expect(file(store).componentModel.instances[peerBadgeUse]?.componentId).toBe(badge.id)
+    expect(file(store).componentModel.instances[peerId]?.values).toEqual({})
+    expect(file(store).nodes[peerBadgeUse]).toEqual(peerBefore)
+    const swappedNode = file(store).nodes[outerBadgeUse]
+    if (!swappedNode || swappedNode.type === 'root' || swappedNode.type === 'component') throw new Error('Expected primitive swapped root')
+    const swappedWidth = swappedNode.styles.width
+    expect(store.commands.execute({ type: 'node.setStyles', nodeId: badgeUse, styles: { width: 777 } })).toBe(true)
+    expect((file(store).nodes[outerBadgeUse] as PrimitiveNode).styles.width).toBe(swappedWidth)
+    expect(store.commands.execute({ type: 'node.setStyles', nodeId: button.source.masterRootId, styles: { width: 555 } })).toBe(true)
+    expect((file(store).nodes[outerId] as PrimitiveNode).styles.width).toBe(555)
+    expect(store.commands.components.setProperty(button.id, { ...property, defaultValue: avatar.id, binding: { kind: 'instance-swap', nodeId: avatarUse } })).toBe(true)
+
+    definition = file(store).componentModel.definitions[button.id]!
+    property = definition.properties.find(candidate => candidate.id === propertyId)
+    expect(property).toMatchObject({ type: 'instance-swap', defaultValue: avatar.id, binding: { nodeId: avatarUse } })
+    expect(file(store).componentModel.instances[outerBadgeUse]?.componentId).toBe(badge.id)
+    expect(file(store).componentModel.instances[outerAvatarUse]?.componentId).toBe(avatar.id)
+    expect(file(store).componentModel.instances[outerId]?.values).toEqual({})
+
+    expect(store.undo()).toBe(true)
+    expect(file(store).componentModel.definitions[button.id]!.properties.find(candidate => candidate.id === propertyId)).toMatchObject({ type: 'instance-swap', defaultValue: badge.id, binding: { nodeId: badgeUse } })
+    expect(file(store).componentModel.instances[outerBadgeUse]?.componentId).toBe(avatar.id)
+    expect(file(store).componentModel.instances[outerId]?.values[propertyId]).toBe(avatar.id)
+  })
+
+  it('COMP-V2-UI-076 deletes a bound swap branch from default and overridden peers as one undoable edit', () => {
+    let id = 0
+    const store = createDocumentStore(() => `swap-delete-${++id}`)
+    store.load(createBlankFile('swap-delete', 'page-1', 'root-1'), [])
+    store.commands.insertCanvas('rectangle', { x: 320, y: 0 })
+    expect(store.commands.components.createFromSelection('Badge')).toBe(true)
+    const badge = Object.values(file(store).componentModel.definitions).find(candidate => candidate.name === 'Badge')!
+    store.commands.insertCanvas('rectangle', { x: 480, y: 0 })
+    expect(store.commands.components.createFromSelection('Avatar')).toBe(true)
+    const avatar = Object.values(file(store).componentModel.definitions).find(candidate => candidate.name === 'Avatar')!
+    store.commands.insertCanvas('frame', { x: 0, y: 0 })
+    expect(store.commands.components.createFromSelection('Button')).toBe(true)
+    const button = Object.values(file(store).componentModel.definitions).find(candidate => candidate.name === 'Button')!
+    if (button.source.kind !== 'canvas') throw new Error('Expected canvas Button')
+    expect(store.commands.components.place(badge.id)).toBe(true)
+    const badgeUse = store.getSnapshot().selection[0]!
+    expect(store.commands.move(badgeUse, { parentId: button.source.masterRootId, index: 0 })).toBe(true)
+    store.select(button.source.masterRootId)
+    const propertyId = store.commands.components.addProperty(button.id, 'instance-swap')!
+    expect(store.commands.components.place(button.id)).toBe(true)
+    const overriddenId = store.getSnapshot().selection[0]!
+    expect(store.commands.components.place(button.id)).toBe(true)
+    const defaultId = store.getSnapshot().selection[0]!
+    const overriddenRoot = childrenOf(file(store), overriddenId).find(nodeId => file(store).componentModel.instances[nodeId]?.componentId === badge.id)!
+    const defaultRoot = childrenOf(file(store), defaultId).find(nodeId => file(store).componentModel.instances[nodeId]?.componentId === badge.id)!
+    expect(store.commands.components.setInstanceValue(overriddenId, propertyId, avatar.id)).toBe(true)
+    const beforeDelete = structuredClone(file(store))
+
+    expect(store.commands.delete([badgeUse])).toBe(true)
+    expect(file(store).nodes[badgeUse]).toBeUndefined()
+    expect(file(store).nodes[overriddenRoot]).toBeUndefined()
+    expect(file(store).nodes[defaultRoot]).toBeUndefined()
+    expect(file(store).componentModel.instances[overriddenRoot]).toBeUndefined()
+    expect(file(store).componentModel.instances[defaultRoot]).toBeUndefined()
+    expect(file(store).componentModel.instances[overriddenId]?.values).toEqual({})
+    expect(file(store).componentModel.definitions[button.id]!.properties.some(candidate => candidate.id === propertyId)).toBe(false)
+    expect(file(store).componentModel.instances[overriddenId]?.componentId).toBe(button.id)
+    expect(file(store).componentModel.instances[defaultId]?.componentId).toBe(button.id)
+
+    expect(store.undo()).toBe(true)
+    expect({ ...file(store), revision: 0 }).toEqual({ ...beforeDelete, revision: 0 })
+  })
+
   it('COMP-V2-UI-025 through COMP-V2-UI-031 preserve nested component identities, overrides, duplication, ordering, and extraction', () => {
     let id = 0
     const source = fixture()
@@ -1382,20 +1491,26 @@ describe('component model editor commands', () => {
       { id: 'badge', propertyId: 'content', content: { kind: 'component' as const, componentId: 'badge' } },
     ]
 
+    expect(store.commands.components.place('notice')).toBe(true)
+    const peer = Object.values(file(store).componentModel.instances).find(instance => instance.componentId === 'notice')!
+    const peerMap = mapParallelComponentSubtrees(file(store), 'outer', peer.id)!
+    const beforeConfigured = structuredClone(file(store).componentModel.instances)
+    const historyBeforeConfigured = store.getHistory().past.length
     expect(store.commands.components.place('notice', {}, drafts)).toBe(true)
-    const notice = Object.values(file(store).componentModel.instances).find(instance => instance.componentId === 'notice')!
+    const notice = Object.values(file(store).componentModel.instances).find(instance => instance.componentId === 'notice' && instance.id !== peer.id)!
     const map = mapParallelComponentSubtrees(file(store), 'outer', notice.id)!
     const host = map.get('inner')!
     const content = childrenOf(file(store), host, 'content')
     expect(content).toHaveLength(3)
+    expect(childrenOf(file(store), peerMap.get('inner')!, 'content')).toEqual([])
     expect(content.map(nodeId => file(store).nodes[nodeId]?.type)).toEqual(['text', 'frame', 'rectangle'])
     const nested = Object.values(file(store).componentModel.instances).find(instance => instance.componentId === 'badge' && file(store).relationships[instance.id]?.slot === 'content')!
     expect(content).toContain(nested.id)
     expect(store.getSnapshot().selection).toEqual([notice.id])
-    expect(store.getHistory().past).toHaveLength(1)
+    expect(store.getHistory().past).toHaveLength(historyBeforeConfigured + 1)
 
     expect(store.undo()).toBe(true)
-    expect(file(store).componentModel.instances).toEqual({ nestedBadge: { id: 'nestedBadge', componentId: 'badge', values: {} } })
+    expect(file(store).componentModel.instances).toEqual(beforeConfigured)
     expect(content.every(nodeId => file(store).nodes[nodeId] === undefined)).toBe(true)
     expect(file(store).componentModel.definitions).toHaveProperty('badge')
   })

@@ -8,6 +8,7 @@ import { ComponentModelProperties } from './ComponentModelProperties'
 import { connectedRegistryDefinitions } from './component-registry'
 import { documentStore } from './document-store'
 import type { Atom } from './types'
+import { mapParallelComponentSubtrees } from './component-canvas-link'
 
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 let root: ReturnType<typeof createRoot> | null = null
@@ -158,6 +159,60 @@ describe('COMP-V2-UI-003 instance overrides', () => {
     await act(async () => { expect(documentStore.undo()).toBe(true) })
     expect(documentStore.getSnapshot().file!.componentModel.instances[instance.id]).toEqual(instance)
     expect(host.querySelector('[aria-label="Detach instance"]')).not.toBeNull()
+  })
+
+  it('COMP-V2-UI-076 swaps a nested canvas component and resets to the master default', async () => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    documentStore.load(createBlankFile('instance-swap-inspector', 'page', 'root'), [], { replace: true, pageId: 'page' })
+    documentStore.commands.insertCanvas('rectangle', { x: 320, y: 0 })
+    expect(documentStore.commands.components.createFromSelection('Badge')).toBe(true)
+    const badge = Object.values(documentStore.getSnapshot().file!.componentModel.definitions).find(candidate => candidate.name === 'Badge')!
+    documentStore.commands.insertCanvas('rectangle', { x: 480, y: 0 })
+    expect(documentStore.commands.components.createFromSelection('Avatar')).toBe(true)
+    const avatar = Object.values(documentStore.getSnapshot().file!.componentModel.definitions).find(candidate => candidate.name === 'Avatar')!
+    documentStore.commands.insertCanvas('frame', { x: 0, y: 0 })
+    expect(documentStore.commands.components.createFromSelection('Button')).toBe(true)
+    const button = Object.values(documentStore.getSnapshot().file!.componentModel.definitions).find(candidate => candidate.name === 'Button')!
+    if (button.source.kind !== 'canvas') throw new Error('Expected canvas Button')
+    expect(documentStore.commands.components.place(badge.id)).toBe(true)
+    const nestedMasterId = documentStore.getSnapshot().selection[0]!
+    expect(documentStore.commands.move(nestedMasterId, { parentId: button.source.masterRootId, index: 0 })).toBe(true)
+    documentStore.select(button.source.masterRootId)
+    const propertyId = documentStore.commands.components.addProperty(button.id, 'instance-swap')!
+    expect(propertyId).toBeTruthy()
+    expect(documentStore.commands.components.place(button.id)).toBe(true)
+    const outerId = documentStore.getSnapshot().selection[0]!
+    const initialFile = documentStore.getSnapshot().file!
+    const initialProperty = initialFile.componentModel.definitions[button.id]!.properties.find(candidate => candidate.id === propertyId)
+    if (initialProperty?.type !== 'instance-swap') throw new Error('Expected Instance swap')
+    const nestedInstanceId = mapParallelComponentSubtrees(initialFile, button.source.masterRootId, outerId)?.get(initialProperty.binding.nodeId)
+    expect(nestedInstanceId).toBeTruthy()
+
+    const host = document.createElement('div')
+    host.className = 'editor-root theme-light'
+    document.body.append(host)
+    root = createRoot(host)
+    await act(async () => { root?.render(createElement(ComponentModelProperties)) })
+
+    const select = host.querySelector<HTMLButtonElement>(`#model-${outerId}-${propertyId}`)
+    expect(select?.textContent).toContain('Badge')
+    await act(async () => { select?.click() })
+    const options = [...host.querySelectorAll<HTMLElement>('[role="option"]')]
+    expect(options.map(option => option.textContent?.replace('✓', '').trim())).toEqual(['Avatar', 'Badge'])
+    expect(options.every(option => option.querySelector('[data-icon="component"]'))).toBe(true)
+    await act(async () => { options.find(option => option.textContent?.includes('Avatar'))?.click() })
+
+    let file = documentStore.getSnapshot().file!
+    expect(file.componentModel.instances[nestedInstanceId!]?.componentId).toBe(avatar.id)
+    expect(file.componentModel.instances[outerId]?.values[propertyId]).toBe(avatar.id)
+
+    const reset = host.querySelector<HTMLButtonElement>('[aria-label="Reset Property"]')
+    expect(reset).not.toBeNull()
+    await act(async () => { reset?.click() })
+    file = documentStore.getSnapshot().file!
+    expect(file.componentModel.instances[nestedInstanceId!]?.componentId).toBe(badge.id)
+    expect(file.componentModel.instances[outerId]?.values).toEqual({})
+    expect(host.querySelector('[aria-label="Reset Property"]')).toBeNull()
   })
 
   it('offers other available components as slot content without offering recursive self nesting', async () => {

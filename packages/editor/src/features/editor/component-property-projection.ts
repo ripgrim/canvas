@@ -76,7 +76,7 @@ export function componentPropertyProjectionCommands(file: FileDocument, definiti
     const values = resolveComponentInstanceValues(definition, instance.values)
     const remove: string[] = []
     const props: Record<string, string | boolean> = Object.fromEntries(properties.flatMap(property => {
-      if (property.type === 'slot') return []
+      if (property.type === 'slot' || property.type === 'instance-swap') return []
       if (property.optional && !Object.hasOwn(instance.values, property.id)) { remove.push(property.name); return [] }
       if (property.type === 'variant') {
         const selected = property.values.find(value => value.id === values[property.id])

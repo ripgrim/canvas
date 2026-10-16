@@ -28,11 +28,14 @@ describe('COMP-V2-UI-013 component definition validation', () => {
       { id: 'frame', name: 'Frame', type: 'frame', icon: 'frame' as const },
       { id: 'label', name: 'Enter token', type: 'text', icon: 'text' as const },
       { id: 'face', name: 'Face', type: 'rectangle', icon: 'rectangle' as const },
+      { id: 'badge-use', name: 'Badge', type: 'frame', icon: 'component' as const, componentId: 'badge' },
     ]
     expect(componentPropertyBindingNodes(nodes, 'text').map(node => node.id)).toEqual(['label'])
-    expect(componentPropertyBindingNodes(nodes, 'slot').map(node => node.id)).toEqual(['frame'])
-    expect(componentPropertyBindingNodes(nodes, 'variant').map(node => node.id)).toEqual(['frame', 'label', 'face'])
-    expect(componentPropertyBindingNodes(nodes, 'boolean').map(node => node.id)).toEqual(['frame', 'label', 'face'])
-    expect(componentPropertyBindingNodes(nodes, 'variant', ['frame']).map(node => node.id)).toEqual(['label', 'face'])
+    expect(componentPropertyBindingNodes(nodes, 'slot').map(node => node.id)).toEqual(['frame', 'badge-use'])
+    expect(componentPropertyBindingNodes(nodes, 'instance-swap').map(node => node.id)).toEqual(['badge-use'])
+    expect(componentPropertyBindingNodes(nodes, 'instance-swap', ['badge-use'])).toEqual([])
+    expect(componentPropertyBindingNodes(nodes, 'variant').map(node => node.id)).toEqual(['frame', 'label', 'face', 'badge-use'])
+    expect(componentPropertyBindingNodes(nodes, 'boolean').map(node => node.id)).toEqual(['frame', 'label', 'face', 'badge-use'])
+    expect(componentPropertyBindingNodes(nodes, 'variant', ['frame']).map(node => node.id)).toEqual(['label', 'face', 'badge-use'])
   })
 })

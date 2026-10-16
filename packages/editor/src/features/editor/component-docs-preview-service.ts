@@ -1,11 +1,13 @@
 import type { ComponentDefinition, ComponentInstanceValues, ComponentScalarValue } from '@canvas/repo-engine/component-model'
 import { descendantsOf } from '@canvas/repo-engine/file-document'
+import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { PreviewCommand, PreviewDocument, PreviewFontFace, PreviewLayoutItem, PreviewTheme } from '@canvas/preview-runtime/protocol'
 import { acceptPreviewEvent, isPreviewDocument, protocolVersion } from '@canvas/preview-runtime/protocol'
 import { fontCatalogService } from '../fonts/font-catalog-service'
 import { configuredCanvasComponentPreview } from './component-configured-preview'
 import { validComponentSlotDrafts } from './component-configured-instance'
 import type { ComponentSlotDraft } from './component-configured-instance'
+import { eligibleInstanceSwapComponents } from './component-instance-swap'
 import { activeDesignTheme, previewThemeMessage, themeProjectionContext } from './design-theme'
 import { documentStore } from './document-store'
 import { hydratePreviewDocument } from './preview-service'
@@ -48,30 +50,35 @@ export function configuredComponentPreviewCommands(input: Readonly<{
   return commands
 }
 
-export function validComponentPreviewValues(definition: ComponentDefinition, previous: ComponentInstanceValues): ComponentInstanceValues {
+export function validComponentPreviewValues(definition: ComponentDefinition, previous: ComponentInstanceValues, file?: FileDocument): ComponentInstanceValues {
   const values: Record<string, ComponentScalarValue> = {}
+  const eligibleSwapIds = file ? new Set(eligibleInstanceSwapComponents(file, definition).map(candidate => candidate.id)) : null
   for (const property of definition.properties) {
     const value = previous[property.id]
     if (property.type === 'variant' && typeof value === 'string' && property.values.some(option => option.id === value)) values[property.id] = value
     if (property.type === 'text' && typeof value === 'string') values[property.id] = value
     if (property.type === 'boolean' && typeof value === 'boolean') values[property.id] = value
+    if (property.type === 'instance-swap' && typeof value === 'string' && (!eligibleSwapIds || eligibleSwapIds.has(value))) values[property.id] = value
   }
   return values
 }
 
-function validValues(componentId: string, previous: ComponentInstanceValues): ComponentInstanceValues {
-  const definition = documentStore.getSnapshot().file?.componentModel.definitions[componentId]
-  return definition ? validComponentPreviewValues(definition, previous) : {}
-}
-
-function validSlotDrafts(componentId: string, previous: readonly ComponentSlotDraft[]): ComponentSlotDraft[] {
+function validValues(fileId: string, componentId: string, previous: ComponentInstanceValues): ComponentInstanceValues | null {
   const file = documentStore.getSnapshot().file
+  if (!file || file.fileId !== fileId) return null
   const definition = file?.componentModel.definitions[componentId]
-  return file && definition ? validComponentSlotDrafts(file, definition, previous) : []
+  return definition ? validComponentPreviewValues(definition, previous, file) : {}
 }
 
-export function createComponentDocsPreviewService(componentId: string, messageHost: PreviewMessageHost = window) {
-  let snapshot: ComponentDocsPreviewSnapshot = { values: validValues(componentId, {}), slotDrafts: [], status: 'connecting' }
+function validSlotDrafts(fileId: string, componentId: string, previous: readonly ComponentSlotDraft[]): ComponentSlotDraft[] | null {
+  const file = documentStore.getSnapshot().file
+  if (!file || file.fileId !== fileId) return null
+  const definition = file?.componentModel.definitions[componentId]
+  return definition ? validComponentSlotDrafts(file, definition, previous) : []
+}
+
+export function createComponentDocsPreviewService(fileId: string, componentId: string, messageHost: PreviewMessageHost = window) {
+  let snapshot: ComponentDocsPreviewSnapshot = { values: validValues(fileId, componentId, {}) ?? {}, slotDrafts: [], status: 'connecting' }
   let context: PreviewContext | null = null
   let signature = ''
   let cameraSequence = 0
@@ -82,9 +89,10 @@ export function createComponentDocsPreviewService(componentId: string, messageHo
   const listeners = new Set<() => void>()
   const publish = (next: ComponentDocsPreviewSnapshot) => { snapshot = next; for (const listener of listeners) listener() }
   const sync = () => {
-    const values = validValues(componentId, snapshot.values)
+    const values = validValues(fileId, componentId, snapshot.values)
+    const slotDrafts = validSlotDrafts(fileId, componentId, snapshot.slotDrafts)
+    if (!values || !slotDrafts) return
     if (JSON.stringify(values) !== JSON.stringify(snapshot.values)) publish({ ...snapshot, values })
-    const slotDrafts = validSlotDrafts(componentId, snapshot.slotDrafts)
     if (JSON.stringify(slotDrafts) !== JSON.stringify(snapshot.slotDrafts)) publish({ ...snapshot, slotDrafts })
     const file = documentStore.getSnapshot().file
     const state = editorStore.getSnapshot()
@@ -126,13 +134,15 @@ export function createComponentDocsPreviewService(componentId: string, messageHo
     setValues(values: ComponentInstanceValues) { publish({ ...snapshot, values: { ...snapshot.values, ...values } }); sync() },
     addSlotContent(propertyId: string, kind: 'text' | 'frame') {
       const draft: ComponentSlotDraft = { id: `slot-draft:${++draftSequence}`, propertyId, content: { kind } }
-      const slotDrafts = validSlotDrafts(componentId, [...snapshot.slotDrafts, draft])
+      const slotDrafts = validSlotDrafts(fileId, componentId, [...snapshot.slotDrafts, draft])
+      if (!slotDrafts) return false
       if (slotDrafts.length !== snapshot.slotDrafts.length + 1) return false
       publish({ ...snapshot, slotDrafts }); sync(); return true
     },
     addSlotComponent(propertyId: string, nestedComponentId: string) {
       const draft: ComponentSlotDraft = { id: `slot-draft:${++draftSequence}`, propertyId, content: { kind: 'component', componentId: nestedComponentId } }
-      const slotDrafts = validSlotDrafts(componentId, [...snapshot.slotDrafts, draft])
+      const slotDrafts = validSlotDrafts(fileId, componentId, [...snapshot.slotDrafts, draft])
+      if (!slotDrafts) return false
       if (slotDrafts.length !== snapshot.slotDrafts.length + 1) return false
       publish({ ...snapshot, slotDrafts }); sync(); return true
     },

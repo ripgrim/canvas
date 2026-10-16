@@ -79,6 +79,25 @@ The slice is gated by `COMP-V2-UI-075`, `COMP-V2-UI-NEG-002`, and the extended `
 
 The Kit now owns transient Slot recipes separately from scalar instance values. One pure planner validates and materializes Text, Frame, and eligible canvas-component children for both the isolated preview scratch file and the final placement transaction. Stale bindings, unavailable code components, duplicate draft identities, and recursive component graphs fail closed. Browser evidence proves draft changes leave the stored file untouched, Place writes the complete tree, and one Undo removes it.
 
+## Closed slice: canvas-authored Instance swap properties
+
+A component master may expose one nested canvas-component use as a typed Instance swap property. The default is the nested component's current definition. The Kit playground and selected-instance inspector may choose another eligible canvas component, preview it without changing authoritative bytes, place or apply the complete replacement atomically, reset to the latest master default, and Undo or Redo the whole semantic and physical subtree as one history leaf.
+
+Dependency order:
+
+1. Add the validated model and default-resolution contract.
+2. Add one pure stable-root swap planner with recursion, identity, and availability checks.
+3. Integrate atomic set, reset, property removal or rebinding, placement, history, and linked-master reconciliation.
+4. Add authoring, Kit, and instance controls using the existing Wonder component vocabulary.
+5. Route configured preview and placement through the same planner.
+6. Extend browser evidence and close the acceptance ledger.
+
+The slice is gated by new `COMP-V2-UI-076`, new `COMP-V2-UI-NEG-003`, and the extended `PR-EVIDENCE-014`. Regression gates are `COMP-V2-UI-010`, `COMP-V2-UI-025`, `COMP-V2-UI-027`, `COMP-V2-UI-030`, `COMP-V2-UI-035`, `COMP-V2-PERSIST-001`, and `COMP-V2-HISTORY-001`.
+
+The implementation preserves the bound root identity, relationship order, pose, outer-instance identity, and unrelated overrides. It rejects stale or unbound targets, non-instance targets, missing or unavailable definitions, direct or ancestor recursion, duplicate bindings, invalid stored component ids, and partial-clone failures before any document or history mutation. It excludes code-component swaps, preferred-value subsets, outer-component replacement, arbitrary Slot editing or reorder, compound Variants, new interaction triggers, persisted playground drafts, repository or source sync, source writes, and protocol or schema migrations.
+
+The completed slice also gives each open Kit detail view one event-owned, memory-only playground session. Temporary preview iframe remounts and definition-readiness gaps preserve valid scalar, Slot, and Instance swap drafts for the same file, component, and navigation sequence. Back navigation or a real context change retires the session. Authoritative file writes remain gated by the current document model and the checked swap planner.
+
 ## Current status
 
 - The prior dirty tree is clean and split into reversible commits on `staging` through `771515d`.
@@ -87,6 +106,7 @@ The Kit now owns transient Slot recipes separately from scalar instance values. 
 - The hosted collaboration boundary now has a complete two-client real-WebSocket graph test, stale-write and mutation-id negative controls, and room restart recovery.
 - Component-root Hover and Pressed ownership, nested target projection, nearest-owner isolation, cancellation restoration, Select and Pan inertness, and root-padding browser evidence are complete under `COMP-V2-UI-073`, `COMP-V2-UI-074`, and `PR-EVIDENCE-014`.
 - Configured Slot drafts, isolated preview rendering, atomic placement, recursive-nesting rejection, and one-step Undo are complete under `COMP-V2-UI-075`, `COMP-V2-UI-NEG-002`, and `PR-EVIDENCE-014`.
+- Canvas-authored Instance swap defaults, transient Kit preview, atomic placement and instance updates, reset, deletion fallback, recursion rejection, exact Undo or Redo, and remount-stable playground sessions are complete under `COMP-V2-UI-076`, `COMP-V2-UI-NEG-003`, and `PR-EVIDENCE-014`.
 - The interaction wire cutover is explicit at preview envelope version 10 and preview document version 3. Stale version 9 envelopes and version 2 documents fail closed.
 - PostgreSQL component graph persistence coverage is implemented and type-checked, but the real disposable-database run remains open because this shell does not provide `COLLABORATION_TEST_DATABASE_URL` or `COLLABORATION_TEST_ALLOW_DISPOSABLE=1`.
 - Repository source sync remains deferred.

@@ -10,6 +10,7 @@ import { RepositoryDocsReviewDialog, repositoryCommitUrl, repositoryDocsReviewPr
 import { documentStore } from './document-store'
 import { discoveredRegistryAtoms, discoveredRegistryDefinitions } from './component-registry'
 import { mapParallelComponentSubtrees } from './component-canvas-link'
+import { componentKitNavigation } from './component-kit-navigation'
 
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 let root: ReturnType<typeof createRoot> | null = null
@@ -23,6 +24,7 @@ const setInputValue = (input: HTMLInputElement | null, value: string) => {
 afterEach(async () => {
   if (root) await act(async () => { root?.unmount() })
   root = null
+  componentKitNavigation.back()
   document.body.replaceChildren()
   delete reactActEnvironment.IS_REACT_ACT_ENVIRONMENT
 })
@@ -223,6 +225,11 @@ describe('COMP-V2-UI-015 component names', () => {
     expect(documentStore.getSnapshot().file!.revision).toBe(revision)
     expect(documentStore.getHistory().past.at(-1)?.file.revision).not.toBe(revision + 1)
 
+    await act(async () => { root?.render(null) })
+    await act(async () => { root?.render(createElement(ComponentKitPanel, { atoms: [], onOpenCanvas: () => undefined })) })
+    expect(host.textContent).toContain('2 layers')
+    expect(host.querySelector('[aria-label="Reset playground"]')).not.toBeNull()
+
     await act(async () => { [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Place')?.click() })
     const placedFile = documentStore.getSnapshot().file!
     const outer = Object.values(placedFile.componentModel.instances).find(instance => instance.componentId === notice.id)!
@@ -237,6 +244,66 @@ describe('COMP-V2-UI-015 component names', () => {
 
     await act(async () => { expect(documentStore.undo()).toBe(true) })
     expect(documentStore.getSnapshot().file!.componentModel.instances).toEqual({})
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Back to components"]')?.click() })
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Open Notice component details"]')?.click() })
+    expect(host.textContent).toContain('Empty')
+    expect(host.querySelector('[aria-label="Reset playground"]')).toBeNull()
+  })
+
+  it('COMP-V2-UI-076 configures and resets Instance swap in the Kit playground', async () => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    documentStore.load(createBlankFile('component-swap-playground', 'page', 'root'), [], { replace: true, pageId: 'page' })
+    documentStore.commands.insertCanvas('rectangle', { x: 320, y: 0 })
+    expect(documentStore.commands.components.createFromSelection('Badge')).toBe(true)
+    const badge = Object.values(documentStore.getSnapshot().file!.componentModel.definitions).find(candidate => candidate.name === 'Badge')!
+    documentStore.commands.insertCanvas('rectangle', { x: 480, y: 0 })
+    expect(documentStore.commands.components.createFromSelection('Avatar')).toBe(true)
+    const avatar = Object.values(documentStore.getSnapshot().file!.componentModel.definitions).find(candidate => candidate.name === 'Avatar')!
+    documentStore.commands.insertCanvas('frame', { x: 0, y: 0 })
+    expect(documentStore.commands.components.createFromSelection('Button')).toBe(true)
+    const button = Object.values(documentStore.getSnapshot().file!.componentModel.definitions).find(candidate => candidate.name === 'Button')!
+    if (button.source.kind !== 'canvas') throw new Error('Expected canvas Button')
+    expect(documentStore.commands.components.place(badge.id)).toBe(true)
+    expect(documentStore.commands.move(documentStore.getSnapshot().selection[0]!, { parentId: button.source.masterRootId, index: 0 })).toBe(true)
+    documentStore.select(button.source.masterRootId)
+    const propertyId = documentStore.commands.components.addProperty(button.id, 'instance-swap')!
+
+    const host = document.createElement('div')
+    host.className = 'editor-root theme-light'
+    document.body.append(host)
+    root = createRoot(host)
+    await act(async () => { root?.render(createElement(ComponentKitPanel, { atoms: [], onOpenCanvas: () => undefined })) })
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Open Button component details"]')?.click() })
+
+    const select = host.querySelector<HTMLButtonElement>(`#component-docs-${button.id}-${propertyId}`)
+    expect(select?.textContent).toContain('Badge')
+    await act(async () => { select?.click() })
+    const options = [...host.querySelectorAll<HTMLElement>('[role="option"]')]
+    expect(options.map(option => option.textContent?.replace('✓', '').trim())).toEqual(['Avatar', 'Badge'])
+    expect(options.every(option => option.querySelector('[data-icon="component"]'))).toBe(true)
+    await act(async () => { options.find(option => option.textContent?.includes('Avatar'))?.click() })
+
+    expect(select?.textContent).toContain('Avatar')
+    await act(async () => { root?.render(null) })
+    await act(async () => { root?.render(createElement(ComponentKitPanel, { atoms: [], onOpenCanvas: () => undefined })) })
+    expect(host.querySelector<HTMLButtonElement>(`#component-docs-${button.id}-${propertyId}`)?.textContent).toContain('Avatar')
+    const ownerIds = new Set(Object.values(documentStore.getSnapshot().file!.componentModel.instances).filter(instance => instance.componentId === button.id).map(instance => instance.id))
+    await act(async () => { [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Place')?.click() })
+    const placedFile = documentStore.getSnapshot().file!
+    const placed = Object.values(placedFile.componentModel.instances).find(instance => instance.componentId === button.id && !ownerIds.has(instance.id))!
+    const placedDefinition = placedFile.componentModel.definitions[button.id]!
+    const swap = placedDefinition.properties.find(property => property.id === propertyId)
+    if (swap?.type !== 'instance-swap') throw new Error('Expected Instance swap property')
+    const map = mapParallelComponentSubtrees(placedFile, button.source.masterRootId, placed.id, { includeOverriddenSwapRoots: true })!
+    expect(placed.values[propertyId]).toBe(avatar.id)
+    expect(placedFile.componentModel.instances[map.get(swap.binding.nodeId)!]?.componentId).toBe(avatar.id)
+    const reset = host.querySelector<HTMLButtonElement>('[aria-label="Reset playground"]')
+    expect(reset).not.toBeNull()
+    await act(async () => { reset?.click() })
+    expect(host.querySelector<HTMLButtonElement>(`#component-docs-${button.id}-${propertyId}`)?.textContent).toContain('Badge')
+    expect(host.querySelector('[aria-label="Reset playground"]')).toBeNull()
+    await act(async () => { expect(documentStore.undo()).toBe(true) })
+    expect(documentStore.getSnapshot().file!.componentModel.instances[placed.id]).toBeUndefined()
   })
 
   it('COMP-V2-UI-058 omits unbound canvas properties from the playground and Variant sheet', async () => {

@@ -39,7 +39,7 @@ const componentProps = (file: FileDocument, nodeId: string, stored: Record<strin
   const resolved = resolveComponentInstanceValues(definition, instance.values)
   const projected = { ...stored }
   for (const property of definition.properties) {
-    if (property.type === 'slot') continue
+    if (property.type === 'slot' || property.type === 'instance-swap') continue
     projected[property.name] = resolved[property.id]!
   }
   return projected

@@ -69,4 +69,47 @@ describe('COMP-V2-UI-035 configured component preview', () => {
     expect(Object.keys(file.nodes).some(nodeId => nodeId.startsWith('configured-preview:'))).toBe(false)
     expect(isPreviewDocument(preview.document)).toBe(true)
   })
+
+  it('renders multiple transient Instance swaps without changing the master', () => {
+    const file = createBlankFile('configured-swap-preview', 'page', 'root')
+    file.nodes.master = { id: 'master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 120, height: 40 } }
+    file.nodes.circleMaster = { id: 'circleMaster', type: 'frame', name: 'Circle icon', styles: { relativeTransform: [1, 0, 0, 1, 160, 0], width: 24, height: 24 } }
+    file.nodes.circleMasterShape = { id: 'circleMasterShape', type: 'rectangle', name: 'Circle', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 24, height: 24 } }
+    file.nodes.icon = { id: 'icon', type: 'frame', name: 'Circle icon', styles: { relativeTransform: [1, 0, 0, 1, 8, 8], width: 24, height: 24 } }
+    file.nodes.circle = { id: 'circle', type: 'rectangle', name: 'Circle', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 24, height: 24 } }
+    file.nodes.icon2 = { id: 'icon2', type: 'frame', name: 'Circle icon', styles: { relativeTransform: [1, 0, 0, 1, 88, 8], width: 24, height: 24 } }
+    file.nodes.circle2 = { id: 'circle2', type: 'rectangle', name: 'Circle', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 24, height: 24 } }
+    file.nodes.squareMaster = { id: 'squareMaster', type: 'frame', name: 'Square icon', styles: { relativeTransform: [1, 0, 0, 1, 200, 0], width: 24, height: 24 } }
+    file.nodes.square = { id: 'square', type: 'rectangle', name: 'Square', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 24, height: 24 } }
+    file.relationships.master = { parentId: 'root', orderKey: 'A' }
+    file.relationships.icon = { parentId: 'master', orderKey: 'A' }
+    file.relationships.circle = { parentId: 'icon', orderKey: 'A' }
+    file.relationships.icon2 = { parentId: 'master', orderKey: 'B' }
+    file.relationships.circle2 = { parentId: 'icon2', orderKey: 'A' }
+    file.relationships.circleMaster = { parentId: 'root', orderKey: 'B' }
+    file.relationships.circleMasterShape = { parentId: 'circleMaster', orderKey: 'A' }
+    file.relationships.squareMaster = { parentId: 'root', orderKey: 'C' }
+    file.relationships.square = { parentId: 'squareMaster', orderKey: 'A' }
+    const circle: ComponentDefinition = { id: 'circle-component', name: 'Circle icon', source: { kind: 'canvas', masterRootId: 'circleMaster' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] }
+    const square: ComponentDefinition = { id: 'square-component', name: 'Square icon', source: { kind: 'canvas', masterRootId: 'squareMaster' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] }
+    const button: ComponentDefinition = {
+      id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'master' }, revision: 0,
+      properties: [
+        { id: 'leading', name: 'Leading icon', type: 'instance-swap', defaultValue: circle.id, binding: { kind: 'instance-swap', nodeId: 'icon' } },
+        { id: 'trailing', name: 'Trailing icon', type: 'instance-swap', defaultValue: circle.id, binding: { kind: 'instance-swap', nodeId: 'icon2' } },
+      ],
+      materials: [], parts: [], interactions: [],
+    }
+    file.componentModel = { definitions: { button, [circle.id]: circle, [square.id]: square }, instances: { icon: { id: 'icon', componentId: circle.id, values: {} }, icon2: { id: 'icon2', componentId: circle.id, values: {} } } }
+    const before = structuredClone(file)
+
+    const preview = configuredCanvasComponentPreview(file, button, { leading: square.id, trailing: square.id })!
+
+    expect(file).toEqual(before)
+    expect(preview.document.canvas.elements.find(element => element.id === 'icon')).toMatchObject({ name: 'Square icon' })
+    expect(preview.document.canvas.elements.find(element => element.id === 'icon2')).toMatchObject({ name: 'Square icon' })
+    expect(preview.document.canvas.elements.filter(element => element.name === 'Square')).toHaveLength(2)
+    expect(preview.document.canvas.elements.some(element => element.name === 'Circle')).toBe(false)
+    expect(isPreviewDocument(preview.document)).toBe(true)
+  })
 })

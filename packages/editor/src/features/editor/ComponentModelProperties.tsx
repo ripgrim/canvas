@@ -10,6 +10,7 @@ import { componentKitCopy } from './component-kit-copy'
 import { propertiesCopy as copy } from './properties-copy'
 import { canNestComponentInstance, mapParallelComponentSubtrees } from './component-canvas-link'
 import { componentConfigurableDefinition } from './component-property-projection'
+import { eligibleInstanceSwapComponents } from './component-instance-swap'
 
 export function ComponentModelProperties() {
   const { file, selection, atoms, blocked } = useSyncExternalStore(documentStore.subscribe, documentStore.getViewSnapshot, documentStore.getViewSnapshot)
@@ -45,6 +46,10 @@ export function ComponentModelProperties() {
       if (property.type === 'text') return valueRow(property.id, property.name, property.description, <PropertyField id={id} label={property.name} value={property.optional && !overridden ? '' : String(value)} {...(property.optional && !overridden ? { mixed: componentKitCopy.componentDefault } : {})} disabled={blocked} onChange={next => documentStore.commands.components.setInstanceValue(instance.id, property.id, !property.optional && next === property.defaultValue ? null : next)} />)
       if (property.type === 'boolean' && property.optional) return valueRow(property.id, property.name, property.description, <PropertySelect id={id} label={property.name} value={overridden ? String(value) : ''} options={[{ value: '', label: componentKitCopy.componentDefault }, { value: 'true', label: componentKitCopy.on }, { value: 'false', label: componentKitCopy.off }]} disabled={blocked} onChange={next => documentStore.commands.components.setInstanceValue(instance.id, property.id, next === '' ? null : next === 'true')} />)
       if (property.type === 'boolean') return valueRow(property.id, property.name, property.description, <PropertyToggle id={id} label={property.name} checked={Boolean(value)} disabled={blocked} onChange={next => documentStore.commands.components.setInstanceValue(instance.id, property.id, next === property.defaultValue ? null : next)} />)
+      if (property.type === 'instance-swap') {
+        const options = eligibleInstanceSwapComponents(file, definition).map(candidate => ({ value: candidate.id, label: candidate.name, icon: 'component' as const }))
+        return valueRow(property.id, property.name, property.description, <PropertySelect id={id} label={property.name} value={String(value)} options={options} disabled={blocked || options.length === 0} onChange={componentId => documentStore.commands.components.setInstanceValue(instance.id, property.id, componentId)} />)
+      }
       const slotHost = definition.source.kind === 'canvas' ? property.binding ? nodeMap?.get(property.binding.nodeId) : undefined : instance.id
       const slotName = definition.source.kind === 'code' ? property.name : property.id
       const count = slotHost ? childrenOf(file, slotHost, slotName).length : 0

@@ -114,15 +114,19 @@ describe('COMP-V2-UI-013 focused component authoring', () => {
     const slotChoice = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(item => item.textContent === 'Slot')
     const booleanChoice = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(item => item.textContent === 'Boolean')
     const variantChoice = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(item => item.textContent === 'Variant')
+    const swapChoice = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(item => item.textContent === 'Instance swap')
     expect(variantChoice?.querySelector('[data-icon="component"]')).not.toBeNull()
     expect(textChoice?.querySelector('[data-icon="text"]')).not.toBeNull()
     expect(booleanChoice?.querySelector('[data-icon="check"]')).not.toBeNull()
     expect(slotChoice?.querySelector('[data-icon="frame"]')).not.toBeNull()
+    expect(swapChoice?.querySelector('[data-icon="component"]')).not.toBeNull()
     expect(textChoice?.disabled).toBe(true)
     expect(slotChoice?.disabled).toBe(true)
+    expect(swapChoice?.disabled).toBe(true)
     expect(booleanChoice?.disabled).toBe(false)
     expect(textChoice?.title).toBe('This component has no text layer to bind.')
     expect(slotChoice?.title).toBe('This component has no frame layer to use as a slot.')
+    expect(swapChoice?.title).toBe('This component has no nested canvas component to swap.')
     expect(booleanChoice?.title).toBe('')
     await act(async () => { booleanChoice?.click() })
     expect(documentStore.getSnapshot().file!.componentModel.definitions[definition.id]!.properties).toHaveLength(before)
@@ -501,5 +505,53 @@ describe('COMP-V2-UI-013 focused component authoring', () => {
     const master = documentStore.getSnapshot().file!.nodes[masterId]
     if (!master || master.type === 'root') throw new Error('Expected material part')
     expect(master.appearance?.opacity).toBe(0.4)
+  })
+
+  it('COMP-V2-UI-076 authors Instance swap only from a nested canvas component', async () => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    documentStore.load(createBlankFile('instance-swap-authoring', 'page', 'root'), [], { replace: true, pageId: 'page' })
+    documentStore.commands.insertCanvas('rectangle', { x: 320, y: 0 })
+    expect(documentStore.commands.components.createFromSelection('Badge')).toBe(true)
+    const badge = Object.values(documentStore.getSnapshot().file!.componentModel.definitions).find(candidate => candidate.name === 'Badge')!
+    documentStore.commands.insertCanvas('frame', { x: 0, y: 0 })
+    expect(documentStore.commands.components.createFromSelection('Button')).toBe(true)
+    const button = Object.values(documentStore.getSnapshot().file!.componentModel.definitions).find(candidate => candidate.name === 'Button')!
+    if (button.source.kind !== 'canvas') throw new Error('Expected canvas Button')
+    expect(documentStore.commands.components.place(badge.id)).toBe(true)
+    const nestedId = documentStore.getSnapshot().selection[0]!
+    expect(documentStore.commands.move(nestedId, { parentId: button.source.masterRootId, index: 0 })).toBe(true)
+    documentStore.select(button.source.masterRootId)
+
+    const host = document.createElement('div')
+    host.className = 'editor-root theme-light'
+    document.body.append(host)
+    root = createRoot(host)
+    await act(async () => { root?.render(createElement(ComponentMasterProperties)) })
+
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Add property"]')?.click() })
+    const choice = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(item => item.textContent === 'Instance swap')
+    expect(choice?.disabled).toBe(false)
+    expect(choice?.querySelector('[data-icon="component"]')).not.toBeNull()
+    await act(async () => { choice?.click() })
+
+    const layer = host.querySelector<HTMLButtonElement>('#component-property-dialog-layer')
+    expect(layer?.textContent).toContain('Badge')
+    await act(async () => { layer?.click() })
+    const badgeOption = [...host.querySelectorAll<HTMLElement>('[role="option"]')].find(option => option.textContent?.includes('Badge'))
+    expect(badgeOption?.querySelector('[data-icon="component"]')).not.toBeNull()
+    await act(async () => { badgeOption?.click() })
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Default valueBadge')
+    await act(async () => { [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent === 'Save property')?.click() })
+
+    const saved = documentStore.getSnapshot().file!.componentModel.definitions[button.id]!.properties.find(property => property.type === 'instance-swap')
+    expect(saved).toMatchObject({ type: 'instance-swap', defaultValue: badge.id, binding: { kind: 'instance-swap', nodeId: nestedId } })
+    const row = host.querySelector<HTMLButtonElement>('[aria-label="Edit Property"]')?.closest('.component-definition-row')
+    expect(row?.textContent).toContain('PropertyInstance swapLayer · BadgeDefault valueBadge')
+    expect(row?.querySelector('[data-icon="component"]')).not.toBeNull()
+
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Add property"]')?.click() })
+    const unavailable = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(item => item.textContent === 'Instance swap')
+    expect(unavailable?.disabled).toBe(true)
+    expect(unavailable?.title).toBe('This component has no nested canvas component to swap.')
   })
 })

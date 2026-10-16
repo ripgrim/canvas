@@ -212,6 +212,28 @@ describe('preview projection', () => {
     expect(document.nodes['btn-2']!.props).toEqual({ variant: 'primary', children: 'Default label' })
   })
 
+  it('[COMP-V2-UI-076] keeps Instance swap values internal instead of leaking them into imported component props', () => {
+    const file = fixture()
+    file.componentModel = {
+      definitions: {
+        owner: {
+          id: 'owner', name: 'Owner', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 0,
+          properties: [{ id: 'leading', name: 'Leading', type: 'instance-swap', defaultValue: 'leaf', binding: { kind: 'instance-swap', nodeId: 'inner' } }],
+          materials: [], parts: [], interactions: [],
+        },
+        leaf: { id: 'leaf', name: 'Leaf', source: { kind: 'canvas', masterRootId: 'caption' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+      },
+      instances: {
+        inner: { id: 'inner', componentId: 'leaf', values: {} },
+        solo: { id: 'solo', componentId: 'owner', values: { leading: 'leaf' } },
+      },
+    }
+    ;(file.nodes.solo as ComponentNode).props = { children: 'Stored prop' }
+    const { document } = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!
+    expect(document.nodes.solo!.props).toEqual({ children: 'Stored prop' })
+    expect(document.nodes.solo!.props).not.toHaveProperty('Leading')
+  })
+
   it('COMP-V2-UI-073 projects authored hover and press ownership onto the component root with the bound layer as target', () => {
     const file = fixture()
     const white = { fills: [solid('default-fill', lit('#ffffff'))] }

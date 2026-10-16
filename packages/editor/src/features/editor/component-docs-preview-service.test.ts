@@ -71,6 +71,25 @@ describe('COMP-V2-UI-035 component docs preview connection', () => {
     expect(validComponentPreviewValues({ ...definition, properties: [{ id: 'label', name: 'Label', type: 'text', defaultValue: 'New master label' }] }, {})).toEqual({})
   })
 
+  it('keeps only eligible Instance swap drafts', () => {
+    const file = componentFile()
+    const button = file.componentModel.definitions.button!
+    const badge = file.componentModel.definitions.badge!
+    file.componentModel = {
+      definitions: {
+        ...file.componentModel.definitions,
+        button: {
+          ...button,
+          properties: [{ id: 'leading', name: 'Leading', type: 'instance-swap', defaultValue: badge.id, binding: { kind: 'instance-swap', nodeId: 'host' } }],
+        },
+      },
+      instances: { ...file.componentModel.instances, host: { id: 'host', componentId: badge.id, values: {} } },
+    }
+
+    expect(validComponentPreviewValues(file.componentModel.definitions.button!, { leading: badge.id, missing: 'stale' }, file)).toEqual({ leading: badge.id })
+    expect(validComponentPreviewValues(file.componentModel.definitions.button!, { leading: 'missing-component' }, file)).toEqual({})
+  })
+
   it('surfaces runtime failure and retries the same preview connection', () => {
     const file = componentFile()
     documentStore.load(file, [], { replace: true, pageId: 'page' })
@@ -81,7 +100,7 @@ describe('COMP-V2-UI-035 component docs preview connection', () => {
       removeEventListener: vi.fn(),
     }
     const target = { postMessage: vi.fn() }
-    const service = createComponentDocsPreviewService('button', messageHost as unknown as Pick<Window, 'addEventListener' | 'removeEventListener'>)
+    const service = createComponentDocsPreviewService(file.fileId, 'button', messageHost as unknown as Pick<Window, 'addEventListener' | 'removeEventListener'>)
     const deliver = (data: unknown) => messageListener?.({ data, origin: 'https://preview.test', source: target } as unknown as MessageEvent)
     const lastDocumentCommand = () => {
       for (let index = target.postMessage.mock.calls.length - 1; index >= 0; index -= 1) {
@@ -125,7 +144,7 @@ describe('COMP-V2-UI-035 component docs preview connection', () => {
   it('keeps Slot drafts transient and reconciles them when the binding disappears', () => {
     const file = componentFile()
     documentStore.load(file, [], { replace: true, pageId: 'page' })
-    const service = createComponentDocsPreviewService('button', { addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as Pick<Window, 'addEventListener' | 'removeEventListener'>)
+    const service = createComponentDocsPreviewService(file.fileId, 'button', { addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as Pick<Window, 'addEventListener' | 'removeEventListener'>)
 
     expect(service.addSlotContent('content', 'text')).toBe(true)
     expect(service.addSlotComponent('content', 'badge')).toBe(true)
@@ -136,6 +155,17 @@ describe('COMP-V2-UI-035 component docs preview connection', () => {
     expect(documentStore.commands.insertCanvas('rectangle', { x: 240, y: 0 })).toBe(true)
     service.resetValue('missing')
     expect(service.getSnapshot().slotDrafts).toHaveLength(2)
+
+    const withoutDefinition = structuredClone(documentStore.getSnapshot().file!)
+    const { button: _button, ...definitions } = withoutDefinition.componentModel.definitions
+    withoutDefinition.componentModel = { ...withoutDefinition.componentModel, definitions }
+    documentStore.load(withoutDefinition, [], { replace: true, pageId: 'page' })
+    service.resetValue('missing')
+    expect(service.getSnapshot().slotDrafts).toEqual([])
+
+    documentStore.load(file, [], { replace: true, pageId: 'page' })
+    service.resetValue('missing')
+    expect(service.getSnapshot().slotDrafts).toEqual([])
 
     const withoutSlot = structuredClone(documentStore.getSnapshot().file!)
     withoutSlot.componentModel = { ...withoutSlot.componentModel, definitions: { ...withoutSlot.componentModel.definitions, button: { ...withoutSlot.componentModel.definitions.button!, revision: 1, properties: [] } } }

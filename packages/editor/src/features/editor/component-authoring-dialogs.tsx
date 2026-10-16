@@ -13,12 +13,13 @@ import { componentPropertyProjectionCommands, componentPropertyRebindingResetCom
 import { componentMaterialProjectionCommands } from './component-material-projection'
 import { componentKitCopy as copy } from './component-kit-copy'
 
-export type ComponentNodeChoice = Readonly<{ id: string; name: string; type: string; icon: IconName }>
+export type ComponentNodeChoice = Readonly<{ id: string; name: string; type: string; icon: IconName; componentId?: string }>
 
 export function componentPropertyBindingNodes(nodes: readonly ComponentNodeChoice[], type: ComponentPropertyDefinition['type'], unavailableNodeIds: readonly string[] = []): readonly ComponentNodeChoice[] {
   const available = nodes.filter(node => !unavailableNodeIds.includes(node.id))
   if (type === 'text') return available.filter(node => node.type === 'text')
   if (type === 'slot') return available.filter(node => node.type === 'frame')
+  if (type === 'instance-swap') return available.filter(node => Boolean(node.componentId))
   return available
 }
 
@@ -37,6 +38,7 @@ type PropertyDraft = Readonly<{
   nodeId: string
   defaultText: string
   defaultBoolean: boolean
+  defaultComponentId: string
   options: readonly VariantOptionDraft[]
   defaultValueId: string
   currentValueId: string
@@ -63,7 +65,7 @@ function interactionDraft(interaction: ComponentInteraction | undefined): Intera
   } : emptyInteraction()
 }
 
-function initialPropertyDraft(property: ComponentPropertyDefinition | undefined, type: ComponentPropertyDefinition['type'], interactions: readonly ComponentInteraction[], defaultNodeId: string, defaultName: string, defaultText: string, defaultBoolean: boolean): PropertyDraft {
+function initialPropertyDraft(property: ComponentPropertyDefinition | undefined, type: ComponentPropertyDefinition['type'], interactions: readonly ComponentInteraction[], defaultNodeId: string, defaultComponentId: string, defaultName: string, defaultText: string, defaultBoolean: boolean): PropertyDraft {
   const initialOption = { id: crypto.randomUUID(), name: 'Default' }
   const variant = property?.type === 'variant' ? property : undefined
   return {
@@ -72,6 +74,7 @@ function initialPropertyDraft(property: ComponentPropertyDefinition | undefined,
     nodeId: property?.binding?.nodeId ?? defaultNodeId,
     defaultText: property?.type === 'text' ? property.defaultValue : defaultText,
     defaultBoolean: property?.type === 'boolean' ? property.defaultValue : defaultBoolean,
+    defaultComponentId: property?.type === 'instance-swap' ? property.defaultValue : defaultComponentId,
     options: variant?.values ?? [initialOption],
     defaultValueId: variant?.defaultValueId ?? initialOption.id,
     currentValueId: variant?.currentValueId ?? variant?.defaultValueId ?? initialOption.id,
@@ -102,6 +105,7 @@ function withBinding(property: ComponentPropertyDefinition, nodeId: string): Com
   }
   if (property.type === 'text') return { ...property, binding: { kind: 'text', nodeId } }
   if (property.type === 'boolean') return { ...property, binding: { kind: 'visibility', nodeId } }
+  if (property.type === 'instance-swap') return { ...property, binding: { kind: 'instance-swap', nodeId } }
   return { ...property, binding: { kind: 'slot', nodeId } }
 }
 
@@ -130,6 +134,7 @@ function replaceAuthoredProperty(componentId: string, property: ComponentPropert
   const definition = file?.componentModel.definitions[componentId]
   if (!file || !definition) return false
   const exists = definition.properties.some(candidate => candidate.id === property.id)
+  if (exists && property.type === 'instance-swap') return documentStore.commands.components.setProperty(componentId, property)
   const properties = exists ? definition.properties.map(candidate => candidate.id === property.id ? property : candidate) : [...definition.properties, property]
   const retained = definition.interactions.filter(interaction => interaction.propertyId !== property.id)
   const previous = definition.interactions.filter(interaction => interaction.propertyId === property.id)
@@ -182,8 +187,9 @@ function InteractionFields({ id, label, value, options, disabled, onChange }: { 
 export function ComponentPropertyDialog({ componentId, property, type, nodes, unavailableNodeIds = [], interactions, siblingNames, container, disabled, onClose }: { componentId: string; property?: ComponentPropertyDefinition; type: ComponentPropertyDefinition['type']; nodes: readonly ComponentNodeChoice[]; unavailableNodeIds?: readonly string[]; interactions: readonly ComponentInteraction[]; siblingNames: readonly string[]; container: HTMLElement | null; disabled: boolean; onClose: () => void }) {
   const bindingNodes = componentPropertyBindingNodes(nodes, type, unavailableNodeIds)
   const defaultNodeId = bindingNodes[0]?.id ?? ''
+  const defaultComponentId = bindingNodes[0]?.componentId ?? ''
   const defaultNode = documentStore.getSnapshot().file?.nodes[defaultNodeId]
-  const [draft, setDraft] = useState(() => initialPropertyDraft(property, type, interactions, defaultNodeId, uniqueComponentDraftName(siblingNames, 'Property'), defaultNode?.type === 'text' ? defaultNode.text ?? 'Text' : 'Text', nodeAppearance(defaultNode)?.visible ?? true))
+  const [draft, setDraft] = useState(() => initialPropertyDraft(property, type, interactions, defaultNodeId, defaultComponentId, uniqueComponentDraftName(siblingNames, 'Property'), defaultNode?.type === 'text' ? defaultNode.text ?? 'Text' : 'Text', nodeAppearance(defaultNode)?.visible ?? true))
   const error = propertyDraftError(draft, type, siblingNames)
   const bindingMode = Boolean(property && !property.binding && bindingNodes.length > 0)
   const addOption = () => {
@@ -212,6 +218,8 @@ export function ComponentPropertyDialog({ componentId, property, type, nodes, un
         ? { id: crypto.randomUUID(), name: draft.name, type, defaultValue: draft.defaultText }
         : type === 'boolean'
           ? { id: crypto.randomUUID(), name: draft.name, type, defaultValue: draft.defaultBoolean }
+          : type === 'instance-swap'
+            ? { id: crypto.randomUUID(), name: draft.name, type, defaultValue: draft.defaultComponentId, binding: { kind: 'instance-swap' as const, nodeId: draft.nodeId } }
           : { id: crypto.randomUUID(), name: draft.name, type })
     let next: ComponentPropertyDefinition
     if (target.type === 'variant') next = {
@@ -223,6 +231,7 @@ export function ComponentPropertyDialog({ componentId, property, type, nodes, un
     }
     else if (target.type === 'text') next = { ...target, name: draft.name.trim(), defaultValue: draft.defaultText }
     else if (target.type === 'boolean') next = { ...target, name: draft.name.trim(), defaultValue: draft.defaultBoolean }
+    else if (target.type === 'instance-swap') next = { ...target, name: draft.name.trim(), defaultValue: draft.defaultComponentId }
     else next = { ...target, name: draft.name.trim() }
     next = withPropertyDescription(next, draft.description)
     next = withBinding(next, bindingNodes.some(node => node.id === draft.nodeId) ? draft.nodeId : '')
@@ -241,6 +250,7 @@ export function ComponentPropertyDialog({ componentId, property, type, nodes, un
         nodeId,
         ...(type === 'text' && node?.type === 'text' ? { defaultText: node.text ?? 'Text' } : {}),
         ...(type === 'boolean' ? { defaultBoolean: nodeAppearance(node)?.visible ?? true } : {}),
+        ...(type === 'instance-swap' ? { defaultComponentId: bindingNodes.find(candidate => candidate.id === nodeId)?.componentId ?? '' } : {}),
       }))
     }} />}
     {type === 'variant' && <>
@@ -255,6 +265,7 @@ export function ComponentPropertyDialog({ componentId, property, type, nodes, un
     </>}
     {type === 'text' && <PropertyField id="component-property-dialog-default" label={copy.defaultValue} value={draft.defaultText} disabled={disabled} onChange={defaultText => setDraft(current => ({ ...current, defaultText }))} />}
     {type === 'boolean' && <PropertyToggle id="component-property-dialog-default" label={copy.defaultOn} checked={draft.defaultBoolean} disabled={disabled} onChange={defaultBoolean => setDraft(current => ({ ...current, defaultBoolean }))} />}
+    {type === 'instance-swap' && <PropertyValue label={copy.defaultValue} value={bindingNodes.find(node => node.componentId === draft.defaultComponentId)?.name ?? copy.noLayer} />}
     {error && <ComponentAuthoringError>{error}</ComponentAuthoringError>}
   </ComponentAuthoringDialog>
 }

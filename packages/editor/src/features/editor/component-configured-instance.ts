@@ -35,7 +35,17 @@ function duplicatedInstanceCommands(file: FileDocument, ids: Readonly<Record<str
 function canvasDependencies(file: FileDocument, definition: ComponentDefinition): string[] {
   if (definition.source.kind !== 'canvas') return []
   const subtree = new Set([definition.source.masterRootId, ...descendantsOf(file, definition.source.masterRootId)])
-  return Object.values(file.componentModel.instances).filter(instance => subtree.has(instance.id)).map(instance => instance.componentId)
+  const dependencies = new Set(Object.values(file.componentModel.instances).filter(instance => subtree.has(instance.id)).map(instance => instance.componentId))
+  for (const property of definition.properties) {
+    if (property.type !== 'instance-swap') continue
+    dependencies.add(property.defaultValue)
+    for (const instance of Object.values(file.componentModel.instances)) {
+      if (instance.componentId !== definition.id) continue
+      const value = instance.values[property.id]
+      if (typeof value === 'string') dependencies.add(value)
+    }
+  }
+  return [...dependencies]
 }
 
 function dependsOn(file: FileDocument, componentId: string, targetId: string, seen = new Set<string>()): boolean {

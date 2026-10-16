@@ -61,12 +61,24 @@ const snapshotSafeBatchCommandTypes = new Set<FileCommand['type']>([
   'node.reorder',
 ])
 
-export function mapParallelComponentSubtrees(file: FileDocument, masterRootId: string, instanceRootId: string): LinkedNodeMap | null {
+export function mapParallelComponentSubtrees(file: FileDocument, masterRootId: string, instanceRootId: string, options: Readonly<{ includeOverriddenSwapRoots?: boolean }> = {}): LinkedNodeMap | null {
   const map = new Map<string, string>()
+  const definition = Object.values(file.componentModel.definitions).find(candidate => candidate.source.kind === 'canvas' && candidate.source.masterRootId === masterRootId)
+  const ownerInstance = file.componentModel.instances[instanceRootId]
+  const swapByNode = new Map(definition?.properties.flatMap(property => property.type === 'instance-swap' ? [[property.binding.nodeId, property] as const] : []) ?? [])
   const visit = (masterId: string, instanceId: string): boolean => {
     const master = file.nodes[masterId]
     const instance = file.nodes[instanceId]
-    if (!master || !instance || master.type !== instance.type) return false
+    if (!master || !instance) return false
+    const swap = swapByNode.get(masterId)
+    const swapValue = swap && ownerInstance?.componentId === definition?.id ? ownerInstance?.values[swap.id] ?? swap.defaultValue : swap?.defaultValue
+    const swapped = Boolean(swap && swapValue !== swap.defaultValue)
+    if (swapped) {
+      if (file.componentModel.instances[instanceId]?.componentId !== swapValue) return false
+      if (options.includeOverriddenSwapRoots) map.set(masterId, instanceId)
+      return true
+    }
+    if (master.type !== instance.type) return false
     map.set(masterId, instanceId)
     const masterChildren = childrenOf(file, masterId).filter(nodeId => file.relationships[nodeId]?.slot === undefined)
     const instanceChildren = childrenOf(file, instanceId).filter(nodeId => file.relationships[nodeId]?.slot === undefined)
