@@ -19,7 +19,7 @@ export class RepositoryJobService {
     const projectId = opaqueId(input.projectId)
     const grant = await this.grants.assertLiveRepositoryAccess({ actor, tenantId, projectId, operation: input.operation })
     const createdAt = this.now()
-    const job = Object.freeze({ id: this.createId(), actor, tenantId, projectId, operation: input.operation, installationId: grant.installationId, repositoryId: grant.repository.id, repositoryLinkedAt: grant.linkedAt, repositoryGrantId: grant.grantId, status: 'queued' as const, createdAt, nextAttemptAt: createdAt, attempt: 0 })
+    const job = Object.freeze({ id: this.createId(), actor, tenantId, projectId, operation: input.operation, installationId: grant.installationId, repositoryId: grant.repository.id, repositoryLinkedAt: grant.linkedAt, repositoryGrantId: grant.grantId, repositoryGrantGeneration: grant.grantGeneration, status: 'queued' as const, createdAt, nextAttemptAt: createdAt, attempt: 0 })
     await this.jobs.enqueue(job)
     return job
   }
@@ -33,7 +33,7 @@ export class RepositoryJobService {
     if (!job || job.status !== 'running' || job.leaseId !== leaseId || job.leaseExpiresAt !== leaseExpiresAt) throw unavailable()
     try {
       const grant = await this.grants.assertLiveRepositoryAccess({ actor: job.actor, tenantId: job.tenantId, projectId: job.projectId, operation: job.operation })
-      assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId)
+      assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId, grant.grantGeneration)
       const access = await this.tokens.mint({ installationId: job.installationId, repositoryId: job.repositoryId, contentsPermission: 'read' })
       if (!await this.jobs.isCurrentLease({ id: job.id, leaseId, now: this.now() })) throw unavailable()
       return Object.freeze({ job, access })
@@ -51,7 +51,7 @@ export class RepositoryJobService {
     if (!job || job.status !== 'running') return null
     try {
       const grant = await this.grants.assertLiveRepositoryAccess({ actor: job.actor, tenantId: job.tenantId, projectId: job.projectId, operation: job.operation })
-      assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId)
+      assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId, grant.grantGeneration)
       const access = await this.tokens.mint({ installationId: job.installationId, repositoryId: job.repositoryId, contentsPermission: 'read' })
       if (!await this.jobs.isCurrentLease({ id: job.id, leaseId, now: this.now() })) throw unavailable()
       return Object.freeze({ job, access })
@@ -76,7 +76,7 @@ export class RepositoryJobService {
     const job = await this.jobs.getAuthorized(repositoryJobId(id), validActor.accountId)
     if (!job) throw unavailable()
     const grant = await this.grants.assertLiveRepositoryAccess({ actor: validActor, tenantId: job.tenantId, projectId: job.projectId, operation: job.operation })
-    assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId)
+    assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId, grant.grantGeneration)
     return job
   }
 
@@ -93,9 +93,10 @@ export class RepositoryJobService {
       repositoryId: grant.repository.id,
       repositoryLinkedAt: grant.linkedAt,
       repositoryGrantId: grant.grantId,
+      repositoryGrantGeneration: grant.grantGeneration,
     })
     if (job && job.status !== 'completed') throw unavailable()
-    if (job) assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId)
+    if (job) assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId, grant.grantGeneration)
     return job
   }
 
@@ -109,7 +110,24 @@ export class RepositoryJobService {
     const job = await this.jobs.get(repositoryJobId(id))
     if (!job || job.operation !== 'scan' || job.status !== 'completed') throw unavailable()
     const grant = await this.grants.assertLiveRepositoryAccess({ actor: job.actor, tenantId: job.tenantId, projectId: job.projectId, operation: 'scan' })
-    assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId)
+    assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId, grant.grantGeneration)
+    return job
+  }
+
+  async readAuthorizedCompletedScan(input: Readonly<{
+    id: string
+    actor: GitHubActor
+    tenantId: string
+    projectId: string
+  }>): Promise<RepositoryJob & Readonly<{ status: 'completed' }>> {
+    const actor = validateActor(input.actor)
+    const tenantId = opaqueId(input.tenantId)
+    const projectId = opaqueId(input.projectId)
+    const job = await this.jobs.getAuthorized(repositoryJobId(input.id), actor.accountId)
+    if (!job || job.operation !== 'scan' || job.status !== 'completed'
+      || job.tenantId !== tenantId || job.projectId !== projectId) throw unavailable()
+    const grant = await this.grants.assertLiveRepositoryAccess({ actor, tenantId, projectId, operation: 'scan' })
+    assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId, grant.grantGeneration)
     return job
   }
 
@@ -119,7 +137,7 @@ export class RepositoryJobService {
     const job = await this.jobs.get(jobId)
     if (!job || job.status !== 'running' || job.leaseId !== lease || job.leaseExpiresAt <= this.now()) throw unavailable()
     const grant = await this.grants.assertLiveRepositoryAccess({ actor: job.actor, tenantId: job.tenantId, projectId: job.projectId, operation: 'scan' })
-    assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId)
+    assertStable(job, grant.installationId, grant.repository.id, grant.linkedAt, grant.grantId, grant.grantGeneration)
     if (!await this.jobs.completeScan({ id: jobId, leaseId: lease, now: this.now(), result })) throw unavailable()
     const completed = await this.jobs.get(jobId)
     if (!completed || completed.status !== 'completed') throw unavailable()
@@ -149,6 +167,9 @@ function unavailable(): GitHubAppError {
   return new GitHubAppError('REPOSITORY_NOT_VISIBLE', 'GitHub repository is not available.')
 }
 
-function assertStable(job: RepositoryJob, installationId: string, repositoryId: string, linkedAt?: number, grantId?: string): void {
-  if (job.installationId !== installationId || job.repositoryId !== repositoryId || linkedAt !== undefined && job.repositoryLinkedAt !== linkedAt || grantId !== undefined && job.repositoryGrantId !== grantId) throw new GitHubAppError('REPOSITORY_NOT_VISIBLE', 'GitHub repository is not available.')
+function assertStable(job: RepositoryJob, installationId: string, repositoryId: string, linkedAt?: number, grantId?: string, grantGeneration?: number): void {
+  if (job.installationId !== installationId || job.repositoryId !== repositoryId
+    || linkedAt !== undefined && job.repositoryLinkedAt !== linkedAt
+    || grantId !== undefined && job.repositoryGrantId !== grantId
+    || grantGeneration !== undefined && job.repositoryGrantGeneration !== grantGeneration) throw new GitHubAppError('REPOSITORY_NOT_VISIBLE', 'GitHub repository is not available.')
 }

@@ -65,6 +65,7 @@ class MemoryGrantStore implements GitHubGrantStore {
   authorizedAccess = true
   readonly installationInvalidations: Array<{ installationId: string; reason: string }> = []
   readonly repositoryInvalidations: Array<{ installationId: string; repositoryIds: readonly string[] }> = []
+  readonly repositoryGrantGenerations = new Map<string, number>()
 
   async saveInstallationGrant(grant: InstallationGrant) {
     this.installationGrant = grant
@@ -76,8 +77,12 @@ class MemoryGrantStore implements GitHubGrantStore {
     return grant?.tenantId === input.tenantId && grant.installation.id === input.installationId ? grant : null
   }
 
-  async saveRepositoryGrant(grant: RepositoryGrant) {
-    this.repositoryGrant = grant
+  async saveRepositoryGrant(grant: Omit<RepositoryGrant, 'grantGeneration'>) {
+    const key = `${grant.tenantId}\0${grant.projectId}`
+    const grantGeneration = (this.repositoryGrantGenerations.get(key) ?? 0) + 1
+    this.repositoryGrantGenerations.set(key, grantGeneration)
+    this.repositoryGrant = { ...grant, grantGeneration }
+    return this.repositoryGrant
   }
 
   async getRepositoryGrant(input: { tenantId: string; projectId: string }) {
@@ -138,18 +143,20 @@ class MemoryRepositoryJobStore implements RepositoryJobStore {
     return this.records.get(id) ?? null
   }
 
-  async getAuthorized(id: string) {
-    return this.records.get(id) ?? null
+  async getAuthorized(id: string, actorAccountId: string) {
+    const job = this.records.get(id)
+    return job?.actor.accountId === actorAccountId ? job : null
   }
 
-  async latestCompletedScan(scope: { actorAccountId: string; tenantId: string; projectId: string; installationId: string; repositoryId: string; repositoryLinkedAt: number; repositoryGrantId: string }) {
+  async latestCompletedScan(scope: { actorAccountId: string; tenantId: string; projectId: string; installationId: string; repositoryId: string; repositoryLinkedAt: number; repositoryGrantId: string; repositoryGrantGeneration: number }) {
     return [...this.records.values()].filter(job => job.status === 'completed'
       && job.tenantId === scope.tenantId
       && job.projectId === scope.projectId
       && job.installationId === scope.installationId
       && job.repositoryId === scope.repositoryId
       && job.repositoryLinkedAt === scope.repositoryLinkedAt
-      && job.repositoryGrantId === scope.repositoryGrantId).at(-1) ?? null
+      && job.repositoryGrantId === scope.repositoryGrantId
+      && job.repositoryGrantGeneration === scope.repositoryGrantGeneration).at(-1) ?? null
   }
 
   async claimScan(input: { id: string; leaseId: string; now: number; leaseExpiresAt: number }) {
@@ -322,6 +329,14 @@ describe('installation and repository grants', () => {
     await expect(grants.assertLiveRepositoryAccess({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'write' })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
   })
 
+  it('AT-REPO-LINK-001 assigns a new monotonic generation for every successful relink', async () => {
+    const { grants } = await connectedService()
+    const first = await grants.linkRepository({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repositoryId: repository.id })
+    const second = await grants.linkRepository({ actor, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repositoryId: repository.id })
+    expect(first.grantGeneration).toBe(1)
+    expect(second.grantGeneration).toBe(2)
+  })
+
   it('AT-REPO-LINK-001 denies repository writes when the App installation is read-only', async () => {
     let liveInstallation = installation
     let installationVisible = true
@@ -344,8 +359,8 @@ describe('installation and repository grants', () => {
     const jobs: RepositoryJobStore = {
       async enqueue(job) { records.set(job.id, job) },
       async get(id) { return records.get(id) ?? null },
-      async getAuthorized(id) { return records.get(id) ?? null },
-      async latestCompletedScan(scope) { return [...records.values()].filter(job => job.status === 'completed' && job.tenantId === scope.tenantId && job.projectId === scope.projectId && job.installationId === scope.installationId && job.repositoryId === scope.repositoryId && job.repositoryLinkedAt === scope.repositoryLinkedAt && job.repositoryGrantId === scope.repositoryGrantId).at(-1) ?? null },
+      async getAuthorized(id, actorAccountId) { const job = records.get(id); return job?.actor.accountId === actorAccountId ? job : null },
+      async latestCompletedScan(scope) { return [...records.values()].filter(job => job.status === 'completed' && job.tenantId === scope.tenantId && job.projectId === scope.projectId && job.installationId === scope.installationId && job.repositoryId === scope.repositoryId && job.repositoryLinkedAt === scope.repositoryLinkedAt && job.repositoryGrantId === scope.repositoryGrantId && job.repositoryGrantGeneration === scope.repositoryGrantGeneration).at(-1) ?? null },
       async claimScan(input) { const job = records.get(input.id); if (!job || job.operation !== 'scan' || job.status === 'running' && job.leaseExpiresAt > input.now) return null; const claimed = { ...job, status: 'running' as const, leaseId: input.leaseId, leaseExpiresAt: input.leaseExpiresAt, attempt: job.attempt + 1 }; records.set(input.id, claimed); return claimed },
       async claimNextScan() { return null },
       async isCurrentLease(input) { const job = records.get(input.id); return Boolean(job?.status === 'running' && job.leaseId === input.leaseId && job.leaseExpiresAt > input.now) },
@@ -374,8 +389,8 @@ describe('installation and repository grants', () => {
     const jobs: RepositoryJobStore = {
       async enqueue(job) { records.set(job.id, job) },
       async get(id) { return records.get(id) ?? null },
-      async getAuthorized(id) { return records.get(id) ?? null },
-      async latestCompletedScan(scope) { return [...records.values()].filter(job => job.status === 'completed' && job.tenantId === scope.tenantId && job.projectId === scope.projectId && job.installationId === scope.installationId && job.repositoryId === scope.repositoryId && job.repositoryLinkedAt === scope.repositoryLinkedAt && job.repositoryGrantId === scope.repositoryGrantId).at(-1) ?? null },
+      async getAuthorized(id, actorAccountId) { const job = records.get(id); return job?.actor.accountId === actorAccountId ? job : null },
+      async latestCompletedScan(scope) { return [...records.values()].filter(job => job.status === 'completed' && job.tenantId === scope.tenantId && job.projectId === scope.projectId && job.installationId === scope.installationId && job.repositoryId === scope.repositoryId && job.repositoryLinkedAt === scope.repositoryLinkedAt && job.repositoryGrantId === scope.repositoryGrantId && job.repositoryGrantGeneration === scope.repositoryGrantGeneration).at(-1) ?? null },
       async claimScan(input) { const job = records.get(input.id); if (!job || job.operation !== 'scan' || job.status === 'running' && job.leaseExpiresAt > input.now) return null; const claimed = { ...job, status: 'running' as const, leaseId: input.leaseId, leaseExpiresAt: input.leaseExpiresAt, attempt: job.attempt + 1 }; records.set(input.id, claimed); return claimed },
       async claimNextScan(input) { const job = [...records.values()].find(candidate => candidate.status === 'queued'); return job ? this.claimScan({ ...input, id: job.id }) : null },
       async isCurrentLease(input) { const job = records.get(input.id); return Boolean(job?.status === 'running' && job.leaseId === input.leaseId && job.leaseExpiresAt > input.now) },
@@ -399,6 +414,11 @@ describe('installation and repository grants', () => {
     grantStore.repositoryGrant = { ...grantStore.repositoryGrant!, grantId: '00000000-0000-4000-8000-000000000099' }
     await expect(service.start(oldLineage.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
 
+    id = '00000000-0000-4000-8000-000000000005'
+    const oldGeneration = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })
+    grantStore.repositoryGrant = { ...grantStore.repositoryGrant!, grantGeneration: grantStore.repositoryGrant!.grantGeneration + 1 }
+    await expect(service.start(oldGeneration.id)).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
+
     id = '00000000-0000-4000-8000-000000000002'
     const allowedScan = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })
     const started = await service.start(allowedScan.id)
@@ -414,6 +434,10 @@ describe('installation and repository grants', () => {
     const currentScan = await service.enqueue({ actor, tenantId: 'tenant-1', projectId: 'project-1', operation: 'scan' })
     const currentStarted = await service.start(currentScan.id)
     await expect(service.completeScan(currentScan.id, currentStarted.job.status === 'running' ? currentStarted.job.leaseId : '', artifact)).resolves.toMatchObject({ status: 'completed', result: artifact })
+    const mintedBeforeAuthorizedRead = [...minted]
+    await expect(service.readAuthorizedCompletedScan({ id: currentScan.id, actor, tenantId: 'tenant-1', projectId: 'project-1' })).resolves.toMatchObject({ id: currentScan.id, status: 'completed' })
+    expect(minted).toEqual(mintedBeforeAuthorizedRead)
+    await expect(service.readAuthorizedCompletedScan({ id: currentScan.id, actor: { accountId: 'account-2', providerUserId: '1002' }, tenantId: 'tenant-1', projectId: 'project-1' })).rejects.toSatisfy(error => errorCode(error) === 'REPOSITORY_NOT_VISIBLE')
     await expect(service.latestScan({ actor, tenantId: 'tenant-1', projectId: 'project-1' })).resolves.toMatchObject({ id: currentScan.id, status: 'completed', result: artifact })
     grantStore.repositoryGrant = { ...grantStore.repositoryGrant!, grantId: '00000000-0000-4000-8000-000000000097' }
     await expect(service.latestScan({ actor, tenantId: 'tenant-1', projectId: 'project-1' })).resolves.toBeNull()
@@ -608,7 +632,7 @@ describe('installation and repository grants', () => {
     const getRepositoryForInstallation = vi.fn<GitHubProviderPort['getRepositoryForInstallation']>().mockResolvedValue(repository)
     const grantStore = new MemoryGrantStore()
     grantStore.installationGrant = { tenantId: 'tenant-1', installation, connectedByAccountId: actor.accountId, connectedAt: now }
-    grantStore.repositoryGrant = { grantId: '00000000-0000-4000-8000-000000000088', tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repository, linkedByAccountId: actor.accountId, linkedAt: now }
+    grantStore.repositoryGrant = { grantId: '00000000-0000-4000-8000-000000000088', grantGeneration: 1, tenantId: 'tenant-1', projectId: 'project-1', installationId: installation.id, repository, linkedByAccountId: actor.accountId, linkedAt: now }
     grantStore.authorizedAccess = false
     const grants = new GitHubGrantService(
       { listInstallationsForUser, getRepositoryForInstallation },

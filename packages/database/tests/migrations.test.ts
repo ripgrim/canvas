@@ -15,8 +15,20 @@ describe('control-plane migrations', () => {
 
   it('loads deterministic checksummed migrations', async () => {
     const migrations = await loadMigrations(new URL('../migrations/', import.meta.url))
-    expect(migrations.map(migration => migration.name)).toEqual(['0001_control_plane.sql', '0002_canonical_blank_documents.sql', '0003_sync_history.sql', '0004_sync_history_hardening.sql', '0005_github_app_grants.sql', '0006_github_security_and_thumbnail_identity.sql', '0007_thumbnail_capture_jobs.sql', '0008_file_sharing.sql', '0009_collaboration_rooms.sql', '0010_collaboration_access_bootstrap.sql', '0011_collaboration_authority_cutover.sql', '0012_github_return_handoff.sql', '0013_file_project_identity.sql', '0014_repository_job_leases.sql', '0015_repository_scan_results.sql', '0016_repository_scan_terminal_states.sql', '0017_hosted_preview_artifacts.sql', '0018_hosted_preview_build_jobs.sql', '0019_github_docs_reviews.sql'])
+    expect(migrations.map(migration => migration.name)).toEqual(['0001_control_plane.sql', '0002_canonical_blank_documents.sql', '0003_sync_history.sql', '0004_sync_history_hardening.sql', '0005_github_app_grants.sql', '0006_github_security_and_thumbnail_identity.sql', '0007_thumbnail_capture_jobs.sql', '0008_file_sharing.sql', '0009_collaboration_rooms.sql', '0010_collaboration_access_bootstrap.sql', '0011_collaboration_authority_cutover.sql', '0012_github_return_handoff.sql', '0013_file_project_identity.sql', '0014_repository_job_leases.sql', '0015_repository_scan_results.sql', '0016_repository_scan_terminal_states.sql', '0017_hosted_preview_artifacts.sql', '0018_hosted_preview_build_jobs.sql', '0019_github_docs_reviews.sql', '0020_repository_source_bindings.sql'])
     expect(migrations.every(migration => /^[a-f0-9]{64}$/.test(migration.checksum))).toBe(true)
+  })
+
+  it('COMP-V2-BINDING-001 persists grant generations and current source binding snapshots', async () => {
+    const sql = await readFile(new URL('../migrations/0020_repository_source_bindings.sql', import.meta.url), 'utf8')
+    expect(sql).toContain('grant_generation bigint NOT NULL DEFAULT 1')
+    expect(sql).toContain('repository_grant_generation bigint')
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS app_github_repository_source_binding')
+    expect(sql).toContain('project_id uuid PRIMARY KEY')
+    expect(sql).toContain('canonical_digest text NOT NULL')
+    expect(sql).toContain("jsonb_typeof(records) = 'array'")
+    expect(sql).not.toContain('DROP TABLE')
+    expect(sql).not.toContain('DROP COLUMN')
   })
 
   it('COMP-V2-DOCS-004 persists review and save as separate states', async () => {

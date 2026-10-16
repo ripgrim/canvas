@@ -1,3 +1,5 @@
+import type { SourceBindingRecord, SourceBindingSnapshot, SourceScanAuthority } from '@canvas/repository'
+
 export type GitHubActor = Readonly<{ accountId: string; providerUserId: string }>
 export type ProjectRepositoryOperation = 'link-repository' | 'scan' | 'pull' | 'prepare-patch' | 'write'
 export type LiveRepositoryOperation = Exclude<ProjectRepositoryOperation, 'link-repository'>
@@ -47,7 +49,8 @@ export interface GitHubProviderPort {
 }
 
 export type InstallationGrant = Readonly<{ tenantId: string; installation: GitHubInstallationIdentity; connectedByAccountId: string; connectedAt: number }>
-export type RepositoryGrant = Readonly<{ grantId: string; tenantId: string; projectId: string; installationId: string; repository: GitHubRepositoryIdentity; linkedByAccountId: string; linkedAt: number }>
+export type RepositoryGrantInput = Readonly<{ grantId: string; tenantId: string; projectId: string; installationId: string; repository: GitHubRepositoryIdentity; linkedByAccountId: string; linkedAt: number }>
+export type RepositoryGrant = RepositoryGrantInput & Readonly<{ grantGeneration: number }>
 export type RepositoryAccessSnapshot = Readonly<{ grant: RepositoryGrant; installation: InstallationGrant }>
 export type GitHubComponentAdmissionAccess = Readonly<{ provider: 'github'; projectId: string; repositoryId: string }>
 export type InstallationInvalidationReason = 'deleted' | 'suspended'
@@ -55,7 +58,7 @@ export type InstallationInvalidationReason = 'deleted' | 'suspended'
 export interface GitHubGrantStore {
   saveInstallationGrant(grant: InstallationGrant): Promise<void>
   getActiveInstallationGrant(input: Readonly<{ tenantId: string; installationId: string }>): Promise<InstallationGrant | null>
-  saveRepositoryGrant(grant: RepositoryGrant): Promise<void>
+  saveRepositoryGrant(grant: RepositoryGrantInput): Promise<RepositoryGrant>
   getRepositoryGrant(input: Readonly<{ tenantId: string; projectId: string }>): Promise<RepositoryGrant | null>
   getAuthorizedRepositoryAccess(input: Readonly<{ actorAccountId: string; tenantId: string; projectId: string; operation: LiveRepositoryOperation }>): Promise<RepositoryAccessSnapshot | null>
   invalidateInstallation(input: Readonly<{ installationId: string; reason: InstallationInvalidationReason; invalidatedAt: number }>): Promise<void>
@@ -79,6 +82,7 @@ type RepositoryJobBase = Readonly<{
   repositoryId: string
   repositoryLinkedAt: number
   repositoryGrantId: string
+  repositoryGrantGeneration: number
   createdAt: number
   attempt: number
 }>
@@ -110,7 +114,55 @@ export type RepositoryJobScope = Readonly<{
   repositoryId: string
   repositoryLinkedAt: number
   repositoryGrantId: string
+  repositoryGrantGeneration: number
 }>
+
+export type RepositorySourceBindingGrantScope = Readonly<{
+  installationId: string
+  repositoryId: string
+  repositoryLinkedAt: number
+  repositoryGrantId: string
+  repositoryGrantGeneration: number
+}>
+
+export type RepositorySourceBindingScanScope = Readonly<{
+  scanJobId: string
+  sourceRevision: string
+  registryFingerprint: string
+}>
+
+export type RepositorySourceBindingCandidate = Readonly<{
+  authority: SourceScanAuthority
+  records: readonly SourceBindingRecord[]
+  updatedAt: number
+}>
+
+export type RepositorySourceBindingCommitResult =
+  | Readonly<{ status: 'committed'; snapshot: unknown }>
+  | Readonly<{ status: 'stale' }>
+  | Readonly<{ status: 'unauthorized' }>
+
+export interface RepositorySourceBindingStore {
+  getAuthorized(input: Readonly<{
+    actorAccountId: string
+    tenantId: string
+    projectId: string
+    operation: 'pull'
+  }>): Promise<unknown | null>
+  commitAuthorized(input: Readonly<{
+    actorAccountId: string
+    tenantId: string
+    projectId: string
+    operation: 'pull'
+    expectedVersion: number | null
+    expectedAuthority: SourceScanAuthority | null
+    grantScope: RepositorySourceBindingGrantScope
+    scanScope: RepositorySourceBindingScanScope
+    candidate: RepositorySourceBindingCandidate
+  }>): Promise<RepositorySourceBindingCommitResult>
+}
+
+export type HostedSourceBindingSnapshot = SourceBindingSnapshot
 
 export type RepositoryDocsReviewStatus = 'queued_prepare' | 'preparing' | 'prepared' | 'queued_save' | 'saving' | 'saved' | 'stale' | 'failed'
 export type RepositoryDocsReview = Readonly<{

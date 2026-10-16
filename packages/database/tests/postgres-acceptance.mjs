@@ -25,7 +25,7 @@ async function runControlPlaneAcceptance(pool) {
   assert.equal(await store.completeThumbnailCaptureJob(initialCapture.id, initialCapture.leaseId, new Date()), true)
   assert.equal(file.headRevision, 0)
   const initial = await store.getFileDocument('acceptance-owner', file.id)
-  assert.equal(initial?.document.schemaVersion, 12)
+  assert.equal(initial?.document.schemaVersion, 13)
   assert.equal(initial?.document.fileId, file.id)
   assert.equal(initial?.document.revision, 0)
   assert.equal(initial?.document.pages.length, 1)
@@ -201,7 +201,8 @@ async function runControlPlaneAcceptance(pool) {
     linkedAt: Date.now(),
   }
   await github.grants.saveInstallationGrant(installation)
-  await github.grants.saveRepositoryGrant(repository)
+  const savedRepository = await github.grants.saveRepositoryGrant(repository)
+  assert.equal(savedRepository.grantGeneration, 1)
   await pool.query("INSERT INTO app_project_member (project_id, user_id, role) VALUES ($1, 'acceptance-viewer', 'viewer'), ($1, 'acceptance-reviewer', 'reviewer')", [project.id])
   assert.deepEqual(await github.projectAuthorization.authorizeProjectOperation({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'write' }), { isMember: true, roleAllowsOperation: true })
   assert.equal(await github.projectTenancy.resolveTenantForMember(project.id, 'acceptance-owner'), 'acceptance-owner')
@@ -226,6 +227,7 @@ async function runControlPlaneAcceptance(pool) {
     repositoryId: repository.repository.id,
     repositoryLinkedAt: repository.linkedAt,
     repositoryGrantId: repository.grantId,
+    repositoryGrantGeneration: savedRepository.grantGeneration,
     status: 'queued',
     createdAt: claimTime,
     nextAttemptAt: claimTime,
@@ -246,11 +248,12 @@ async function runControlPlaneAcceptance(pool) {
   assert.equal(recoveredRepositoryClaim?.attempt, 2)
   assert.equal(await github.jobs.isCurrentLease({ id: repositoryJobId, leaseId: winningRepositoryLease, now: claimTime + 12 }), false)
   const relinkedRepository = { ...repository, grantId: randomUUID(), linkedAt: repository.linkedAt + 1 }
-  await github.grants.saveRepositoryGrant(relinkedRepository)
+  const savedRelinkedRepository = await github.grants.saveRepositoryGrant(relinkedRepository)
+  assert.equal(savedRelinkedRepository.grantGeneration, 2)
   assert.equal(await github.jobs.completeScan({ id: repositoryJobId, leaseId: recoveredRepositoryLease, now: claimTime + 12, result: { sourceRevision: 'a'.repeat(40), scan: {}, request: {} } }), false)
   assert.equal((await github.jobs.get(repositoryJobId))?.status, 'running')
   await github.jobs.retry({ id: repositoryJobId, leaseId: winningRepositoryLease, nextAttemptAt: claimTime + 50 })
-  assert.equal(await github.jobs.isCurrentLease({ id: repositoryJobId, leaseId: recoveredRepositoryLease, now: claimTime + 12 }), true)
+  assert.equal(await github.jobs.isCurrentLease({ id: repositoryJobId, leaseId: recoveredRepositoryLease, now: claimTime + 12 }), false)
   await github.jobs.retry({ id: repositoryJobId, leaseId: recoveredRepositoryLease, nextAttemptAt: claimTime + 50 })
   assert.equal((await github.jobs.get(repositoryJobId))?.status, 'queued')
 
@@ -267,6 +270,7 @@ async function runControlPlaneAcceptance(pool) {
     repositoryId: relinkedRepository.repository.id,
     repositoryLinkedAt: relinkedRepository.linkedAt,
     repositoryGrantId: relinkedRepository.grantId,
+    repositoryGrantGeneration: savedRelinkedRepository.grantGeneration,
     status: 'queued',
     createdAt: completedScanTime,
     nextAttemptAt: completedScanTime,
@@ -282,6 +286,7 @@ async function runControlPlaneAcceptance(pool) {
     repositoryId: relinkedRepository.repository.id,
     repositoryLinkedAt: relinkedRepository.linkedAt,
     repositoryGrantId: relinkedRepository.grantId,
+    repositoryGrantGeneration: savedRelinkedRepository.grantGeneration,
   }
   assert.equal((await github.jobs.latestCompletedScan(completedScanScope))?.id, completedScanId)
   assert.equal((await github.jobs.getAuthorized(completedScanId, 'acceptance-viewer'))?.id, completedScanId)
@@ -289,6 +294,177 @@ async function runControlPlaneAcceptance(pool) {
   assert.equal(await github.jobs.getAuthorized(completedScanId, 'acceptance-viewer'), null)
   assert.equal(await github.jobs.latestCompletedScan({ ...completedScanScope, actorAccountId: 'acceptance-viewer' }), null)
   await pool.query("INSERT INTO app_project_member (project_id, user_id, role) VALUES ($1, 'acceptance-viewer', 'viewer')", [project.id])
+
+  const bindingAuthority = {
+    repository: { provider: 'github', projectId: project.id, repositoryId: relinkedRepository.repository.id },
+    scanId: completedScanId,
+    sourceRevision: 'b'.repeat(40),
+    registryFingerprint: `sha256:${'e'.repeat(64)}`,
+    grantGeneration: savedRelinkedRepository.grantGeneration,
+    adapterId: 'acceptance-v1',
+  }
+  const bindingEvidence = { symbolKey: 'button', packageName: '@canvas/ui', path: 'src/button.tsx', exportName: 'Button', sourceHash: '1'.repeat(64), fingerprint: '2'.repeat(64) }
+  const bindingCandidate = {
+    authority: bindingAuthority,
+    records: [{ id: randomUUID(), repository: bindingAuthority.repository, authority: bindingAuthority, evidence: bindingEvidence, status: 'bound' }],
+    updatedAt: completedScanTime + 2,
+  }
+  const bindingCommit = {
+    actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull',
+    expectedVersion: null, expectedAuthority: null,
+    grantScope: {
+      installationId: installation.installation.id, repositoryId: relinkedRepository.repository.id,
+      repositoryLinkedAt: relinkedRepository.linkedAt, repositoryGrantId: relinkedRepository.grantId,
+      repositoryGrantGeneration: savedRelinkedRepository.grantGeneration,
+    },
+    scanScope: { scanJobId: completedScanId, sourceRevision: 'b'.repeat(40), registryFingerprint: bindingAuthority.registryFingerprint },
+    candidate: bindingCandidate,
+  }
+  for (const mismatch of [
+    { installationId: '9000000096', repositoryId: relinkedRepository.repository.id },
+    { installationId: installation.installation.id, repositoryId: '9000000095' },
+  ]) {
+    const mismatchedScanId = randomUUID()
+    await cloneCompletedScan(pool, completedScanId, mismatchedScanId, mismatch.installationId, mismatch.repositoryId)
+    const mismatchedAuthority = { ...bindingAuthority, scanId: mismatchedScanId }
+    const mismatchedCandidate = { ...bindingCandidate, authority: mismatchedAuthority, records: bindingCandidate.records.map(record => ({ ...record, authority: mismatchedAuthority })) }
+    assert.deepEqual(await github.sourceBindings.commitAuthorized({ ...bindingCommit, scanScope: { ...bindingCommit.scanScope, scanJobId: mismatchedScanId }, candidate: mismatchedCandidate }), { status: 'unauthorized' })
+  }
+  const firstBinding = await github.sourceBindings.commitAuthorized(bindingCommit)
+  assert.equal(firstBinding.status, 'committed')
+  assert.equal(firstBinding.snapshot.version, 1)
+  assert.deepEqual(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-viewer', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), firstBinding.snapshot)
+  assert.equal(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'other-tenant', projectId: project.id, operation: 'pull' }), null)
+  await pool.query("DELETE FROM app_project_member WHERE project_id = $1 AND user_id = 'acceptance-owner'", [project.id])
+  assert.equal(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), null)
+  assert.deepEqual(await github.sourceBindings.commitAuthorized(bindingCommit), { status: 'unauthorized' })
+  await pool.query("INSERT INTO app_project_member (project_id, user_id, role) VALUES ($1, 'acceptance-owner', 'owner')", [project.id])
+  await pool.query("UPDATE app_github_installation_grant SET invalidated_at = to_timestamp($3 / 1000.0), invalidation_reason = 'suspended' WHERE tenant_id = $1 AND installation_id = $2", ['acceptance-owner', installation.installation.id, completedScanTime + 2])
+  assert.equal((await pool.query('SELECT invalidated_at FROM app_github_repository_grant WHERE project_id = $1', [project.id])).rows[0]?.invalidated_at, null)
+  assert.equal(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), null)
+  assert.deepEqual(await github.sourceBindings.commitAuthorized(bindingCommit), { status: 'unauthorized' })
+  await pool.query('UPDATE app_github_installation_grant SET invalidated_at = NULL, invalidation_reason = NULL WHERE tenant_id = $1 AND installation_id = $2', ['acceptance-owner', installation.installation.id])
+  assert.deepEqual(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), firstBinding.snapshot)
+  for (const reason of ['suspended', 'deleted']) {
+    await github.grants.invalidateInstallation({ installationId: installation.installation.id, reason, invalidatedAt: completedScanTime + 2 })
+    assert.equal(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), null)
+    assert.deepEqual(await github.sourceBindings.commitAuthorized(bindingCommit), { status: 'unauthorized' })
+    await pool.query('UPDATE app_github_installation_grant SET invalidated_at = NULL, invalidation_reason = NULL WHERE tenant_id = $1 AND installation_id = $2', ['acceptance-owner', installation.installation.id])
+    await pool.query('UPDATE app_github_repository_grant SET invalidated_at = NULL, invalidation_reason = NULL WHERE project_id = $1', [project.id])
+    assert.deepEqual(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), firstBinding.snapshot)
+  }
+  await github.grants.invalidateRepositories({ installationId: installation.installation.id, repositoryIds: [repository.repository.id], reason: 'removed', invalidatedAt: completedScanTime + 3 })
+  assert.equal(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), null)
+  assert.deepEqual(await github.sourceBindings.commitAuthorized(bindingCommit), { status: 'unauthorized' })
+  await pool.query('UPDATE app_github_repository_grant SET invalidated_at = NULL, invalidation_reason = NULL WHERE project_id = $1', [project.id])
+  const wrongExpectedAuthority = { ...bindingAuthority, registryFingerprint: `sha256:${'9'.repeat(64)}` }
+  assert.deepEqual(await github.sourceBindings.commitAuthorized({ ...bindingCommit, expectedVersion: 1, expectedAuthority: wrongExpectedAuthority }), { status: 'stale' })
+
+  const lineageMutations = [
+    { sql: 'UPDATE app_github_repository_source_binding SET repository_linked_at = to_timestamp($2 / 1000.0) WHERE project_id = $1', value: relinkedRepository.linkedAt + 1, restore: relinkedRepository.linkedAt, status: 'unauthorized' },
+    { sql: 'UPDATE app_github_repository_source_binding SET repository_grant_id = $2::uuid WHERE project_id = $1', value: randomUUID(), restore: relinkedRepository.grantId, status: 'unauthorized' },
+    { sql: 'UPDATE app_github_repository_source_binding SET repository_grant_generation = $2 WHERE project_id = $1', value: savedRelinkedRepository.grantGeneration + 1, restore: savedRelinkedRepository.grantGeneration, status: 'unauthorized' },
+    { sql: 'UPDATE app_github_repository_source_binding SET installation_id = $2 WHERE project_id = $1', value: '9000000094', restore: installation.installation.id, status: 'stale' },
+    { sql: 'UPDATE app_github_repository_source_binding SET repository_id = $2 WHERE project_id = $1', value: '9000000093', restore: relinkedRepository.repository.id, status: 'stale' },
+  ]
+  for (const mutation of lineageMutations) {
+    await pool.query(mutation.sql, [project.id, mutation.value])
+    assert.equal(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), null)
+    assert.deepEqual(await github.sourceBindings.commitAuthorized({ ...bindingCommit, expectedVersion: 1, expectedAuthority: bindingAuthority }), { status: mutation.status })
+    await pool.query(mutation.sql, [project.id, mutation.restore])
+    assert.deepEqual(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), firstBinding.snapshot)
+  }
+  const bindingRaces = await Promise.all([
+    github.sourceBindings.commitAuthorized({ ...bindingCommit, expectedVersion: 1, expectedAuthority: bindingAuthority, candidate: { ...bindingCandidate, updatedAt: completedScanTime + 3 } }),
+    github.sourceBindings.commitAuthorized({ ...bindingCommit, expectedVersion: 1, expectedAuthority: bindingAuthority, candidate: { ...bindingCandidate, updatedAt: completedScanTime + 4 } }),
+  ])
+  assert.deepEqual(bindingRaces.map(result => result.status).sort(), ['committed', 'stale'])
+
+  const firstCreateRaceProject = await store.createProject('acceptance-owner', 'Binding first-create race')
+  const firstCreateRaceGrant = {
+    ...relinkedRepository,
+    grantId: randomUUID(),
+    projectId: firstCreateRaceProject.id,
+    linkedAt: completedScanTime + 20,
+  }
+  const savedFirstCreateRaceGrant = await github.grants.saveRepositoryGrant(firstCreateRaceGrant)
+  const firstCreateRaceScanId = randomUUID()
+  const firstCreateRaceLeaseId = randomUUID()
+  const firstCreateRaceScanTime = completedScanTime + 21
+  await github.jobs.enqueue({
+    id: firstCreateRaceScanId,
+    actor: { accountId: 'acceptance-owner', providerUserId: '9000000004' },
+    tenantId: 'acceptance-owner',
+    projectId: firstCreateRaceProject.id,
+    operation: 'scan',
+    installationId: installation.installation.id,
+    repositoryId: firstCreateRaceGrant.repository.id,
+    repositoryLinkedAt: firstCreateRaceGrant.linkedAt,
+    repositoryGrantId: firstCreateRaceGrant.grantId,
+    repositoryGrantGeneration: savedFirstCreateRaceGrant.grantGeneration,
+    status: 'queued',
+    createdAt: firstCreateRaceScanTime,
+    nextAttemptAt: firstCreateRaceScanTime,
+    attempt: 0,
+  })
+  assert.equal((await github.jobs.claimScan({ id: firstCreateRaceScanId, leaseId: firstCreateRaceLeaseId, now: firstCreateRaceScanTime, leaseExpiresAt: firstCreateRaceScanTime + 100 }))?.status, 'running')
+  assert.equal(await github.jobs.completeScan({ id: firstCreateRaceScanId, leaseId: firstCreateRaceLeaseId, now: firstCreateRaceScanTime + 1, result: { sourceRevision: '4'.repeat(40), scan: { adapterId: 'acceptance' }, request: { version: 1 } } }), true)
+  const firstCreateRaceAuthority = {
+    repository: { provider: 'github', projectId: firstCreateRaceProject.id, repositoryId: firstCreateRaceGrant.repository.id },
+    scanId: firstCreateRaceScanId,
+    sourceRevision: '4'.repeat(40),
+    registryFingerprint: `sha256:${'6'.repeat(64)}`,
+    grantGeneration: savedFirstCreateRaceGrant.grantGeneration,
+    adapterId: 'acceptance-v1',
+  }
+  const firstCreateRaceCandidate = {
+    authority: firstCreateRaceAuthority,
+    records: [{
+      id: randomUUID(),
+      repository: firstCreateRaceAuthority.repository,
+      authority: firstCreateRaceAuthority,
+      evidence: { ...bindingEvidence, symbolKey: 'first-create-race' },
+      status: 'bound',
+    }],
+    updatedAt: firstCreateRaceScanTime + 2,
+  }
+  const firstCreateRaceCommit = {
+    actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: firstCreateRaceProject.id, operation: 'pull',
+    expectedVersion: null, expectedAuthority: null,
+    grantScope: {
+      installationId: installation.installation.id, repositoryId: firstCreateRaceGrant.repository.id,
+      repositoryLinkedAt: firstCreateRaceGrant.linkedAt, repositoryGrantId: firstCreateRaceGrant.grantId,
+      repositoryGrantGeneration: savedFirstCreateRaceGrant.grantGeneration,
+    },
+    scanScope: { scanJobId: firstCreateRaceScanId, sourceRevision: firstCreateRaceAuthority.sourceRevision, registryFingerprint: firstCreateRaceAuthority.registryFingerprint },
+    candidate: firstCreateRaceCandidate,
+  }
+  const competingGithub = createPostgresGitHubPersistence(pool)
+  const firstCreateRaces = await Promise.all([
+    github.sourceBindings.commitAuthorized(firstCreateRaceCommit),
+    competingGithub.sourceBindings.commitAuthorized({ ...firstCreateRaceCommit, candidate: { ...firstCreateRaceCandidate, updatedAt: firstCreateRaceScanTime + 3 } }),
+  ])
+  assert.deepEqual(firstCreateRaces.map(result => result.status).sort(), ['committed', 'stale'])
+  assert.equal((await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: firstCreateRaceProject.id, operation: 'pull' }))?.version, 1)
+
+  await assert.rejects(github.sourceBindings.commitAuthorized({ ...bindingCommit, candidate: { ...bindingCandidate, records: [{ ...bindingCandidate.records[0], extra: true }] } }), /invalid/i)
+  const currentBinding = bindingRaces.find(result => result.status === 'committed').snapshot
+  assert.deepEqual(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), currentBinding)
+  const storedBinding = (await pool.query('SELECT authority, records, canonical_digest FROM app_github_repository_source_binding WHERE project_id = $1', [project.id])).rows[0]
+  await pool.query("UPDATE app_github_repository_source_binding SET canonical_digest = $2 WHERE project_id = $1", [project.id, '0'.repeat(64)])
+  await assert.rejects(github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), /invalid/i)
+  await pool.query("UPDATE app_github_repository_source_binding SET records = '[{\"bad\":true}]'::jsonb, canonical_digest = $2 WHERE project_id = $1", [project.id, storedBinding.canonical_digest])
+  await assert.rejects(github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), /invalid/i)
+  const forgedAuthority = { ...currentBinding.authority, repository: { ...currentBinding.authority.repository, repositoryId: '9000000097' } }
+  const forgedRecords = currentBinding.records.map(record => ({ ...record, repository: forgedAuthority.repository, authority: forgedAuthority }))
+  const forgedSnapshot = { version: currentBinding.version, authority: forgedAuthority, records: forgedRecords, updatedAt: currentBinding.updatedAt }
+  await pool.query('UPDATE app_github_repository_source_binding SET authority = $2::jsonb, records = $3::jsonb, canonical_digest = $4 WHERE project_id = $1', [project.id, JSON.stringify(forgedAuthority), JSON.stringify(forgedRecords), canonicalDigest(forgedSnapshot)])
+  await assert.rejects(github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), /invalid/i)
+  await pool.query('UPDATE app_github_repository_source_binding SET authority = $2::jsonb, records = $3::jsonb, canonical_digest = $4 WHERE project_id = $1', [project.id, JSON.stringify(storedBinding.authority), JSON.stringify(storedBinding.records), storedBinding.canonical_digest])
+  await pool.query('UPDATE app_github_repository_source_binding SET repository_grant_generation = $2 WHERE project_id = $1', [project.id, savedRelinkedRepository.grantGeneration + 100])
+  assert.equal(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), null)
+  assert.deepEqual(await github.sourceBindings.commitAuthorized({ ...bindingCommit, expectedVersion: null, expectedAuthority: null }), { status: 'unauthorized' })
+  await pool.query('UPDATE app_github_repository_source_binding SET repository_grant_generation = $2 WHERE project_id = $1', [project.id, savedRelinkedRepository.grantGeneration])
 
   const hostedBuildInput = {
     id: randomUUID(),
@@ -336,6 +512,7 @@ async function runControlPlaneAcceptance(pool) {
     repositoryId: repository.repository.id,
     repositoryLinkedAt: relinkedRepository.linkedAt,
     repositoryGrantId: relinkedRepository.grantId,
+    repositoryGrantGeneration: savedRelinkedRepository.grantGeneration,
     status: 'queued',
     createdAt: claimTime,
     nextAttemptAt: claimTime,
@@ -393,10 +570,32 @@ async function runControlPlaneAcceptance(pool) {
   assert.equal((await docs.getLatestAuthorized(project.id, file.id, 'acceptance-owner'))?.id, docsReviewId)
   assert.equal(await docs.getLatestAuthorized(project.id, file.id, 'acceptance-viewer'), null)
 
-  await github.grants.saveRepositoryGrant({ ...relinkedRepository, grantId: randomUUID(), linkedAt: relinkedRepository.linkedAt + 1 })
+  const thirdGrant = await github.grants.saveRepositoryGrant({ ...relinkedRepository, grantId: randomUUID(), linkedAt: relinkedRepository.linkedAt + 1 })
+  assert.equal(thirdGrant.grantGeneration, 3)
+  assert.deepEqual(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), currentBinding)
   assert.equal(await github.jobs.getAuthorized(completedScanId, 'acceptance-owner'), null)
   assert.equal(await github.jobs.latestCompletedScan(completedScanScope), null)
-  await github.grants.invalidateRepositories({ installationId: installation.installation.id, repositoryIds: [repository.repository.id], reason: 'removed', invalidatedAt: Date.now() })
+  const relinkScanId = randomUUID()
+  const relinkLeaseId = randomUUID()
+  const relinkScanTime = docsCreatedAt + 10
+  await github.jobs.enqueue({ id: relinkScanId, actor: { accountId: 'acceptance-owner', providerUserId: '9000000004' }, tenantId: 'acceptance-owner', projectId: project.id, operation: 'scan', installationId: thirdGrant.installationId, repositoryId: thirdGrant.repository.id, repositoryLinkedAt: thirdGrant.linkedAt, repositoryGrantId: thirdGrant.grantId, repositoryGrantGeneration: thirdGrant.grantGeneration, status: 'queued', createdAt: relinkScanTime, nextAttemptAt: relinkScanTime, attempt: 0 })
+  await github.jobs.claimScan({ id: relinkScanId, leaseId: relinkLeaseId, now: relinkScanTime, leaseExpiresAt: relinkScanTime + 100 })
+  await github.jobs.completeScan({ id: relinkScanId, leaseId: relinkLeaseId, now: relinkScanTime + 1, result: { sourceRevision: '3'.repeat(40), scan: { adapterId: 'acceptance' }, request: { version: 1 } } })
+  const relinkAuthority = { ...currentBinding.authority, scanId: relinkScanId, sourceRevision: '3'.repeat(40), grantGeneration: thirdGrant.grantGeneration }
+  const relinkCandidate = { authority: relinkAuthority, records: currentBinding.records.map(record => ({ ...record, authority: relinkAuthority })), updatedAt: relinkScanTime + 2 }
+  const continuedBinding = await github.sourceBindings.commitAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull', expectedVersion: currentBinding.version, expectedAuthority: currentBinding.authority, grantScope: { installationId: thirdGrant.installationId, repositoryId: thirdGrant.repository.id, repositoryLinkedAt: thirdGrant.linkedAt, repositoryGrantId: thirdGrant.grantId, repositoryGrantGeneration: thirdGrant.grantGeneration }, scanScope: { scanJobId: relinkScanId, sourceRevision: '3'.repeat(40), registryFingerprint: currentBinding.authority.registryFingerprint }, candidate: relinkCandidate })
+  assert.equal(continuedBinding.status, 'committed')
+  assert.equal(continuedBinding.snapshot.version, currentBinding.version + 1)
+  assert.deepEqual(continuedBinding.snapshot.records.map(record => record.id), currentBinding.records.map(record => record.id))
+  const differentRepository = await github.grants.saveRepositoryGrant({ ...repository, grantId: randomUUID(), repository: { ...repository.repository, id: '9000000099', name: 'other-repo', fullName: 'acceptance-team/other-repo' }, linkedAt: thirdGrant.linkedAt + 1 })
+  assert.equal(differentRepository.grantGeneration, 4)
+  assert.equal(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), null)
+  const otherInstallation = { ...installation, installation: { ...installation.installation, id: '9000000098' }, connectedAt: thirdGrant.linkedAt + 2 }
+  await github.grants.saveInstallationGrant(otherInstallation)
+  const differentInstallation = await github.grants.saveRepositoryGrant({ ...repository, grantId: randomUUID(), installationId: otherInstallation.installation.id, repository: { ...repository.repository, installationId: otherInstallation.installation.id }, linkedAt: thirdGrant.linkedAt + 2 })
+  assert.equal(differentInstallation.grantGeneration, 5)
+  assert.equal(await github.sourceBindings.getAuthorized({ actorAccountId: 'acceptance-owner', tenantId: 'acceptance-owner', projectId: project.id, operation: 'pull' }), null)
+  await github.grants.invalidateRepositories({ installationId: otherInstallation.installation.id, repositoryIds: [repository.repository.id], reason: 'removed', invalidatedAt: Date.now() })
   assert.equal(await github.grants.getRepositoryGrant({ tenantId: 'acceptance-owner', projectId: project.id }), null)
 }
 
@@ -410,6 +609,30 @@ async function waitForDatabaseLock(pool, applicationName) {
     await new Promise(resolve => setTimeout(resolve, 10))
   }
   throw new Error('Hosted preview registration did not block on the projection lock.')
+}
+
+function canonicalDigest(value) {
+  return createHash('sha256').update(canonicalJson(value)).digest('hex')
+}
+
+function canonicalJson(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
+}
+
+async function cloneCompletedScan(pool, sourceId, cloneId, installationId, repositoryId) {
+  await pool.query(
+    `INSERT INTO app_github_repository_job
+      (id, actor_account_id, actor_provider_user_id, tenant_id, project_id, operation, installation_id, repository_id, status, created_at,
+       attempt, lease_id, lease_expires_at, source_revision, scan_result, registry_request, completed_at, repository_linked_at,
+       next_attempt_at, error_id, failed_at, repository_grant_id, repository_grant_generation)
+     SELECT $2::uuid, actor_account_id, actor_provider_user_id, tenant_id, project_id, operation, $3, $4, status, created_at,
+       attempt, lease_id, lease_expires_at, source_revision, scan_result, registry_request, completed_at, repository_linked_at,
+       next_attempt_at, error_id, failed_at, repository_grant_id, repository_grant_generation
+     FROM app_github_repository_job WHERE id = $1::uuid`,
+    [sourceId, cloneId, installationId, repositoryId],
+  )
 }
 
 async function runDisposableAcceptance() {

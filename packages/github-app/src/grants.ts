@@ -59,7 +59,7 @@ export class GitHubGrantService {
     if (!installationGrant) throw new GitHubAppError('INSTALLATION_NOT_ACTIVE', 'GitHub installation is not available.')
     const live = await this.loadLiveIntersection(actor, installationId, repositoryId)
     assertPermissionIntersection(live.installation.contentsPermission, live.repository.contentsPermission, 'scan')
-    const grant: RepositoryGrant = {
+    const grant = {
       grantId: this.createGrantId(),
       tenantId,
       projectId,
@@ -68,8 +68,11 @@ export class GitHubGrantService {
       linkedByAccountId: actor.accountId,
       linkedAt: this.now(),
     }
-    await this.store.saveRepositoryGrant(grant)
-    return grant
+    const stored = await this.store.saveRepositoryGrant(grant)
+    if (!sameGrantInput(stored, grant) || !Number.isSafeInteger(stored.grantGeneration) || stored.grantGeneration < 1) {
+      throw new GitHubAppError('REPOSITORY_NOT_VISIBLE', 'GitHub repository is not available.')
+    }
+    return stored
   }
 
   async listLinkableRepositories(input: Readonly<{
@@ -170,5 +173,18 @@ function sameSnapshot(left: RepositoryAccessSnapshot, right: RepositoryAccessSna
     && left.grant.projectId === right.grant.projectId
     && left.grant.installationId === right.grant.installationId
     && left.grant.repository.id === right.grant.repository.id
+    && left.grant.linkedAt === right.grant.linkedAt
+    && left.grant.grantGeneration === right.grant.grantGeneration
     && left.installation.installation.id === right.installation.installation.id
+}
+
+function sameGrantInput(left: RepositoryGrant, right: Omit<RepositoryGrant, 'grantGeneration'>): boolean {
+  return left.grantId === right.grantId
+    && left.tenantId === right.tenantId
+    && left.projectId === right.projectId
+    && left.installationId === right.installationId
+    && left.repository.id === right.repository.id
+    && left.repository.installationId === right.repository.installationId
+    && left.linkedByAccountId === right.linkedByAccountId
+    && left.linkedAt === right.linkedAt
 }

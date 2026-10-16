@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { reconcileSourceBindings, type SourceBindingRecord, type SourceScanAuthority, type SourceSymbolEvidence } from '../src/source-binding'
+import { parseSourceBindingReconciliation, parseSourceBindingSnapshot, planSourceBindingAllocations, reconcileSourceBindings, type SourceBindingRecord, type SourceScanAuthority, type SourceSymbolEvidence } from '../src/source-binding'
 
 const repository = { provider: 'github' as const, projectId: 'project-1', repositoryId: 'repository-1' }
 const hash = (value: string) => value.repeat(64)
@@ -19,6 +19,41 @@ function previous(scan: SourceScanAuthority, records: readonly SourceBindingReco
 }
 
 describe('source binding reconciliation', () => {
+  it('plans server-owned allocations before reconciliation and parses the persisted snapshot exactly', () => {
+    const scan = authority('scan-1', revision('a'), registry('1'))
+    const button = symbol('symbol-button', 'src/Button.tsx', 'Button', hash('a'), hash('1'))
+    const plan = planSourceBindingAllocations({
+      repository,
+      scan: { authority: scan, symbols: [button] },
+      previous: null,
+      seeds: [],
+      rebinds: [],
+    })
+    expect(plan).toEqual({ repository, authority: scan, requiredSymbolKeys: [button.symbolKey] })
+    const snapshot = reconcileSourceBindings({
+      repository,
+      scan: { authority: scan, symbols: [button] },
+      previous: null,
+      seeds: [],
+      allocations: [{ bindingId: 'server-allocated-id', symbolKey: button.symbolKey }],
+      rebinds: [],
+    })
+    expect(parseSourceBindingReconciliation(snapshot)).toEqual(snapshot)
+    const persisted = { version: 1, authority: scan, records: snapshot.records, updatedAt: 123 }
+    expect(parseSourceBindingSnapshot(persisted)).toEqual(persisted)
+    expect(() => parseSourceBindingSnapshot({ ...persisted, extra: true })).toThrow('snapshot')
+    expect(() => parseSourceBindingSnapshot({ ...persisted, records: [{ ...snapshot.records[0], authority: { ...scan, scanId: 'other-scan' } }] })).toThrow('snapshot')
+    expect(() => parseSourceBindingSnapshot({ ...persisted, authority: { ...scan, grantGeneration: 0 } })).toThrow('snapshot')
+    expect(() => planSourceBindingAllocations({
+      repository,
+      scan: { authority: scan, symbols: [button] },
+      previous: null,
+      seeds: [],
+      allocations: [],
+      rebinds: [],
+    })).toThrow('reconciliation')
+  })
+
   it('[COMP-V2-BINDING-001] seeds admitted identities and allocates only new symbols', () => {
     const scan = authority('scan-1', revision('a'), registry('1'))
     const button = symbol('symbol-button', 'src/Button.tsx', 'Button', hash('a'), hash('1'))

@@ -70,6 +70,19 @@ export type SourceBindingReconciliation = Readonly<{
   records: readonly SourceBindingRecord[]
 }>
 
+export type SourceBindingSnapshot = Readonly<{
+  version: number
+  authority: SourceScanAuthority
+  records: readonly SourceBindingRecord[]
+  updatedAt: number
+}>
+
+export type SourceBindingAllocationPlan = Readonly<{
+  repository: SourceRepositoryIdentity
+  authority: SourceScanAuthority
+  requiredSymbolKeys: readonly string[]
+}>
+
 const opaquePattern = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/
 const packagePattern = /^(?:@[A-Za-z0-9][A-Za-z0-9._-]{0,126}\/)?[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 const pathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+-]+)*$/
@@ -109,7 +122,7 @@ function repository(value: unknown): SourceRepositoryIdentity {
 
 function authority(value: unknown): SourceScanAuthority {
   const item = exact(value, ['repository', 'scanId', 'sourceRevision', 'registryFingerprint', 'grantGeneration', 'adapterId'], [], 'source scan authority')
-  if (!Number.isSafeInteger(item.grantGeneration) || Number(item.grantGeneration) < 0) invalid('Invalid source grant generation')
+  if (!Number.isSafeInteger(item.grantGeneration) || Number(item.grantGeneration) < 1) invalid('Invalid source grant generation')
   return freeze({
     repository: repository(item.repository),
     scanId: text(item.scanId, opaquePattern, 'source scan id'),
@@ -118,6 +131,10 @@ function authority(value: unknown): SourceScanAuthority {
     grantGeneration: Number(item.grantGeneration),
     adapterId: text(item.adapterId, adapterPattern, 'source adapter id'),
   })
+}
+
+export function parseSourceScanAuthority(value: unknown): SourceScanAuthority {
+  return authority(value)
 }
 
 function evidence(value: unknown): SourceSymbolEvidence {
@@ -225,18 +242,70 @@ function bind(id: string, repo: SourceRepositoryIdentity, scan: SourceScanAuthor
   return freeze({ id, repository: repo, authority: scan, evidence: symbol, status: 'bound' as const })
 }
 
+export function parseSourceBindingReconciliation(input: unknown): SourceBindingReconciliation {
+  const value = exact(input, ['repository', 'authority', 'records'], [], 'source binding snapshot')
+  const repo = repository(value.repository)
+  const snapshotAuthority = authority(value.authority)
+  if (!sameRepository(repo, snapshotAuthority.repository) || !Array.isArray(value.records) || value.records.length > 10_000) invalid('Invalid source binding snapshot')
+  const records = value.records.map(record)
+  const ids = new Set<string>()
+  const locators = new Set<string>()
+  const symbolKeys = new Set<string>()
+  for (const binding of records) {
+    if (!sameRepository(repo, binding.repository) || !sameAuthority(snapshotAuthority, binding.authority)
+      || ids.has(binding.id) || locators.has(locator(binding.evidence)) || symbolKeys.has(binding.evidence.symbolKey)) invalid('Invalid source binding snapshot')
+    ids.add(binding.id)
+    locators.add(locator(binding.evidence))
+    symbolKeys.add(binding.evidence.symbolKey)
+  }
+  return freeze({ repository: repo, authority: snapshotAuthority, records: freeze(records.sort((left, right) => compareText(left.id, right.id))) })
+}
+
+export function parseSourceBindingSnapshot(input: unknown): SourceBindingSnapshot {
+  try {
+    const value = exact(input, ['version', 'authority', 'records', 'updatedAt'], [], 'source binding snapshot')
+    if (!Number.isSafeInteger(value.version) || Number(value.version) < 1
+      || !Number.isSafeInteger(value.updatedAt) || Number(value.updatedAt) < 0) invalid('Invalid source binding snapshot')
+    const snapshotAuthority = authority(value.authority)
+    const parsed = parseSourceBindingReconciliation({
+      repository: snapshotAuthority.repository,
+      authority: snapshotAuthority,
+      records: value.records,
+    })
+    return freeze({
+      version: Number(value.version),
+      authority: parsed.authority,
+      records: parsed.records,
+      updatedAt: Number(value.updatedAt),
+    })
+  } catch {
+    return invalid('Invalid source binding snapshot')
+  }
+}
+
+export function planSourceBindingAllocations(input: unknown): SourceBindingAllocationPlan {
+  return runSourceBindings(input, true) as SourceBindingAllocationPlan
+}
+
 export function reconcileSourceBindings(input: unknown): SourceBindingReconciliation {
-  const value = exact(input, ['repository', 'scan', 'previous', 'seeds', 'allocations', 'rebinds'], [], 'source binding reconciliation')
+  return runSourceBindings(input, false) as SourceBindingReconciliation
+}
+
+function runSourceBindings(input: unknown, planning: boolean): SourceBindingAllocationPlan | SourceBindingReconciliation {
+  const value = exact(input, planning
+    ? ['repository', 'scan', 'previous', 'seeds', 'rebinds']
+    : ['repository', 'scan', 'previous', 'seeds', 'allocations', 'rebinds'], [], 'source binding reconciliation')
   const repo = repository(value.repository)
   const scan = exact(value.scan, ['authority', 'symbols'], [], 'source binding scan')
   const currentAuthority = authority(scan.authority)
   if (!sameRepository(repo, currentAuthority.repository)) invalid('Source scan repository mismatch')
   if (!Array.isArray(scan.symbols) || scan.symbols.length > 10_000) invalid('Invalid source binding symbols')
   const symbols = uniqueEvidence(scan.symbols.map(evidence), 'source symbol')
-  if (!Array.isArray(value.seeds) || !Array.isArray(value.allocations) || !Array.isArray(value.rebinds)
-    || value.seeds.length > 10_000 || value.allocations.length > 10_000 || value.rebinds.length > 10_000) invalid('Invalid source binding reconciliation')
+  const allocationInput = planning ? [] : value.allocations
+  if (!Array.isArray(value.seeds) || !Array.isArray(allocationInput) || !Array.isArray(value.rebinds)
+    || value.seeds.length > 10_000 || allocationInput.length > 10_000 || value.rebinds.length > 10_000) invalid('Invalid source binding reconciliation')
   const seeds = value.seeds.map(seed)
-  const allocations = value.allocations.map(allocation)
+  const allocations = allocationInput.map(allocation)
   const rebinds = value.rebinds.map(rebind)
   let prior: readonly SourceBindingRecord[] = []
   let previousAuthority: SourceScanAuthority | undefined
@@ -340,6 +409,11 @@ export function reconcileSourceBindings(input: unknown): SourceBindingReconcilia
   }
 
   const newSymbols = symbols.filter(symbol => !consumed.has(symbol.symbolKey) && !uncertain.has(symbol.symbolKey))
+  if (planning) return freeze({
+    repository: repo,
+    authority: currentAuthority,
+    requiredSymbolKeys: freeze(newSymbols.map(symbol => symbol.symbolKey)),
+  })
   const allocationBySymbol = new Map<string, SourceBindingAllocation>()
   for (const item of allocations) {
     if (allocationBySymbol.has(item.symbolKey) || ids.has(item.bindingId)) invalid('Source binding allocation collision')
