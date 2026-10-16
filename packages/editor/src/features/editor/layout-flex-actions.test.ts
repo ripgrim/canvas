@@ -7,7 +7,7 @@ import { canvasGestures } from './canvas-gestures'
 import { editorStore } from './store'
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'flex-actions',
   revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],

@@ -13,7 +13,7 @@ import type { LayoutContainer, NodeLayout, ParentLayoutContext, PositionMode } f
 import { assetReferences, childrenOf, flowHost, hostOrigin, nodeAppearance, nodeChildDisplay, pageRoot, projectAppearance, resolveColorValue } from './file-document.js'
 import type { FileDocument, ImageAssetReference, PreviewAppearance, SourcePalette } from './file-document.js'
 import type { TextSizing, TextStyle } from './text.js'
-import { resolveComponentInstanceValues } from './component-model.js'
+import { componentDefaultValues, resolveComponentInstanceValues, resolveVariantAppearance } from './component-model.js'
 import type { Appearance } from './appearance.js'
 
 /** The effective design theme of one component instance; `explicit` marks the root where the runtime stamps the attribute. */
@@ -166,30 +166,42 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
     registerAppearanceAssets(source)
     return projected
   }
+  const authoredAppearances = new Map<string, Appearance>()
   const appearanceOf = (id: string, sources: SourcePalette): { appearance: PreviewAppearance } | Record<string, never> => {
-    const projected = projectedAppearance(nodeAppearance(file.nodes[id]), sources)
+    const projected = projectedAppearance(authoredAppearances.get(id) ?? nodeAppearance(file.nodes[id]), sources)
     return projected ? { appearance: projected } : {}
   }
   type AuthoredInteraction = Readonly<{ trigger: 'pointer-hover' | 'pointer-press'; targetId: string; appearance: Appearance; transition?: { type: 'instant' | 'smart-animate'; durationMs?: number; easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' } }>
   const authoredInteractions = new Map<string, AuthoredInteraction[]>()
-  const addDefinitionInteractions = (definition: FileDocument['componentModel']['definitions'][string], masterRootId: string, instanceRootId: string) => {
+  const addDefinitionProjection = (definition: FileDocument['componentModel']['definitions'][string], masterRootId: string, instanceRootId: string, values: Readonly<Record<string, string | boolean>>) => {
     const nodeMap = new Map<string, string>()
+    const swapByNode = new Map(definition.properties.flatMap(property => property.type === 'instance-swap' ? [[property.binding.nodeId, property] as const] : []))
     const visit = (masterId: string, instanceId: string): boolean => {
       const master = file.nodes[masterId]
       const instance = file.nodes[instanceId]
-      if (!master || !instance || master.type !== instance.type) return false
+      if (!master || !instance) return false
+      const swap = swapByNode.get(masterId)
+      const swapValue = swap && typeof values[swap.id] === 'string' ? values[swap.id] : swap?.defaultValue
+      if (swap && swapValue !== swap.defaultValue) return file.componentModel.instances[instanceId]?.componentId === swapValue
+      if (master.type !== instance.type) return false
       nodeMap.set(masterId, instanceId)
       const masterChildren = childrenOf(file, masterId).filter(nodeId => file.relationships[nodeId]?.slot === undefined)
       const instanceChildren = childrenOf(file, instanceId).filter(nodeId => file.relationships[nodeId]?.slot === undefined)
       if (masterChildren.length !== instanceChildren.length) return false
-      return masterChildren.every((masterChild, index) => visit(masterChild, instanceChildren[index]!))
+      return masterChildren.every((masterChild, index) => file.relationships[masterChild]?.slot === file.relationships[instanceChildren[index]!]?.slot && visit(masterChild, instanceChildren[index]!))
     }
     if (!visit(masterRootId, instanceRootId)) return
+    const targetNodeIds = new Set(definition.properties.flatMap(property => property.type === 'variant' && property.binding ? [property.binding.nodeId] : []))
+    for (const targetNodeId of targetNodeIds) {
+      const nodeId = nodeMap.get(targetNodeId)
+      const appearance = resolveVariantAppearance(definition, values, targetNodeId)
+      if (nodeId && appearance) authoredAppearances.set(nodeId, appearance)
+    }
     for (const interaction of definition.interactions) {
       const property = definition.properties.find(candidate => candidate.id === interaction.propertyId)
       if (property?.type !== 'variant' || !property.binding) continue
       const nodeId = nodeMap.get(property.binding.nodeId)
-      const appearance = property.binding.appearances[interaction.valueId]
+      const appearance = resolveVariantAppearance(definition, { ...values, [property.id]: interaction.valueId }, property.binding.nodeId)
       if (!nodeId || !appearance) continue
       const existing = authoredInteractions.get(instanceRootId) ?? []
       const authored: AuthoredInteraction = { trigger: interaction.trigger, targetId: nodeId, appearance, ...(interaction.transition ? { transition: interaction.transition } : {}) }
@@ -198,8 +210,10 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
   }
   for (const definition of Object.values(file.componentModel.definitions)) {
     if (definition.source.kind !== 'canvas') continue
-    addDefinitionInteractions(definition, definition.source.masterRootId, definition.source.masterRootId)
-    for (const instance of Object.values(file.componentModel.instances)) if (instance.componentId === definition.id) addDefinitionInteractions(definition, definition.source.masterRootId, instance.id)
+    const masterValues = { ...componentDefaultValues(definition) }
+    for (const property of definition.properties) if (property.type === 'variant' && property.currentValueId !== undefined) masterValues[property.id] = property.currentValueId
+    addDefinitionProjection(definition, definition.source.masterRootId, definition.source.masterRootId, masterValues)
+    for (const instance of Object.values(file.componentModel.instances)) if (instance.componentId === definition.id) addDefinitionProjection(definition, definition.source.masterRootId, instance.id, resolveComponentInstanceValues(definition, instance.values))
   }
   const interactionsOf = (id: string, sources: SourcePalette): { interactions: PreviewPageInteraction[] } | Record<string, never> => {
     const interactions = authoredInteractions.get(id)?.map(interaction => ({

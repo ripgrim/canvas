@@ -9,7 +9,7 @@ const frame = (id: string): PrimitiveNode => ({ id, type: 'frame', name: id, sty
 const rectangle = (id: string): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 80, height: 60 } })
 const component = (id: string): ComponentNode => ({ id, type: 'component', componentId: card.componentId, exportName: card.exportName, props: {} })
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

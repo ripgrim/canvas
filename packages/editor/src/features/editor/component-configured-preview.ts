@@ -1,4 +1,4 @@
-import { resolveComponentInstanceValues } from '@canvas/repo-engine/component-model'
+import { resolveComponentInstanceValues, resolveVariantAppearance } from '@canvas/repo-engine/component-model'
 import type { ComponentDefinition, ComponentInstanceValues } from '@canvas/repo-engine/component-model'
 import type { Appearance, FileDocument, FileNode } from '@canvas/repo-engine/file-document'
 import { descendantsOf, nodeAppearance, pageOfNode } from '@canvas/repo-engine/file-document'
@@ -23,22 +23,37 @@ function visibleAppearance(node: Exclude<FileNode, { type: 'root' }>, visible: b
 function configuredFile(file: FileDocument, definition: ComponentDefinition, values: ComponentInstanceValues, drafts: readonly ComponentSlotDraft[], atoms: readonly Atom[], editorMode: 'light' | 'dark'): FileDocument | null {
   const resolved = resolveComponentInstanceValues(definition, values)
   const nodes = { ...file.nodes }
+  const variantNodeIds = [...new Set(definition.properties.flatMap(property => property.type === 'variant' && property.binding ? [property.binding.nodeId] : []))]
+  for (const nodeId of variantNodeIds) {
+    const node = nodes[nodeId]
+    const appearance = resolveVariantAppearance(definition, resolved, nodeId)
+    if (node && node.type !== 'root' && appearance) nodes[node.id] = withAppearance(node, appearance)
+  }
   for (const property of definition.properties) {
     if (!property.binding || property.type === 'slot' || property.type === 'instance-swap') continue
     const node = nodes[property.binding.nodeId]
     if (!node || node.type === 'root') continue
-    if (property.type === 'variant') {
-      const appearance = property.binding.appearances[String(resolved[property.id])]
-      if (appearance) nodes[node.id] = withAppearance(node, structuredClone(appearance))
-      continue
-    }
+    if (property.type === 'variant') continue
     if (property.type === 'text' && node.type === 'text') {
       nodes[node.id] = { ...node, text: String(resolved[property.id]) }
       continue
     }
     if (property.type === 'boolean') nodes[node.id] = withAppearance(node, visibleAppearance(node, Boolean(resolved[property.id])))
   }
-  let projected = { ...file, nodes }
+  const configuredDefinition: ComponentDefinition = {
+    ...definition,
+    properties: definition.properties.map(property => property.type === 'variant'
+      ? { ...property, currentValueId: String(resolved[property.id]) }
+      : property),
+  }
+  let projected = {
+    ...file,
+    nodes,
+    componentModel: {
+      ...file.componentModel,
+      definitions: { ...file.componentModel.definitions, [definition.id]: configuredDefinition },
+    },
+  }
   const occupied = new Set(Object.keys(file.nodes))
   let sequence = 0
   const makeId = () => {

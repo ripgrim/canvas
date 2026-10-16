@@ -37,7 +37,7 @@ function authority(file: FileDocument, geometry: SceneGeometry, nodes: readonly 
 
 function wrappedAuthority(): GestureAuthoritySnapshot {
   const file: FileDocument = {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'terminal-wrapped',
     revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
@@ -98,7 +98,7 @@ function componentAuthority(): GestureAuthoritySnapshot {
     { name: 'Child B', kind: 'atom', componentId: 'child-b', path: 'ChildB.tsx', exportName: 'ChildB', fingerprint: 'child-b', sourceHash: 'child-b', status: 'bound', candidates: [], props: [] },
   ]
   const file: FileDocument = {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'terminal-components', revision,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'terminal-components', revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },
@@ -134,7 +134,7 @@ function componentAuthority(): GestureAuthoritySnapshot {
 
 function rotatedAuthority(): GestureAuthoritySnapshot {
   const file: FileDocument = {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'terminal-rotated', revision,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'terminal-rotated', revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },

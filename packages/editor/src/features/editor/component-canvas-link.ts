@@ -1,5 +1,6 @@
 import { ancestorsOf, applyFileCommand, childrenOf, descendantsOf, nodeAppearance } from '@canvas/repo-engine/file-document'
 import type { FileCommand, FileDocument } from '@canvas/repo-engine/file-document'
+import { reconcileVariantAppearances, resolveComponentInstanceValues, resolveVariantAppearance, variantTupleKey } from '@canvas/repo-engine/component-model'
 import type { ComponentDefinition } from '@canvas/repo-engine/component-model'
 import type { NodeLayout } from '@canvas/repo-engine/layout'
 import type { Atom } from './types'
@@ -222,20 +223,30 @@ function boundDefaultCommands(file: FileDocument, command: FileCommand, atoms: A
       }
       return property
     })
-    if (properties.every((property, index) => property === definition.properties[index])) continue
-    commands.push({ type: 'component.replace', componentId: definition.id, expectedRevision: definition.revision, definition: { ...definition, revision: definition.revision + 1, properties } })
+    let nextDefinition: ComponentDefinition = { ...definition, revision: definition.revision + 1, properties }
+    if (appearance && targetId && definition.properties.some(property => property.type === 'variant' && property.binding?.nodeId === targetId)) {
+      const currentValues = Object.fromEntries(definition.properties.flatMap(property => property.type === 'variant' ? [[property.id, property.currentValueId ?? property.defaultValueId]] : []))
+      const tables = reconcileVariantAppearances(definition)
+      const key = variantTupleKey(definition, currentValues, targetId)
+      if (JSON.stringify(tables[targetId]?.[key]) !== JSON.stringify(appearance)) nextDefinition = { ...nextDefinition, variantAppearances: { ...tables, [targetId]: { ...tables[targetId], [key]: appearance } } }
+    }
+    const propertiesChanged = properties.some((property, index) => property !== definition.properties[index])
+    const variantsChanged = nextDefinition.variantAppearances !== definition.variantAppearances
+    if (!propertiesChanged && !variantsChanged) continue
+    commands.push({ type: 'component.replace', componentId: definition.id, expectedRevision: definition.revision, definition: nextDefinition })
     for (const instance of Object.values(file.componentModel.instances)) {
       if (instance.componentId !== definition.id) continue
       const map = mapParallelComponentSubtrees(file, definition.source.masterRootId, instance.id)
       if (!map) continue
+      const values = resolveComponentInstanceValues(nextDefinition, instance.values)
+      const variantNodeIds = new Set(nextDefinition.properties.flatMap(property => property.type === 'variant' && property.binding ? [property.binding.nodeId] : []))
+      for (const sourceNodeId of variantNodeIds) {
+        const nodeId = map.get(sourceNodeId)
+        const state = resolveVariantAppearance(nextDefinition, values, sourceNodeId)
+        if (nodeId && state) commands.push({ type: 'node.setAppearance', nodeId, appearance: state })
+      }
       for (const property of properties) {
-        if (property.type === 'variant' && property.binding) {
-          const valueId = typeof instance.values[property.id] === 'string' ? instance.values[property.id] as string : property.defaultValueId
-          const nodeId = map.get(property.binding.nodeId)
-          const state = property.binding.appearances[valueId]
-          if (nodeId && state) commands.push({ type: 'node.setAppearance', nodeId, appearance: structuredClone(state) })
-          continue
-        }
+        if (property.type === 'variant') continue
         if (property.type !== 'text' && property.type !== 'boolean') continue
         const override = instance.values[property.id]
         if (override === undefined || !property.binding) continue

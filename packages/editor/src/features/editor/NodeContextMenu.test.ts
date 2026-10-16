@@ -11,7 +11,7 @@ const px = (value: number) => ({ kind: 'px' as const, value })
 const flexContainer = { display: 'flex' as const, gap: 0, flex: { direction: 'row' as const, wrap: 'nowrap' as const, justify: 'start' as const, align: 'start' as const } }
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'context-flex',
   revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],

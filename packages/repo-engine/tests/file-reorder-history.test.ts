@@ -3,7 +3,7 @@ import { applyFileCommand, applyFileCommandWithHistory, validateFileCommand } fr
 import type { FileCommand, FileDocument } from '../src/file-document'
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'exact-reorder-history',
   revision: 12,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],

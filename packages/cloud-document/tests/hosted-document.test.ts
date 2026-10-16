@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { externalizeHostedFileDocument, repairHostedFileDocument, validateHostedFileDocument } from '../src/index.js'
 
 const blank = () => ({
-  schemaVersion: 12,
+  schemaVersion: 13,
   fileId: 'file-1',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -40,7 +40,7 @@ describe('hosted document validation', () => {
     const upgraded = validateHostedFileDocument(source)
     expect(upgraded).toEqual({
       ...source,
-      schemaVersion: 12,
+      schemaVersion: 13,
       componentModel: { definitions: {}, instances: {} },
       nodes: {
         ...source.nodes,

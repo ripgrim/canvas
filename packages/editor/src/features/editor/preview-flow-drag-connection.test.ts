@@ -11,7 +11,7 @@ import { editorStore } from './store'
 import { sceneGeometry } from './scene-geometry'
 
 const file = (revision = 0): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-flow-bridge',
   revision,
   pages: [
@@ -175,7 +175,7 @@ describe('PAPER-FLEX-006-BRIDGE-V8 and AT-CAN-005-BRIDGE-V8 live flow publicatio
 
     const posted = commands(h, 'apply-flow-drag-transaction')
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.version).toBe(9)
+    expect(posted[0]!.version).toBe(10)
     expect(posted[0]!.transaction.operation.presentation).toBe(sample)
     expect(posted[0]!.transaction.operation.presentation.original.sourceOffsetParentPose.matrix).toBe(sample.original.sourceOffsetParentPose!.matrix)
     expect(posted[0]!.transaction.operation.presentation.supportClone).toBe(sample.supportClone)

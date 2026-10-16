@@ -202,7 +202,7 @@ describe('structure migration', () => {
   it('produces a valid current file deterministically', () => {
     const first = migrateLegacyPages('file-1', [page()], atoms)
     const second = migrateLegacyPages('file-1', [page()], atoms)
-    expect(first.file.schemaVersion).toBe(12)
+    expect(first.file.schemaVersion).toBe(13)
     expect(isFileDocumentShape(first.file)).toBe(true)
     expect(isLegacyDocument(first.file)).toBe(false)
     expect(isLegacyDocument(page().document)).toBe(true)
@@ -295,7 +295,7 @@ describe('version 2 upgrade', () => {
   it('reverses fills to bottom-to-top, assigns ids from the stored order, and converts linear gradients in sRGB', () => {
     const input = v2()
     const upgraded = upgradeFileDocument(input) as FileDocument
-    expect(upgraded.schemaVersion).toBe(12)
+    expect(upgraded.schemaVersion).toBe(13)
     expect(upgraded.nodes.stack).toStrictEqual({ id: 'stack', type: 'rectangle', name: 'Stack', styles: currentStyles, appearance: { fills: [
       { id: 'stack:fill:3', type: 'solid', color: tok('brand') },
       { id: 'stack:fill:2', type: 'gradient', shape: 'linear', angle: 90, center, length: 1, interpolation: 'srgb', stops: [{ id: 'a', position: 0, color: tok('brand') }, { id: 'b', position: 1, color: lit('#000000') }], visible: false },
@@ -325,7 +325,7 @@ describe('version 2 upgrade', () => {
     })
   })
 
-  it('returns a version 12 file by reference, upgrades version 11 through 3 files, and passes anything else through', () => {
+  it('returns a version 13 file by reference, upgrades version 11 through 3 files, and passes anything else through', () => {
     const current = { ...upgradeFileDocument({ ...v2(), schemaVersion: 10, componentModel: { definitions: {}, instances: {} } }) as FileDocument }
     expect(upgradeFileDocument(current)).toBe(current)
     const v9 = { ...v2(), schemaVersion: 9 }
@@ -337,7 +337,7 @@ describe('version 2 upgrade', () => {
     expect(upgradedV5).not.toBe(v5)
     for (const input of [v9, v8, v7, v6, v5]) {
       const result = upgradeFileDocument(input) as FileDocument
-      expect(result.schemaVersion).toBe(12)
+      expect(result.schemaVersion).toBe(13)
       expect((result.nodes.stack as PrimitiveNode).styles).toStrictEqual({ relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 })
     }
     const v4 = {
@@ -350,7 +350,7 @@ describe('version 2 upgrade', () => {
     const upgradedV4 = upgradeFileDocument(v4)
     expect(upgradedV4).not.toBe(v4)
     expect(upgradedV4).toStrictEqual({
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 2,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 2,
       pages: [{ id: 'page-1', name: 'Home', rootNodeId: 'root-1' }],
       nodes: { 'root-1': { id: 'root-1', type: 'root' }, btn: { id: 'btn', type: 'component', componentId: 'sample-button', exportName: 'Button', props: {}, themeMode: 'inherit' } },
       relationships: { btn: { parentId: 'root-1', orderKey: 'V' } },
@@ -368,7 +368,7 @@ describe('version 2 upgrade', () => {
     const upgraded = upgradeFileDocument(v3)
     expect(upgraded).not.toBe(v3)
     expect(upgraded).toStrictEqual({
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 2,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 2,
       pages: [{ id: 'page-1', name: 'Home', rootNodeId: 'root-1' }],
       nodes: { 'root-1': { id: 'root-1', type: 'root' }, btn: { id: 'btn', type: 'component', componentId: 'sample-button', exportName: 'Button', props: {}, themeMode: 'inherit' } },
       relationships: { btn: { parentId: 'root-1', orderKey: 'V' } },
@@ -383,12 +383,12 @@ describe('version 2 upgrade', () => {
     expect(upgradeFileDocument(brokenV3)).toBe(brokenV3)
     expect(upgradeFileDocument(null)).toBeNull()
     expect(upgradeFileDocument('file')).toBe('file')
-    const future = { ...v2(), schemaVersion: 13 }
+    const future = { ...v2(), schemaVersion: 14 }
     expect(upgradeFileDocument(future)).toBe(future)
     expect(() => validateFileDocument(upgradeFileDocument(future), atoms)).toThrow('Unsupported design file version')
   })
 
-  it('recognizes version 2 through 12 files as stored design files', () => {
+  it('recognizes version 2 through 13 files as stored design files', () => {
     expect(isFileDocumentShape(v2())).toBe(true)
     expect(isFileDocumentShape({ ...v2(), schemaVersion: 3 })).toBe(true)
     expect(isFileDocumentShape({ ...v2(), schemaVersion: 4 })).toBe(true)
@@ -400,9 +400,38 @@ describe('version 2 upgrade', () => {
     expect(isFileDocumentShape({ ...v2(), schemaVersion: 10 })).toBe(true)
     expect(isFileDocumentShape({ ...v2(), schemaVersion: 11 })).toBe(true)
     expect(isFileDocumentShape({ ...v2(), schemaVersion: 12 })).toBe(true)
-    expect(isFileDocumentShape({ ...v2(), schemaVersion: 13 })).toBe(false)
+    expect(isFileDocumentShape({ ...v2(), schemaVersion: 13 })).toBe(true)
+    expect(isFileDocumentShape({ ...v2(), schemaVersion: 14 })).toBe(false)
     expect(isFileDocumentShape({ ...v2(), schemaVersion: 1 })).toBe(false)
     expect(isFileDocumentShape({ ...v2(), schemaVersion: '4' })).toBe(false)
+  })
+
+  it('[COMP-V2-UI-077] upgrades version 12 Variant axes into an exact lossless compound table', () => {
+    const input = structuredClone(upgradeFileDocument(v2())) as unknown as Record<string, unknown>
+    input.schemaVersion = 12
+    input.componentModel = { definitions: { compound: {
+      id: 'compound', name: 'Compound', source: { kind: 'canvas', masterRootId: 'stack' }, revision: 0,
+      properties: [
+        { id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'stack', appearances: { default: { opacity: 0.1 }, hover: { opacity: 0.2 } } } },
+        { id: 'tone', name: 'Tone', type: 'variant', defaultValueId: 'neutral', values: [{ id: 'neutral', name: 'Neutral' }, { id: 'danger', name: 'Danger' }], binding: { kind: 'variant', nodeId: 'stack', appearances: { neutral: { opacity: 0.3 }, danger: { opacity: 0.4 } } } },
+      ], materials: [], parts: [], interactions: [],
+    }, single: {
+      id: 'single', name: 'Single', source: { kind: 'canvas', masterRootId: 'hidden' }, revision: 0,
+      properties: [{ id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'hidden', appearances: { default: { opacity: 0.5 }, hover: { opacity: 0.75 } } } }],
+      materials: [], parts: [], interactions: [],
+    } }, instances: {} }
+
+    const upgraded = upgradeFileDocument(input) as FileDocument
+    expect(upgraded.schemaVersion).toBe(13)
+    expect(upgraded.componentModel.definitions.compound!.variantAppearances).toStrictEqual({ stack: {
+      'state=default|tone=neutral': { opacity: 0.3 },
+      'state=default|tone=danger': { opacity: 0.4 },
+      'state=hover|tone=neutral': { opacity: 0.3 },
+      'state=hover|tone=danger': { opacity: 0.4 },
+    } })
+    expect(upgraded.componentModel.definitions.single).not.toHaveProperty('variantAppearances')
+    expect(validateFileDocument(upgraded, atoms)).toStrictEqual(upgraded)
+    expect((input.componentModel as { definitions: Record<string, unknown> }).definitions.compound).not.toHaveProperty('variantAppearances')
   })
 
   it('upgrades component rotation and scale to one affine matrix without changing placement', () => {
@@ -416,7 +445,7 @@ describe('version 2 upgrade', () => {
     }
     relationships.component = { parentId: 'root-1', orderKey: 'Z' }
     const upgraded = upgradeFileDocument(current) as FileDocument
-    expect(upgraded.schemaVersion).toBe(12)
+    expect(upgraded.schemaVersion).toBe(13)
     expect((upgraded.nodes.component as ComponentNode).layout).toEqual({ item: { position: { mode: 'absolute', left: { kind: 'px', value: 30 }, top: { kind: 'px', value: 40 } }, transform: { matrix: [0, 2, 3, 0, 0, 0] } } })
     expect(validateFileDocument(upgraded, atoms)).toEqual(upgraded)
   })
@@ -464,7 +493,7 @@ describe('LAY-SCHEMA-001 version 3 to 4 layout upgrade', () => {
     const input = v3()
     const upgraded = upgradeFileDocument(input) as FileDocument
     expect(upgraded).not.toBe(input)
-    expect(upgraded.schemaVersion).toBe(12)
+    expect(upgraded.schemaVersion).toBe(13)
     expect((upgraded.nodes.card as ComponentNode).layout).toStrictEqual({
       item: { position: { mode: 'absolute', left: { kind: 'px', value: 12 }, top: { kind: 'px', value: 34 } }, width: { value: { kind: 'px', value: 300 } } },
     })
@@ -512,7 +541,7 @@ describe('LAY-SCHEMA-001 version 3 to 4 layout upgrade', () => {
     const malformed = { mode: 'absolute', x: 'a', y: 0 }
     input.nodes.card = { ...input.nodes.card, layout: malformed as never }
     const upgraded = upgradeFileDocument(input) as FileDocument
-    expect(upgraded.schemaVersion).toBe(12)
+    expect(upgraded.schemaVersion).toBe(13)
     expect((upgraded.nodes.card as ComponentNode).layout).toBe(malformed)
     expect((upgraded.nodes.cta as ComponentNode).layout).toStrictEqual({ item: { position: { mode: 'flow' }, height: { value: { kind: 'px', value: 40 } } } })
     // The five-field keys are unknown to the version 4 record, so the validator names the field rather than the value.

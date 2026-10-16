@@ -5,7 +5,7 @@ import { createDocumentStore } from './document-store'
 
 const rectangle = (id: string, left: number): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { relativeTransform: [1, 0, 0, 1, left, 10], width: 20, height: 10 } })
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'wrap-store', revision: 0,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'wrap-store', revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: { root: { id: 'root', type: 'root' }, a: rectangle('a', 80), b: rectangle('b', 10) },
   relationships: { a: { parentId: 'root', orderKey: 'V' }, b: { parentId: 'root', orderKey: 'W' } },

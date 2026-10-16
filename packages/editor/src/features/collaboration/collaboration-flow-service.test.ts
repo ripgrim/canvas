@@ -7,7 +7,7 @@ import { documentStore } from '../editor/document-store'
 import { createCollaborationService } from './collaboration-service'
 
 const file: FileDocument = {
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 4,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

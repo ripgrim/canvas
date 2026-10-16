@@ -7,7 +7,7 @@ import type { Atom } from '../src/types.js'
 const atom: Atom = { name: 'Card', kind: 'atom', componentId: 'card', exportName: 'Card', path: 'Card.tsx', fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props: [] }
 const frame = (id: string): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { relativeTransform: [1, 0, 0, 1, 12, 18], width: 320, height: 180 } })
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'primitive-sizing-file',
   revision: 4,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

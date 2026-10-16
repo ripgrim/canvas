@@ -208,7 +208,7 @@ describe('room network boundary', () => {
         return new WebSocket(url, protocol, { origin, headers: { Authorization: `Bearer ${ticket}` } }) as unknown as CollaborationWebSocket
       },
     })
-    await observerClient.start({ fileId, cache: { accountId: 'clipboard-account', documentSchemaVersion: 12 } })
+    await observerClient.start({ fileId, cache: { accountId: 'clipboard-account', documentSchemaVersion: 13 } })
     await waitForClientDocument(observerClient, value => value.revision === document().revision)
     owner.messages.length = 0
     const command = {
@@ -286,8 +286,8 @@ describe('room network boundary', () => {
     authorClient = componentClient(authorClientId, authorNonce, 'component-author-request')
     observerClient = componentClient(observerClientId, observerNonce, 'component-observer-request')
     await Promise.all([
-      authorClient.start({ fileId, cache: { accountId: 'component-account', documentSchemaVersion: 12 } }),
-      observerClient.start({ fileId, cache: { accountId: 'component-account', documentSchemaVersion: 12 } }),
+      authorClient.start({ fileId, cache: { accountId: 'component-account', documentSchemaVersion: 13 } }),
+      observerClient.start({ fileId, cache: { accountId: 'component-account', documentSchemaVersion: 13 } }),
     ])
     await Promise.all([
       waitForClientDocument(authorClient, value => value.revision === 0),
@@ -426,7 +426,7 @@ describe('room network boundary', () => {
         return new WebSocket(url, protocol, { origin, headers: { Authorization: `Bearer ${ticket}` } }) as unknown as CollaborationWebSocket
       },
     })
-    await observerClient.start({ fileId, cache: { accountId: 'component-account', documentSchemaVersion: 12 } })
+    await observerClient.start({ fileId, cache: { accountId: 'component-account', documentSchemaVersion: 13 } })
     const restarted = await waitForClientDocument(observerClient, value => value.revision === 5)
     expect(restarted).toEqual(validateFileDocument(persistence.current.document, []))
     expect(restarted.relationships).toMatchObject({

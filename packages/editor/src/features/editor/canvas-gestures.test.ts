@@ -17,7 +17,7 @@ import { cornerRadiusHandlePoses } from './corner-radius-handles'
 const solid = (id: string, hex: string) => ({ id, type: 'solid' as const, color: { kind: 'literal' as const, color: { kind: 'hex' as const, hex } } })
 const textStyle = { fontFamily: 'Inter', fontStyle: 'normal' as const, fontWeight: 400, fontSize: 16, lineHeight: { kind: 'normal' as const }, letterSpacing: 0, horizontalAlign: 'left' as const, verticalAlign: 'top' as const, case: 'none' as const, wrap: 'normal' as const, keepWords: false }
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'gesture-file',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

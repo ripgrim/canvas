@@ -20,7 +20,7 @@ async function openComponentInventory(page: Page) {
 }
 
 test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
-  test.setTimeout(180_000)
+  test.setTimeout(300_000)
   const frameTimes: number[] = []
   const automation = createPlaywrightAutomation({ page, evidence: evidencePort(evidenceRoot, frameTimes) })
 
@@ -164,6 +164,37 @@ test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
   await page.getByRole("combobox", { name: "Canvas edits", exact: true }).click()
   await page.getByRole("option", { name: "Hover", exact: true }).click()
   await page.locator(".right-rail").screenshot({ path: resolve(evidenceRoot, "variant-state-panel.png") })
+
+  await page.getByRole("button", { name: "Add property", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Variant", exact: true }).click()
+  const toneDialog = page.getByRole("dialog", { name: "New property", exact: true })
+  await toneDialog.getByRole("textbox", { name: "Name", exact: true }).fill("Tone")
+  await toneDialog.getByRole("combobox", { name: "Layer", exact: true }).click()
+  await page.getByRole("option", { name: "Content host", exact: true }).click()
+  await toneDialog.getByRole("button", { name: "Add option", exact: true }).click()
+  await toneDialog.getByRole("textbox", { name: "Option 2", exact: true }).fill("Danger")
+  await toneDialog.getByRole("button", { name: "Save property", exact: true }).click()
+  const compoundDefinition = Object.values((await storedComponentModel(page)).definitions)[0]!
+  const toneProperty = compoundDefinition.properties.find(property => property.name === "Tone")!
+  const dangerValue = toneProperty.values?.find(value => value.name === "Danger")!
+  expect(toneProperty.binding?.nodeId).toBe(masterSlotHostId)
+  expect(compoundDefinition.variantAppearances?.[masterSlotHostId!]).toBeDefined()
+  const toneSelector = page.locator(`#component-property-${toneProperty.id}-current`)
+  await toneSelector.click()
+  await page.getByRole("option", { name: "Danger", exact: true }).click()
+  await slotHostLayer.click()
+  await page.getByRole("button", { name: "Edit Fill 1 color", exact: true }).click()
+  const dangerHex = page.getByRole("textbox", { name: "Hex", exact: true })
+  await dangerHex.fill("#00AA55")
+  await dangerHex.press("Enter")
+  await page.getByRole("button", { name: "Close color picker", exact: true }).click()
+  const hoverDangerAppearance = (await storedNode(page, masterSlotHostId!)).appearance
+  expect(hoverDangerAppearance).not.toEqual(hoverAppearance)
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${master.id}"]`).click()
+  await automation.evidence.screenshot("compound-variant-master")
+  await toneSelector.click()
+  await page.getByRole("option", { name: "Default", exact: true }).click()
+  expect((await storedNode(page, masterSlotHostId!)).appearance).toEqual(hoverAppearance)
 
   await openComponentInventory(page)
   await automation.components.place("Evidence card")
@@ -602,21 +633,36 @@ test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
   await expect.poll(async () => configuredTarget.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(0, 85, 255)")
   await page.mouse.up()
   await expect.poll(async () => configuredTarget.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 0, 85)")
+  await page.getByRole("tab", { name: "Design", exact: true }).click()
+  await kitTab.click()
+  await expect(configuredTarget).toBeVisible()
+  await expect.poll(async () => configuredTarget.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)")
   await expect(page.getByText("Variant sheet", { exact: true })).toBeVisible()
   const variantSheet = page.getByRole("list", { name: "Variant sheet", exact: true })
-  await expect(variantSheet.getByRole("listitem")).toHaveCount(3)
+  await expect(variantSheet.getByRole("listitem")).toHaveCount(6)
   await expect(variantSheet).toContainText("State: Default")
   await expect(variantSheet).toContainText("State: Hover")
   await expect(variantSheet).toContainText("State: Pressed")
+  await expect(variantSheet).toContainText("Tone: Default")
+  await expect(variantSheet).toContainText("Tone: Danger")
   const playground = page.getByRole("region", { name: "Playground", exact: true })
-  await page.getByRole("button", { name: "Preview State: Pressed", exact: true }).click()
+  const previewPressedDefaultTone = page.getByRole("button", { name: "Preview State: Pressed, Tone: Default", exact: true })
+  await previewPressedDefaultTone.click()
   await expect(playground.getByRole("combobox", { name: "State", exact: true })).toHaveText("Pressed")
-  await expect(page.getByRole("button", { name: "Preview State: Pressed", exact: true })).toHaveAttribute("aria-pressed", "true")
+  await expect(previewPressedDefaultTone).toHaveAttribute("aria-pressed", "true")
   await expect.poll(async () => configuredTarget.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(0, 85, 255)")
   await playground.getByRole("button", { name: "Reset playground", exact: true }).click()
   await expect(playground.getByRole("combobox", { name: "State", exact: true })).toHaveText("Default")
   await expect(playground.getByRole("button", { name: "Reset playground", exact: true })).toHaveCount(0)
   await expect.poll(async () => configuredTarget.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)")
+  await playground.getByRole("combobox", { name: "State", exact: true }).click()
+  await page.getByRole("option", { name: "Hover", exact: true }).click()
+  await playground.getByRole("combobox", { name: "Tone", exact: true }).click()
+  await page.getByRole("option", { name: "Danger", exact: true }).click()
+  await expect.poll(async () => configuredTarget.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(0, 170, 85)")
+  await automation.evidence.screenshot("compound-variant-playground", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
+  await playground.getByRole("button", { name: "Reset playground", exact: true }).click()
+  await expect(playground.getByRole("combobox", { name: "Tone", exact: true })).toHaveText("Default")
   await expect(page.getByText("Canvas components are used by placing an instance from this kit.", { exact: true })).toHaveCount(0)
   await page.locator(".left-rail").screenshot({ path: resolve(evidenceRoot, "component-details-panel.png") })
   await automation.evidence.screenshot("docs", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
@@ -645,7 +691,7 @@ test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
   await expect(playground.getByRole("checkbox", { name: "Visible", exact: true })).toBeChecked()
 
   const evidenceIdsBeforePressedPlace = new Set(Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).map(candidate => candidate.id))
-  await page.getByRole("button", { name: "Place State: Pressed", exact: true }).click()
+  await page.getByRole("button", { name: "Place State: Pressed, Tone: Default", exact: true }).click()
   await expect.poll(async () => Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).length).toBe(evidenceIdsBeforePressedPlace.size + 1)
   const pressedSheetModel = await storedComponentModel(page)
   const fromPressedSheet = Object.values(pressedSheetModel.instances).find(candidate => candidate.componentId === definition.id && !evidenceIdsBeforePressedPlace.has(candidate.id))!
@@ -656,7 +702,7 @@ test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
   await expect.poll(async () => Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).length).toBe(evidenceIdsBeforePressedPlace.size)
 
   const evidenceIdsBeforeHoverPlace = new Set(Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).map(candidate => candidate.id))
-  await page.getByRole("button", { name: "Place State: Hover", exact: true }).click()
+  await page.getByRole("button", { name: "Place State: Hover, Tone: Default", exact: true }).click()
   await expect.poll(async () => Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).length).toBe(evidenceIdsBeforeHoverPlace.size + 1)
   const sheetModel = await storedComponentModel(page)
   const fromSheet = Object.values(sheetModel.instances).find(candidate => candidate.componentId === definition.id && !evidenceIdsBeforeHoverPlace.has(candidate.id))!
@@ -666,26 +712,37 @@ test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
 
   const beforeGeneratedSheet = new Set(Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).map(candidate => candidate.id))
   await page.getByRole("button", { name: "Place every Evidence card variant on the canvas", exact: true }).click()
-  await expect.poll(async () => Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).length).toBe(beforeGeneratedSheet.size + 3)
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).length).toBe(beforeGeneratedSheet.size + 6)
   const generatedSheetModel = await storedComponentModel(page)
   const generatedSheet = Object.values(generatedSheetModel.instances).filter(candidate => candidate.componentId === definition.id && !beforeGeneratedSheet.has(candidate.id))
   expect(generatedSheet.map(candidate => candidate.values)).toEqual([
     {},
+    { [toneProperty.id]: dangerValue.id },
     { [authored.properties[0]!.id]: hoverValue!.id },
+    { [authored.properties[0]!.id]: hoverValue!.id, [toneProperty.id]: dangerValue.id },
     { [authored.properties[0]!.id]: pressedValue!.id },
+    { [authored.properties[0]!.id]: pressedValue!.id, [toneProperty.id]: dangerValue.id },
   ])
   const generatedTransforms = await Promise.all(generatedSheet.map(candidate => storedNode(page, candidate.id).then(node => node.styles.relativeTransform)))
-  expect(new Set(generatedTransforms.map(transform => JSON.stringify(transform))).size).toBe(3)
+  expect(new Set(generatedTransforms.map(transform => JSON.stringify(transform))).size).toBe(6)
   const generatedFile = await storedFile(page)
   const generatedFrame = Object.values(generatedFile.nodes).find(node => node.type === "frame" && node.name === "Evidence card variants")!
   const generatedLabels = Object.values(generatedFile.nodes)
     .filter(node => node.type === "text" && generatedFile.relationships[node.id]?.parentId === generatedFrame.id)
     .map(node => node.type === "text" ? node.text : "")
-  expect(generatedLabels).toEqual(["State: Default", "State: Hover", "State: Pressed"])
+  expect(generatedLabels).toEqual([
+    "State: Default, Tone: Default",
+    "State: Default, Tone: Danger",
+    "State: Hover, Tone: Default",
+    "State: Hover, Tone: Danger",
+    "State: Pressed, Tone: Default",
+    "State: Pressed, Tone: Danger",
+  ])
   await expect(page.getByRole("heading", { name: "Instance properties", exact: true })).toHaveCount(0)
   await expect(page.getByText("Select a component instance to edit its properties.", { exact: true })).toHaveCount(0)
   await automation.evidence.screenshot("variant-sheet", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
-  await expect(page.getByRole("list", { name: "Instances", exact: true }).getByRole("listitem")).toHaveCount(beforeGeneratedSheet.size + 3)
+  await automation.evidence.screenshot("compound-variant-sheet", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
+  await expect(page.getByRole("list", { name: "Instances", exact: true }).getByRole("listitem")).toHaveCount(beforeGeneratedSheet.size + 6)
   await page.keyboard.press("Control+z")
   await expect.poll(async () => Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).length).toBe(beforeGeneratedSheet.size)
 
@@ -745,6 +802,7 @@ test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
   await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.name).toBe("Evidence tile")
   expect(Object.values((await storedComponentModel(page)).definitions)[0]?.id).toBe(definition.id)
   expect(Object.values((await storedComponentModel(page)).definitions)[0]?.docs).toEqual({ slug: "evidence-tile", description: "Reusable evidence card." })
+  const exactTableBeforeReload = structuredClone(Object.values((await storedComponentModel(page)).definitions)[0]!.variantAppearances?.[masterSlotHostId!] ?? {})
 
   await page.reload({ waitUntil: "domcontentloaded" })
   await page.locator(".canvas-stage").waitFor()
@@ -759,6 +817,7 @@ test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
     expect.objectContaining({ nodeId: master.id, materialId: materialDefinition.materials[0]!.id }),
     expect.objectContaining({ nodeId: masterTextId, materialId: materialDefinition.materials[0]!.id }),
   ]))
+  expect(reloadedDefinition.variantAppearances?.[masterSlotHostId!]).toEqual(exactTableBeforeReload)
   expect(reloadedDefinition.properties).toEqual(expect.arrayContaining([
     expect.objectContaining({ type: "variant", description: "Visual interaction state.", currentValueId: hoverValue!.id }),
     expect.objectContaining({ id: textProperty.id, type: "text", name: "Label" }),
@@ -766,6 +825,11 @@ test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
     expect.objectContaining({ id: slotProperty.id, type: "slot", name: "Content" }),
   ]))
   expect(reloaded.instances[instance.id]).toBeDefined()
+  const reloadedState = reloadedDefinition.properties.find(property => property.name === "State")!
+  const reloadedTone = reloadedDefinition.properties.find(property => property.name === "Tone")!
+  const instanceValues = reloaded.instances[instance.id]!.values
+  const reloadedTupleKey = `${reloadedState.id}=${instanceValues[reloadedState.id] ?? reloadedState.defaultValueId}|${reloadedTone.id}=${instanceValues[reloadedTone.id] ?? reloadedTone.defaultValueId}`
+  expect((await storedNode(page, instanceVariantTargetId!)).appearance).toEqual(reloadedDefinition.variantAppearances?.[masterSlotHostId!]?.[reloadedTupleKey])
   expect(Object.values(reloaded.instances).filter(candidate => candidate.componentId === definition.id)).toHaveLength(evidenceCountBeforePageDuplicate)
   expect((await storedNode(page, instanceTextId!)).text).toBe("Instance label")
   expect((await storedNode(page, masterTextId!)).text).toBe("Default label")
@@ -981,7 +1045,7 @@ async function storedDirectChildNamed(page: Page, parentId: string, name: string
 }
 
 type ComponentModel = {
-  definitions: Record<string, { id: string; name: string; source: { kind: string; masterRootId?: string }; properties: Array<{ id: string; type: string; defaultValue?: string | boolean; defaultValueId?: string; currentValueId?: string; values?: Array<{ id: string; name: string }>; binding?: { kind: string; nodeId: string; appearances?: Record<string, unknown> } }>; interactions: Array<{ trigger: string; propertyId: string; valueId: string }>; materials: Array<{ id: string; name: string; group: string; description?: string; appearance: unknown }>; parts: Array<{ id: string; name: string; nodeId: string; materialId?: string }> }>
+  definitions: Record<string, { id: string; name: string; source: { kind: string; masterRootId?: string }; properties: Array<{ id: string; type: string; defaultValue?: string | boolean; defaultValueId?: string; currentValueId?: string; values?: Array<{ id: string; name: string }>; binding?: { kind: string; nodeId: string; appearances?: Record<string, unknown> } }>; variantAppearances?: Record<string, Record<string, unknown>>; interactions: Array<{ trigger: string; propertyId: string; valueId: string }>; materials: Array<{ id: string; name: string; group: string; description?: string; appearance: unknown }>; parts: Array<{ id: string; name: string; nodeId: string; materialId?: string }> }>
   instances: Record<string, { id: string; componentId: string; values: Record<string, unknown> }>
 }
 

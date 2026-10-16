@@ -21,7 +21,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 const file = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'hud-client-file',
   revision,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
@@ -245,7 +245,7 @@ describe('PAPER-TEXT-004 mounted canvas text editor boundary', () => {
       import('./canvas-hud-projection-service'),
     ])
     const textFile: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
       fileId: 'hud-client-file',
       revision,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],

@@ -17,7 +17,7 @@ const fixed = (): TextSizing => ({ width: { mode: 'fixed' }, height: { mode: 'fi
 const fit = (): TextSizing => ({ width: { mode: 'fit' }, height: { mode: 'fit' } })
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'text-store-file',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

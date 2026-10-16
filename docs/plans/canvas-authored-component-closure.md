@@ -98,15 +98,34 @@ The implementation preserves the bound root identity, relationship order, pose, 
 
 The completed slice also gives each open Kit detail view one event-owned, memory-only playground session. Temporary preview iframe remounts and definition-readiness gaps preserve valid scalar, Slot, and Instance swap drafts for the same file, component, and navigation sequence. Back navigation or a real context change retires the session. Authoritative file writes remain gated by the current document model and the checked swap planner.
 
+## Closed slice: compound canvas Variant appearances
+
+Two or more Variant properties may target the same real layer and resolve one exact authored appearance for the complete value tuple. The master Canvas edits selectors define the current tuple. Appearance edits capture only that cell. Kit preview, placement, generated sheets, interactions, linked instances, reload, and Undo or Redo must resolve the same cell without sequential last-write behavior.
+
+Dependency order:
+
+1. Add the bounded exact-combination model, canonical tuple helpers, validation, and schema migration.
+2. Replace sequential Variant projection with one grouped resolver per bound node.
+3. Make add, remove, value edits, rebinding, capture, reset, and linked propagation reconcile cells atomically.
+4. Permit same-layer Variant authoring with the existing compact controls and no explanatory empty-state copy.
+5. Extend Kit, interaction, persistence, history, and browser evidence across a visible 2 by 2 State and Tone grid.
+
+The slice is gated by new `COMP-V2-UI-077`, new `COMP-V2-UI-NEG-004`, and extended `PR-EVIDENCE-014`. It retains regressions for `COMP-V2-UI-009`, `COMP-V2-UI-010`, `COMP-V2-UI-013`, `COMP-V2-UI-023`, `COMP-V2-UI-024`, `COMP-V2-UI-033`, `COMP-V2-UI-035`, `COMP-V2-UI-036`, `COMP-V2-UI-037`, `COMP-V2-PERSIST-001`, and `COMP-V2-HISTORY-001`.
+
+It excludes layout, size, and text-style Variant capture, code-component enums, preferred subsets, Slot reorder or arbitrary editing, new interaction triggers, persisted playground drafts, repository or source sync, Blume writes, operation-envelope and runtime-protocol behavior changes, and appearance interpolation. Persisted document metadata advances from schema 12 to 13 for the exact appearance table. The rollback boundary is one schema-complete staging commit based on `1e267c0`.
+
+The completed slice stores one exact appearance per bounded Variant tuple, rejects incomplete current-schema tables and more than 256 total combinations, migrates legacy compound definitions explicitly, and resolves nested Instance swap boundaries without abandoning the owning component projection. Value and axis removal, master Undo or Redo, linked instances, interaction targets, generated sheets, and reload all use the same canonical tuple contract. Fresh `PR-EVIDENCE-014` browser evidence captures the master, configured playground, and generated sheet; the full editor and repository-engine suites pass.
+
 ## Current status
 
-- The prior dirty tree is clean and split into reversible commits on `staging` through `771515d`.
+- Staging is organized as one reversible commit per closed slice.
 - Theme-token deletion uses one reference-aware path for editor and context-menu actions.
 - The complete component browser workflow passes, including a centered configured-preview assertion.
 - The hosted collaboration boundary now has a complete two-client real-WebSocket graph test, stale-write and mutation-id negative controls, and room restart recovery.
 - Component-root Hover and Pressed ownership, nested target projection, nearest-owner isolation, cancellation restoration, Select and Pan inertness, and root-padding browser evidence are complete under `COMP-V2-UI-073`, `COMP-V2-UI-074`, and `PR-EVIDENCE-014`.
 - Configured Slot drafts, isolated preview rendering, atomic placement, recursive-nesting rejection, and one-step Undo are complete under `COMP-V2-UI-075`, `COMP-V2-UI-NEG-002`, and `PR-EVIDENCE-014`.
 - Canvas-authored Instance swap defaults, transient Kit preview, atomic placement and instance updates, reset, deletion fallback, recursion rejection, exact Undo or Redo, and remount-stable playground sessions are complete under `COMP-V2-UI-076`, `COMP-V2-UI-NEG-003`, and `PR-EVIDENCE-014`.
+- Compound State and Tone appearances, canonical tuple persistence, bounded migration, grouped projection, value or axis removal, master Undo or Redo, reload, interactions, configured previews, and generated sheets are complete under `COMP-V2-UI-077`, `COMP-V2-UI-NEG-004`, and `PR-EVIDENCE-014`.
 - The interaction wire cutover is explicit at preview envelope version 10 and preview document version 3. Stale version 9 envelopes and version 2 documents fail closed.
 - PostgreSQL component graph persistence coverage is implemented and type-checked, but the real disposable-database run remains open because this shell does not provide `COLLABORATION_TEST_DATABASE_URL` or `COLLABORATION_TEST_ALLOW_DISPOSABLE=1`.
 - Repository source sync remains deferred.

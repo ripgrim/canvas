@@ -17,7 +17,7 @@ const textProperties = (fontSize: number, width: 'fixed' | 'fit', height: 'fixed
   textSizing: { width: { mode: width }, height: { mode: height } },
 })
 const fixture = (node: PrimitiveNode): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'wrap-sizing-file',
   revision: 9,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

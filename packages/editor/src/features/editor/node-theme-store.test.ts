@@ -16,7 +16,7 @@ const hex = (value: string) => ({ kind: 'hex' as const, hex: value })
  * The `surface` token reads the stylesheet's --surface; nothing stores a theme mode yet.
  */
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 4,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 4,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },

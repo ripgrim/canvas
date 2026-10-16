@@ -6,7 +6,7 @@ import { redirectFlex } from './layout-flex-commands'
 
 const flex = (align: CrossAlignment): FlexContainer => ({ direction: 'row', wrap: 'nowrap', justify: 'start', align })
 const fixture = (align: CrossAlignment = 'baseline'): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'baseline-store',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

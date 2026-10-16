@@ -19,7 +19,7 @@ const flex = { direction: 'row' as const, wrap: 'nowrap' as const, justify: 'sta
 
 function fixture(sameParent = false): GestureAuthoritySnapshot {
   const file: FileDocument = {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'paper-terminal', revision,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'paper-terminal', revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },

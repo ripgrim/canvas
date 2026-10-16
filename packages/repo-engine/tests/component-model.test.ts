@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyComponentAuthoringCommand, componentDefaultValues, componentDescriptionLimit, componentDocsCatalog, componentDocsManifest, componentDocsSlug, componentVariantCombinationLabel, componentVariantCombinations, resolveComponentInstanceValues, validateComponentAuthoringCommand, validateComponentDefinition, validateComponentModelState } from '../src/component-model.js'
+import { applyComponentAuthoringCommand, componentDefaultValues, componentDescriptionLimit, componentDocsCatalog, componentDocsManifest, componentDocsSlug, componentVariantCombinationLabel, componentVariantCombinations, enumerateVariantTuples, reconcileVariantAppearances, resolveComponentInstanceValues, resolveVariantAppearance, validateComponentAuthoringCommand, validateComponentDefinition, validateComponentModelState, variantTupleKey } from '../src/component-model.js'
 import type { ComponentDefinition } from '../src/component-model.js'
 import { applyFileCommand, applyFileCommandWithHistory, createBlankFile } from '../src/file-document.js'
 import type { FileDocument } from '../src/file-document.js'
@@ -135,6 +135,59 @@ describe('component model v2', () => {
 
   it('[COMP-V2-SHEET-NEG-001] bounds generated combinations instead of materializing an unbounded product', () => {
     expect(() => componentVariantCombinations(button(), 3)).toThrow('exceed the supported limit')
+  })
+
+  it('[COMP-V2-UI-077] keys, resolves, and reconciles exact compound Variant appearances by bound node', () => {
+    const state = { id: 'property:state', name: 'State', type: 'variant' as const, defaultValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant' as const, nodeId: 'face', appearances: { default: { opacity: 0.1 }, hover: { opacity: 0.2 } } } }
+    const tone = { id: 'property:tone', name: 'Tone', type: 'variant' as const, defaultValueId: 'neutral', values: [{ id: 'neutral', name: 'Neutral' }, { id: 'danger', name: 'Danger' }], binding: { kind: 'variant' as const, nodeId: 'face', appearances: { neutral: { opacity: 0.3 }, danger: { opacity: 0.4 } } } }
+    const legacy: ComponentDefinition = { ...button(), properties: [state, tone], materials: [], parts: [], interactions: [] }
+    const tuples = enumerateVariantTuples(legacy, 'face')
+    expect(tuples).toEqual([
+      { 'property:state': 'default', 'property:tone': 'neutral' },
+      { 'property:state': 'default', 'property:tone': 'danger' },
+      { 'property:state': 'hover', 'property:tone': 'neutral' },
+      { 'property:state': 'hover', 'property:tone': 'danger' },
+    ])
+    expect(variantTupleKey(legacy, tuples[2]!, 'face')).toBe('property:state=hover|property:tone=neutral')
+    const authored: ComponentDefinition = { ...legacy, variantAppearances: { face: {
+      'property:state=default|property:tone=neutral': { opacity: 0.11 },
+      'property:state=default|property:tone=danger': { opacity: 0.22 },
+      'property:state=hover|property:tone=neutral': { opacity: 0.33 },
+      'property:state=hover|property:tone=danger': { opacity: 0.44 },
+    } } }
+    expect(resolveVariantAppearance(authored, tuples[2]!, 'face')).toEqual({ opacity: 0.33 })
+    expect(reconcileVariantAppearances(authored)).toEqual(authored.variantAppearances)
+
+    const authoredAtHover: ComponentDefinition = { ...authored, properties: authored.properties.map(property => property.id === state.id ? { ...state, currentValueId: 'hover' } : property) }
+    const withNewValue: ComponentDefinition = { ...authoredAtHover, properties: authoredAtHover.properties.map(property => property.id === state.id ? { ...state, values: [...state.values, { id: 'pressed', name: 'Pressed' }], currentValueId: 'hover' } : property) }
+    expect(reconcileVariantAppearances(withNewValue, authoredAtHover).face).toMatchObject({
+      'property:state=pressed|property:tone=neutral': { opacity: 0.33 },
+      'property:state=pressed|property:tone=danger': { opacity: 0.44 },
+    })
+
+    const migrated = validateComponentDefinition({ ...legacy, variantAppearances: reconcileVariantAppearances(legacy) })
+    expect(migrated.variantAppearances).toEqual({ face: {
+      'property:state=default|property:tone=neutral': { opacity: 0.3 },
+      'property:state=default|property:tone=danger': { opacity: 0.4 },
+      'property:state=hover|property:tone=neutral': { opacity: 0.3 },
+      'property:state=hover|property:tone=danger': { opacity: 0.4 },
+    } })
+  })
+
+  it('[COMP-V2-UI-NEG-004] rejects incomplete exact tables and oversized products before tuple allocation', () => {
+    const values = Array.from({ length: 7 }, (_, index) => ({ id: `value:${index}`, name: `Value ${index}` }))
+    const axis = (index: number) => ({ id: `property:${index}`, name: `Axis ${index}`, type: 'variant' as const, defaultValueId: 'value:0', values, binding: { kind: 'variant' as const, nodeId: 'face', appearances: Object.fromEntries(values.map((value, valueIndex) => [value.id, { opacity: (valueIndex + 1) / 10 }])) } })
+    expect(() => validateComponentDefinition({ ...button(), properties: [axis(1), axis(2), axis(3)], materials: [], parts: [], interactions: [] })).toThrow('exceed the supported limit')
+
+    const splitAxis = (index: number, nodeId: string) => ({ ...axis(index), binding: { ...axis(index).binding, nodeId } })
+    expect(() => validateComponentDefinition({ ...button(), properties: [splitAxis(1, 'face'), splitAxis(2, 'label'), splitAxis(3, 'icon')], materials: [], parts: [], interactions: [] })).toThrow('exceed the supported limit')
+
+    expect(() => validateComponentDefinition({ ...button(), properties: [axis(1), axis(2)], materials: [], parts: [], interactions: [] })).toThrow('Invalid component variant appearance table')
+
+    const state = axis(1)
+    const incomplete = { ...button(), properties: [state], materials: [], parts: [], interactions: [], variantAppearances: { face: { 'property:1=value:0': { opacity: 0.1 } } } }
+    expect(() => validateComponentDefinition(incomplete)).toThrow('Invalid component variant appearance table')
+    expect(() => variantTupleKey(incomplete, {}, 'face')).toThrow('incomplete or invalid')
   })
 
   it('[COMP-V2-PERSIST-001] validates a serialized definition and isolated instance record', () => {

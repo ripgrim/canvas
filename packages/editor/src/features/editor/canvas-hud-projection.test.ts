@@ -18,7 +18,7 @@ const zeroBox = { border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { t
 
 function document(locked = false): FileDocument {
   return {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'hud-file', revision: fileRevision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
@@ -68,7 +68,7 @@ function authority(options: { locked?: boolean; measurement?: MeasuredNode; came
 
 function nestedAuthority(): GestureAuthoritySnapshot {
   const file: FileDocument = {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'nested-hud-file', revision: fileRevision,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'nested-hud-file', revision: fileRevision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: {
       root: { id: 'root', type: 'root' },

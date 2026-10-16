@@ -30,7 +30,7 @@ describe('CC-NT-001: v4 theme-mode migration through current schema', () => {
   it('sets every non-root node to inherit and leaves everything else byte-equal', () => {
     const input = v4()
     const upgraded = upgradeFileDocument(input) as FileDocument
-    expect(upgraded.schemaVersion).toBe(12)
+    expect(upgraded.schemaVersion).toBe(13)
     for (const id of ['card', 'btn', 'box', 'caption']) expect((upgraded.nodes[id] as { themeMode?: string }).themeMode).toBe('inherit')
     expect(upgraded.nodes['root-1']).toBe(input.nodes['root-1'])
     expect(upgraded.nodes['root-2']).toBe(input.nodes['root-2'])
@@ -47,12 +47,13 @@ describe('CC-NT-001: v4 theme-mode migration through current schema', () => {
   it('chains from version 2 and 3 to the current schema and recognizes every stored version', () => {
     const v3 = { ...v4(), schemaVersion: 3, nodes: { ...v4().nodes, card: { id: 'card', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {}, layout: { mode: 'flow', x: 0, y: 0 } } } }
     const upgraded = upgradeFileDocument(v3) as FileDocument
-    expect(upgraded.schemaVersion).toBe(12)
+    expect(upgraded.schemaVersion).toBe(13)
     expect(upgraded.nodes.card).toEqual({ id: 'card', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } } }, themeMode: 'inherit' })
     for (const version of [2, 3, 4, 5, 6, 7, 8, 9, 10]) expect(isFileDocumentShape({ ...v4(), schemaVersion: version })).toBe(true)
     expect(isFileDocumentShape({ ...v4(), schemaVersion: 11 })).toBe(true)
     expect(isFileDocumentShape({ ...v4(), schemaVersion: 12 })).toBe(true)
-    expect(isFileDocumentShape({ ...v4(), schemaVersion: 13 })).toBe(false)
+    expect(isFileDocumentShape({ ...v4(), schemaVersion: 13 })).toBe(true)
+    expect(isFileDocumentShape({ ...v4(), schemaVersion: 14 })).toBe(false)
     expect(() => validateFileDocument(v4(), atoms)).toThrow('Unsupported design file version')
   })
 
@@ -61,7 +62,7 @@ describe('CC-NT-001: v4 theme-mode migration through current schema', () => {
     const version5 = { ...current, schemaVersion: 5 }
     const upgraded = upgradeFileDocument(version5) as FileDocument
     expect(upgraded).not.toBe(version5)
-    expect(upgraded.schemaVersion).toBe(12)
+    expect(upgraded.schemaVersion).toBe(13)
     expect(upgraded.pages).toBe(version5.pages)
     expect(upgraded.pages.every(page => !Object.hasOwn(page, 'background'))).toBe(true)
     const { componentModel: _upgradedComponentModel, ...upgradedWithoutComponentModel } = upgraded

@@ -9,7 +9,7 @@ import { sceneGeometry } from './scene-geometry'
 import { previewCameraStore } from './preview-camera-store'
 
 const file = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-preview-assets',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

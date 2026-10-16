@@ -24,7 +24,7 @@ const label = (id: string, text: string) => ({ id, type: 'component' as const, c
  * and one in `footer`. Page 2: other (0,0 80x80). Every primitive has one solid fill named `<id>-fill`.
  */
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 0,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -1556,6 +1556,117 @@ describe('component model editor commands', () => {
     expect(appearanceOf(store, 'outer')).toEqual(defaultAppearance)
     expect(store.commands.components.setVariantCurrent('canvas', variantId, hoverValueId)).toBe(true)
     expect(appearanceOf(store, 'outer')).toEqual(edited.binding.appearances[hoverValueId])
+  })
+
+  it('COMP-V2-UI-077 authors and projects exact compound Variant appearances on one layer', () => {
+    let id = 0
+    const source = fixture()
+    source.componentModel = { definitions: {
+      canvas: { id: 'canvas', name: 'Canvas', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+    }, instances: {} }
+    const store = createDocumentStore(() => `compound-variant-${++id}`)
+    store.load(source, atoms)
+
+    const stateId = store.commands.components.addProperty('canvas', 'variant')!
+    const hoverId = store.commands.components.addVariantValue('canvas', stateId)!
+    expect(store.commands.appearance.replaceFills(['outer'], [solid('hover-neutral', '#ff0000')])).toBe(true)
+    const state = file(store).componentModel.definitions.canvas!.properties.find(property => property.id === stateId)!
+    if (state.type !== 'variant') throw new Error('Expected State Variant')
+    expect(store.commands.components.setVariantCurrent('canvas', stateId, state.defaultValueId)).toBe(true)
+
+    const toneId = store.commands.components.addProperty('canvas', 'variant')!
+    const dangerId = store.commands.components.addVariantValue('canvas', toneId)!
+    expect(store.commands.components.setVariantCurrent('canvas', stateId, hoverId)).toBe(true)
+    expect(store.commands.appearance.replaceFills(['outer'], [solid('hover-danger', '#9900ff')])).toBe(true)
+
+    const tone = file(store).componentModel.definitions.canvas!.properties.find(property => property.id === toneId)!
+    if (tone.type !== 'variant') throw new Error('Expected Tone Variant')
+    expect(store.commands.components.setVariantCurrent('canvas', toneId, tone.defaultValueId)).toBe(true)
+    expect(fillsOf(store, 'outer')).toMatchObject([{ color: { color: { hex: '#ff0000' } } }])
+    expect(store.commands.components.setVariantCurrent('canvas', stateId, state.defaultValueId)).toBe(true)
+    expect(fillsOf(store, 'outer')).toMatchObject([{ color: { color: { hex: '#ffffff' } } }])
+    expect(store.commands.components.setVariantCurrent('canvas', toneId, dangerId)).toBe(true)
+    expect(fillsOf(store, 'outer')).toMatchObject([{ color: { color: { hex: '#ffffff' } } }])
+    expect(store.commands.components.setVariantCurrent('canvas', stateId, hoverId)).toBe(true)
+    expect(fillsOf(store, 'outer')).toMatchObject([{ color: { color: { hex: '#9900ff' } } }])
+
+    expect(store.commands.appearance.replaceFills(['outer'], [solid('hover-danger-edited', '#0044ff')])).toBe(true)
+    expect(fillsOf(store, 'outer')).toMatchObject([{ color: { color: { hex: '#0044ff' } } }])
+    expect(store.undo()).toBe(true)
+    expect(fillsOf(store, 'outer')).toMatchObject([{ color: { color: { hex: '#9900ff' } } }])
+    expect(store.redo()).toBe(true)
+    expect(fillsOf(store, 'outer')).toMatchObject([{ color: { color: { hex: '#0044ff' } } }])
+
+    expect(store.commands.components.place('canvas')).toBe(true)
+    const instance = Object.values(file(store).componentModel.instances)[0]!
+    expect(fillsOf(store, instance.id)).toMatchObject([{ color: { color: { hex: '#ffffff' } } }])
+    expect(store.commands.components.setInstanceValue(instance.id, stateId, hoverId)).toBe(true)
+    expect(fillsOf(store, instance.id)).toMatchObject([{ color: { color: { hex: '#ff0000' } } }])
+    expect(store.commands.components.setInstanceValue(instance.id, toneId, dangerId)).toBe(true)
+    expect(fillsOf(store, instance.id)).toMatchObject([{ color: { color: { hex: '#0044ff' } } }])
+    expect(fillsOf(store, 'outer')).toMatchObject([{ color: { color: { hex: '#0044ff' } } }])
+
+    const table = file(store).componentModel.definitions.canvas!.variantAppearances?.outer
+    expect(Object.keys(table ?? {})).toHaveLength(4)
+    expect(store.undo()).toBe(true)
+    expect(fillsOf(store, instance.id)).toMatchObject([{ color: { color: { hex: '#ff0000' } } }])
+    expect(store.redo()).toBe(true)
+    expect(fillsOf(store, instance.id)).toMatchObject([{ color: { color: { hex: '#0044ff' } } }])
+
+    const beforeValueRemoval = file(store).componentModel.definitions.canvas!
+    const toneBeforeRemoval = beforeValueRemoval.properties.find(property => property.id === toneId)!
+    if (toneBeforeRemoval.type !== 'variant' || !toneBeforeRemoval.binding) throw new Error('Expected bound Tone Variant')
+    expect(store.commands.components.setProperty('canvas', {
+      ...toneBeforeRemoval,
+      currentValueId: toneBeforeRemoval.defaultValueId,
+      values: toneBeforeRemoval.values.filter(value => value.id !== dangerId),
+      binding: { ...toneBeforeRemoval.binding, appearances: Object.fromEntries(Object.entries(toneBeforeRemoval.binding.appearances).filter(([valueId]) => valueId !== dangerId)) },
+    })).toBe(true)
+    expect(Object.keys(file(store).componentModel.definitions.canvas!.variantAppearances?.outer ?? {})).toEqual([
+      `${stateId}=${state.defaultValueId}|${toneId}=${toneBeforeRemoval.defaultValueId}`,
+      `${stateId}=${hoverId}|${toneId}=${toneBeforeRemoval.defaultValueId}`,
+    ])
+    expect(store.undo()).toBe(true)
+    expect(Object.keys(file(store).componentModel.definitions.canvas!.variantAppearances?.outer ?? {})).toHaveLength(4)
+
+    expect(store.commands.components.removeProperty('canvas', toneId)).toBe(true)
+    expect(file(store).componentModel.definitions.canvas!.properties.map(property => property.id)).toEqual([stateId])
+    expect(Object.keys(file(store).componentModel.definitions.canvas!.variantAppearances?.outer ?? {})).toEqual([
+      `${stateId}=${state.defaultValueId}`,
+      `${stateId}=${hoverId}`,
+    ])
+    expect(store.undo()).toBe(true)
+    expect(Object.keys(file(store).componentModel.definitions.canvas!.variantAppearances?.outer ?? {})).toHaveLength(4)
+  })
+
+  it('[COMP-V2-UI-NEG-004] rejects an oversized global Variant product without mutating the document or history', () => {
+    const values = Array.from({ length: 16 }, (_, index) => ({ id: `value-${index}`, name: `Value ${index}` }))
+    const appearances = Object.fromEntries(values.map((value, index) => [value.id, { opacity: (index + 1) / 20 }]))
+    const source = fixture()
+    source.componentModel = { definitions: {
+      canvas: {
+        id: 'canvas', name: 'Canvas', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 0,
+        properties: [
+          { id: 'state', name: 'State', type: 'variant', defaultValueId: values[0]!.id, currentValueId: values[0]!.id, values, binding: { kind: 'variant', nodeId: 'outer', appearances } },
+          { id: 'tone', name: 'Tone', type: 'variant', defaultValueId: values[0]!.id, currentValueId: values[0]!.id, values, binding: { kind: 'variant', nodeId: 'inner', appearances } },
+        ],
+        materials: [], parts: [], interactions: [],
+      },
+    }, instances: {} }
+    const store = createDocumentStore()
+    store.load(source, atoms)
+    const before = structuredClone(file(store))
+    const state = file(store).componentModel.definitions.canvas!.properties[0]!
+    if (state.type !== 'variant' || !state.binding) throw new Error('Expected bound State Variant')
+    const overflow = { id: 'value-16', name: 'Value 16' }
+
+    expect(store.commands.components.setProperty('canvas', {
+      ...state,
+      values: [...state.values, overflow],
+      binding: { ...state.binding, appearances: { ...state.binding.appearances, [overflow.id]: { opacity: 1 } } },
+    })).toBe(false)
+    expect(file(store)).toEqual(before)
+    expect(store.getHistory().past).toEqual([])
   })
 
   it('COMP-V2-UI-007 rejects ambiguous property and material names at the command boundary', () => {

@@ -63,7 +63,7 @@ function fixture(options: FixtureOptions = {}): GestureAuthoritySnapshot {
     const parentId = id === 'a' ? sourceParent : targetId
     relationships[id] = { parentId, orderKey: String.fromCharCode(86 + position), ...(targetType === 'component' && parentId === targetId ? { slot: 'children' } : {}) }
   })
-  const file: FileDocument = { schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: fence.fileId, revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} } }
+  const file: FileDocument = { schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: fence.fileId, revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} } }
   const sceneNodes: SceneNode[] = []
   const geometryNodes: SceneGeometry['nodes'] = {}
   for (const [id, rect] of Object.entries(rects)) {

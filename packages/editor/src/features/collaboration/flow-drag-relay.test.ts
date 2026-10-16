@@ -8,7 +8,7 @@ import type { RemoteFlowPresentationKey } from './flow-drag-relay'
 const absent = Object.freeze({ presence: 'absent' as const })
 
 const file = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 4,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

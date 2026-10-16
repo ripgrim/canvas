@@ -42,7 +42,7 @@ import { selectChildren, selectParents } from './canvas-scene'
 import type { Scene } from './canvas-scene'
 import { createStore } from 'zustand/vanilla'
 import type { EditorAssetPreview, EditorAssetUpload, EditorAssetUploadResult, EditorPersistenceIntent } from '../../capabilities'
-import { componentDefaultValues, componentDocsSlug, componentVariantCombinationLabel, componentVariantCombinations, resolveComponentInstanceValues } from '@canvas/repo-engine/component-model'
+import { componentDefaultValues, componentDocsSlug, componentVariantCombinationLabel, componentVariantCombinations, reconcileVariantAppearances, resolveComponentInstanceValues, resolveVariantAppearance } from '@canvas/repo-engine/component-model'
 import type { ComponentDefinition, ComponentInstanceValues, ComponentInteraction, ComponentPropertyDefinition, ComponentScalarValue } from '@canvas/repo-engine/component-model'
 import { identityTransform, invertTransform, multiplyTransforms, transformedBounds, transformPoint, translationTransform } from '@canvas/repo-engine/transform-matrix'
 import { canNestComponentInstance, linkCanvasComponentCommand, mapParallelComponentSubtrees } from './component-canvas-link'
@@ -1034,7 +1034,8 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       instances.push(next)
       if (JSON.stringify(values) !== JSON.stringify(instance.values)) commands.push({ type: 'component.instance.replace', instanceId: instance.id, expected: instance, instance: next })
     }
-    const nextDefinition = { ...definition, revision: definition.revision + 1, properties: structuredClone(properties), interactions }
+    const draftDefinition = { ...definition, revision: definition.revision + 1, properties: structuredClone(properties), interactions }
+    const nextDefinition = { ...draftDefinition, variantAppearances: reconcileVariantAppearances(draftDefinition, definition) }
     commands.push({ type: 'component.replace', componentId: definition.id, expectedRevision: definition.revision, definition: nextDefinition })
     for (const instance of instances) commands.push(...componentPropertyProjectionCommands(file, nextDefinition, instance))
     return commands
@@ -1514,7 +1515,11 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           const nextProperty = { ...property, currentValueId: valueId }
           const nextDefinition = { ...definition, revision: definition.revision + 1, properties: definition.properties.map(candidate => candidate.id === property.id ? nextProperty : candidate) }
           const commands: FileCommand[] = [{ type: 'component.replace', componentId, expectedRevision: definition.revision, definition: nextDefinition }]
-          if (property.binding) commands.push({ type: 'node.setAppearance', nodeId: property.binding.nodeId, appearance: structuredClone(property.binding.appearances[valueId]!) })
+          if (property.binding) {
+            const currentValues = Object.fromEntries(nextDefinition.properties.flatMap(candidate => candidate.type === 'variant' ? [[candidate.id, candidate.currentValueId ?? candidate.defaultValueId]] : []))
+            const appearance = resolveVariantAppearance(nextDefinition, currentValues, property.binding.nodeId)
+            if (appearance) commands.push({ type: 'node.setAppearance', nodeId: property.binding.nodeId, appearance })
+          }
           for (const instance of Object.values(state.file.componentModel.instances)) if (instance.componentId === componentId) commands.push(...componentPropertyProjectionCommands(state.file, nextDefinition, instance, [nextProperty]))
           return executeBatch(commands)
         },

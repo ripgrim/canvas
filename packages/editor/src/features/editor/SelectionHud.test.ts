@@ -15,7 +15,7 @@ const centers = [quad[0], { x: 470, y: 370 }, quad[1], { x: 370, y: 440 }, quad[
 const handles = handleNames.map((handle, index): HudHandlePose => ({ handle, anchor: anchors[index]!, center: centers[index]!, rect: { x: centers[index]!.x - 3.5, y: centers[index]!.y - 3.5, width: 7, height: 7 }, size: 7, active: handle === 'top-left' })) as unknown as HudProjectionEntry['handles']
 
 const file = (locked = false): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file', revision: 4,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'file', revision: 4,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: { root: { id: 'root', type: 'root' }, selected: { id: 'selected', type: 'rectangle', name: 'Selected', isLocked: locked, styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 35, height: 50 } } },
   relationships: { selected: { parentId: 'root', orderKey: 'V' } }, theme: { tokens: {} },

@@ -12,7 +12,7 @@ const measurementRevision = 19
 
 function file(): FileDocument {
   return {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'resize-file',
     revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],

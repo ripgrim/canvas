@@ -6,9 +6,9 @@ import type { CollaborationLegacyDocumentMigrationResult, CollaborationLegacyDoc
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-/** The live-room cutover upgrades schemas 7 through 10 directly and schema 6 only after inline assets are absent. */
+/** The live-room cutover upgrades every supported predecessor and schema 6 only after inline assets are absent. */
 export function migrateLegacyCollaborationDocument(document: CollaborationPayload, targetSchemaVersion: number): CollaborationLegacyDocumentMigrationResult {
-  if (![6, 7, 8, 9, 10, 11].includes(Number(document.schemaVersion)) || targetSchemaVersion !== fileSchemaVersion) return Object.freeze({ status: 'unsupported', reason: 'schema-version' })
+  if (![6, 7, 8, 9, 10, 11, 12].includes(Number(document.schemaVersion)) || targetSchemaVersion !== fileSchemaVersion) return Object.freeze({ status: 'unsupported', reason: 'schema-version' })
   if (document.schemaVersion === 6 && Object.hasOwn(document, 'assets')) {
     if (!record(document.assets)) return Object.freeze({ status: 'unsupported', reason: 'document-invalid' })
     if (Object.keys(document.assets).length > 0) return Object.freeze({ status: 'unsupported', reason: 'asset-externalization' })

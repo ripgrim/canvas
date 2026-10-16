@@ -15,7 +15,7 @@ const paperTextStyle = {
 } as const
 const label = (id: string, layout?: ComponentNode['layout']): ComponentNode => ({ id, type: 'component', componentId: 'sample-label', exportName: 'Label', props: {}, ...(layout ? { layout } : {}) })
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'measure', revision: 0,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'measure', revision: 0,
   pages: [{ id: 'page-1', name: 'Page', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -171,7 +171,7 @@ describe('container measurements', () => {
 })
 
 const paperFile = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'paper-measure', revision: 11,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'paper-measure', revision: 11,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
@@ -243,7 +243,7 @@ describe('PAPER-FLEX-001/002 strict Paper analyzer geometry', () => {
 
   it('normalizes mixed component-host and primitive-host root children before order, gap, and padding analysis', () => {
     const file: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'mixed-root', revision: 11,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'mixed-root', revision: 11,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
@@ -274,7 +274,7 @@ describe('PAPER-FLEX-001/002 strict Paper analyzer geometry', () => {
 
   it('preserves explicit root component leading insets while normalizing resolved far-edge offsets', () => {
     const file: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'absolute-root-components', revision: 11,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'absolute-root-components', revision: 11,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
@@ -311,7 +311,7 @@ describe('PAPER-FLEX-001/002 strict Paper analyzer geometry', () => {
 })
 
 const textPaperFile = (locked = false): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'paper-text-measure', revision: 21,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'paper-text-measure', revision: 21,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
@@ -367,7 +367,7 @@ describe('PAPER-FLEX-001/002/003 authoritative sizing capture', () => {
 
   it('proves selected and child Component instance parent identities from the same projection', () => {
     const file: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'component-capture', revision: 4, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'component-capture', revision: 4, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
         card: { id: 'card', type: 'component', componentId: 'card-source', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } }, container: { display: 'freeform' } } },
@@ -420,7 +420,7 @@ describe('PAPER-FLEX-001/002/003 authoritative sizing capture', () => {
 })
 
 const removeFlexFile = (locked = false): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-flex-measure', revision: 31,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-flex-measure', revision: 31,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
@@ -563,7 +563,7 @@ describe('PAPER-FLEX-001/002/003/008 strict Remove geometry', () => {
 
   it('proves selected and child Component parent-instance identities', () => {
     const file: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-component', revision: 7, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-component', revision: 7, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
         card: { id: 'card', type: 'component', componentId: 'card-source', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } }, container: { display: 'flex', flex: { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
@@ -638,7 +638,7 @@ describe('WRAP-08/09 strict selected-sibling geometry', () => {
 
   it('rejects root siblings whose source hosts do not share one verified projection', () => {
     const file: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'root-wrap', revision: 3, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'root-wrap', revision: 3, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: { root: { id: 'root', type: 'root' }, a: { id: 'a', type: 'rectangle', name: 'A', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } }, b: { id: 'b', type: 'rectangle', name: 'B', styles: { relativeTransform: [1, 0, 0, 1, 20, 0], width: 10, height: 10 } } },
       relationships: { a: { parentId: 'root', orderKey: 'V' }, b: { parentId: 'root', orderKey: 'W' } }, theme: { tokens: {} },
     }
@@ -651,7 +651,7 @@ describe('WRAP-08/09 strict selected-sibling geometry', () => {
     const componentCase = (nested: boolean) => {
       const parentId = nested ? 'frame' : 'root'
       const file: FileDocument = {
-        schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: `component-wrap-${parentId}`, revision: 5, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+        schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: `component-wrap-${parentId}`, revision: 5, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
         nodes: {
           root: { id: 'root', type: 'root' },
           ...(nested ? { frame: { id: 'frame', type: 'frame' as const, name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 200, height: 100 } } } : {}),

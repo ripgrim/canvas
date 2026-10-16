@@ -25,7 +25,7 @@ const textStyle = {
 const textSizing = { width: { mode: 'fixed' }, height: { mode: 'fixed' } } as const
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'resize-presentation-history',
   revision: 41,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
@@ -218,7 +218,7 @@ describe('AT-DOC-003 and PAPER-FLEX-006: node.resizePresentation exact checked h
       source: { nodeId: 'large-node-4999', relationship: { parentId: 'root', orderKey: 'K1' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 5000, 0], width: 10, height: 10 } },
     }
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'preflight-before-clone', revision: 8, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} },
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'preflight-before-clone', revision: 8, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} },
     }
     const resize: FileCommand = { type: 'node.resizePresentation', entries }
     const nativeClone = globalThis.structuredClone
@@ -351,7 +351,7 @@ describe('AT-DOC-003 and PAPER-FLEX-006: node.resizePresentation exact checked h
       })
     }
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'large-resize', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} },
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'large-resize', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} },
     }
     const history = applyFileCommandWithHistory(source, { type: 'node.resizePresentation', entries }, [])
     expect(history.redo.type).toBe('node.resizePresentation')

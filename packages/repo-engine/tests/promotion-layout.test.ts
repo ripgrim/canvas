@@ -22,7 +22,7 @@ const px = (value: number) => ({ kind: 'px' as const, value })
  * title has no layout at all.
  */
 const fixture = (): FileDocument => validateFileDocument({
-  schemaVersion: 12,
+  schemaVersion: 13,
   componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 3,

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Appearance } from '@canvas/repo-engine/appearance'
-import { componentDescriptionLimit } from '@canvas/repo-engine/component-model'
+import { componentDescriptionLimit, reconcileVariantAppearances, resolveVariantAppearance } from '@canvas/repo-engine/component-model'
 import type { ComponentDefinition, ComponentInstanceRecord, ComponentInteraction, ComponentMaterial, ComponentPart, ComponentPropertyDefinition } from '@canvas/repo-engine/component-model'
 import type { FileCommand } from '@canvas/repo-engine/file-document'
 import { nodeAppearance } from '@canvas/repo-engine/file-document'
@@ -142,7 +142,8 @@ function replaceAuthoredProperty(componentId: string, property: ComponentPropert
     authoredInteraction(property.id, 'pointer-hover', hover, previous.find(interaction => interaction.trigger === 'pointer-hover')),
     authoredInteraction(property.id, 'pointer-press', press, previous.find(interaction => interaction.trigger === 'pointer-press')),
   ].filter((interaction): interaction is ComponentInteraction => interaction !== null) : []
-  const nextDefinition: ComponentDefinition = { ...definition, revision: definition.revision + 1, properties, interactions: [...retained, ...authored] }
+  const draftDefinition: ComponentDefinition = { ...definition, revision: definition.revision + 1, properties, interactions: [...retained, ...authored] }
+  const nextDefinition: ComponentDefinition = { ...draftDefinition, variantAppearances: reconcileVariantAppearances(draftDefinition, definition) }
   const commands: FileCommand[] = [
     ...componentPropertyRebindingResetCommands(file, definition, property),
     ...componentSlotRebindingCommands(file, definition, property),
@@ -162,8 +163,8 @@ function replaceAuthoredProperty(componentId: string, property: ComponentPropert
     if (property.type === 'text') commands.push({ type: 'node.setText', nodeId: property.binding.nodeId, text: property.defaultValue })
     if (property.type === 'boolean') commands.push({ type: 'node.setBlending', nodeId: property.binding.nodeId, visible: property.defaultValue })
     if (property.type === 'variant') {
-      const valueId = property.currentValueId ?? property.defaultValueId
-      const appearance = property.binding.appearances[valueId]
+      const currentValues = Object.fromEntries(nextDefinition.properties.flatMap(candidate => candidate.type === 'variant' ? [[candidate.id, candidate.currentValueId ?? candidate.defaultValueId]] : []))
+      const appearance = resolveVariantAppearance(nextDefinition, currentValues, property.binding.nodeId)
       if (appearance) commands.push({ type: 'node.setAppearance', nodeId: property.binding.nodeId, appearance: structuredClone(appearance) })
     }
   }

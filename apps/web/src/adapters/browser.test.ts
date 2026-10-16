@@ -45,7 +45,7 @@ describe('browser local files', () => {
     expect(Object.values(opened.file.nodes)).toEqual([{ id: opened.file.pages[0]!.rootNodeId, type: 'root' }])
     expect(opened.file.theme.tokens).toEqual({})
     expect(opened.file.revision).toBe(0)
-    expect(opened.file.schemaVersion).toBe(12)
+    expect(opened.file.schemaVersion).toBe(13)
 
     const changed = structuredClone(opened.file)
     changed.pages[0]!.name = 'First page'
@@ -65,7 +65,7 @@ describe('browser local files', () => {
     expect(storage.getItem(browserDraftKey)).toBeNull()
     expect(storage.getItem(browserFilesIndexKey)).not.toBeNull()
     expect(storage.getItem(browserFileKey(created!.id))).not.toBeNull()
-    expect(JSON.parse(storage.getItem(browserFileKey(created!.id))!)).toMatchObject({ schemaVersion: 1, file: { schemaVersion: 12, revision: 1 } })
+    expect(JSON.parse(storage.getItem(browserFileKey(created!.id))!)).toMatchObject({ schemaVersion: 1, file: { schemaVersion: 13, revision: 1 } })
   })
 
   it('opens the migrated draft first, otherwise the most recent file, and asks for a file when none exist', async () => {

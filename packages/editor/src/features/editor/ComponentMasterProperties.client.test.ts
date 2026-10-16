@@ -329,6 +329,37 @@ describe('COMP-V2-UI-013 focused component authoring', () => {
     expect(host.querySelector<HTMLButtonElement>('[aria-label="Bind State"]')?.textContent).toBe('Bind')
   })
 
+  it('COMP-V2-UI-077 allows two Variant axes to bind the same real layer', async () => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    documentStore.load(createBlankFile('component-compound-variant-binding', 'page', 'root'), [], { replace: true, pageId: 'page' })
+    documentStore.commands.insertCanvas('rectangle', { x: 0, y: 0 })
+    const masterId = documentStore.getSnapshot().selection[0]!
+    expect(documentStore.commands.components.createFromSelection('Button')).toBe(true)
+    const componentId = Object.keys(documentStore.getSnapshot().file!.componentModel.definitions)[0]!
+    expect(documentStore.commands.components.addProperty(componentId, 'variant')).not.toBeNull()
+    const toneId = documentStore.commands.components.addProperty(componentId, 'variant')!
+    const tone = documentStore.getSnapshot().file!.componentModel.definitions[componentId]!.properties.find(property => property.id === toneId)!
+    if (tone.type !== 'variant') throw new Error('Expected Tone Variant')
+    const unboundTone = { ...tone }
+    delete unboundTone.binding
+    expect(documentStore.commands.components.setProperty(componentId, unboundTone)).toBe(true)
+
+    const host = document.createElement('div')
+    host.className = 'editor-root theme-light'
+    document.body.append(host)
+    root = createRoot(host)
+    await act(async () => { root?.render(createElement(ComponentMasterProperties)) })
+
+    await act(async () => { host.querySelector<HTMLButtonElement>(`[aria-label="Bind ${tone.name}"]`)?.click() })
+    expect(host.querySelector<HTMLButtonElement>('#component-property-dialog-layer')?.textContent).toContain('Button')
+    await act(async () => { [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Save property')?.click() })
+
+    const definition = documentStore.getSnapshot().file!.componentModel.definitions[componentId]!
+    const boundNodeIds = definition.properties.flatMap(property => property.type === 'variant' && property.binding ? [property.binding.nodeId] : [])
+    expect(boundNodeIds).toEqual([masterId, masterId])
+    expect(definition.variantAppearances?.[masterId]).toBeDefined()
+  })
+
   it('creates a reusable material without silently assigning its appearance source', async () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     documentStore.load(createBlankFile('material-definition', 'page', 'root'), [], { replace: true, pageId: 'page' })

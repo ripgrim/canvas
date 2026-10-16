@@ -5,7 +5,7 @@ import { transformPoint } from '../src/transform-matrix.js'
 import { matrixFromLegacyPose } from '../src/layout-pose.js'
 
 const source = (): FileDocument => validateFileDocument({
-  schemaVersion: 12,
+  schemaVersion: 13,
   fileId: 'matrix-file',
   revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],

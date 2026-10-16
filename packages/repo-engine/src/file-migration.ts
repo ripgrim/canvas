@@ -15,6 +15,8 @@ import { orderKeySequence } from './order-keys.js'
 import { legacyTextProperties } from './text.js'
 import { matrixFromLegacyPose } from './layout-pose.js'
 import { multiplyTransforms, normalizeTransform, rotationTransform, scaleTransform } from './transform-matrix.js'
+import { reconcileVariantAppearances, validateComponentDefinition } from './component-model.js'
+import type { ComponentDefinition } from './component-model.js'
 
 export type LegacyPage = { id: string; name: string; document: EditorDocument }
 export type MigrationResult = { file: FileDocument; diagnostics: string[] }
@@ -37,7 +39,7 @@ const builtInTokenId = (name: string) => `legacy:builtin:${name}`
 
 export const isLegacyDocument = (value: unknown): value is EditorDocument => typeof value === 'object' && value !== null && (value as { version?: unknown }).version === 1
 /** Any stored design file this build can read, including every supported predecessor upgraded on read. */
-export const isFileDocumentShape = (value: unknown): value is FileDocument => typeof value === 'object' && value !== null && [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, fileSchemaVersion].includes((value as { schemaVersion?: unknown }).schemaVersion as number)
+export const isFileDocumentShape = (value: unknown): value is FileDocument => typeof value === 'object' && value !== null && [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, fileSchemaVersion].includes((value as { schemaVersion?: unknown }).schemaVersion as number)
 
 type LegacyPaint = { type: 'solid'; color: ColorValue; visible?: boolean } | { type: 'linear-gradient'; angle: number; stops: { id: string; position: number; color: ColorValue }[]; visible?: boolean }
 /** Version 2 kept `fills` top-first with the first visible paint drawn; version 3 stores bottom-to-top with stable ids. */
@@ -57,7 +59,7 @@ function upgradePaints(fills: unknown, nodeId: string): Appearance | undefined {
  * for the validator to reject.
  */
 export function upgradeFileDocument(input: unknown): unknown {
-  return upgradeV11ToV12(upgradeV10ToV11(upgradeV9ToV10(upgradeV8ToV9(upgradeV7ToV8(upgradeV6ToV7(upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(input))))))))))
+  return upgradeV12ToV13(upgradeV11ToV12(upgradeV10ToV11(upgradeV9ToV10(upgradeV8ToV9(upgradeV7ToV8(upgradeV6ToV7(upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(input)))))))))))
 }
 function upgradeV2ToV3(input: unknown): unknown {
   if (!record(input) || input.schemaVersion !== 2 || !record(input.nodes)) return input
@@ -173,7 +175,23 @@ function upgradeV11ToV12(input: unknown): unknown {
     const item = { ...node.layout.item, transform: migrateComponentTransform(node.layout.item.transform) }
     nodes[id] = { ...node, layout: { ...node.layout, item } }
   }
-  return { ...input, schemaVersion: fileSchemaVersion, nodes }
+  return { ...input, schemaVersion: 12, nodes }
+}
+
+/** Version 13 stores exact compound Variant appearance tables derived from v12 axes without changing rendered output. */
+function upgradeV12ToV13(input: unknown): unknown {
+  if (!record(input) || input.schemaVersion !== 12 || !record(input.componentModel) || !record(input.componentModel.definitions)) return input
+  const definitions: Record<string, unknown> = {}
+  for (const [id, definition] of Object.entries(input.componentModel.definitions)) {
+    try {
+      const legacy = definition as ComponentDefinition
+      const counts = new Map<string, number>()
+      for (const property of legacy.properties) if (property.type === 'variant' && property.binding) counts.set(property.binding.nodeId, (counts.get(property.binding.nodeId) ?? 0) + 1)
+      const tables = Object.fromEntries(Object.entries(reconcileVariantAppearances(legacy)).filter(([nodeId]) => (counts.get(nodeId) ?? 0) > 1))
+      definitions[id] = validateComponentDefinition(Object.keys(tables).length ? { ...legacy, variantAppearances: tables } : legacy)
+    } catch { definitions[id] = definition }
+  }
+  return { ...input, schemaVersion: fileSchemaVersion, componentModel: { ...input.componentModel, definitions } }
 }
 
 type TokenPlan = { tokens: Record<string, ColorToken>; byPage: Map<string, Map<string, string>>; order: string[] }

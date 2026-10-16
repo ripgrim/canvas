@@ -42,7 +42,7 @@ const signed = (user: 'alpha' | 'beta', method = 'GET', body?: object): RequestI
 })
 const body = async (response: Response) => response.json() as Promise<Record<string, any>>
 const fileDocument = (fileId: string, revision = 0): Record<string, any> => ({
-  schemaVersion: 12,
+  schemaVersion: 13,
   fileId,
   revision,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -343,7 +343,7 @@ describe('hosted control-plane API', () => {
 
     const initial = await body(await app(request(`/api/files/${file.id}/document`, signed('alpha'))))
     expect(Object.keys(initial).sort()).toEqual(['document', 'fileId', 'revision'])
-    expect(initial).toMatchObject({ fileId: file.id, revision: 0, document: { schemaVersion: 12, fileId: file.id, revision: 0, pages: [{ name: 'Page 1' }], theme: { tokens: {} }, componentModel: { definitions: {}, instances: {} } } })
+    expect(initial).toMatchObject({ fileId: file.id, revision: 0, document: { schemaVersion: 13, fileId: file.id, revision: 0, pages: [{ name: 'Page 1' }], theme: { tokens: {} }, componentModel: { definitions: {}, instances: {} } } })
     const nextDocument = fileDocument(file.id)
     nextDocument.pages.push({ id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' })
     nextDocument.nodes['root-2'] = { id: 'root-2', type: 'root' }
@@ -378,7 +378,7 @@ describe('hosted control-plane API', () => {
     const response = await app(request(`/api/files/${file.id}/document`, signed('alpha')))
 
     expect(response.status).toBe(200)
-    expect(await body(response)).toMatchObject({ fileId: file.id, revision: 1, document: { schemaVersion: 12, fileId: file.id, revision: 1 } })
+    expect(await body(response)).toMatchObject({ fileId: file.id, revision: 1, document: { schemaVersion: 13, fileId: file.id, revision: 1 } })
   })
 
   it('rejects legacy saves after collaboration becomes authoritative', async () => {
@@ -577,7 +577,7 @@ describe('hosted control-plane API', () => {
     expect(source.status).toBe(200)
     const sourceBody = await body(source)
     expect(Object.keys(sourceBody).sort()).toEqual(['document', 'fileId', 'pageId', 'registryFingerprint', 'revision'])
-    expect(sourceBody).toMatchObject({ fileId: file.id, revision: 0, registryFingerprint, document: { schemaVersion: 12, fileId: file.id, revision: 0 } })
+    expect(sourceBody).toMatchObject({ fileId: file.id, revision: 0, registryFingerprint, document: { schemaVersion: 13, fileId: file.id, revision: 0 } })
     expect(sourceBody.pageId).toBe(sourceBody.document.pages[0].id)
 
     const serviceCall = (path: string, payload: object, token = thumbnailServiceToken) => app(request(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Canvas-Thumbnail-Service-Token': token }, body: JSON.stringify(payload) }))
@@ -764,7 +764,7 @@ describe('hosted control-plane API', () => {
     expect((await app(request(`/api/projects/${project.id}/repository/docs/reviews`, signed('alpha', 'POST', { fileId: file.id, fileRevision: 0, scanJobId: jobId, adapter: docsAdapter })))).status).toBe(400)
     expect((await internalJob('/internal/repository-doc-reviews/claim-prepare', 'wrong-but-deliberately-similar-token', {})).status).toBe(403)
     const docsClaim = await body(await internalJob('/internal/repository-doc-reviews/claim-prepare', repositoryJobServiceToken, {}))
-    expect(docsClaim).toMatchObject({ review: { id: docsReviewId, fileId: file.id, scanJobId: jobId, leaseId: expect.any(String), document: { schemaVersion: 12 }, scan: artifact } })
+    expect(docsClaim).toMatchObject({ review: { id: docsReviewId, fileId: file.id, scanJobId: jobId, leaseId: expect.any(String), document: { schemaVersion: 13 }, scan: artifact } })
     const docsLeaseId = docsClaim.review.leaseId
     const sourceResponse = await internalJob(`/internal/repository-doc-reviews/${docsReviewId}/source`, repositoryJobServiceToken, { leaseId: docsLeaseId })
     expect(sourceResponse.status).toBe(200)

@@ -5,7 +5,7 @@ import type { FileDocument } from '../../../../repo-engine/src/file-document.js'
 import { projectPreviewPage } from '../../../../repo-engine/src/file-preview.js'
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 12,
+  schemaVersion: 13,
   componentModel: { definitions: {}, instances: {} },
   fileId: 'primitive-sizing-wire',
   revision: 4,

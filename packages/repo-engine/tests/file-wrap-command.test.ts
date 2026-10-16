@@ -16,7 +16,7 @@ const flex = (position: NodeLayout['item']['position']): NodeLayout => ({ item: 
 const wrapper = (id: string, position: NodeLayout['item']['position']): NodeWrapGroup['wrapper'] => ({ ...frame(id, 30, 40), type: 'frame', styles: { ...frame(id, 30, 40).styles, overflow: 'visible' }, layout: flex(position) })
 
 const blank = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'wrap-file',
   revision: 7,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

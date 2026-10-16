@@ -14,7 +14,7 @@ import { resolveFlowDragTarget } from './flow-drag-target'
 import type { MeasuredNode, SceneGeometry } from './scene-geometry'
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'gesture-store-file',
   revision: 7,
   pages: [{ id: 'page', name: 'Page 1', rootNodeId: 'root' }],

@@ -41,6 +41,35 @@ describe('COMP-V2-UI-035 configured component preview', () => {
     expect(configuredCanvasComponentPreview(file, definition, {})).toBeNull()
   })
 
+  it('COMP-V2-UI-077 renders the exact compound Variant cell for one shared layer', () => {
+    const file = createBlankFile('configured-compound-preview', 'page', 'root')
+    file.nodes.master = { id: 'master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 } }
+    file.relationships.master = { parentId: 'root', orderKey: 'A' }
+    const definition: ComponentDefinition = {
+      id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'master' }, revision: 0,
+      properties: [
+        { id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', currentValueId: 'hover', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'master', appearances: { default: { opacity: 0.1 }, hover: { opacity: 0.2 } } } },
+        { id: 'tone', name: 'Tone', type: 'variant', defaultValueId: 'neutral', currentValueId: 'danger', values: [{ id: 'neutral', name: 'Neutral' }, { id: 'danger', name: 'Danger' }], binding: { kind: 'variant', nodeId: 'master', appearances: { neutral: { opacity: 0.3 }, danger: { opacity: 0.4 } } } },
+      ],
+      variantAppearances: { master: {
+        'state=default|tone=neutral': { opacity: 0.11 },
+        'state=default|tone=danger': { opacity: 0.22 },
+        'state=hover|tone=neutral': { opacity: 0.33 },
+        'state=hover|tone=danger': { opacity: 0.44 },
+      } },
+      materials: [], parts: [], interactions: [],
+    }
+    file.componentModel = { definitions: { button: definition }, instances: {} }
+
+    const preview = configuredCanvasComponentPreview(file, definition, { state: 'default', tone: 'neutral' })!
+
+    expect(preview.document.canvas.elements.find(element => element.id === 'master')?.appearance).toMatchObject({ opacity: 0.11 })
+    expect(file.componentModel.definitions.button?.properties).toMatchObject([
+      { id: 'state', currentValueId: 'hover' },
+      { id: 'tone', currentValueId: 'danger' },
+    ])
+  })
+
   it('renders transient Slot drafts without changing the authoritative file', () => {
     const file = createBlankFile('configured-slot-preview', 'page', 'root')
     file.nodes.master = { id: 'master', type: 'frame', name: 'Notice', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 240, height: 120 } }

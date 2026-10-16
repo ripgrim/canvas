@@ -27,6 +27,7 @@ function referencedAppearanceData(appearance: Appearance | undefined, tokenIds: 
 
 function collectDefinitionData(definition: ComponentDefinition, tokenIds: Set<string>, assetIds: Set<string>) {
   for (const material of definition.materials) referencedAppearanceData(material.appearance, tokenIds, assetIds)
+  for (const table of Object.values(definition.variantAppearances ?? {})) for (const appearance of Object.values(table)) referencedAppearanceData(appearance, tokenIds, assetIds)
   for (const property of definition.properties) if (property.type === 'variant' && property.binding) {
     for (const appearance of Object.values(property.binding.appearances)) referencedAppearanceData(appearance, tokenIds, assetIds)
   }
@@ -142,6 +143,7 @@ const remapAppearanceData = (appearance: Appearance | undefined, tokenIds: Reado
 function remapDefinitionData(definition: ComponentDefinition, tokenIds: Readonly<Record<string, string>>, assetIds: Readonly<Record<string, string>>): ComponentDefinition {
   return {
     ...structuredClone(definition),
+    ...(definition.variantAppearances ? { variantAppearances: Object.fromEntries(Object.entries(definition.variantAppearances).map(([nodeId, table]) => [nodeId, Object.fromEntries(Object.entries(table).map(([key, appearance]) => [key, remapAppearanceData(appearance, tokenIds, assetIds)!]))])) } : {}),
     materials: definition.materials.map(material => ({ ...structuredClone(material), appearance: remapAppearanceData(material.appearance, tokenIds, assetIds)! })),
     properties: definition.properties.map(property => property.type === 'variant' && property.binding
       ? { ...structuredClone(property), binding: { ...structuredClone(property.binding), appearances: Object.fromEntries(Object.entries(property.binding.appearances).map(([valueId, appearance]) => [valueId, remapAppearanceData(appearance, tokenIds, assetIds)!])) } }

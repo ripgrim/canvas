@@ -23,7 +23,7 @@ const file = (nodes: readonly TextNode[], parent = false): FileDocument => {
   const frame = { id: 'frame', type: 'frame' as const, name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 400, height: 400 } }
   const parentId = parent ? frame.id : root.id
   return {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file', revision: 1,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'file', revision: 1,
     nodes: { [root.id]: root, ...(parent ? { [frame.id]: frame } : {}), ...Object.fromEntries(nodes.map(node => [node.id, node])) },
     pages: [{ id: 'page', name: 'Page', rootNodeId: root.id }], theme: { tokens: {} },
     relationships: { ...(parent ? { [frame.id]: { parentId: root.id, orderKey: 'V' } } : {}), ...Object.fromEntries(nodes.map((node, index) => [node.id, { parentId, orderKey: String.fromCharCode(87 + index) }])) },

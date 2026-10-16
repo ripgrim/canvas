@@ -24,9 +24,9 @@ const textNode = (id: string, left: number, top: number, width: number, height: 
   textStyle: textStyle(), textSizing,
   ...(layout ? { layout } : {}),
 })
-const file = (nodes: FileDocument['nodes'], relationships: FileDocument['relationships'], revision = 4): FileDocument => ({ schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'wrap-file', revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes: { root, ...nodes }, relationships, theme: { tokens: {} } })
+const file = (nodes: FileDocument['nodes'], relationships: FileDocument['relationships'], revision = 4): FileDocument => ({ schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'wrap-file', revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes: { root, ...nodes }, relationships, theme: { tokens: {} } })
 const validFile = (nodes: FileDocument['nodes'], relationships: FileDocument['relationships'], rootId: string): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: '00000000-0000-4000-8000-000000000001',
   revision: 4,
   pages: [{ id: '00000000-0000-4000-8000-000000000002', name: 'Page', rootNodeId: rootId }],

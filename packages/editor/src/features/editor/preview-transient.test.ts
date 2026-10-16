@@ -8,7 +8,7 @@ import { sceneGeometry } from './scene-geometry'
 import type { ResizePresentation, ResizePresentationItem } from './resize-projection'
 
 const file: FileDocument = {
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-transient',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

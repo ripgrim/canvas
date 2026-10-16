@@ -17,7 +17,7 @@ const noop = () => undefined
 const baseFlex = (patch: Partial<FlexContainer> = {}): FlexContainer => ({ direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start', ...patch })
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'paper-flex-inspector',
   revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],

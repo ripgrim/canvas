@@ -19,7 +19,7 @@ function rectangle(id: string, left: number, top: number, width: number, height:
 
 function baseFile(node: PrimitiveNode = rectangle('selected', 0, 0, 100, 50)): FileDocument {
   return {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'projection-file', revision,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'projection-file', revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: { root: { id: 'root', type: 'root' }, [node.id]: node },
     relationships: { [node.id]: { parentId: 'root', orderKey: 'V' } },
@@ -328,7 +328,7 @@ describe('immutable resize projection', () => {
       },
     ]
     const file: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'projection-file', revision,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'projection-file', revision,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },

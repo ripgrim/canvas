@@ -891,7 +891,7 @@ describe('protocol epoch 4 collaboration client transport', () => {
 
   it('CLOUD-SYNC-REPLAY-001-C3A quarantines an interaction-bound mutation across reconnect until an exact fresh binding is supplied', async () => {
     const memory = createMemoryDurableStore()
-    const harness = createHarness({ durableStore: memory.store, cache: { accountId: 'account-1', documentSchemaVersion: 12 } })
+    const harness = createHarness({ durableStore: memory.store, cache: { accountId: 'account-1', documentSchemaVersion: 13 } })
     await harness.started
     const room = harness.openAssigned()
     harness.streamDocument(room.socket, room.requestId, { title: 'Before' })
@@ -930,7 +930,7 @@ describe('protocol epoch 4 collaboration client transport', () => {
 
   it('CLOUD-SYNC-REPLAY-001-C3A persists an interaction binding and quarantines it after process restart', async () => {
     const memory = createMemoryDurableStore()
-    const cache = { accountId: 'account-1', documentSchemaVersion: 12 }
+    const cache = { accountId: 'account-1', documentSchemaVersion: 13 }
     const first = createHarness({ durableStore: memory.store, cache })
     await first.started
     const firstRoom = first.openAssigned()

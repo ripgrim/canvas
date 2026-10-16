@@ -12,7 +12,7 @@ import { createPreviewCameraStore } from './preview-camera-store'
 const revision = 4, measurementRevision = 12, layoutGeneration = 0
 const worldQuad = [{ x: 30, y: 10 }, { x: 30, y: 80 }, { x: -70, y: 80 }, { x: -70, y: 10 }] as const
 const file = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'hud-file', revision,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'hud-file', revision,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
@@ -230,7 +230,7 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
   it('keeps every selection overlay when a freeform frame has browser-owned Hug sizing', () => {
     const store = createDocumentStore(() => 'id')
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'hug-hud-file', revision,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'hug-hud-file', revision,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
@@ -286,7 +286,7 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
   it('keeps axis-aligned overlays when an unrelated nested node has no offset-parent matrix chain', () => {
     const store = createDocumentStore(() => 'id')
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'partial-topology-file', revision,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'partial-topology-file', revision,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
@@ -356,7 +356,7 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
   it('AT-CAN-005-HUD keeps a nested selection overlay when a translated ancestor forces measured-rectangle fallback', () => {
     const store = createDocumentStore(() => 'id')
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'translated-ancestor-file', revision,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'translated-ancestor-file', revision,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
@@ -421,7 +421,7 @@ describe('AT-CAN-005-HUD shared HUD projection service', () => {
   it('reconstructs a rotated selected quad from exact measured rectangles when the root matrix chain is unavailable', () => {
     const store = createDocumentStore(() => 'id')
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'rotated-measured-file', revision,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'rotated-measured-file', revision,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },

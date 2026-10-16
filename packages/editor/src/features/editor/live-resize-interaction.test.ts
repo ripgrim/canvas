@@ -6,7 +6,7 @@ import { beginLiveResizeInteraction, sampleLiveResizeInteraction } from './live-
 import type { SceneGeometry } from './scene-geometry'
 
 const file: FileDocument = {
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'live-resize-file',
   revision: 4,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],

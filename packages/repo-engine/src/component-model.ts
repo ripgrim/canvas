@@ -52,6 +52,9 @@ export type ComponentInteraction = Readonly<{
   }>
 }>
 
+/** Exact appearances for every Variant tuple that targets one bound canvas node. */
+export type ComponentVariantAppearances = Readonly<Record<string, Readonly<Record<string, Appearance>>>>
+
 export type ComponentDefinition = Readonly<{
   id: string
   name: string
@@ -61,6 +64,7 @@ export type ComponentDefinition = Readonly<{
   materials: readonly ComponentMaterial[]
   parts: readonly ComponentPart[]
   interactions: readonly ComponentInteraction[]
+  variantAppearances?: ComponentVariantAppearances
   docs?: Readonly<{ slug: string; description?: string }>
 }>
 
@@ -121,7 +125,7 @@ export type ComponentDocsCatalog = Readonly<{
 
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-const modelLimits = { definitions: 500, instances: 5_000, properties: 64, variantValues: 64, materials: 128, parts: 5_000, interactions: 256, text: 10_000 }
+const modelLimits = { definitions: 500, instances: 5_000, properties: 64, variantValues: 64, variantCombinations: 256, materials: 128, parts: 5_000, interactions: 256, text: 10_000 }
 export const componentDescriptionLimit = 500
 const own = (value: object, key: string) => Object.hasOwn(value, key)
 const invalid = (message: string): never => { throw new Error(message) }
@@ -137,6 +141,110 @@ const validName = (value: string, label: string) => { if (!value.trim() || value
 const unique = (values: readonly string[], label: string) => { if (new Set(values).size !== values.length) invalid(`Duplicate ${label}`) }
 const validDescription = (value: unknown) => typeof value === 'string' && value.length <= componentDescriptionLimit
 const validRevision = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0
+
+const boundVariants = (definition: ComponentDefinition, nodeId?: string): VariantProperty[] => definition.properties.filter((property): property is VariantProperty => property.type === 'variant' && (nodeId === undefined || property.binding?.nodeId === nodeId))
+
+function variantProduct(variants: readonly VariantProperty[], limit = modelLimits.variantCombinations): number {
+  let product = 1
+  for (const property of variants) {
+    if (property.values.length === 0 || product > Math.floor(limit / property.values.length)) invalid('Component variant combinations exceed the supported limit')
+    product *= property.values.length
+  }
+  return product
+}
+
+/** Enumerates canonical complete tuples in definition property order, optionally scoped to one bound node. */
+export function enumerateVariantTuples(definition: ComponentDefinition, nodeId?: string, limit = modelLimits.variantCombinations): readonly ComponentInstanceValues[] {
+  const variants = boundVariants(definition, nodeId)
+  variantProduct(variants, limit)
+  let tuples: Record<string, ComponentScalarValue>[] = [{}]
+  for (const property of variants) tuples = tuples.flatMap(tuple => property.values.map(value => ({ ...tuple, [property.id]: value.id })))
+  return tuples
+}
+
+/** Canonical collision-free key for a complete Variant tuple, in definition property order. */
+export function variantTupleKey(definition: ComponentDefinition, values: ComponentInstanceValues, nodeId?: string): string {
+  const variants = boundVariants(definition, nodeId)
+  return variants.map(property => {
+    const value = values[property.id]
+    if (typeof value !== 'string' || !property.values.some(option => option.id === value)) invalid('Component variant tuple is incomplete or invalid')
+    return `${property.id}=${value}`
+  }).join('|')
+}
+
+function legacyVariantAppearance(definition: ComponentDefinition, values: ComponentInstanceValues, nodeId: string): Appearance | undefined {
+  let appearance: Appearance | undefined
+  for (const property of boundVariants(definition, nodeId)) {
+    const value = values[property.id]
+    if (typeof value === 'string' && property.binding?.appearances[value]) appearance = property.binding.appearances[value]
+  }
+  return appearance ? structuredClone(appearance) : undefined
+}
+
+/** Resolves one exact cell. Legacy definitions retain their former property-order last-write rendering. */
+export function resolveVariantAppearance(definition: ComponentDefinition, values: ComponentInstanceValues, nodeId: string): Appearance | undefined {
+  const variants = boundVariants(definition, nodeId)
+  if (!variants.length) return undefined
+  const key = variantTupleKey(definition, values, nodeId)
+  const exactAppearance = definition.variantAppearances?.[nodeId]?.[key]
+  return exactAppearance ? structuredClone(exactAppearance) : legacyVariantAppearance(definition, values, nodeId)
+}
+
+/** Rebuilds exact node tables after Variant axes change, preserving matching cells and deterministically filling new cells. */
+export function reconcileVariantAppearances(definition: ComponentDefinition, previous?: ComponentDefinition): ComponentVariantAppearances {
+  const nodes: string[] = []
+  for (const property of definition.properties) if (property.type === 'variant' && property.binding && !nodes.includes(property.binding.nodeId)) nodes.push(property.binding.nodeId)
+  const result: Record<string, Record<string, Appearance>> = {}
+  for (const nodeId of nodes) {
+    const tuples = enumerateVariantTuples(definition, nodeId)
+    const table: Record<string, Appearance> = {}
+    for (const tuple of tuples) {
+      const key = variantTupleKey(definition, tuple, nodeId)
+      const current = definition.variantAppearances?.[nodeId]?.[key]
+      if (current) { table[key] = structuredClone(current); continue }
+      let inherited: Appearance | undefined
+      if (previous) {
+        const previousValues = { ...componentDefaultValues(previous) }
+        for (const property of boundVariants(previous, nodeId)) {
+          const requested = tuple[property.id]
+          previousValues[property.id] = typeof requested === 'string' && property.values.some(value => value.id === requested)
+            ? requested
+            : property.currentValueId ?? property.defaultValueId
+        }
+        inherited = resolveVariantAppearance(previous, previousValues, nodeId)
+      }
+      const appearance = inherited ?? legacyVariantAppearance(definition, tuple, nodeId)
+      if (!appearance) invalid('Component variant appearance is missing')
+      else table[key] = structuredClone(appearance)
+    }
+    result[nodeId] = table
+  }
+  return result
+}
+
+function validateVariantAppearanceTables(definition: ComponentDefinition): ComponentVariantAppearances {
+  const { variantAppearances: _variantAppearances, ...legacy } = definition
+  const canonical = reconcileVariantAppearances(legacy)
+  const requiredNodeIds = Object.keys(canonical).filter(nodeId => boundVariants(definition, nodeId).length > 1)
+  if (definition.variantAppearances === undefined) {
+    if (requiredNodeIds.length) invalid('Invalid component variant appearance table')
+    return {}
+  }
+  const serialized = asRecord(definition.variantAppearances, 'Invalid component variant appearance table')
+  if (requiredNodeIds.some(nodeId => !own(serialized, nodeId)) || Object.keys(serialized).some(nodeId => !own(canonical, nodeId))) invalid('Invalid component variant appearance table')
+  const result: Record<string, Record<string, Appearance>> = {}
+  for (const nodeId of Object.keys(serialized)) {
+    const expectedTable = canonical[nodeId]!
+    const table = asRecord(serialized[nodeId], 'Invalid component variant appearance table')
+    if (Object.keys(table).length !== Object.keys(expectedTable).length || Object.keys(expectedTable).some(key => !own(table, key))) invalid('Invalid component variant appearance table')
+    result[nodeId] = {}
+    for (const [key, appearance] of Object.entries(table)) {
+      validateAppearance(appearance, 'component')
+      result[nodeId]![key] = structuredClone(appearance as Appearance)
+    }
+  }
+  return result
+}
 
 function validateProperty(property: ComponentPropertyDefinition): void {
   validId(property.id, 'component property id')
@@ -173,7 +281,7 @@ function validatePropertyBinding(property: ComponentPropertyDefinition, value: u
 export function validateComponentDefinition(input: unknown): ComponentDefinition {
   if (!record(input)) throw new Error('Invalid component definition')
   const candidate = input
-  exact(candidate, ['id', 'name', 'source', 'revision', 'properties', 'materials', 'parts', 'interactions'], ['docs'], 'component definition')
+  exact(candidate, ['id', 'name', 'source', 'revision', 'properties', 'materials', 'parts', 'interactions'], ['variantAppearances', 'docs'], 'component definition')
   if (typeof candidate.id !== 'string' || typeof candidate.name !== 'string' || !Number.isSafeInteger(candidate.revision) || (candidate.revision as number) < 0) invalid('Invalid component definition')
   const source = asRecord(candidate.source, 'Invalid component source')
   if (source.kind === 'canvas') {
@@ -262,6 +370,8 @@ export function validateComponentDefinition(input: unknown): ComponentDefinition
   for (const property of definition.properties) {
     if (property.type === 'variant' && property.currentValueId !== undefined && !property.values.some(value => value.id === property.currentValueId)) invalid('Current variant value is missing')
   }
+  variantProduct(boundVariants(definition))
+  const variantAppearances = validateVariantAppearanceTables(definition)
   unique(definition.materials.map(material => material.id), 'component material id')
   unique(definition.materials.map(material => `${material.group.toLocaleLowerCase()}\u0000${material.name.toLocaleLowerCase()}`), 'component material name')
   for (const material of definition.materials) {
@@ -287,7 +397,10 @@ export function validateComponentDefinition(input: unknown): ComponentDefinition
     if (interaction.transition?.durationMs !== undefined && (!Number.isFinite(interaction.transition.durationMs) || interaction.transition.durationMs < 0 || interaction.transition.durationMs > 60_000)) invalid('Invalid component transition duration')
   }
   if (definition.docs && !slugPattern.test(definition.docs.slug)) invalid('Invalid component docs slug')
-  return structuredClone(definition)
+  const validated = structuredClone(definition) as ComponentDefinition & { variantAppearances?: ComponentVariantAppearances }
+  if (Object.keys(variantAppearances).length) validated.variantAppearances = variantAppearances
+  else delete validated.variantAppearances
+  return validated
 }
 
 export function validateComponentModelState(input: unknown): ComponentModelState {
@@ -555,14 +668,7 @@ export function resolveComponentInstanceValues(definition: ComponentDefinition, 
 }
 
 export function componentVariantCombinations(definition: ComponentDefinition, limit = 256): readonly ComponentInstanceValues[] {
-  const variants = definition.properties.filter((property): property is VariantProperty => property.type === 'variant')
-  let combinations: Record<string, ComponentScalarValue>[] = [{}]
-  for (const property of variants) {
-    const next = combinations.flatMap(combination => property.values.map(value => ({ ...combination, [property.id]: value.id })))
-    if (next.length > limit) invalid('Component variant combinations exceed the supported limit')
-    combinations = next
-  }
-  return combinations.length ? combinations : [{}]
+  return enumerateVariantTuples(definition, undefined, limit)
 }
 
 export function componentVariantCombinationLabel(definition: ComponentDefinition, combination: ComponentInstanceValues, fallback = 'Default'): string {

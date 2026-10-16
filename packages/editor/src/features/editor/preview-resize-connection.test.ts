@@ -10,7 +10,7 @@ import type { GestureStartFence } from './gesture-command-planner'
 import type { ResizePresentation } from './resize-projection'
 
 const file = (revision = 0): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-resize-bridge',
   revision,
   pages: [

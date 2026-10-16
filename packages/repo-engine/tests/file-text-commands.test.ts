@@ -35,7 +35,7 @@ const fixedSizing = (): TextSizing => ({ width: { mode: 'fixed' }, height: { mod
 const fitSizing = (): TextSizing => ({ width: { mode: 'fit' }, height: { mode: 'fit' } })
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'text-command-file',
   revision: 4,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],

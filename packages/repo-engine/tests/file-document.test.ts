@@ -37,7 +37,7 @@ const aliasToken = (id: string, orderKey: string, target: string): ColorToken =>
  * (5,7) world (125,87 10x10). label sits on the root after outer.
  */
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -65,7 +65,7 @@ describe('file validation', () => {
   it('accepts a blank file and returns a detached copy', () => {
     const blank = createBlankFile('file-1', 'page-1', 'root-1')
     const validated = validateFileDocument(blank, [])
-    expect(validated).toEqual({ schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes: { 'root-1': { id: 'root-1', type: 'root' } }, relationships: {}, theme: { tokens: {} } })
+    expect(validated).toEqual({ schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes: { 'root-1': { id: 'root-1', type: 'root' } }, relationships: {}, theme: { tokens: {} } })
     expect(validated).not.toBe(blank)
   })
 

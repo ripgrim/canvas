@@ -7,7 +7,7 @@ import type { SceneGeometry } from './scene-geometry'
 
 const atoms = (): Atom[] => [{ name: 'Button', kind: 'atom', componentId: 'button-component', path: 'src/Button.tsx', exportName: 'Button', fingerprint: 'button-fingerprint', sourceHash: 'button-hash', status: 'bound', candidates: ['src/legacy/Button.tsx'], props: [{ name: 'tone', type: 'string', optional: true }] }]
 const file = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'authority-file',
   revision: 7,
   pages: [{ id: 'page', name: 'Page 1', rootNodeId: 'root' }],

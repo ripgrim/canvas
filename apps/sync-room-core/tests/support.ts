@@ -21,7 +21,7 @@ export const ticket = 'B'.repeat(32)
 
 export function document(extra: Readonly<Record<string, unknown>> = {}): CollaborationPayload {
   return {
-    schemaVersion: 12,
+    schemaVersion: 13,
     fileId,
     revision: 0,
     pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -133,7 +133,7 @@ export function projection(value = document(), sequence = 0n): CollaborationProj
   return Object.freeze({
     fileId,
     sequence,
-    documentSchemaVersion: 12,
+    documentSchemaVersion: 13,
     document: value,
     documentDigest: collaborationDocumentDigest(value),
     generationId,
@@ -198,7 +198,7 @@ export class FakePersistence implements CollaborationPersistence {
   async listOperationsAfter() { return [] }
   async getProjection() { return this.current }
   async pruneCoveredOperations(_input: Parameters<CollaborationPersistence['pruneCoveredOperations']>[0]) { return { status: 'pruned' as const, throughSequence: 0n, deletedCount: 0n } }
-  async commitVerifiedCheckpoint() { this.calls.push('checkpoint'); return { status: 'committed' as const, checkpoint: { fileId, sequence: this.current.sequence, objectKey: 'checkpoint.json', objectDigest: this.current.documentDigest, documentDigest: this.current.documentDigest, compressedBytes: 1n, documentSchemaVersion: 12, generationId, fencingToken: 1n, committedAt: new Date(0).toISOString() } } }
+  async commitVerifiedCheckpoint() { this.calls.push('checkpoint'); return { status: 'committed' as const, checkpoint: { fileId, sequence: this.current.sequence, objectKey: 'checkpoint.json', objectDigest: this.current.documentDigest, documentDigest: this.current.documentDigest, compressedBytes: 1n, documentSchemaVersion: 13, generationId, fencingToken: 1n, committedAt: new Date(0).toISOString() } } }
   async getCheckpoint() { return null }
 }
 

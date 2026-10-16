@@ -16,7 +16,7 @@ const measurementRevision = 19
 const selectedLayout = { item: { position: { mode: 'freeform' as const } } }
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'resize-store-file',
   revision,
   pages: [

@@ -30,7 +30,7 @@ function frameFixture(): FileDocument {
   const existingAbsolute: PrimitiveNode = { id: 'existing-absolute', type: 'shape', name: 'Absolute', styles: { relativeTransform: [1, 0, 0, 1, 300, -40], width: 20, height: 20 }, layout: absolute(300, -40) }
   const text: PrimitiveNode = { id: 'text', type: 'text', name: 'Text', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 140, height: 32 }, layout: { item: { position: { mode: 'flow' }, flex: { shrink: 0 } } }, text: 'Paper', ...originalText }
   return validateFileDocument({
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-flex-frame', revision: 7,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-flex-frame', revision: 7,
     pages: [{ id: 'page', name: 'Page 1', rootNodeId: 'root' }],
     nodes: { root: { id: 'root', type: 'root' }, outer, parent, rectangle, 'existing-absolute': existingAbsolute, text },
     relationships: {
@@ -73,7 +73,7 @@ function componentFixture(empty = false): FileDocument {
     nodes['component-child-node'] = child
     relationships['component-child-node'] = { parentId: 'component-parent-node', slot: 'content', orderKey: 'V' }
   }
-  return validateFileDocument({ schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: empty ? 'empty-component-flex' : 'component-flex', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} } }, atoms)
+  return validateFileDocument({ schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: empty ? 'empty-component-flex' : 'component-flex', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} } }, atoms)
 }
 
 function componentRemoveGroup(empty = false): NodeRemoveFlexGroup {

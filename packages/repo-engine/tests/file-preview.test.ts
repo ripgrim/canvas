@@ -23,7 +23,7 @@ const pixel = (id: string, sha256 = 'a'.repeat(64)): ImageAssetReference => ({ i
  * a half-opacity instance appearance with a red border on every side; caption has no appearance.
  */
 const fixture = (): FileDocument => validateFileDocument({
-  schemaVersion: 12,
+  schemaVersion: 13,
   componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 9,
@@ -263,6 +263,86 @@ describe('preview projection', () => {
       { trigger: 'pointer-press', targetId: 'inner', appearance: flat('#0000ff') },
     ])
     expect(elements.find(element => element.id === 'inner')?.interactions).toBeUndefined()
-    expect(elements.find(element => element.id === 'inner')?.appearance).toStrictEqual(flat('#abcdef'))
+    expect(elements.find(element => element.id === 'inner')?.appearance).toStrictEqual(flat('#ffffff'))
+  })
+
+  it('[COMP-V2-UI-077] resolves one compound appearance for the current tuple and its interaction overlay', () => {
+    const file = fixture()
+    const appearance = (id: string, color: string) => ({ fills: [solid(id, lit(color))] })
+    file.nodes.copy = { ...structuredClone(file.nodes.outer as PrimitiveNode), id: 'copy', name: 'copy name' }
+    file.nodes['copy-inner'] = { ...structuredClone(file.nodes.inner as PrimitiveNode), id: 'copy-inner', name: 'copy-inner name' }
+    file.nodes['copy-dot'] = { ...structuredClone(file.nodes.dot as PrimitiveNode), id: 'copy-dot', name: 'copy-dot name' }
+    file.relationships.copy = { parentId: 'root-1', orderKey: 'Z' }
+    file.relationships['copy-inner'] = { parentId: 'copy', orderKey: 'V' }
+    file.relationships['copy-dot'] = { parentId: 'copy-inner', orderKey: 'V' }
+    file.componentModel = {
+      definitions: {
+        card: {
+          id: 'card', name: 'Canvas card', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 1,
+          properties: [
+            { id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', currentValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'inner', appearances: { default: appearance('state-default', '#111111'), hover: appearance('state-hover', '#222222') } } },
+            { id: 'tone', name: 'Tone', type: 'variant', defaultValueId: 'neutral', currentValueId: 'danger', values: [{ id: 'neutral', name: 'Neutral' }, { id: 'danger', name: 'Danger' }], binding: { kind: 'variant', nodeId: 'inner', appearances: { neutral: appearance('tone-neutral', '#333333'), danger: appearance('tone-danger', '#444444') } } },
+          ],
+          variantAppearances: { inner: {
+            'state=default|tone=neutral': appearance('default-neutral', '#101010'),
+            'state=default|tone=danger': appearance('default-danger', '#ff9900'),
+            'state=hover|tone=neutral': appearance('hover-neutral', '#00aa00'),
+            'state=hover|tone=danger': appearance('hover-danger', '#ff0000'),
+          } },
+          materials: [], parts: [], interactions: [{ id: 'hover-state', trigger: 'pointer-hover', propertyId: 'state', valueId: 'hover' }],
+        },
+      },
+      instances: { copy: { id: 'copy', componentId: 'card', values: { tone: 'neutral' } } },
+    }
+    const elements = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!.document.canvas.elements
+    expect(elements.find(element => element.id === 'inner')?.appearance).toStrictEqual(flat('#ff9900'))
+    expect(elements.find(element => element.id === 'copy-inner')?.appearance).toStrictEqual(flat('#101010'))
+    expect(elements.find(element => element.id === 'outer')?.interactions).toStrictEqual([
+      { trigger: 'pointer-hover', targetId: 'inner', appearance: flat('#ff0000') },
+    ])
+    expect(elements.find(element => element.id === 'copy')?.interactions).toStrictEqual([
+      { trigger: 'pointer-hover', targetId: 'copy-inner', appearance: flat('#00aa00') },
+    ])
+  })
+
+  it('[COMP-V2-UI-077] keeps owner compound appearances and interactions when an Instance swap changes a nested subtree', () => {
+    const file = fixture()
+    const appearance = (id: string, color: string) => ({ fills: [solid(id, lit(color))] })
+    file.nodes.copy = { ...structuredClone(file.nodes.outer as PrimitiveNode), id: 'copy', name: 'copy name' }
+    file.nodes['copy-inner'] = { ...structuredClone(file.nodes.dot as PrimitiveNode), id: 'copy-inner', name: 'copy-inner name' }
+    file.relationships.copy = { parentId: 'root-1', orderKey: 'Z' }
+    file.relationships['copy-inner'] = { parentId: 'copy', orderKey: 'V' }
+    file.componentModel = {
+      definitions: {
+        owner: {
+          id: 'owner', name: 'Owner', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 1,
+          properties: [
+            { id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'outer', appearances: { default: appearance('state-default', '#111111'), hover: appearance('state-hover', '#222222') } } },
+            { id: 'tone', name: 'Tone', type: 'variant', defaultValueId: 'neutral', values: [{ id: 'neutral', name: 'Neutral' }, { id: 'danger', name: 'Danger' }], binding: { kind: 'variant', nodeId: 'outer', appearances: { neutral: appearance('tone-neutral', '#333333'), danger: appearance('tone-danger', '#444444') } } },
+            { id: 'leading', name: 'Leading', type: 'instance-swap', defaultValue: 'leaf', binding: { kind: 'instance-swap', nodeId: 'inner' } },
+          ],
+          variantAppearances: { outer: {
+            'state=default|tone=neutral': appearance('default-neutral', '#101010'),
+            'state=default|tone=danger': appearance('default-danger', '#ff9900'),
+            'state=hover|tone=neutral': appearance('hover-neutral', '#00aa00'),
+            'state=hover|tone=danger': appearance('hover-danger', '#ff0000'),
+          } },
+          materials: [], parts: [], interactions: [{ id: 'hover-state', trigger: 'pointer-hover', propertyId: 'state', valueId: 'hover' }],
+        },
+        leaf: { id: 'leaf', name: 'Leaf', source: { kind: 'canvas', masterRootId: 'caption' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+        alternate: { id: 'alternate', name: 'Alternate', source: { kind: 'canvas', masterRootId: 'dot' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+      },
+      instances: {
+        inner: { id: 'inner', componentId: 'leaf', values: {} },
+        copy: { id: 'copy', componentId: 'owner', values: { tone: 'neutral', leading: 'alternate' } },
+        'copy-inner': { id: 'copy-inner', componentId: 'alternate', values: {} },
+      },
+    }
+
+    const elements = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!.document.canvas.elements
+    expect(elements.find(element => element.id === 'copy')?.appearance).toStrictEqual(flat('#101010'))
+    expect(elements.find(element => element.id === 'copy')?.interactions).toStrictEqual([
+      { trigger: 'pointer-hover', targetId: 'copy', appearance: flat('#00aa00') },
+    ])
   })
 })

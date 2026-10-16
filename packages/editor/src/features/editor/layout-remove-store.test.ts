@@ -25,7 +25,7 @@ function fixture(): { file: FileDocument; geometry: LayoutGeometry } {
     layout: { item: { position: { mode: 'absolute', left: px(140), top: px(60) } } },
   }
   const file: FileDocument = {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-store', revision: 0, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-store', revision: 0, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: { root: { id: 'root', type: 'root' }, parent, child, absolute },
     relationships: { parent: { parentId: 'root', orderKey: 'V' }, absolute: { parentId: 'parent', orderKey: 'W' }, child: { parentId: 'parent', orderKey: 'V' } },
     theme: { tokens: {} },

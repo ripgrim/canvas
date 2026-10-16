@@ -7,7 +7,7 @@ import { replaceSelectionColor, selectionColorGroups } from './selection-colors'
 const literal = (hex: string): ColorValue => ({ kind: 'literal', color: hexColor(hex) })
 const token = (tokenId: string): ColorValue => ({ kind: 'token', tokenId })
 const file = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'file',
   revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],

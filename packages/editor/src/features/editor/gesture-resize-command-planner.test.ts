@@ -24,7 +24,7 @@ function rectangle(id = 'selected', left = 0, top = 0, width = 100, height = 50)
 
 function fileWith(node: PrimitiveNode = rectangle()): FileDocument {
   return {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'resize-plan-file', revision,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'resize-plan-file', revision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: { root: { id: 'root', type: 'root' }, [node.id]: node },
     relationships: { [node.id]: { parentId: 'root', orderKey: 'A7' } },
@@ -342,7 +342,7 @@ describe('AT-DOC-003, PAPER-FLEX-006, and PAPER-TEXT-006 resize planner prerequi
       { name: 'Button', kind: 'atom', componentId: 'button-source', path: 'Button.tsx', exportName: 'Button', fingerprint: 'button', sourceHash: 'button', status: 'bound', candidates: [], slots: [], props: [{ name: 'label', type: 'string', optional: false }] },
     ]
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'resize-plan-file', revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'resize-plan-file', revision, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
         parent: { id: 'parent', type: 'component', componentId: 'panel-source', exportName: 'Panel', props: {}, layout: { item: { position: { mode: 'absolute', left: { kind: 'px', value: 50 }, top: { kind: 'px', value: 60 } } } } },

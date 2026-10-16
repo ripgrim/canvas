@@ -22,7 +22,7 @@ const flexLayout = (flex: FlexContainer, gap?: number): NodeLayout => ({ item: {
  * panel: Block with child p. frame: Freeform with absolute children f1 f2. d: a root label.
  */
 const fixture = (cardFlex: FlexContainer = { direction: 'column', wrap: 'nowrap', justify: 'start', align: 'start' }): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 0,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -74,7 +74,7 @@ const directCapture = (file: FileDocument, containerId: string, input: FlexInfer
 }
 
 const primitiveFixture = (width = 100, height = 100, withChildren = false): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'primitive-file', revision: 0,
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'primitive-file', revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
@@ -220,7 +220,7 @@ describe('PAPER-FLEX-001/002 direct Add', () => {
 
   it('writes row multiline text layout, primitive fallback, and text sizing in one valid reversible batch without mutating the captured input', () => {
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'text-add', revision: 0,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'text-add', revision: 0,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },

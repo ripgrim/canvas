@@ -40,7 +40,7 @@ function frameFixture(): { file: FileDocument; geometry: LayoutGeometry } {
     layout: { item: { position: { mode: 'flow' }, flex: { shrink: 0 } } },
   }
   const file: FileDocument = {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-flex', revision: 9,
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-flex', revision: 9,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
     nodes: { root: { id: 'root', type: 'root' }, parent, absolute, copy, fill },
     relationships: {
@@ -142,7 +142,7 @@ describe('Paper Remove Flex planner', () => {
   it('PAPER-FLEX-001 orders multiple empty parents by the tree and invokes geometry once per parent', () => {
     const first = emptyFrame('first', 'V', 0), second = emptyFrame('second', 'W', 200)
     const file: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'multi', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'multi', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: { root: { id: 'root', type: 'root' }, second: second.node, first: first.node },
       relationships: { second: second.relationship, first: first.relationship }, theme: { tokens: {} },
     }
@@ -163,7 +163,7 @@ describe('Paper Remove Flex planner', () => {
     }
     const child: ComponentNode = { id: 'child', type: 'component', componentId: 'label-source', exportName: 'Label', props: {}, layout: { item: { position: { mode: 'flow' }, width: { value: { kind: 'percent', value: 100 } } } } }
     const file: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'components', revision: 4, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'components', revision: 4, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: { root: { id: 'root', type: 'root' }, card, child }, relationships: { card: { parentId: 'root', orderKey: 'V' }, child: { parentId: 'card', orderKey: 'V', slot: 'children' } }, theme: { tokens: {} },
     }
     const geometry: LayoutGeometry = {

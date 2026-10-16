@@ -20,7 +20,7 @@ const job: HostedDocsPrepareJob = Object.freeze({
   baseCommitSha: 'a'.repeat(40),
   baseTreeSha: 'c'.repeat(40),
   adapter: Object.freeze({ version: 1 }),
-  document: Object.freeze({ schemaVersion: 12 }),
+  document: Object.freeze({ schemaVersion: 13 }),
   scan: Object.freeze({ sourceRevision: 'a'.repeat(40) }),
 })
 

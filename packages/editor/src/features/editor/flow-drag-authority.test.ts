@@ -32,7 +32,7 @@ const targetGeometry = {
 
 function file(): FileDocument {
   return {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'authority-file',
     revision: 7,
     pages: [{ id: 'page', name: 'Page 1', rootNodeId: 'root' }],

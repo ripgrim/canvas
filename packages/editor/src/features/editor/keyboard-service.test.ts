@@ -8,7 +8,7 @@ import { canvasGestures } from './canvas-gestures'
 import { toastManager } from '../../design-system/toast-atoms'
 
 const file = (withChild = false): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: withChild ? 'shortcut-measured' : 'shortcut-empty',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -25,7 +25,7 @@ const file = (withChild = false): FileDocument => ({
 })
 
 const componentFile = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'shortcut-component',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -229,7 +229,7 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
   it('omits nested Flex removal before claiming the shortcut or reading geometry', () => {
     const flexContainer = { display: 'flex' as const, gap: 0, flex: { direction: 'row' as const, wrap: 'nowrap' as const, justify: 'start' as const, align: 'start' as const } }
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'nested-remove', revision: 0,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'nested-remove', revision: 0,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: { root: { id: 'root', type: 'root' }, outer: { id: 'outer', type: 'frame', name: 'Outer', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 }, layout: { item: { position: { mode: 'freeform' } }, container: flexContainer } }, inner: { id: 'inner', type: 'frame', name: 'Inner', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 20, height: 20 }, layout: { item: { position: { mode: 'flow' } }, container: flexContainer } } },
       relationships: { outer: { parentId: 'root', orderKey: 'A' }, inner: { parentId: 'outer', orderKey: 'A' } }, theme: { tokens: {} },
@@ -312,7 +312,7 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
   it('removes only eligible Flex parents from a mixed selection and preserves exact selection through undo and redo', () => {
     const px = (value: number) => ({ kind: 'px' as const, value })
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'keyboard-remove', revision: 0,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'keyboard-remove', revision: 0,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
@@ -392,7 +392,7 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
 
   it('rejects an ancestor and descendant container selection before reading geometry', () => {
     const nested: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'nested-add', revision: 0,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'nested-add', revision: 0,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
@@ -412,7 +412,7 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
 
   it('keeps a multi-container action atomic when a later component capture is unavailable', () => {
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'atomic-add', revision: 0,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'atomic-add', revision: 0,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
@@ -433,7 +433,7 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
   it('rejects a text child when the otherwise-current measurement omits resolved line height', () => {
     const style = { fontFamily: 'Inter', fontStyle: 'normal' as const, fontWeight: 400, fontSize: 16, lineHeight: { kind: 'px' as const, value: 20 }, letterSpacing: 0, horizontalAlign: 'left' as const, verticalAlign: 'top' as const, case: 'none' as const, wrap: 'normal' as const, keepWords: false }
     const source: FileDocument = {
-      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'missing-text-metric', revision: 0,
+      schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, fileId: 'missing-text-metric', revision: 0,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },

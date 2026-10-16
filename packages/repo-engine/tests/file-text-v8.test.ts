@@ -31,7 +31,7 @@ const legacyFile = () => ({
   theme: { tokens: {} },
 })
 const currentFile = () => ({
-  schemaVersion: 12,
+  schemaVersion: 13,
   componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 3,
@@ -51,7 +51,7 @@ describe('PAPER-TEXT-001 and PAPER-TEXT-003: current text storage', () => {
     const upgraded = upgradeFileDocument(input)
     expect(upgraded).toStrictEqual({
       ...input,
-      schemaVersion: 12,
+      schemaVersion: 13,
       componentModel: { definitions: {}, instances: {} },
       nodes: {
         ...input.nodes,

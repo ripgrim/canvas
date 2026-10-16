@@ -605,7 +605,7 @@ describe('snapshot stream contract', () => {
       { type: 'admission.queued', protocolEpoch: 4, schemaVersion: 1, requestId: 'request-1' },
       { type: 'room.assigned', envelope: serverEnvelope, requestId: 'request-1', role: 'owner', replayScopeId: 'a'.repeat(64) },
       { type: 'load.phase', envelope: serverEnvelope, requestId: 'request-1', phase: 'stream' },
-      { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 12, baseSequence: '4', compression: 'none', contentEncoding: 'utf-8', storedByteLength: 2, documentByteLength: 2, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 1 },
+      { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 13, baseSequence: '4', compression: 'none', contentEncoding: 'utf-8', storedByteLength: 2, documentByteLength: 2, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 1 },
       { type: 'snapshot.chunk', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', chunkIndex: 0, chunkCount: 1, data: 'e30=' },
       { type: 'snapshot.end', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1' },
       { type: 'load.phase', envelope: serverEnvelope, requestId: 'request-1', phase: 'apply' },
@@ -631,7 +631,7 @@ describe('snapshot stream contract', () => {
   })
 
   it('rejects unsupported schemas and inconsistent or oversized snapshot declarations', () => {
-    const begin = { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 12, baseSequence: '0', compression: 'none', contentEncoding: 'utf-8', storedByteLength: maxSnapshotChunkBytes + 1, documentByteLength: maxSnapshotChunkBytes + 1, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 2 }
+    const begin = { type: 'snapshot.begin', envelope: serverEnvelope, requestId: 'request-1', snapshotId: 'snapshot-1', documentSchemaVersion: 13, baseSequence: '0', compression: 'none', contentEncoding: 'utf-8', storedByteLength: maxSnapshotChunkBytes + 1, documentByteLength: maxSnapshotChunkBytes + 1, objectDigest: 'a'.repeat(64), documentDigest: 'a'.repeat(64), chunkCount: 2 }
     expect(parseCollaborationServerMessage(JSON.stringify(begin))).toEqual(begin)
     expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, documentSchemaVersion: 11 }))).toThrow('Invalid collaboration server message')
     expect(() => parseCollaborationServerMessage(JSON.stringify({ ...begin, chunkCount: 1 }))).toThrow('Invalid collaboration server message')

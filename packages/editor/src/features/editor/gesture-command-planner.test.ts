@@ -13,7 +13,7 @@ const atoms: Atom[] = [
   { name: 'Child', kind: 'atom', componentId: 'child-component', path: 'src/Child.tsx', exportName: 'Child', fingerprint: 'child', sourceHash: 'child', status: 'bound', candidates: [], props: [] },
 ]
 const fixture = (): FileDocument => ({
-  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+  schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
   fileId: 'gesture-file',
   revision: 7,
   pages: [{ id: 'page', name: 'Page 1', rootNodeId: 'root' }],

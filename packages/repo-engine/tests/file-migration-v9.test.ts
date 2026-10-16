@@ -20,7 +20,7 @@ describe('PAPER-FLEX-001: schema v8 to current migration', () => {
     const input = version8()
     const before = JSON.stringify(input)
     const upgraded = upgradeFileDocument(input)
-    expect(upgraded).toStrictEqual({ ...input, schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, nodes: { ...input.nodes, frame: { ...input.nodes.frame, styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 300, height: 200 } } } })
+    expect(upgraded).toStrictEqual({ ...input, schemaVersion: 13, componentModel: { definitions: {}, instances: {} }, nodes: { ...input.nodes, frame: { ...input.nodes.frame, styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 300, height: 200 } } } })
     expect(JSON.stringify(input)).toBe(before)
     expect((upgraded as typeof input).nodes.frame).not.toHaveProperty('layout')
     expect(input.schemaVersion).toBe(8)

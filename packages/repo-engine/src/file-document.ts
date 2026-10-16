@@ -24,7 +24,7 @@ import type { TransformMatrix } from './transform-matrix.js'
 export * from './appearance.js'
 export * from './text.js'
 
-export const fileSchemaVersion = 12 as const
+export const fileSchemaVersion = 13 as const
 export type PrimitiveKind = 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'
 export const primitiveKinds: readonly PrimitiveKind[] = ['frame', 'rectangle', 'shape', 'shader', 'text']
 export type PrimitiveStyles = { relativeTransform: TransformMatrix; width: number; height: number; overflow?: 'clip' | 'visible' }

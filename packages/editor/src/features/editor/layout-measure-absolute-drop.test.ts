@@ -17,7 +17,7 @@ function scene(nodes: readonly SceneNode[]): Scene {
 
 function frameInput(): PaperFlowAbsoluteDropInput {
   const file: FileDocument = {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'absolute-drop',
     revision: documentRevision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
@@ -75,7 +75,7 @@ function frameInput(): PaperFlowAbsoluteDropInput {
 
 function componentInput(): PaperFlowAbsoluteDropInput {
   const file: FileDocument = {
-    schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
+    schemaVersion: 13, componentModel: { definitions: {}, instances: {} },
     fileId: 'absolute-drop',
     revision: documentRevision,
     pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],

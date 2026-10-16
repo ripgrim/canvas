@@ -1,4 +1,4 @@
-import { resolveComponentInstanceValues } from '@canvas/repo-engine/component-model'
+import { resolveComponentInstanceValues, resolveVariantAppearance } from '@canvas/repo-engine/component-model'
 import type { ComponentDefinition, ComponentInstanceRecord, ComponentPropertyDefinition } from '@canvas/repo-engine/component-model'
 import type { FileCommand, FileDocument } from '@canvas/repo-engine/file-document'
 import { childrenOf, nodeAppearance } from '@canvas/repo-engine/file-document'
@@ -90,13 +90,13 @@ export function componentPropertyProjectionCommands(file: FileDocument, definiti
   const map = mapParallelComponentSubtrees(file, definition.source.masterRootId, instance.id)
   if (!map) return []
   const values = resolveComponentInstanceValues(definition, instance.values)
-  return properties.flatMap((property): FileCommand[] => {
-    if (property.type === 'variant' && property.binding) {
-      const nodeId = map.get(property.binding.nodeId)
-      const valueId = values[property.id]
-      const appearance = typeof valueId === 'string' ? property.binding.appearances[valueId] : undefined
-      return nodeId && appearance ? [{ type: 'node.setAppearance', nodeId, appearance: structuredClone(appearance) }] : []
-    }
+  const variantNodeIds = [...new Set(properties.flatMap(property => property.type === 'variant' && property.binding ? [property.binding.nodeId] : []))]
+  const variantCommands = variantNodeIds.flatMap((masterNodeId): FileCommand[] => {
+    const nodeId = map.get(masterNodeId)
+    const appearance = resolveVariantAppearance(definition, values, masterNodeId)
+    return nodeId && appearance ? [{ type: 'node.setAppearance', nodeId, appearance }] : []
+  })
+  const scalarCommands = properties.flatMap((property): FileCommand[] => {
     if (property.type === 'text' && property.binding) {
       const nodeId = map.get(property.binding.nodeId)
       return nodeId ? [{ type: 'node.setText', nodeId, text: String(values[property.id]) }] : []
@@ -107,4 +107,5 @@ export function componentPropertyProjectionCommands(file: FileDocument, definiti
     }
     return []
   })
+  return [...variantCommands, ...scalarCommands]
 }

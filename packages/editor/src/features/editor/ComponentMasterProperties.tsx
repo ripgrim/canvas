@@ -60,9 +60,7 @@ export function ComponentMasterProperties() {
     <PropertyGroup title={copy.properties} action={<ComponentPropertyTypeMenu label={copy.addProperty} disabled={blocked} options={propertyOptions} onSelect={(type, target) => setEditor({ kind: 'property', type: type as ComponentPropertyDefinition['type'], container: editorContainer(target) })} />}>
       <ComponentDefinitionList>{definition.properties.map(property => {
         const edit = (target: EventTarget | null) => setEditor({ kind: 'property', propertyId: property.id, type: property.type, container: editorContainer(target) })
-        const unavailableNodeIds = property.type === 'variant'
-          ? definition.properties.flatMap(candidate => candidate.id !== property.id && candidate.type === 'variant' && candidate.binding ? [candidate.binding.nodeId] : [])
-          : property.type === 'instance-swap'
+        const unavailableNodeIds = property.type === 'instance-swap'
             ? definition.properties.flatMap(candidate => candidate.id !== property.id && candidate.type === 'instance-swap' ? [candidate.binding.nodeId] : [])
             : []
         const canBind = componentPropertyBindingNodes(nodes, property.type, unavailableNodeIds).length > 0
@@ -87,9 +85,7 @@ export function ComponentMasterProperties() {
     </PropertyGroup>}
     {editor?.kind === 'property' && (() => {
       const property = editor.propertyId ? definition.properties.find(candidate => candidate.id === editor.propertyId) : undefined
-      const unavailableNodeIds = editor.type === 'variant'
-        ? definition.properties.flatMap(candidate => candidate.id !== editor.propertyId && candidate.type === 'variant' && candidate.binding ? [candidate.binding.nodeId] : [])
-        : editor.type === 'instance-swap'
+      const unavailableNodeIds = editor.type === 'instance-swap'
           ? definition.properties.flatMap(candidate => candidate.id !== editor.propertyId && candidate.type === 'instance-swap' ? [candidate.binding.nodeId] : [])
           : []
       return <ComponentPropertyDialog key={`${editor.propertyId ?? 'new'}:${editor.type}`} componentId={definition.id} {...(property ? { property } : {})} type={editor.type} nodes={nodes} unavailableNodeIds={unavailableNodeIds} interactions={definition.interactions} siblingNames={definition.properties.filter(candidate => candidate.id !== editor.propertyId).map(candidate => candidate.name)} container={editor.container} disabled={blocked} onClose={() => setEditor(null)} />
