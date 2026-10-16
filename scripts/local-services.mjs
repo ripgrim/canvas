@@ -14,6 +14,7 @@ export const localOrigins = Object.freeze({
   thumbnailJobs: 'http://127.0.0.1:4324',
   syncRoom: 'http://127.0.0.1:4325',
   syncCoordinator: 'http://127.0.0.1:4326',
+  repositoryJobs: 'http://127.0.0.1:4327',
 })
 
 export const remoteDevPorts = Object.freeze({
@@ -60,6 +61,7 @@ export const localEnvironment = Object.freeze({
   API_BASE_URL: localOrigins.api,
   API_ORIGIN: localOrigins.api,
   ASSETS_ORIGIN: localOrigins.assets,
+  HOSTED_PREVIEW_ORIGIN: browserOrigins.preview,
   ALLOWED_ORIGINS: `${browserOrigins.web},${browserOrigins.login}`,
 })
 
@@ -74,7 +76,8 @@ export const localServices = Object.freeze([
   service('api', 'API', '@canvas/api', 'dev', 4320, `${localOrigins.api}/healthz`, [
     'DATABASE_URL', 'BETTER_AUTH_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET',
     'BETTER_AUTH_URL', 'LOGIN_URL', 'APP_URL', 'AUTH_TRUSTED_ORIGINS',
-    'AUTH_COOKIE_DOMAIN', 'API_SERVICE_TOKEN', 'COLLABORATION_ADMISSION_SERVICE_TOKEN', 'COLLABORATION_BUILD_ID', 'THUMBNAIL_SERVICE_TOKEN',
+    'AUTH_COOKIE_DOMAIN', 'API_SERVICE_TOKEN', 'REPOSITORY_JOB_SERVICE_TOKEN', 'HOSTED_PREVIEW_BUILD_SERVICE_TOKEN', 'HOSTED_PREVIEW_WRITE_SECRET', 'COLLABORATION_ADMISSION_SERVICE_TOKEN', 'COLLABORATION_BUILD_ID', 'THUMBNAIL_SERVICE_TOKEN',
+    'HOSTED_PREVIEW_PUBLISHER_SERVICE_TOKEN', 'HOSTED_PREVIEW_CAPABILITY_SECRET', 'HOSTED_PREVIEW_ORIGIN',
     'ASSETS_ORIGIN',
     'CANVAS_VERIFIED_REGISTRY_FINGERPRINT',
     'GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_CLIENT_ID',
@@ -86,7 +89,7 @@ export const localServices = Object.freeze([
     'COLLABORATION_ADMISSION_SERVICE_TOKEN', 'COLLABORATION_BUILD_ID', 'API_ORIGIN', 'ALLOWED_ORIGINS',
     'SYNC_COORDINATOR_INTERNAL_SECRET',
   ], {}, ['--show-interactive-dev-session=false']),
-  service('assets', 'Assets', '@canvas/workers', 'dev', 4322, `${localOrigins.assets}/`, [], {}, [
+  service('assets', 'Assets', '@canvas/workers', 'dev', 4322, `${localOrigins.assets}/`, ['HOSTED_PREVIEW_WRITE_SECRET'], {}, [
     '--show-interactive-dev-session=false',
   ], [404]),
   service('thumbnail-renderer', 'Thumbnail renderer', '@canvas/thumbnail-renderer', 'dev', 4323, `${localOrigins.thumbnailRenderer}/thumbnail-renderer`, ['CANVAS_VERIFIED_COMPONENT_REGISTRY']),
@@ -102,6 +105,11 @@ export const localServices = Object.freeze([
   service('sync-coordinator', 'Sync coordinator', '@canvas/sync-coordinator', 'dev', 4326, `${localOrigins.syncCoordinator}/`, [
     'ALLOWED_ORIGINS', 'SYNC_COORDINATOR_INTERNAL_SECRET', 'SYNC_ROOM_TICKET_SECRET', 'SYNC_ROOM_RUNTIME_ORIGIN',
   ], {}, ['--show-interactive-dev-session=false'], [403]),
+  service('repository-jobs', 'Repository jobs', '@canvas/repository-jobs', 'dev', 4327, `${localOrigins.repositoryJobs}/healthz`, [
+    'API_ORIGIN', 'REPOSITORY_JOB_SERVICE_TOKEN', 'HOSTED_PREVIEW_BUILD_SERVICE_TOKEN',
+    'HOSTED_PREVIEW_PUBLISHER_SERVICE_TOKEN', 'HOSTED_PREVIEW_BUILDER_IMAGE',
+    'HOSTED_DOCS_VALIDATOR_IMAGE', 'HOSTED_DOCS_VALIDATOR_PROFILE',
+  ]),
 ])
 
 export const sharedBuildPackages = Object.freeze([

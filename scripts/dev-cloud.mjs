@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync, rmSync } from 'node:fs'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
@@ -13,6 +13,7 @@ import { localRegistryEnvironment, prepareLocalRegistry } from './local-registry
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 loadEnvironment({ path: resolve(root, '.env'), quiet: true })
+loadEnvironment({ path: resolve(root, '.env.github-preview'), quiet: true })
 loadEnvironment({ path: resolve(root, '.env.local'), quiet: true, override: true })
 const pnpm = process.env.npm_execpath
 if (!pnpm) throw new Error('Run this command through pnpm dev:cloud.')
@@ -50,6 +51,54 @@ function run(args, environment = publicEnvironment) {
   const result = spawnSync(process.execPath, [pnpm, ...args], { cwd: root, env: environment, stdio: 'inherit' })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`pnpm ${args.join(' ')} failed.`)
+}
+
+function localHostedPreviewBuilderImage() {
+  const configured = process.env.HOSTED_PREVIEW_BUILDER_IMAGE?.trim()
+  if (configured) return configured
+  const dockerfile = resolve(root, 'infra/hosted-preview-builder/Dockerfile')
+  const build = spawnSync('docker', ['build', '--quiet', '--tag', 'comp-canvas-hosted-preview-builder:local', '--file', dockerfile, root], {
+    cwd: root,
+    env: publicEnvironment,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  })
+  if (build.error) throw build.error
+  if (build.status !== 0) throw new Error('Hosted preview builder image failed to build.')
+  const inspect = spawnSync('docker', ['image', 'inspect', '--format={{.Id}}', 'comp-canvas-hosted-preview-builder:local'], {
+    cwd: root,
+    env: publicEnvironment,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  })
+  if (inspect.error) throw inspect.error
+  const image = inspect.stdout.trim()
+  if (inspect.status !== 0 || !/^sha256:[a-f0-9]{64}$/.test(image)) throw new Error('Hosted preview builder image identity is invalid.')
+  return image
+}
+
+function localHostedDocsValidatorImage() {
+  const configured = process.env.HOSTED_DOCS_VALIDATOR_IMAGE?.trim()
+  if (configured) return configured
+  const dockerfile = resolve(root, 'infra/hosted-docs-validator/Dockerfile')
+  const build = spawnSync('docker', ['build', '--quiet', '--tag', 'comp-canvas-hosted-docs-validator:local', '--file', dockerfile, root], {
+    cwd: root,
+    env: publicEnvironment,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  })
+  if (build.error) throw build.error
+  if (build.status !== 0) throw new Error('Hosted documentation validator image failed to build.')
+  const inspect = spawnSync('docker', ['image', 'inspect', '--format={{.Id}}', 'comp-canvas-hosted-docs-validator:local'], {
+    cwd: root,
+    env: publicEnvironment,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  })
+  if (inspect.error) throw inspect.error
+  const image = inspect.stdout.trim()
+  if (inspect.status !== 0 || !/^sha256:[a-f0-9]{64}$/.test(image)) throw new Error('Hosted documentation validator image identity is invalid.')
+  return image
 }
 
 function launch(label, args, environment, kind = 'required-service') {
@@ -131,17 +180,27 @@ process.on('exit', () => {
 })
 
 const serviceToken = process.env.API_SERVICE_TOKEN?.trim() || randomBytes(48).toString('base64url')
+const repositoryJobServiceToken = process.env.REPOSITORY_JOB_SERVICE_TOKEN?.trim() || randomBytes(48).toString('base64url')
+const hostedPreviewBuildServiceToken = process.env.HOSTED_PREVIEW_BUILD_SERVICE_TOKEN?.trim() || randomBytes(48).toString('base64url')
+const hostedPreviewWriteSecret = process.env.HOSTED_PREVIEW_WRITE_SECRET?.trim() || randomBytes(48).toString('base64url')
 const collaborationAdmissionServiceToken = process.env.COLLABORATION_ADMISSION_SERVICE_TOKEN?.trim() || randomBytes(48).toString('base64url')
 const uploadSecret = process.env.UPLOAD_INTENT_SECRET?.trim() || randomBytes(48).toString('base64url')
 const thumbnailServiceToken = process.env.THUMBNAIL_SERVICE_TOKEN?.trim() || randomBytes(48).toString('base64url')
 const thumbnailJobTriggerToken = process.env.THUMBNAIL_JOB_TRIGGER_TOKEN?.trim() || randomBytes(48).toString('base64url')
+const hostedPreviewPublisherServiceToken = process.env.HOSTED_PREVIEW_PUBLISHER_SERVICE_TOKEN?.trim() || randomBytes(48).toString('base64url')
+const hostedPreviewCapabilitySecret = process.env.HOSTED_PREVIEW_CAPABILITY_SECRET?.trim() || randomBytes(48).toString('base64url')
 const syncCoordinatorInternalSecret = process.env.SYNC_COORDINATOR_INTERNAL_SECRET?.trim() || randomBytes(48).toString('base64url')
 const syncRoomTicketSecret = process.env.SYNC_ROOM_TICKET_SECRET?.trim() || randomBytes(48).toString('base64url')
 process.env.API_SERVICE_TOKEN = serviceToken
+process.env.REPOSITORY_JOB_SERVICE_TOKEN = repositoryJobServiceToken
+process.env.HOSTED_PREVIEW_BUILD_SERVICE_TOKEN = hostedPreviewBuildServiceToken
+process.env.HOSTED_PREVIEW_WRITE_SECRET = hostedPreviewWriteSecret
 process.env.COLLABORATION_ADMISSION_SERVICE_TOKEN = collaborationAdmissionServiceToken
 process.env.UPLOAD_INTENT_SECRET = uploadSecret
 process.env.THUMBNAIL_SERVICE_TOKEN = thumbnailServiceToken
 process.env.THUMBNAIL_JOB_TRIGGER_TOKEN = thumbnailJobTriggerToken
+process.env.HOSTED_PREVIEW_PUBLISHER_SERVICE_TOKEN = hostedPreviewPublisherServiceToken
+process.env.HOSTED_PREVIEW_CAPABILITY_SECRET = hostedPreviewCapabilitySecret
 process.env.SYNC_COORDINATOR_INTERNAL_SECRET = syncCoordinatorInternalSecret
 process.env.SYNC_ROOM_TICKET_SECRET = syncRoomTicketSecret
 const syncRoomCheckpointDirectory = await mkdtemp(resolve(tmpdir(), 'canvas-sync-room-'))
@@ -156,6 +215,11 @@ process.stdout.write('Starting Docker Postgres and applying auth and control-pla
 run(['db:setup'], environmentFor('DATABASE_URL', 'BETTER_AUTH_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'BETTER_AUTH_URL', 'LOGIN_URL', 'APP_URL', 'AUTH_TRUSTED_ORIGINS', 'AUTH_COOKIE_DOMAIN'))
 process.stdout.write('Building shared cloud packages.\n')
 for (const name of sharedBuildPackages) run(['--filter', name, 'build'])
+process.stdout.write('Preparing the hosted preview builder image.\n')
+process.env.HOSTED_PREVIEW_BUILDER_IMAGE = localHostedPreviewBuilderImage()
+process.stdout.write('Preparing the hosted documentation validator image.\n')
+process.env.HOSTED_DOCS_VALIDATOR_IMAGE = localHostedDocsValidatorImage()
+process.env.HOSTED_DOCS_VALIDATOR_PROFILE = (await readFile(resolve(root, 'infra/hosted-docs-validator/comp-v3.profile.json'), 'utf8')).trim()
 const localRegistry = await prepareLocalRegistry({ root })
 Object.assign(process.env, localRegistryEnvironment(localRegistry))
 process.stdout.write(`LOCAL_REGISTRY_EVIDENCE ${JSON.stringify(localRegistry)}\n`)
@@ -163,7 +227,9 @@ await writeFile(assetWorkerVars, [
   `API_SERVICE_TOKEN=${serviceToken}`,
   `UPLOAD_INTENT_SECRET=${uploadSecret}`,
   `THUMBNAIL_SERVICE_TOKEN=${thumbnailServiceToken}`,
+  `HOSTED_PREVIEW_WRITE_SECRET=${hostedPreviewWriteSecret}`,
   `API_ORIGIN=${localEnvironment.API_ORIGIN}`,
+  `ASSETS_ORIGIN=${localEnvironment.ASSETS_ORIGIN}`,
   `ALLOWED_ORIGINS=${localEnvironment.ALLOWED_ORIGINS}`,
   '',
 ].join('\n'), { encoding: 'utf8', mode: 0o600 })
@@ -184,7 +250,7 @@ await writeFile(syncCoordinatorVars, [
   '',
 ].join('\n'), { encoding: 'utf8', mode: 0o600 })
 
-for (const service of localServices) {
+function launchService(service) {
   const args = ['--filter', service.packageName, service.script]
   const trailingArgs = [...service.trailingArgs]
   if (process.platform === 'win32' && service.id === 'sync-coordinator') trailingArgs.push('--enable-containers=false')
@@ -193,6 +259,12 @@ for (const service of localServices) {
 }
 
 try {
+  const syncService = localServices.find(service => service.id === 'sync')
+  if (!syncService) throw new Error('The local sync service is not configured.')
+  const syncDependencies = localServices.filter(service => ['api', 'sync-room', 'sync-coordinator'].includes(service.id))
+  for (const service of localServices) if (service.id !== syncService.id) launchService(service)
+  await Promise.all(syncDependencies.map(service => ready(service.readyUrl, service.label, service.readyStatuses)))
+  launchService(syncService)
   await Promise.all(localServices.map(service => ready(service.readyUrl, service.label, service.readyStatuses)))
   const registryConsumers = await Promise.all([
     registryFingerprint(localOrigins.preview, 'Preview', localRegistry.fingerprint),

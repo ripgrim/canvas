@@ -24,6 +24,10 @@
       "types": "./dist/github.d.ts",
       "import": "./dist/github.js"
     },
+    "./github-docs": {
+      "types": "./dist/github-docs.d.ts",
+      "import": "./dist/github-docs.js"
+    },
     "./collaboration": {
       "types": "./dist/collaboration.d.ts",
       "import": "./dist/collaboration.js"

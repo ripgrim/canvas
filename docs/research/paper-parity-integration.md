@@ -14,9 +14,9 @@ No phase may be called complete from a visual approximation, a mock-only test, o
 | 2 | Text editing and inspector | Complete | `PAPER-TEXT-004` through `PAPER-TEXT-008` passed focused tests, retained visual review, and the real two-browser collaboration harness. |
 | 3 | Flex conversion core | In progress: Direct Add, Wrap, Remove, shared shortcut, context menu, and inspector entry actions are integrated; retained browser acceptance remains | Add, wrap, remove, inference, child positioning, and sizing transitions pass `PAPER-FLEX-001` through `PAPER-FLEX-003`. |
 | 4 | Flex controls and gestures | In progress: inspector controls, exact last-baseline persistence, and pure reorder/resize math are implemented; gesture transactions and live collaboration remain | Paper-order controls, matrix behavior, reorder, resize, rotation, semantic undo, and live collaboration pass `PAPER-FLEX-004` through `PAPER-FLEX-008`. |
-| 5 | Clipboard codec and security | Preflight complete; implementation not started | MIME precedence, versioned payload, validation, SVG sanitization, limits, and editable-target bypass pass `PAPER-CLIP-001` through `PAPER-CLIP-003`. |
-| 6 | Clipboard insertion | Not started | Atomic multi-node insertion, assets, tokens, placement, paste variants, one undo, and one collaboration batch pass `PAPER-CLIP-004` through `PAPER-CLIP-008`. |
-| 7 | Cross-feature acceptance | Not started | Text inside flex, clipboard into flex, undo/redo, two-client convergence, accessibility, theme, responsive UI, and screenshots pass the combined matrix. |
+| 5 | Clipboard codec and security | In progress: MIME precedence, versioned internal payloads, bounded image preparation, SVG sanitization and browser rasterization, collision limits, and editable-target bypass are implemented; full browser security acceptance remains | MIME precedence, versioned payload, validation, SVG sanitization, limits, and editable-target bypass pass `PAPER-CLIP-001` through `PAPER-CLIP-003`. |
+| 6 | Clipboard insertion | Complete: text, HTML-to-text, sanitized SVG, same-file trees, cross-file token/component/verified-asset reconciliation, compatible-ancestor placement, real ClipboardEvent Cut/Copy/Paste and canvas drop placement, Paste on top, Paste to replace, atomic single/multi-image insertion, one undo, one collaboration submission, and live second-client convergence are integrated | Atomic multi-node insertion, assets, tokens, placement, paste variants, one undo, one collaboration batch, and exact peer convergence pass `PAPER-CLIP-004` through `PAPER-CLIP-008`. |
+| 7 | Cross-feature acceptance | In progress: mixed text and verified-image clipboard trees enter Flex in one mutation with exact semantic undo/redo; locked and read-only policy is fail-closed; browser and Desktop share canonical hosted-document admission; retained selection-HUD evidence passes in light, dark, and mobile layouts | Text inside flex, clipboard into flex, undo/redo, two-client convergence, accessibility, theme, responsive UI, and the remaining feature screenshots pass the combined matrix. |
 
 ## Phase 1: text foundation
 
@@ -422,6 +422,11 @@ Preflight result: ready with required seams; implementation and acceptance remai
 - Desktop and web project the same stored file and reject the same malformed data.
 - Light, dark, mobile, keyboard, reduced-motion, and portalled states use existing Wonder-theme tokens and shared components.
 - Screenshots are required for the text inspector, text editing, flex inspector, flex reorder, clipboard progress, partial failure, mobile sheets, and read-only states.
+
+Current evidence:
+
+- Browser and Desktop use `validateHostedFileDocument` for stored-file admission. The same missing-page-root fixture fails both boundaries with `Error ID: invalid-file-document`; the collaboration client enters a terminal failure instead of reconnecting indefinitely. Focused result: 137 tests passed across cloud document, sync client, browser adapter, and Desktop adapter, with all four package typechecks and contract gates passing.
+- `PR-EVIDENCE-011` passed against the live browser fixture. The same selected Frame kept exact HUD-to-preview geometry in light desktop, dark desktop, and a 390 by 844 mobile viewport. Desktop retains eight resize and four rotation handles; mobile retains eight resize handles and exposes rotation through the quick-action toolbar. Generated captures remain untracked under `outputs/pr-evidence/local/editor.node-overlay/browser`.
 
 ## Evidence inventory
 

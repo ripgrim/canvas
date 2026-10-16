@@ -107,6 +107,77 @@
       "evidence": "visual"
     },
     {
+      "id": "editor.clipboard-drop",
+      "paths": [
+        "packages/editor/src/features/editor/clipboard-*.ts",
+        "packages/editor/src/features/editor/editor-clipboard-service.ts",
+        "packages/editor/src/features/editor/document-store.ts",
+        "packages/editor-automation/**",
+        "tests/pr-evidence/scenarios/clipboard-drop.spec.ts"
+      ],
+      "evidence": "visual"
+    },
+    {
+      "id": "editor.component-system",
+      "paths": [
+        "packages/editor/src/design-system/component-kit*",
+        "packages/editor/src/design-system/property-atoms.tsx",
+        "packages/editor/src/features/editor/ComponentKitPanel.tsx",
+        "packages/editor/src/features/editor/ComponentMasterProperties.tsx",
+        "packages/editor/src/features/editor/ComponentModelProperties.tsx",
+        "packages/editor/src/features/editor/component-canvas-link.ts",
+        "packages/editor/src/features/editor/component-kit-copy.ts",
+        "packages/editor/src/features/editor/component-property-projection.ts",
+        "packages/editor/src/features/editor/component-registry*.ts",
+        "packages/editor/src/features/editor/document-store*.ts",
+        "packages/editor/src/features/editor/repository-service*.ts",
+        "packages/preview-runtime/src/**",
+        "packages/repo-engine/src/component-model.ts",
+        "packages/repo-engine/src/file-document.ts",
+        "packages/repo-engine/src/file-preview.ts",
+        "tests/pr-evidence/scenarios/component-system.spec.ts"
+      ],
+      "evidence": "visual"
+    },
+    {
+      "id": "editor.theme-tokens",
+      "paths": [
+        "packages/editor/src/design-system/color-picker*",
+        "packages/editor/src/design-system/floating-portal.ts",
+        "packages/editor/src/design-system/theme-*",
+        "packages/editor/src/features/editor/ThemePanel*.ts*",
+        "packages/editor/src/features/editor/theme-*.ts",
+        "tests/pr-evidence/scenarios/theme-token-color.spec.ts"
+      ],
+      "evidence": "visual"
+    },
+    {
+      "id": "editor.mobile-properties",
+      "paths": [
+        "packages/editor/src/design-system/appearance-atoms.tsx",
+        "packages/editor/src/design-system/floating-portal.ts",
+        "packages/editor/src/design-system/shell-atoms.tsx",
+        "packages/editor/src/design-system/shell.css",
+        "packages/editor/src/features/editor/AppearancePanels.tsx",
+        "packages/editor/src/features/editor/Editor.tsx",
+        "packages/editor/src/features/editor/mobile-editor*.ts",
+        "packages/editor-automation/**",
+        "tests/pr-evidence/scenarios/mobile-properties-menu.spec.ts"
+      ],
+      "evidence": "visual"
+    },
+    {
+      "id": "editor.font-restore",
+      "paths": [
+        "packages/editor/src/design-system/font-family-picker*",
+        "packages/editor/src/features/fonts/**",
+        "packages/editor/src/features/editor/preview-service.ts",
+        "packages/preview-runtime/src/browser-runtime.mjs",
+        "tests/pr-evidence/scenarios/font-restore.spec.ts"
+      ],
+      "evidence": "visual"
+    },
+    {
       "id": "documentation.research",
       "paths": ["docs/research/**"],
       "evidence": "nonvisual",
@@ -146,8 +217,8 @@
       "title": "A red flex frame stays synchronized while moving",
       "capabilities": ["editor.canvas.transient-move", "evidence.infrastructure"],
       "adapters": ["browser"],
-      "assertions": ["frame.500x500", "hud.follows-wiggle", "fill.red", "layout.flex", "model.commits"],
-      "screenshots": ["created", "wiggled", "red", "flex"],
+      "assertions": ["frame.500x500", "hud.follows-wiggle", "flex-control.stays-mounted", "flex-control.disables-while-held", "flex-control.recovers-on-release", "fill.red", "layout.flex", "model.commits"],
+      "screenshots": ["created", "held-flex-control", "wiggled", "red", "flex"],
       "video": true
     },
     {
@@ -155,8 +226,53 @@
       "title": "A selected frame keeps its complete overlay",
       "capabilities": ["editor.canvas.selection-overlay", "evidence.infrastructure"],
       "adapters": ["browser"],
-      "assertions": ["overlay.matches-node", "overlay.resize-handles", "overlay.rotation-handles", "overlay.clears-on-deselect", "recording.node-crop"],
-      "screenshots": ["overlay"],
+      "assertions": ["overlay.matches-node", "overlay.resize-handles", "overlay.rotation-handles", "overlay.survives-reconnect", "overlay.recovers-after-reconnect", "overlay.clears-on-deselect", "recording.node-crop"],
+      "screenshots": ["overlay", "overlay-reconnecting", "overlay-dark", "overlay-mobile"],
+      "video": true
+    },
+    {
+      "id": "editor.clipboard-drop",
+      "title": "Dropped text lands at the canvas pointer",
+      "capabilities": ["editor.clipboard-drop", "evidence.infrastructure"],
+      "adapters": ["browser"],
+      "assertions": ["drop.canvas-only", "drop.pointer-placement", "drop.preview-visible"],
+      "screenshots": ["dropped"],
+      "video": false
+    },
+    {
+      "id": "editor.component-system",
+      "title": "A canvas component becomes an isolated reusable instance",
+      "capabilities": ["editor.component-system", "evidence.infrastructure"],
+      "adapters": ["browser"],
+      "assertions": ["component.created-once", "component.creation-opens-details", "component.properties-authored", "component.materials-projected", "component.docs-visible", "component.instance-placed", "component.instance-isolated", "component.interactions-previewed", "component.variant-sheet-generated", "component.undo-restores-semantics"],
+      "screenshots": ["materials", "docs", "instance", "variant-sheet"],
+      "video": true
+    },
+    {
+      "id": "editor.theme-token-color",
+      "title": "A theme color opens from its swatch without stealing opacity editing",
+      "capabilities": ["editor.theme-tokens", "evidence.infrastructure"],
+      "adapters": ["browser"],
+      "assertions": ["theme.color-preview-opens", "theme.opacity-independent", "theme.keyboard-restores-focus", "theme.portal-follows-mode"],
+      "screenshots": ["picker-light", "opacity-42", "picker-dark"],
+      "video": true
+    },
+    {
+      "id": "editor.mobile-properties-menu",
+      "title": "A mobile inspector menu remains owned by the Properties sheet",
+      "capabilities": ["editor.mobile-properties", "evidence.infrastructure"],
+      "adapters": ["browser"],
+      "assertions": ["mobile.properties-opens", "mobile.menu-owned", "mobile.escape-restores-focus", "mobile.menu-commits"],
+      "screenshots": ["menu-open", "menu-committed"],
+      "video": true
+    },
+    {
+      "id": "editor.font-restore",
+      "title": "A stored Google font restores without reopening the picker",
+      "capabilities": ["editor.font-restore", "evidence.infrastructure"],
+      "adapters": ["browser"],
+      "assertions": ["font.selected", "font.transferred-to-preview", "font.persists", "font.restores-after-reload"],
+      "screenshots": ["selected", "restored"],
       "video": true
     }
   ]

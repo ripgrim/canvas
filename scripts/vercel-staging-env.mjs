@@ -54,6 +54,8 @@ function validate(input) {
   exact(input, 'LOGIN_URL', expected.login)
   exact(input, 'APP_URL', expected.web)
   exact(input, 'ASSETS_ORIGIN', expected.assets)
+  exact(input, 'HOSTED_PREVIEW_ORIGIN', expected.preview)
+  exact(input, 'HOSTED_PREVIEW_EDITOR_ORIGINS', `${expected.web},design-editor://app,http://127.0.0.1:4317,http://localhost:4317`)
   exact(input, 'VITE_API_URL', expected.web)
   exact(input, 'VITE_APP_URL', expected.web)
   exact(input, 'VITE_API_ORIGIN', expected.web)

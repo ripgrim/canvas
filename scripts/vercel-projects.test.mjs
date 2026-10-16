@@ -84,6 +84,27 @@ test('generates every build environment value consumed by the thumbnail renderer
   assert.deepEqual([...consumed].filter(name => !renderer.environment.includes(name) && !generated.includes(name)), [])
 })
 
+test('declares every secret and origin required by the hosted preview gateway', () => {
+  const preview = manifest.projects.find(project => project.service === 'preview')
+  assert.ok(preview)
+  assert.deepEqual([...preview.environment].sort(), [
+    'API_SERVICE_TOKEN',
+    'ASSETS_ORIGIN',
+    'HOSTED_PREVIEW_CAPABILITY_SECRET',
+    'HOSTED_PREVIEW_EDITOR_ORIGINS',
+    'HOSTED_PREVIEW_ORIGIN',
+  ])
+})
+
+test('keeps hosted preview capabilities out of rewrite queries', async () => {
+  const config = JSON.parse(await readFile(resolve(root, 'apps/preview/vercel.json'), 'utf8'))
+  assert.deepEqual(config.rewrites, [
+    { source: '/hosted/:path*', destination: '/api/hosted/:path*' },
+  ])
+  assert.ok(config.functions['api/hosted/[...path].ts'])
+  assert.equal(JSON.stringify(config).includes('__canvas_path'), false)
+})
+
 function requiredEnvironmentNames(source, path) {
   const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const names = new Set()

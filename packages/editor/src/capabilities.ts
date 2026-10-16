@@ -158,6 +158,62 @@ export type EditorFlowPersistenceBinding = Readonly<{
 }>
 export type EditorPersistenceIntent = Readonly<{ kind: 'commands'; commands: readonly FileCommand[]; flow?: EditorFlowPersistenceBinding }>
 export type EditorRepositoryConnection = Readonly<{ repository: ConnectedRepository; scan: ShadcnScan; registry: ShadcnComponentCatalog }>
+export type EditorHostedRepository = Readonly<{ id: string; ownerLogin: string; name: string; fullName: string; isPrivate: boolean }>
+export type EditorHostedRepositoryConnection = Readonly<{ installationId: string; repository: EditorHostedRepository }>
+export type EditorHostedRepositoryScan = Readonly<{
+  jobId: string
+  sourceRevision: string
+  componentCount: number
+  registry: ShadcnComponentCatalog
+}>
+export type EditorRepositoryDocsReview = Readonly<{
+  id: string
+  fileId: string
+  fileRevision: number
+  status: 'queued_prepare' | 'preparing' | 'prepared' | 'queued_save' | 'saving' | 'saved' | 'stale' | 'failed'
+  baseRef: string
+  baseCommitSha: string
+  approvalDigest: string | null
+  preparedBundle: null | Readonly<{
+    files: readonly Readonly<{ path: string; diff: string }>[]
+    omissions: readonly Readonly<{ componentId: string; reason: 'example-adapter-required' | 'usage-adapter-required' }>[]
+    validation: readonly Readonly<{ name: string; detail: string }>[]
+  }>
+  committedSha: string | null
+  errorId: string | null
+}>
+export type EditorHostedRepositoryApi = Readonly<{
+  returnInstallationId(): string | null
+  clearReturnLocation(): void
+  startConnection(): Promise<void>
+  listChoices(installationId: string): Promise<readonly EditorHostedRepository[]>
+  getConnection(): Promise<EditorHostedRepositoryConnection | null>
+  getLatestScan(): Promise<EditorHostedRepositoryScan | null>
+  link(installationId: string, repositoryId: string): Promise<EditorHostedRepositoryConnection>
+  scan(): Promise<EditorHostedRepositoryScan>
+  getLatestDocsReview(fileId: string): Promise<EditorRepositoryDocsReview | null>
+  prepareDocs(input: Readonly<{ fileId: string; fileRevision: number; scanJobId: string }>): Promise<EditorRepositoryDocsReview>
+  getDocsReview(reviewId: string): Promise<EditorRepositoryDocsReview>
+  saveDocs(reviewId: string, approvalDigest: string): Promise<EditorRepositoryDocsReview>
+}>
+export type EditorHostedPreview = Readonly<{ artifactId: string; url: string; expiresAt: number }>
+export type EditorHostedPreviewBuild = Readonly<{
+  id: string
+  fileId: string
+  fileRevision: number
+  status: 'queued' | 'leased' | 'completed' | 'failed'
+  attempts: number
+  createdAt: string
+  artifactId?: string
+  completedAt?: string
+  errorId?: string
+  failedAt?: string
+}>
+export type EditorHostedExecutionApi = Readonly<{
+  startBuild(): Promise<EditorHostedPreviewBuild>
+  getBuild(jobId: string): Promise<EditorHostedPreviewBuild>
+  getPreview(artifactId: string): Promise<EditorHostedPreview>
+}>
 export type EditorAuthApi = Readonly<{
   /** Hosted public-file routes may keep the read-only workspace mounted while the account is signed out. */
   allowSignedOutWorkspace?: boolean
@@ -173,6 +229,8 @@ export type EditorProjectApi = Readonly<{
   auth?: EditorAuthApi
   collaboration?: EditorCollaborationApi
   assets?: EditorAssetApi
+  hostedRepository?: EditorHostedRepositoryApi
+  hostedExecution?: EditorHostedExecutionApi
   subscribeFailures?(listener: (failure: EditorProjectFailure) => void): () => void
   listFiles?(): Promise<readonly EditorFile[]>
   createFile?(): Promise<EditorFile>

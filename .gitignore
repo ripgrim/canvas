@@ -6,6 +6,8 @@ coverage/
 *.tsbuildinfo
 .design-editor/
 outputs/
+test-results/
+playwright-report/
 .cache/
 .next/
 .turbo/

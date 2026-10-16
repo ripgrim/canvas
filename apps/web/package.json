@@ -7,14 +7,17 @@
     "dev": "vite --host 127.0.0.1 --port 4317 --strictPort",
     "build": "vite build && node ../../scripts/sanitize-start-shell.mjs",
     "typecheck": "tsc --noEmit",
+    "test:file-open-startup": "node tests/file-open-startup.mjs",
     "test:update-visual": "node tests/application-update-visual.mjs",
     "dev:preview": "vite --config vite.preview.config.ts --host 127.0.0.1 --port 4318 --strictPort"
   },
   "dependencies": {
     "@canvas/auth": "workspace:*",
     "@canvas/cloud-client": "workspace:*",
+    "@canvas/cloud-document": "workspace:*",
     "@canvas/editor": "workspace:*",
     "@canvas/repo-engine": "workspace:*",
+    "@canvas/scanner": "workspace:*",
     "@canvas/preview-runtime": "workspace:*",
     "@canvas/sync-client": "workspace:*",
     "@canvas/sync-protocol": "workspace:*",

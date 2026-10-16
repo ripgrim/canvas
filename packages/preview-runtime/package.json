@@ -6,6 +6,9 @@
   "exports": {
     ".": "./dist/index.js",
     "./protocol": "./dist/protocol.js",
+    "./hosted-artifact": "./dist/hosted-artifact.js",
+    "./hosted-capability": "./dist/hosted-capability.js",
+    "./hosted-write-capability": "./dist/hosted-write-capability.js",
     "./browser-contracts": "./dist/browser-contracts.js",
     "./browser": "./dist/browser-runtime.mjs",
     "./source-binding-plugin": "./dist/source-binding-plugin.mjs",
@@ -18,6 +21,7 @@
     "test": "vitest run tests"
   },
   "dependencies": {
+    "@noble/hashes": "2.4.0",
     "@canvas/sync-protocol": "workspace:*",
     "vite": "^6.2.0",
     "typescript": "^5.9.0"

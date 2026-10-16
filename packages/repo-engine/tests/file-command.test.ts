@@ -8,13 +8,25 @@ const literal = { kind: 'literal', color: { kind: 'hex', hex: '#112233' } } as c
 const solid = { id: 'fill-1', type: 'solid', color: literal } as const
 const stroke = { color: literal, width: 1, style: 'solid' } as const
 const page = { id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' } as const
-const node = { id: 'node-2', type: 'rectangle', name: 'Rectangle', styles: { left: 0, top: 0, width: 10, height: 10 } } as const
+const node = { id: 'node-2', type: 'rectangle', name: 'Rectangle', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } } as const
 const token = { id: 'token-2', type: 'color', name: 'Accent', orderKey: 'V', value: literal } as const
 const layout = { item: { position: { mode: 'flow' } } } as const
 const removedFlexGroup = { parent: { nodeId: 'frame-1', relationship: { parentId: 'root-1', orderKey: 'V' }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'freeform' } } }, children: [] } satisfies NodeRemoveFlexGroup
 const sourceFlexGroup = { parent: { nodeId: 'frame-1', relationship: { parentId: 'root-1', orderKey: 'V' }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } }, children: [] } satisfies NodeRemoveFlexGroup
+const componentDefinition = { id: 'component-1', name: 'Button', source: { kind: 'canvas', masterRootId: 'node-1' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] } as const
+const componentRevision = { ...componentDefinition, revision: 1, name: 'Action' } as const
+const componentInstance = { id: 'instance-1', componentId: 'component-1', values: { label: 'Save' } } as const
+const componentInstanceRevision = { ...componentInstance, values: { label: 'Continue' } } as const
 
 const commands = [
+  { type: 'component.create', definition: componentDefinition },
+  { type: 'component.replace', componentId: 'component-1', expectedRevision: 0, definition: componentRevision },
+  { type: 'component.delete', componentId: 'component-1', expectedRevision: 1 },
+  { type: 'component.restore', componentId: 'component-1', expected: componentRevision, source: componentDefinition },
+  { type: 'component.instance.create', instance: componentInstance },
+  { type: 'component.instance.replace', instanceId: 'instance-1', expected: componentInstance, instance: componentInstanceRevision },
+  { type: 'component.instance.delete', instanceId: 'instance-1', expected: componentInstanceRevision },
+  { type: 'component.instance.restore', instanceId: 'instance-1', expected: componentInstanceRevision, source: componentInstance },
   { type: 'page.create', page, index: 0 },
   { type: 'page.rename', pageId: 'page-1', name: 'Home' },
   { type: 'page.setBackground', pageId: 'page-1', background: literal },
@@ -24,7 +36,7 @@ const commands = [
   { type: 'node.insert', node, placement: { parentId: 'root-1', index: 0 } },
   { type: 'node.rename', nodeId: 'node-1', name: 'Card' },
   { type: 'node.setLocked', nodeId: 'node-1', isLocked: true },
-  { type: 'node.setStyles', nodeId: 'node-1', styles: { width: 20, rotation: null, flipX: true } },
+  { type: 'node.setStyles', nodeId: 'node-1', styles: { width: 20, relativeTransform: [-1, 0, 0, 1, 10, 0] } },
   { type: 'node.setText', nodeId: 'node-1', text: 'Hello' },
   {
     type: 'node.setTextProperties',
@@ -66,14 +78,14 @@ const commands = [
   {
     type: 'node.resizePresentation',
     entries: [{
-      expected: { nodeId: 'node-1', relationship: { parentId: 'root-1', orderKey: 'V' }, primitiveGeometry: { left: 0, top: 0, width: 10, height: 10 } },
-      source: { nodeId: 'node-1', relationship: { parentId: 'root-1', orderKey: 'V' }, primitiveGeometry: { left: 5, top: 6, width: 20, height: 30 } },
+      expected: { nodeId: 'node-1', relationship: { parentId: 'root-1', orderKey: 'V' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } },
+      source: { nodeId: 'node-1', relationship: { parentId: 'root-1', orderKey: 'V' }, primitiveGeometry: { relativeTransform: [1, 0, 0, 1, 5, 6], width: 20, height: 30 } },
     }],
   },
   {
     type: 'node.wrap',
     groups: [{
-      wrapper: { id: 'wrapper-1', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 10, height: 10, overflow: 'visible' }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+      wrapper: { id: 'wrapper-1', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10, overflow: 'visible' }, layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
       parentId: 'root-1',
       children: [{ nodeId: 'node-1', targetLayout: layout }],
     }],
@@ -105,6 +117,7 @@ describe('FileCommand closed runtime schema', () => {
       expect(validated, command.type).not.toBe(command)
       expect(validateFileCommand(JSON.parse(JSON.stringify(command))), command.type).toEqual(command)
     }
+    expect(validateFileCommand({ type: 'token.create', token: { id: 'space-1', type: 'spacing', name: 'Small', orderKey: 'V', value: { kind: 'literal', value: '8px' } } })).toEqual({ type: 'token.create', token: { id: 'space-1', type: 'spacing', name: 'Small', orderKey: 'V', value: { kind: 'literal', value: '8px' } } })
     expect(new Set(commands.map(command => command.type)).size).toBe(commands.length)
   })
 
@@ -113,11 +126,13 @@ describe('FileCommand closed runtime schema', () => {
       { type: 'node.rename', nodeId: 'node-1', name: 'Card', fileId: 'forged' },
       { type: 'document.replace', document: { fileId: 'forged' } },
       { type: 'set', path: ['fileId'], value: 'forged' },
-      { type: 'node.setStyles', nodeId: 'node-1', styles: { flipX: undefined } },
+      { type: 'node.setStyles', nodeId: 'node-1', styles: { relativeTransform: undefined } },
       { type: 'node.setStyles', nodeId: 'node-1', styles: { width: null } },
       { type: 'node.setProps', nodeId: 'node-1', props: { bad: Number.NaN } },
       { type: 'node.setProps', nodeId: 'node-1', props: { bad: 1n } },
       { type: 'node.setProps', nodeId: 'node-1', props: { bad: () => undefined } },
+      { type: 'token.create', token: { id: 'space-1', type: 'spacing', name: 'Small', orderKey: 'V', value: { kind: 'literal', value: '8rem' } } },
+      { type: 'token.create', token: { id: 'opacity-1', type: 'opacity', name: 'Muted', orderKey: 'V', value: { kind: 'literal', value: 2 } } },
     ]
     for (const command of invalid) expect(() => validateFileCommand(command), String(command.type)).toThrow('Invalid file command')
     const inherited = Object.create({ type: 'node.rename' }) as Record<string, unknown>
@@ -209,8 +224,8 @@ function historyFile(): FileDocument {
   const file = createBlankFile('history-file', 'page-1', 'root-1')
   file.pages.push({ id: 'page-2', name: 'Page 2', rootNodeId: 'root-2', background: { kind: 'token', tokenId: 'token-a' } })
   file.nodes['root-2'] = { id: 'root-2', type: 'root' }
-  file.nodes.parent = { id: 'parent', type: 'frame', name: 'Parent', styles: { left: 10, top: 20, width: 200, height: 160, overflow: 'clip' } }
-  file.nodes.child = { id: 'child', type: 'rectangle', name: 'Child', styles: { left: 5, top: 6, width: 40, height: 30 }, appearance: { fills: [{ id: 'bound-fill', type: 'solid', color: { kind: 'token', tokenId: 'token-a' } }] } }
+  file.nodes.parent = { id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 200, height: 160, overflow: 'clip' } }
+  file.nodes.child = { id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 5, 6], width: 40, height: 30 }, appearance: { fills: [{ id: 'bound-fill', type: 'solid', color: { kind: 'token', tokenId: 'token-a' } }] } }
   file.nodes.card = { id: 'card', type: 'component', componentId: 'card-component', exportName: 'Card', props: {} }
   file.relationships.parent = { parentId: 'root-1', orderKey: 'V' }
   file.relationships.child = { parentId: 'parent', orderKey: 'V' }
@@ -225,7 +240,7 @@ const withoutRevision = (file: FileDocument) => ({ ...file, revision: 0 })
 
 describe('semantic command history', () => {
   it.each([
-    ['batch', { type: 'batch', commands: [{ type: 'node.setStyles', nodeId: 'child', styles: { left: 15, rotation: 45 } }, { type: 'node.rename', nodeId: 'parent', name: 'Renamed' }] }],
+    ['batch', { type: 'batch', commands: [{ type: 'node.setStyles', nodeId: 'child', styles: { relativeTransform: [Math.SQRT1_2, Math.SQRT1_2, -Math.SQRT1_2, Math.SQRT1_2, 15, 0] } }, { type: 'node.rename', nodeId: 'parent', name: 'Renamed' }] }],
     ['node lock', { type: 'node.setLocked', nodeId: 'parent', isLocked: true }],
     ['generated fill identity', { type: 'node.fill.add', nodeId: 'child' }],
     ['deleted subtree', { type: 'node.delete', nodeIds: ['parent'] }],

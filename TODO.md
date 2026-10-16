@@ -43,13 +43,13 @@ This list tracks the next product work in priority order. Product behavior and r
 
 ## Now: core editor interactions
 
-- [ ] Finish sidebar layer dragging.
+- [x] Finish sidebar layer dragging.
   - Reorder siblings without changing their identity.
   - Move a node into and out of frames and groups while preserving its world position.
   - Make the drop target and resulting hierarchy unambiguous.
   - Support pointer cancellation, keyboard operation, undo, and redo.
   - Verify against `AT-CAN-001`, `AT-CAN-005`, and `AT-DOC-003`.
-- [ ] Finish component creation and usage.
+- [x] Finish component creation and usage.
   - Create a component from the current selection without flattening its children.
   - Insert and reuse real component instances from the component browser and sidebar.
   - Keep component identity, props, slots, source binding, and instance overrides intact.
@@ -59,7 +59,7 @@ This list tracks the next product work in priority order. Product behavior and r
 
 ## Next: file-open startup quality
 
-- [ ] Remove the unstyled white flash when a file first loads.
+- [x] Remove the unstyled white flash when a file first loads.
   - Render the styled application shell and centered indeterminate loader from the first visible frame.
   - Ensure the critical theme and shell styles are available before the loading UI is painted.
   - Keep the loader position and canvas geometry stable when the client becomes interactive.

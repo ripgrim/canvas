@@ -180,10 +180,51 @@ export interface KeyboardApi {
   type(text: string): Promise<void>
 }
 
+export interface ClipboardApi {
+  dropText(text: string, target: GeometryTarget): Promise<boolean>
+}
+
 export interface LayersApi {
   node(id: NodeId): NodeRef
   named(name: string): Promise<NodeRef>
   selected(): Promise<readonly NodeRef[]>
+}
+
+export interface ComponentsApi {
+  openKit(): Promise<void>
+  createFromSelection(name: string): Promise<void>
+  inspect(name: string): Promise<void>
+  place(name: string): Promise<void>
+  openMaster(name: string): Promise<void>
+}
+
+export type MobilePanelName = "Layers" | "Properties"
+
+export interface PanelsApi {
+  openMobile(panel: MobilePanelName): Promise<void>
+  closeMobile(panel: MobilePanelName): Promise<void>
+}
+
+export type ThemeTokenTypeLabel =
+  | "Color"
+  | "Opacity"
+  | "Radius"
+  | "Spacing"
+  | "Container"
+  | "Breakpoint"
+  | "Font family"
+  | "Font weight"
+  | "Font size"
+  | "Line height"
+  | "Letter spacing"
+
+export interface ThemeApi {
+  open(): Promise<void>
+  createToken(type: ThemeTokenTypeLabel): Promise<void>
+  renameToken(name: string): Promise<void>
+  openToken(name: string): Promise<void>
+  openColorPicker(name: string): Promise<void>
+  setColorOpacity(name: string, opacity: number): Promise<void>
 }
 
 export interface EvidenceApi<CheckpointName extends string> {
@@ -196,7 +237,11 @@ export interface EvidenceApi<CheckpointName extends string> {
 export interface EditorAutomation<CheckpointName extends string = string> {
   readonly mouse: MouseApi
   readonly keyboard: KeyboardApi
+  readonly clipboard: ClipboardApi
   readonly layers: LayersApi
+  readonly components: ComponentsApi
+  readonly panels: PanelsApi
+  readonly theme: ThemeApi
   readonly evidence: EvidenceApi<CheckpointName>
 }
 

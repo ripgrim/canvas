@@ -19,18 +19,18 @@ const removedText = textProperties(22, 'fit', 'fit')
 
 function frameFixture(): FileDocument {
   const outer: PrimitiveNode = {
-    id: 'outer', type: 'frame', name: 'Outer', styles: { left: 0, top: 0, width: 800, height: 600 },
+    id: 'outer', type: 'frame', name: 'Outer', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 800, height: 600 },
     layout: { item: { position: { mode: 'freeform' } }, container: { display: 'flex', flex: flex('column') } },
   }
   const parent: PrimitiveNode = {
-    id: 'parent', type: 'frame', name: 'Parent', styles: { left: 20, top: 30, width: 300, height: 200, overflow: 'clip' },
+    id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 300, height: 200, overflow: 'clip' },
     layout: { item: { position: { mode: 'flow' } }, container: { display: 'flex', flex: flex(), gap: { x: 12, y: 8 } }, spacing: { padding: 16, margin: { x: 4, y: 6 } } },
   }
-  const rectangle: PrimitiveNode = { id: 'rectangle', type: 'rectangle', name: 'Rectangle', styles: { left: 0, top: 0, width: 80, height: 40 }, layout: { item: { position: { mode: 'flow' }, flex: { grow: 1 } } } }
-  const existingAbsolute: PrimitiveNode = { id: 'existing-absolute', type: 'shape', name: 'Absolute', styles: { left: 300, top: -40, width: 20, height: 20 }, layout: absolute(300, -40) }
-  const text: PrimitiveNode = { id: 'text', type: 'text', name: 'Text', styles: { left: 0, top: 0, width: 140, height: 32 }, layout: { item: { position: { mode: 'flow' }, flex: { shrink: 0 } } }, text: 'Paper', ...originalText }
+  const rectangle: PrimitiveNode = { id: 'rectangle', type: 'rectangle', name: 'Rectangle', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 80, height: 40 }, layout: { item: { position: { mode: 'flow' }, flex: { grow: 1 } } } }
+  const existingAbsolute: PrimitiveNode = { id: 'existing-absolute', type: 'shape', name: 'Absolute', styles: { relativeTransform: [1, 0, 0, 1, 300, -40], width: 20, height: 20 }, layout: absolute(300, -40) }
+  const text: PrimitiveNode = { id: 'text', type: 'text', name: 'Text', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 140, height: 32 }, layout: { item: { position: { mode: 'flow' }, flex: { shrink: 0 } } }, text: 'Paper', ...originalText }
   return validateFileDocument({
-    schemaVersion: 9, fileId: 'remove-flex-frame', revision: 7,
+    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'remove-flex-frame', revision: 7,
     pages: [{ id: 'page', name: 'Page 1', rootNodeId: 'root' }],
     nodes: { root: { id: 'root', type: 'root' }, outer, parent, rectangle, 'existing-absolute': existingAbsolute, text },
     relationships: {
@@ -73,7 +73,7 @@ function componentFixture(empty = false): FileDocument {
     nodes['component-child-node'] = child
     relationships['component-child-node'] = { parentId: 'component-parent-node', slot: 'content', orderKey: 'V' }
   }
-  return validateFileDocument({ schemaVersion: 9, fileId: empty ? 'empty-component-flex' : 'component-flex', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} } }, atoms)
+  return validateFileDocument({ schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: empty ? 'empty-component-flex' : 'component-flex', revision: 2, pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }], nodes, relationships, theme: { tokens: {} } }, atoms)
 }
 
 function componentRemoveGroup(empty = false): NodeRemoveFlexGroup {
@@ -99,12 +99,12 @@ describe('PAPER-FLEX-001/003/008 Remove Flex repository command', () => {
     expect(history.file.revision).toBe(8)
     expect(history.file.nodes.parent).toStrictEqual({
       ...(source.nodes.parent as PrimitiveNode),
-      styles: { left: 20, top: 30, width: 268, height: 164, overflow: 'clip' },
+      styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 268, height: 164, overflow: 'clip' },
       layout: frameRemoveGroup().parent.layout,
     })
     expect(history.file.relationships).toStrictEqual(source.relationships)
-    expect(history.file.nodes.rectangle).toMatchObject({ styles: { left: 0, top: 0, width: 96, height: 44 }, layout: absolute(16, -60) })
-    expect(history.file.nodes.text).toMatchObject({ styles: { left: 0, top: 0, width: 156, height: 36 }, layout: absolute(628, 24), ...removedText })
+    expect(history.file.nodes.rectangle).toMatchObject({ styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 96, height: 44 }, layout: absolute(16, -60) })
+    expect(history.file.nodes.text).toMatchObject({ styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 156, height: 36 }, layout: absolute(628, 24), ...removedText })
     expectBytes(history.file.nodes['existing-absolute'], absoluteBefore)
     expectBytes(history.file.relationships['existing-absolute'], absoluteRelationshipBefore)
     expect(() => validateFileDocument(history.file, [])).not.toThrow()

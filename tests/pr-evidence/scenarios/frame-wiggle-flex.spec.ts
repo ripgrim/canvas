@@ -3,8 +3,9 @@ import { createPlaywrightAutomation } from "../../../packages/editor-automation/
 import { geometryTarget } from "../../../packages/editor-automation/dist/index.js"
 import { expect, test, type Page } from "@playwright/test"
 import { evidencePort, writeCaptureReport } from "../evidence-capture.js"
+import { prEvidenceDefaultPorts, prEvidenceUrl } from "../ports.js"
 
-const editorUrl = "http://127.0.0.1:4327/"
+const editorUrl = prEvidenceUrl("PR_EVIDENCE_EDITOR_PORT", prEvidenceDefaultPorts.editor)
 const evidenceRoot = resolve(import.meta.dirname, "../../../outputs/pr-evidence/local/editor.frame-wiggle-flex/browser")
 const wiggle = [
   { x: 57, y: 23 },
@@ -50,6 +51,11 @@ test("PR-EVIDENCE-010 [editor.frame-wiggle-flex]", async ({ page }) => {
   expect(createdBounds.bounds.height).toBeCloseTo(500 * camera.zoom, 1)
   await automation.evidence.screenshot("created")
 
+  const addFlex = page.getByRole("button", { name: /^Add flex/u })
+  await expect(addFlex).toBeVisible()
+  await expect(addFlex).toBeEnabled()
+  let capturedHeldControl = false
+
   await automation.evidence.record(async () => {
     for (const delta of wiggle) {
       const before = await frame.resolve()
@@ -70,8 +76,16 @@ test("PR-EVIDENCE-010 [editor.frame-wiggle-flex]", async ({ page }) => {
           expect(selected.width).toBeCloseTo(held.width, 1)
           expect(selected.height).toBeCloseTo(held.height, 1)
           expect((await storedNode(page, frame.id)).styles).toEqual(beforeNode.styles)
+          await expect(addFlex).toBeVisible()
+          await expect(addFlex).toBeDisabled()
+          if (!capturedHeldControl) {
+            await automation.evidence.screenshot("held-flex-control")
+            capturedHeldControl = true
+          }
         },
       })
+      await expect(addFlex).toBeVisible()
+      await expect(addFlex).toBeEnabled()
     }
 
     await automation.evidence.screenshot("wiggled")
@@ -87,6 +101,8 @@ test("PR-EVIDENCE-010 [editor.frame-wiggle-flex]", async ({ page }) => {
     await expect.poll(() => previewNode(page, frame.id).evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 0, 0)")
     await automation.evidence.screenshot("red")
 
+    await expect(addFlex).toBeVisible()
+    await expect(addFlex).toBeEnabled()
     await automation.keyboard.chord(["Shift", "A"])
     await expect.poll(async () => (await storedNode(page, frame.id)).layout?.container?.display).toBe("flex")
     await expect.poll(() => previewNode(page, frame.id).evaluate(element => getComputedStyle(element).display)).toBe("flex")

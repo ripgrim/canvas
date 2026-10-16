@@ -3,15 +3,15 @@ import { applyFileCommand, applyFileCommandWithHistory, validateFileCommand } fr
 import type { FileCommand, FileDocument } from '../src/file-document'
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'exact-reorder-history',
   revision: 12,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    a: { id: 'a', type: 'rectangle', name: 'A', styles: { left: 0, top: 0, width: 10, height: 10 } },
-    b: { id: 'b', type: 'rectangle', name: 'B', styles: { left: 20, top: 0, width: 10, height: 10 } },
-    c: { id: 'c', type: 'rectangle', name: 'C', styles: { left: 40, top: 0, width: 10, height: 10 } },
+    a: { id: 'a', type: 'rectangle', name: 'A', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } },
+    b: { id: 'b', type: 'rectangle', name: 'B', styles: { relativeTransform: [1, 0, 0, 1, 20, 0], width: 10, height: 10 } },
+    c: { id: 'c', type: 'rectangle', name: 'C', styles: { relativeTransform: [1, 0, 0, 1, 40, 0], width: 10, height: 10 } },
   },
   relationships: {
     a: { parentId: 'root', orderKey: 'A7' },
@@ -97,8 +97,8 @@ describe('exact relationship history for node reorder', () => {
 
   it('rejects descendant, incompatible parent, and incompatible slot destinations', () => {
     const descendant = fixture()
-    descendant.nodes.a = { id: 'a', type: 'frame', name: 'A', styles: { left: 0, top: 0, width: 10, height: 10 } }
-    descendant.nodes.child = { id: 'child', type: 'rectangle', name: 'Child', styles: { left: 1, top: 1, width: 5, height: 5 } }
+    descendant.nodes.a = { id: 'a', type: 'frame', name: 'A', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } }
+    descendant.nodes.child = { id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 1, 1], width: 5, height: 5 } }
     descendant.relationships.child = { parentId: 'a', orderKey: 'Q7' }
     const descendantBefore = structuredClone(descendant)
     expect(() => applyFileCommand(descendant, {
