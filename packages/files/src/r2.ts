@@ -85,6 +85,14 @@ function isNotFound(error: unknown): boolean {
   )
 }
 
+function quotedEtag(etag: string): string {
+  if (/^"[A-Za-z0-9._:-]{1,256}"$/.test(etag)) return etag
+  if (!/^[A-Za-z0-9._:-]{1,256}$/.test(etag)) {
+    throw new FileAssetError("bad_request", "Asset version is invalid", 400)
+  }
+  return `"${etag}"`
+}
+
 function toInfo(info: {
   key: string
   size: number
@@ -122,7 +130,7 @@ export function createR2BindingAssetStore(
       if (condition) {
         const onlyIf = condition.type === "create"
           ? new Headers({ "If-None-Match": "*" })
-          : new Headers({ "If-Match": condition.etag })
+          : new Headers({ "If-Match": quotedEtag(condition.etag) })
         const stored = await binding.put(key, body, {
           onlyIf,
           httpMetadata: {
@@ -183,7 +191,7 @@ export function createR2BindingAssetStore(
       const condition = writeOptions.condition ?? { type: "create" as const }
       const onlyIf = condition.type === "create"
         ? new Headers({ "If-None-Match": "*" })
-        : new Headers({ "If-Match": condition.etag })
+        : new Headers({ "If-Match": quotedEtag(condition.etag) })
       const stored = await binding.put(to, new Uint8Array(await source.arrayBuffer()), {
         onlyIf,
         httpMetadata: {

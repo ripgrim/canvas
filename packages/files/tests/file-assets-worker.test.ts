@@ -24,6 +24,10 @@ import {
   type FileAccessAuthority,
 } from "../src/worker.js"
 import { createR2BindingAssetStore } from "../src/r2.js"
+import { createHostedPreviewArtifactAssetStorage } from "../src/hosted-preview.js"
+import type { HostedPreviewArtifactAssetStorage } from "../src/hosted-preview.js"
+import type { HostedPreviewArtifactManifest } from "@canvas/preview-runtime/hosted-artifact"
+import { issueHostedPreviewWriteCapability } from "@canvas/preview-runtime/hosted-write-capability"
 
 const fixture = (value: string) => Uint8Array.from(atob(value), character => character.charCodeAt(0))
 const PNG_BYTES = fixture("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACAQMAAABIeJ9nAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURf8AAP///0EdNBEAAAABYktHRAH/Ai3eAAAAB3RJTUUH6goKBSYeYRwWLQAAAAxJREFUCNdjYGBgAAAABAABJzQnCgAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyNi0xMC0xMFQwNTozODozMCswMDowMIU5XnIAAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjYtMTAtMTBUMDU6Mzg6MzArMDA6MDD0ZObOAAAAKHRFWHRkYXRlOnRpbWVzdGFtcAAyMDI2LTEwLTEwVDA1OjM4OjMwKzAwOjAwo3HHEQAAAABJRU5ErkJggg==")
@@ -34,6 +38,25 @@ const OVERSIZED_GIF = fixture("R0lGODlhiBOIE4AAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
 const OVERSIZED_WEBP = fixture("UklGRhIAAABXRUJQVlA4TAUAAAAvh9PhBAA=")
 const THUMBNAIL_SERVICE_TOKEN = "thumbnail-service-test-token-at-least-32-bytes"
 const API_SERVICE_TOKEN = "test-only-service-token-at-least-32-bytes"
+const HOSTED_ARTIFACT_ID = "00000000-0000-4000-8000-000000000301"
+const HOSTED_STAGING_ID = "00000000-0000-4000-8000-000000000401"
+const HOSTED_JOB_ID = "00000000-0000-4000-8000-000000000501"
+const HOSTED_LEASE_ID = "00000000-0000-4000-8000-000000000601"
+const HOSTED_WRITE_SECRET = "hosted-preview-write-test-secret-0123456789"
+const HOSTED_ASSETS_ORIGIN = "https://workers.canvas.test"
+const HOSTED_MANIFEST: HostedPreviewArtifactManifest = Object.freeze({
+  version: 1,
+  sourceRevision: "a".repeat(40),
+  registryFingerprint: `sha256:${"b".repeat(64)}`,
+  entrypoint: "index.html",
+  files: Object.freeze([
+    Object.freeze({ path: "index.html", sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", bytes: 5, contentType: "text/html; charset=utf-8" as const }),
+    Object.freeze({ path: "assets/components.js", sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", bytes: 0, contentType: "text/javascript; charset=utf-8" as const }),
+  ]),
+  components: Object.freeze([
+    Object.freeze({ componentId: "shadcn:Button:1234567890abcdef", modulePath: "assets/components.js", exportName: "Button" }),
+  ]),
+})
 const NOOP_UPLOAD_QUOTA: ThumbnailUploadQuota = {
   async acquire() {},
 }
@@ -158,6 +181,7 @@ class MemoryAssetStore implements AssetStore {
 
 interface TestContext {
   store: MemoryAssetStore
+  hostedPreviewStorage: HostedPreviewArtifactAssetStorage
   handler: (request: Request) => Promise<Response>
   grant(userId: string, fileId: string, access: "read" | "write"): void
   setHead(fileId: string, revision: number): void
@@ -196,8 +220,10 @@ function createContext(
     uploadQuota: thumbnailQuota ?? NOOP_UPLOAD_QUOTA,
     ...(thumbnailQuota ? { thumbnailQuota } : {}),
   })
+  const hostedPreviewStorage = createHostedPreviewArtifactAssetStorage({ store })
   return {
     store,
+    hostedPreviewStorage,
     handler: createFileAssetsHandler({
       service,
       accessAuthority: authority,
@@ -214,6 +240,9 @@ function createContext(
         },
       },
       serviceToken: API_SERVICE_TOKEN,
+      hostedPreviewStorage,
+      hostedPreviewWriteSecret: HOSTED_WRITE_SECRET,
+      hostedPreviewAssetsOrigin: HOSTED_ASSETS_ORIGIN,
       allowedOrigins: new Set(["https://app.canvas.test"]),
       ...(reportError ? { reportError } : {}),
     }),
@@ -394,6 +423,120 @@ function createLegacyContext(reportError?: (report: FileAssetErrorReport) => voi
 }
 
 describe("file assets Worker boundary", () => {
+  it("COMP-V2-CODE-012 writes only the capability-bound hosted artifact before publication", async () => {
+    const context = createContext()
+    const token = await issueHostedPreviewWriteCapability({
+      jobId: HOSTED_JOB_ID,
+      leaseId: HOSTED_LEASE_ID,
+      artifactId: HOSTED_ARTIFACT_ID,
+      stagingId: HOSTED_STAGING_ID,
+      audience: HOSTED_ASSETS_ORIGIN,
+      secret: HOSTED_WRITE_SECRET,
+      lifetimeSeconds: 300,
+    })
+    const root = `/internal/hosted-preview-artifacts/${HOSTED_ARTIFACT_ID}/staging/${HOSTED_STAGING_ID}`
+    const authorizationHeaders = {
+      "X-Canvas-Hosted-Preview-Job-Id": HOSTED_JOB_ID,
+      "X-Canvas-Hosted-Preview-Lease-Id": HOSTED_LEASE_ID,
+      "X-Canvas-Hosted-Preview-Write-Capability": token,
+    }
+    const upload = (input: Readonly<{ artifactId?: string; stagingId?: string; jobId?: string; leaseId?: string; capability?: string }> = {}) => context.handler(new Request(
+      `https://workers.canvas.test/internal/hosted-preview-artifacts/${input.artifactId ?? HOSTED_ARTIFACT_ID}/staging/${input.stagingId ?? HOSTED_STAGING_ID}/file`,
+      {
+        method: "PUT",
+        headers: {
+          ...authorizationHeaders,
+          "X-Canvas-Hosted-Preview-Job-Id": input.jobId ?? HOSTED_JOB_ID,
+          "X-Canvas-Hosted-Preview-Lease-Id": input.leaseId ?? HOSTED_LEASE_ID,
+          "X-Canvas-Hosted-Preview-Write-Capability": input.capability ?? token,
+          "X-Canvas-Artifact-Path": "index.html",
+          "X-Canvas-Artifact-Sha256": HOSTED_MANIFEST.files[0]!.sha256,
+          "X-Canvas-Artifact-Bytes": "5",
+          "Content-Type": HOSTED_MANIFEST.files[0]!.contentType,
+          "Content-Length": "5",
+        },
+        body: new TextEncoder().encode("hello"),
+      },
+    ))
+    expect((await upload({ artifactId: crypto.randomUUID() })).status).toBe(403)
+    expect((await upload({ leaseId: crypto.randomUUID() })).status).toBe(403)
+    expect((await upload({ jobId: crypto.randomUUID() })).status).toBe(403)
+    expect((await upload({ stagingId: crypto.randomUUID() })).status).toBe(403)
+    expect((await upload({ capability: `${token.slice(0, -1)}${token.endsWith("a") ? "b" : "a"}` })).status).toBe(403)
+    expect(context.store.objects.size).toBe(0)
+    expect((await upload()).status).toBe(201)
+    const emptyFile = HOSTED_MANIFEST.files[1]!
+    expect((await context.handler(new Request(`https://workers.canvas.test${root}/file`, {
+      method: "PUT",
+      headers: { ...authorizationHeaders, "X-Canvas-Artifact-Path": emptyFile.path, "X-Canvas-Artifact-Sha256": emptyFile.sha256, "X-Canvas-Artifact-Bytes": "0", "Content-Type": emptyFile.contentType },
+    }))).status).toBe(201)
+    const manifest = new TextEncoder().encode(JSON.stringify(HOSTED_MANIFEST))
+    expect((await context.handler(new Request(`https://workers.canvas.test${root}/commit`, {
+      method: "POST",
+      headers: { ...authorizationHeaders, "Content-Type": "application/json", "Content-Length": String(manifest.byteLength) },
+      body: manifest,
+    }))).status).toBe(201)
+    expect((await context.handler(new Request(`https://workers.canvas.test${root}/status`, { headers: authorizationHeaders }))).status).toBe(200)
+    expect((await context.handler(new Request(`https://workers.canvas.test${root}/publish`, { method: "POST", headers: authorizationHeaders }))).status).toBe(200)
+    expect((await context.handler(new Request(`https://workers.canvas.test/internal/hosted-previews/${HOSTED_ARTIFACT_ID}/files/index.html`, { headers: { "X-Canvas-Service-Token": API_SERVICE_TOKEN } }))).status).toBe(200)
+  })
+
+  it("COMP-V2-CODE-005 exposes only published hosted files through the service-only route", async () => {
+    const context = createContext()
+    const receipt = { artifactId: HOSTED_ARTIFACT_ID, stagingId: HOSTED_STAGING_ID }
+    const files = new Map([
+      ["index.html", new TextEncoder().encode("hello")],
+      ["assets/components.js", new Uint8Array()],
+    ])
+    await context.hostedPreviewStorage.stage({ ...receipt, manifest: HOSTED_MANIFEST, files })
+    const request = (method = "GET", headers: HeadersInit = {}) => context.handler(new Request(
+      `https://workers.canvas.test/internal/hosted-previews/${HOSTED_ARTIFACT_ID}/files/index.html`,
+      { method, headers: { "X-Canvas-Service-Token": API_SERVICE_TOKEN, ...headers } },
+    ))
+
+    expect((await request()).status).toBe(404)
+    await context.hostedPreviewStorage.publish(receipt)
+
+    const response = await request()
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("hello")
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8")
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin")
+    expect(response.headers.get("etag")).toBe(`"${HOSTED_MANIFEST.files[0]!.sha256}"`)
+    expect(response.headers.get("access-control-allow-origin")).toBeNull()
+
+    const head = await request("HEAD")
+    expect(head.status).toBe(200)
+    expect(await head.text()).toBe("")
+    expect(head.headers.get("content-length")).toBe("5")
+
+    const storedKey = `hosted-previews/${HOSTED_ARTIFACT_ID}/staging/${HOSTED_STAGING_ID}/index.html`
+    context.store.objects.get(storedKey)!.body.fill(0)
+    expect((await request()).status).toBe(500)
+  })
+
+  it("COMP-V2-CODE-005 rejects browser, unauthenticated, malformed, and mutating hosted-file requests", async () => {
+    const context = createContext()
+    const path = `/internal/hosted-previews/${HOSTED_ARTIFACT_ID}/files/index.html`
+    expect((await context.handler(new Request(`https://workers.canvas.test${path}`))).status).toBe(401)
+    expect((await context.handler(new Request(`https://workers.canvas.test${path}`, {
+      headers: { Origin: "https://app.canvas.test", "X-Canvas-Service-Token": API_SERVICE_TOKEN },
+    }))).status).toBe(403)
+    expect((await context.handler(new Request(`https://workers.canvas.test${path}`, {
+      method: "POST",
+      headers: { "X-Canvas-Service-Token": API_SERVICE_TOKEN },
+    }))).status).toBe(405)
+    expect((await context.handler(new Request(
+      `https://workers.canvas.test/internal/hosted-previews/${HOSTED_ARTIFACT_ID}/files/%2e%2e/secret.js`,
+      { headers: { "X-Canvas-Service-Token": API_SERVICE_TOKEN } },
+    ))).status).toBe(404)
+    expect((await context.handler(new Request(
+      `https://workers.canvas.test${path}?download=1`,
+      { headers: { "X-Canvas-Service-Token": API_SERVICE_TOKEN } },
+    ))).status).toBe(404)
+  })
+
   it("FILE-ASSET-SEC-001 serves credentialed preflight and correlates every public response", async () => {
     const context = createContext()
     const requestId = "11111111-1111-4111-8111-111111111111"
@@ -767,6 +910,37 @@ describe("file assets Worker boundary", () => {
       size: PNG_BYTES.byteLength,
       contentType: "image/png",
     })
+  })
+
+  it("COMP-V2-CODE-004 quotes R2 ETags for atomic compare-and-swap writes", async () => {
+    let condition: string | null = null
+    const binding = {
+      async get() {
+        return null
+      },
+      async put(
+        key: string,
+        body: Uint8Array,
+        options: { onlyIf: Headers; httpMetadata: { contentType: string } },
+      ) {
+        condition = options.onlyIf.get("if-match")
+        return {
+          key,
+          size: body.byteLength,
+          etag: "next-etag",
+          uploaded: new Date("2026-10-09T12:00:00.000Z"),
+          httpMetadata: { contentType: options.httpMetadata.contentType },
+        }
+      },
+    }
+    const store = createR2BindingAssetStore({ binding })
+    await store.put("hosted-previews/artifact/state.json", PNG_BYTES, {
+      contentType: "application/json",
+      cacheControl: "private, no-store",
+      metadata: { status: "published" },
+      condition: { type: "match", etag: "abc123" },
+    })
+    expect(condition).toBe('"abc123"')
   })
 
   it("AT-THUMB-001 enforces the API head revision before thumbnail object mutation", async () => {

@@ -24,6 +24,9 @@ import {
   type FileAssetService,
 } from "./service.js"
 import type { ThumbnailCommitResolver } from "./maintenance.js"
+import type { HostedPreviewArtifactAssetStorage } from "./hosted-preview.js"
+import { parseHostedPreviewArtifactFile, parseHostedPreviewArtifactManifest } from "@canvas/preview-runtime/hosted-artifact"
+import { verifyHostedPreviewWriteCapability } from "@canvas/preview-runtime/hosted-write-capability"
 
 export interface FileAccessAuthority {
   authorize(
@@ -71,6 +74,9 @@ export interface FileAssetsHandlerOptions {
   accessAuthority: FileAccessAuthority
   thumbnailServiceAuthority: ThumbnailServiceAuthority
   serviceToken: string
+  hostedPreviewStorage?: HostedPreviewArtifactAssetStorage
+  hostedPreviewWriteSecret?: string
+  hostedPreviewAssetsOrigin?: string
   allowedOrigins?: ReadonlySet<string>
   reportError?: (report: FileAssetErrorReport) => void
 }
@@ -270,6 +276,12 @@ function parseLegacyImagePath(pathname: string): AssetDescriptor & {
   } catch {
     return null
   }
+}
+
+function parseHostedPreviewPath(pathname: string): Readonly<{ artifactId: string; path: string }> | null {
+  const match = /^\/internal\/hosted-previews\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/files\/([A-Za-z0-9][A-Za-z0-9._/-]*)$/i.exec(pathname)
+  if (!match?.[1] || !match[2] || match[2].endsWith("/") || match[2].split("/").some(part => !part || part === "." || part === "..")) return null
+  return Object.freeze({ artifactId: match[1], path: match[2] })
 }
 
 async function tokenDigest(value: string): Promise<Uint8Array> {
@@ -760,13 +772,102 @@ export function createFileAssetsHandler(
   const expectedServiceTokenDigest = tokenDigest(options.serviceToken)
   const reportError = options.reportError ?? defaultFileAssetErrorReporter
   return async (request) => {
-    const { pathname } = new URL(request.url)
+    const url = new URL(request.url)
+    const { pathname } = url
     const internalRequest = pathname.startsWith("/internal/")
     const requestId = correlationRequestId(request) ?? (
       internalRequest ? null : globalThis.crypto.randomUUID()
     )
     const response = await (async () => {
       try {
+      const hostedPreviewWrite = parseHostedPreviewWritePath(pathname)
+      if (hostedPreviewWrite && options.hostedPreviewStorage && options.hostedPreviewWriteSecret && options.hostedPreviewAssetsOrigin) {
+        if (url.search || request.headers.has("origin")) throw new FileAssetError("forbidden", "Hosted preview write is not allowed", 403)
+        const jobId = request.headers.get("x-canvas-hosted-preview-job-id") ?? ""
+        const leaseId = request.headers.get("x-canvas-hosted-preview-lease-id") ?? ""
+        try {
+          await verifyHostedPreviewWriteCapability({
+            token: request.headers.get("x-canvas-hosted-preview-write-capability") ?? "",
+            jobId,
+            leaseId,
+            artifactId: hostedPreviewWrite.artifactId,
+            stagingId: hostedPreviewWrite.stagingId,
+            audience: options.hostedPreviewAssetsOrigin,
+            secret: options.hostedPreviewWriteSecret,
+          })
+        } catch {
+          throw new FileAssetError("forbidden", "Hosted preview write is not allowed", 403)
+        }
+        const receipt = { artifactId: hostedPreviewWrite.artifactId, stagingId: hostedPreviewWrite.stagingId }
+        if (hostedPreviewWrite.action === "file") {
+          if (request.method !== "PUT") return json({ error: "method_not_allowed", message: "Method not allowed" }, 405, { Allow: "PUT" })
+          const length = nonnegativeIntegerHeader(request, "x-canvas-artifact-bytes")
+          const file = parseHostedPreviewArtifactFile({
+            path: request.headers.get("x-canvas-artifact-path"),
+            sha256: request.headers.get("x-canvas-artifact-sha256"),
+            bytes: length,
+            contentType: request.headers.get("content-type"),
+          })
+          const bytes = length === 0 ? new Uint8Array() : await readBoundedBody(request, length, 8 * 1024 * 1024)
+          await options.hostedPreviewStorage.uploadStagedFile({ ...receipt, file, bytes })
+          return json({ status: "uploaded" }, 201)
+        }
+        if (hostedPreviewWrite.action === "commit") {
+          if (request.method !== "POST") return json({ error: "method_not_allowed", message: "Method not allowed" }, 405, { Allow: "POST" })
+          const length = contentLength(request)
+          const bytes = await readBoundedBody(request, length, 4 * 1024 * 1024)
+          let value: unknown
+          try { value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) }
+          catch { throw new FileAssetError("bad_request", "Hosted preview manifest is invalid", 400) }
+          await options.hostedPreviewStorage.commitStagedArtifact({ ...receipt, manifest: parseHostedPreviewArtifactManifest(value) })
+          return json({ status: "staged" }, 201)
+        }
+        if (hostedPreviewWrite.action === "status") {
+          if (request.method !== "GET") return json({ error: "method_not_allowed", message: "Method not allowed" }, 405, { Allow: "GET" })
+          return json({ status: await options.hostedPreviewStorage.status(receipt) }, 200)
+        }
+        if (request.method !== "POST") return json({ error: "method_not_allowed", message: "Method not allowed" }, 405, { Allow: "POST" })
+        if (hostedPreviewWrite.action === "publish") await options.hostedPreviewStorage.publish(receipt)
+        else await options.hostedPreviewStorage.discard(receipt)
+        return json({ status: hostedPreviewWrite.action === "publish" ? "published" : "discarded" }, 200)
+      }
+
+      const hostedPreview = parseHostedPreviewPath(pathname)
+      if (hostedPreview && options.hostedPreviewStorage) {
+        if (url.search) throw new FileAssetError("not_found", "Hosted preview file not found", 404)
+        if (request.method !== "GET" && request.method !== "HEAD") {
+          return json(
+            { error: "method_not_allowed", message: "Method not allowed" },
+            405,
+            { Allow: "GET, HEAD" },
+          )
+        }
+        if (request.headers.has("origin")) {
+          throw new FileAssetError("forbidden", "Browser requests are not allowed", 403)
+        }
+        if (!await serviceTokenMatches(
+          request.headers.get("x-canvas-service-token"),
+          expectedServiceTokenDigest,
+        )) {
+          throw new FileAssetError("unauthorized", "Service authorization is required", 401)
+        }
+        const published = await options.hostedPreviewStorage.readPublishedFile(hostedPreview.artifactId, hostedPreview.path)
+        if (!published) throw new FileAssetError("not_found", "Hosted preview file not found", 404)
+        return new Response(request.method === "HEAD" ? null : published.download.body, {
+          status: 200,
+          headers: {
+            "Cache-Control": "private, no-store",
+            "Content-Length": String(published.file.bytes),
+            "Content-Type": published.file.contentType,
+            "Cross-Origin-Resource-Policy": "same-origin",
+            ETag: `"${published.file.sha256}"`,
+            "X-Canvas-Artifact-Id": hostedPreview.artifactId,
+            "X-Canvas-Artifact-Sha256": published.file.sha256,
+            "X-Content-Type-Options": "nosniff",
+          },
+        })
+      }
+
       const legacyImage = parseLegacyImagePath(pathname)
       if (legacyImage) {
         if (request.method !== "PUT") {
@@ -1007,4 +1108,17 @@ export function createFileAssetsHandler(
       ? responseWithRequestId
       : applyCors(responseWithRequestId, request, options.allowedOrigins)
   }
+}
+
+function parseHostedPreviewWritePath(pathname: string): Readonly<{ artifactId: string; stagingId: string; action: "file" | "commit" | "publish" | "status" | "discard" }> | null {
+  const match = /^\/internal\/hosted-preview-artifacts\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/staging\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/(file|commit|publish|status|discard)$/i.exec(pathname)
+  return match ? Object.freeze({ artifactId: match[1]!.toLowerCase(), stagingId: match[2]!.toLowerCase(), action: match[3]!.toLowerCase() as "file" | "commit" | "publish" | "status" | "discard" }) : null
+}
+
+function nonnegativeIntegerHeader(request: Request, name: string): number {
+  const raw = request.headers.get(name)
+  if (raw === null || !/^\d+$/.test(raw)) throw new FileAssetError("bad_request", `${name} is invalid`, 400)
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value) || value < 0) throw new FileAssetError("bad_request", `${name} is invalid`, 400)
+  return value
 }
