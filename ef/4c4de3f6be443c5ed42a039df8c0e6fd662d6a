@@ -1,0 +1,122 @@
+packages/preview-runtime/tests/layout-runtime.test.ts
+  s_012c57818fbf95::t_2c58e681ac206e 21
+  s_012c57818fbf95::t_3208ac31826a6f 103
+packages/preview-runtime/tests/theme-protocol.test.ts
+  s_012c57818fbf95::t_3208ac31826a6f 10
+  s_012c57818fbf95::t_2c58e681ac206e 16
+packages/preview-runtime/tests/theme-runtime.test.ts
+  s_012c57818fbf95::t_3208ac31826a6f 74
+  s_012c57818fbf95::t_2c58e681ac206e 128,298
+packages/preview-runtime/tests/flow-drag-browser-runtime.test.ts
+  s_012c57818fbf95::t_3208ac31826a6f 38
+  s_012c57818fbf95::t_2c58e681ac206e 13
+packages/preview-runtime/tests/protocol.test.ts
+  s_012c57818fbf95::t_2c58e681ac206e 11
+  s_012c57818fbf95::t_3208ac31826a6f 8,57,61,70,160,267
+packages/preview-runtime/tests/primitive-sizing-browser-runtime.test.ts
+  s_012c57818fbf95::t_2c58e681ac206e 26
+  s_012c57818fbf95::t_3208ac31826a6f 71
+apps/desktop/src/main/index.ts
+  s_012c57818fbf95::t_a5d648e676c604 137
+packages/preview-runtime/tests/component-interaction-browser-runtime.test.ts
+  s_012c57818fbf95::t_2c58e681ac206e 11
+  s_012c57818fbf95::t_2448da5a665962 18,20-21,23-24,26-31,47-48,50,53,88,94,96-97,100,102,104,106,114,116-123
+  s_012c57818fbf95::t_3208ac31826a6f 45
+  s_012c57818fbf95::t_a95f936e95cd3b 25,98,115,124,130,137,139-140,143-148
+  s_012c57818fbf95::t_f10c9744ae6baa 110-113
+  s_012c57818fbf95::t_738114fd906543 127-129,131,133-136,138
+  s_012c57818fbf95::t_96b7b7c1fa3c8c 126,132
+  s_012c57818fbf95::t_a6b9b862e450d5 125
+packages/editor/src/features/editor/preview-asset-connection.test.ts
+  s_012c57818fbf95::t_3208ac31826a6f 90,92,159,163,176,191,203,211-212,216,224,228,230,240
+docs/plans/canvas-authored-component-closure.md
+  s_012c57818fbf95::t_ee71680ee16e58 39,41,55-59,63,67-68
+  s_012c57818fbf95::t_738114fd906543 45-51
+  s_012c57818fbf95::t_adcefa5e22eba1 53-54
+packages/preview-runtime/src/protocol.ts
+  s_012c57818fbf95::t_a95f936e95cd3b 6-7,361
+  s_012c57818fbf95::t_2c58e681ac206e 43
+  s_012c57818fbf95::t_842ca58da6455d 41,274,276,382-388
+tests/pr-evidence/scenarios/component-system.spec.ts
+  s_012c57818fbf95::t_769ae92f2fcd5d 167,554
+  s_012c57818fbf95::t_658ea768e8678d 205-206
+  s_012c57818fbf95::t_06a70d90291e18 555
+  s_012c57818fbf95::t_bf5c13ef8c1736 84-85,109,139,142,156,168,180,190,193,198,247-254,259-268,271,687,695
+  s_012c57818fbf95::t_02df67453eb953 518,522
+  s_012c57818fbf95::t_d36c4dc6ffae39 102,106-107
+  s_012c57818fbf95::t_9947c639e124c0 491,493,504,506,508
+  s_012c57818fbf95::t_b3cbd8e7b4dc90 125,136,145,157
+packages/preview-runtime/tests/protocol-negative-controls.test.ts
+  s_012c57818fbf95::t_3208ac31826a6f 13,74-75
+  s_012c57818fbf95::t_2c58e681ac206e 17
+  s_012c57818fbf95::t_a95f936e95cd3b 65-68,72-73
+tests/pr-evidence/registry.json
+  s_012c57818fbf95::t_a95f936e95cd3b 248
+packages/repo-engine/tests/file-preview.test.ts
+  s_012c57818fbf95::t_601ca4d98e578b 215,238-241,243-244
+  s_012c57818fbf95::t_92b10de80274c3 66,134
+  s_012c57818fbf95::t_3208ac31826a6f 189
+packages/preview-runtime/tests/layout-flex.test.ts
+  s_012c57818fbf95::t_2c58e681ac206e 23
+  s_012c57818fbf95::t_3208ac31826a6f 103
+packages/editor/src/features/editor/preview-resize-connection.test.ts
+  s_012c57818fbf95::t_3208ac31826a6f 93,124,252
+packages/preview-runtime/tests/scene-protocol.test.ts
+  s_012c57818fbf95::t_2c58e681ac206e 13
+  s_012c57818fbf95::t_3208ac31826a6f 6
+  s_012c57818fbf95::t_601ca4d98e578b 47-48,53-57
+packages/preview-runtime/src/browser-runtime.mjs
+  s_012c57818fbf95::t_4037b9beff9e8d 3,60-62,66-69,73-79,81-86,92,94,110,305-311,350,393,436,466,477
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_6c69ad1304c634 159
+  s_012c57818fbf95::t_738114fd906543 1333-1340
+packages/editor/src/features/editor/preview-transient.test.ts
+  s_012c57818fbf95::t_3208ac31826a6f 98
+packages/editor/src/features/editor/component-docs-preview-service.test.ts
+  s_012c57818fbf95::t_3208ac31826a6f 13
+packages/preview-runtime/tests/transient-presentation-browser-runtime.test.ts
+  s_012c57818fbf95::t_2c58e681ac206e 12
+  s_012c57818fbf95::t_a95f936e95cd3b 91
+  s_012c57818fbf95::t_3208ac31826a6f 40,45,262
+packages/repo-engine/src/file-preview.ts
+  s_012c57818fbf95::t_842ca58da6455d 29,173,194-196,207
+  s_012c57818fbf95::t_3208ac31826a6f 32,255
+packages/preview-runtime/tests/geometry.test.ts
+  s_012c57818fbf95::t_3208ac31826a6f 7,53
+packages/preview-runtime/tests/layout-grid.test.ts
+  s_012c57818fbf95::t_3208ac31826a6f 126
+  s_012c57818fbf95::t_2c58e681ac206e 35
+packages/preview-runtime/tests/layout-pose-runtime.test.ts
+  s_012c57818fbf95::t_2c58e681ac206e 23
+  s_012c57818fbf95::t_3208ac31826a6f 72
+packages/editor/src/features/editor/preview-flow-drag-connection.test.ts
+  s_012c57818fbf95::t_3208ac31826a6f 142,362,365,368,378,442,460,495
+packages/preview-runtime/tests/selection-electron.mjs
+  s_012c57818fbf95::t_2c58e681ac206e 58
+  s_012c57818fbf95::t_3208ac31826a6f 47
+packages/preview-runtime/tests/primitive-flex-browser-runtime.test.ts
+  s_012c57818fbf95::t_2c58e681ac206e 19
+  s_012c57818fbf95::t_3208ac31826a6f 99,159
+packages/preview-runtime/tests/layout-root-baseline.test.ts
+  s_012c57818fbf95::t_2c58e681ac206e 31
+  s_012c57818fbf95::t_3208ac31826a6f 113
+packages/preview-runtime/tests/text-browser-runtime.test.ts
+  s_012c57818fbf95::t_2c58e681ac206e 44
+  s_012c57818fbf95::t_3208ac31826a6f 178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ef4c4de3f6be443c5ed42a039df8c0e6fd662d6a",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
