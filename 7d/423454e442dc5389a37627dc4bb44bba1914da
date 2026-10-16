@@ -1,0 +1,19 @@
+docs/plans/canvas-authored-component-closure.md
+  s_012c57818fbf95::t_959f4963ac3c29 33-52,56-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7d423454e442dc5389a37627dc4bb44bba1914da",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
