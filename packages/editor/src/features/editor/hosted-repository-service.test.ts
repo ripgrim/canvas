@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EditorHostedRepositoryConnection, EditorProjectApi, EditorRepositoryDocsReview } from '../../capabilities'
 import { editorStore } from './store'
 import { createHostedRepositoryService } from './hosted-repository-service'
+import type { HostedSourceBindingCommands } from './hosted-repository-service'
 import { createBlankFile } from '@canvas/repo-engine/file-document'
 import { createDocumentStore } from './document-store'
 
@@ -31,6 +32,12 @@ function source() {
   }
 }
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void
+  const promise = new Promise<Value>(next => { resolve = next })
+  return { promise, resolve }
+}
+
 function project(hostedRepository: Partial<NonNullable<EditorProjectApi['hostedRepository']>>, hostedExecution?: EditorProjectApi['hostedExecution']): EditorProjectApi {
   return {
     hostedRepository: {
@@ -47,8 +54,16 @@ const settle = async () => {
   for (let index = 0; index < 6; index += 1) await Promise.resolve()
 }
 
+let bindings: HostedSourceBindingCommands
+
 describe('hosted repository service', () => {
-  beforeEach(() => vi.restoreAllMocks())
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    bindings = {
+      reconcileScan: vi.fn(async () => ({ status: 'projected' as const })),
+      refresh: vi.fn(async () => 'ready' as const),
+    }
+  })
 
   it('loads the connected repository only after a project opens', async () => {
     const projects = source()
@@ -63,7 +78,7 @@ describe('hosted repository service', () => {
       committedSha: 'c'.repeat(40), errorId: null,
     }
     const getLatestDocsReview = vi.fn(async () => restoredReview)
-    const service = createHostedRepositoryService(projects.store, documents)
+    const service = createHostedRepositoryService(projects.store, documents, undefined, bindings)
     service.configure(project({ returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(), getConnection, getLatestScan, getLatestDocsReview, link: vi.fn(), scan: vi.fn() }))
     expect(service.getSnapshot()).toMatchObject({ available: true, status: 'idle' })
     expect(getConnection).not.toHaveBeenCalled()
@@ -75,17 +90,20 @@ describe('hosted repository service', () => {
     expect(getLatestScan).toHaveBeenCalledOnce()
     expect(getLatestDocsReview).toHaveBeenCalledWith('restored-file')
     expect(service.getSnapshot()).toMatchObject({ status: 'ready', connection, scan: { componentCount: 1 }, docsReview: { status: 'saved', committedSha: 'c'.repeat(40) } })
-    expect(documents.getSnapshot().file?.componentModel.definitions[componentId]).toMatchObject({ name: 'Button' })
+    expect(bindings.reconcileScan).not.toHaveBeenCalled()
+    expect(documents.getSnapshot().file?.componentModel.definitions[componentId]).toBeUndefined()
   })
 
   it('restores the latest docs review when the project opens before its file', async () => {
     const projects = source()
     const documents = createDocumentStore()
     const getLatestDocsReview = vi.fn(async () => null)
-    const service = createHostedRepositoryService(projects.store, documents)
+    const service = createHostedRepositoryService(projects.store, documents, undefined, bindings)
+    const getConnection = vi.fn(async () => connection)
+    const getLatestScan = vi.fn(async () => scanResult)
     service.configure(project({
       returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
-      getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), getLatestDocsReview, link: vi.fn(), scan: vi.fn(),
+      getConnection, getLatestScan, getLatestDocsReview, link: vi.fn(), scan: vi.fn(),
     }))
     projects.open('project-a')
     await settle()
@@ -94,6 +112,9 @@ describe('hosted repository service', () => {
     documents.load(createBlankFile('late-file', 'page', 'root', 'Page'), [], { replace: true })
     await settle()
     expect(getLatestDocsReview).toHaveBeenCalledWith('late-file')
+    expect(getConnection).toHaveBeenCalledOnce()
+    expect(getLatestScan).toHaveBeenCalledOnce()
+    expect(bindings.reconcileScan).not.toHaveBeenCalled()
     expect(service.getSnapshot()).toMatchObject({ status: 'ready', connection })
   })
 
@@ -109,7 +130,7 @@ describe('hosted repository service', () => {
     }
     const saved: EditorRepositoryDocsReview = { ...queued, status: 'saved', committedSha: 'c'.repeat(40) }
     const getDocsReview = vi.fn(async () => saved)
-    const service = createHostedRepositoryService(projects.store, documents, async () => undefined)
+    const service = createHostedRepositoryService(projects.store, documents, async () => undefined, bindings)
     service.configure(project({
       returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
       getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), getLatestDocsReview: vi.fn(async () => queued), getDocsReview, link: vi.fn(), scan: vi.fn(),
@@ -145,7 +166,7 @@ describe('hosted repository service', () => {
     const projects = source()
     const documents = createDocumentStore()
     documents.load(createBlankFile('failed-file', 'page', 'root', 'Page'), [], { replace: true })
-    const service = createHostedRepositoryService(projects.store, documents)
+    const service = createHostedRepositoryService(projects.store, documents, undefined, bindings)
     service.configure(project({
       returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
       getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), getLatestDocsReview: vi.fn(async () => review), link: vi.fn(), scan: vi.fn(),
@@ -160,7 +181,7 @@ describe('hosted repository service', () => {
     const projects = source()
     const clearReturnLocation = vi.fn()
     const listChoices = vi.fn(async () => [repository])
-    const service = createHostedRepositoryService(projects.store)
+    const service = createHostedRepositoryService(projects.store, undefined, undefined, bindings)
     service.configure(project({ returnInstallationId: () => '7', clearReturnLocation, startConnection: vi.fn(), listChoices, getConnection: vi.fn(), getLatestScan: vi.fn(), link: vi.fn(), scan: vi.fn() }))
     projects.open('project-a')
     await settle()
@@ -175,7 +196,8 @@ describe('hosted repository service', () => {
     const documents = createDocumentStore()
     documents.load(createBlankFile('file', 'page', 'root', 'Page'), [], { replace: true })
     const link = vi.fn(async () => connection)
-    const service = createHostedRepositoryService(projects.store, documents)
+    const reconcileCodeDefinitions = vi.spyOn(documents.commands.components, 'reconcileCodeDefinitions')
+    const service = createHostedRepositoryService(projects.store, documents, undefined, bindings)
     const scan = vi.fn(async () => scanResult)
     service.configure(project({ returnInstallationId: () => '7', clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(async () => [repository]), getConnection: vi.fn(), getLatestScan: vi.fn(), link, scan }))
     projects.open('project-a')
@@ -186,14 +208,145 @@ describe('hosted repository service', () => {
     expect(link).toHaveBeenCalledWith('7', '42')
     expect(scan).toHaveBeenCalledOnce()
     expect(service.getSnapshot()).toMatchObject({ status: 'ready', connection, choices: [], scan: { componentCount: 1 } })
-    expect(documents.getSnapshot().file?.componentModel.definitions[componentId]).toMatchObject({
-      id: componentId,
-      name: 'Button',
-      source: { kind: 'code', bindingId: componentId },
-      properties: [{ name: 'tone', type: 'variant' }],
-    })
-    expect(documents.getSnapshot().atoms).toMatchObject([{ componentId, status: 'missing' }])
+    expect(bindings.reconcileScan).toHaveBeenCalledWith(scanResult)
+    expect(reconcileCodeDefinitions).not.toHaveBeenCalled()
+    expect(documents.getSnapshot().file?.componentModel.definitions[componentId]).toBeUndefined()
+    expect(documents.getSnapshot().atoms).toEqual([])
     expect(documents.commands.components.place(componentId)).toBe(false)
+  })
+
+  it('COMP-V2-BINDING-001 reconciles only after link and scan complete and publishes ready only after projection', async () => {
+    const projects = source()
+    const calls: string[] = []
+    const projection = deferred<{ status: 'projected' }>()
+    bindings = {
+      reconcileScan: vi.fn(async received => { calls.push(`reconcile:${received.jobId}`); return projection.promise }),
+      refresh: vi.fn(async () => 'ready' as const),
+    }
+    const service = createHostedRepositoryService(projects.store, undefined, undefined, bindings)
+    service.configure(project({
+      returnInstallationId: () => '7', clearReturnLocation: vi.fn(), startConnection: vi.fn(),
+      listChoices: vi.fn(async () => [repository]), getConnection: vi.fn(), getLatestScan: vi.fn(),
+      link: vi.fn(async () => { calls.push('link'); return connection }),
+      scan: vi.fn(async () => { calls.push('scan'); return scanResult }),
+    }))
+    projects.open('project-a')
+    await settle()
+
+    service.link('42')
+    await settle()
+    expect(calls).toEqual(['link', 'scan', `reconcile:${scanResult.jobId}`])
+    expect(service.getSnapshot()).toMatchObject({ status: 'busy', operation: 'reconciling-bindings', connection, scan: scanResult })
+
+    projection.resolve({ status: 'projected' })
+    await settle()
+    expect(service.getSnapshot()).toMatchObject({ status: 'ready', operation: null, connection, scan: scanResult })
+  })
+
+  it('AT-SYNC-001 retains the exact manual scan after conflict and retries reconciliation without scanning again', async () => {
+    const projects = source()
+    const scan = vi.fn(async () => scanResult)
+    bindings = {
+      reconcileScan: vi.fn().mockResolvedValueOnce({ status: 'conflict' }).mockResolvedValueOnce({ status: 'projected' }),
+      refresh: vi.fn(async () => 'ready' as const),
+    }
+    const service = createHostedRepositoryService(projects.store, undefined, undefined, bindings)
+    service.configure(project({
+      returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
+      getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), link: vi.fn(), scan,
+    }))
+    projects.open('project-a')
+    await settle()
+
+    service.scan()
+    await settle()
+    expect(service.getSnapshot()).toMatchObject({ status: 'error', operation: null, connection, scan: scanResult })
+    service.retry()
+    await settle()
+
+    expect(scan).toHaveBeenCalledOnce()
+    expect(bindings.reconcileScan).toHaveBeenCalledTimes(2)
+    expect(bindings.reconcileScan).toHaveBeenNthCalledWith(1, scanResult)
+    expect(bindings.reconcileScan).toHaveBeenNthCalledWith(2, scanResult)
+    expect(service.getSnapshot()).toMatchObject({ status: 'ready', scan: scanResult })
+  })
+
+  it('AT-SYNC-001 retains the exact manual scan after reconciliation failure and retries only that reconciliation', async () => {
+    const projects = source()
+    const scan = vi.fn(async () => scanResult)
+    bindings = {
+      reconcileScan: vi.fn().mockRejectedValueOnce(new Error('Binding service unavailable.')).mockResolvedValueOnce({ status: 'projected' }),
+      refresh: vi.fn(async () => 'ready' as const),
+    }
+    const service = createHostedRepositoryService(projects.store, undefined, undefined, bindings)
+    service.configure(project({
+      returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
+      getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), link: vi.fn(), scan,
+    }))
+    projects.open('project-a')
+    await settle()
+    service.scan()
+    await settle()
+    expect(service.getSnapshot()).toMatchObject({ status: 'error', scan: scanResult, error: 'Binding service unavailable.' })
+
+    service.retry()
+    await settle()
+    expect(scan).toHaveBeenCalledOnce()
+    expect(bindings.reconcileScan).toHaveBeenCalledTimes(2)
+    expect(service.getSnapshot()).toMatchObject({ status: 'ready', scan: scanResult })
+  })
+
+  it('AT-SYNC-001 retries a committed stale projection with refresh only and never reconciles or scans again', async () => {
+    const projects = source()
+    const scan = vi.fn(async () => scanResult)
+    bindings = {
+      reconcileScan: vi.fn(async () => ({ status: 'committed-projection-stale' as const })),
+      refresh: vi.fn(async () => 'ready' as const),
+    }
+    const service = createHostedRepositoryService(projects.store, undefined, undefined, bindings)
+    service.configure(project({
+      returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
+      getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), link: vi.fn(), scan,
+    }))
+    projects.open('project-a')
+    await settle()
+    service.scan()
+    await settle()
+
+    service.retry()
+    await settle()
+    expect(scan).toHaveBeenCalledOnce()
+    expect(bindings.reconcileScan).toHaveBeenCalledOnce()
+    expect(bindings.refresh).toHaveBeenCalledOnce()
+    expect(service.getSnapshot()).toMatchObject({ status: 'ready', scan: scanResult })
+  })
+
+  it('AT-SYNC-001 ignores a binding projection that completes after the project generation changes', async () => {
+    const projects = source()
+    const projection = deferred<{ status: 'projected' }>()
+    bindings = {
+      reconcileScan: vi.fn(() => projection.promise),
+      refresh: vi.fn(async () => 'ready' as const),
+    }
+    const getConnection = vi.fn().mockResolvedValueOnce(connection).mockResolvedValueOnce(null)
+    const service = createHostedRepositoryService(projects.store, undefined, undefined, bindings)
+    service.configure(project({
+      returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
+      getConnection, getLatestScan: vi.fn(async () => scanResult), link: vi.fn(), scan: vi.fn(async () => scanResult),
+    }))
+    projects.open('project-a')
+    await settle()
+    service.scan()
+    await settle()
+    expect(service.getSnapshot()).toMatchObject({ status: 'busy', operation: 'reconciling-bindings', scan: scanResult })
+
+    projects.open('project-b')
+    await settle()
+    projection.resolve({ status: 'projected' })
+    await settle()
+
+    expect(getConnection).toHaveBeenCalledTimes(2)
+    expect(service.getSnapshot()).toMatchObject({ status: 'idle', operation: null, connection: null, scan: null })
   })
 
   it('COMP-V2-CODE-008 builds and activates one exact hosted preview capability', async () => {
@@ -206,7 +359,7 @@ describe('hosted repository service', () => {
     const startBuild = vi.fn(async () => ({ id: buildId, fileId: 'file', fileRevision: 0, status: 'queued' as const, attempts: 0, createdAt }))
     const getBuild = vi.fn(async () => ({ id: buildId, fileId: 'file', fileRevision: 0, status: 'completed' as const, attempts: 1, createdAt, artifactId, completedAt: createdAt }))
     const getPreview = vi.fn(async () => ({ artifactId, url: `https://preview.test/hosted/${artifactId}/capability/index.html`, expiresAt: 1_800_000_000 }))
-    const service = createHostedRepositoryService(projects.store, documents, async () => undefined)
+    const service = createHostedRepositoryService(projects.store, documents, async () => undefined, bindings)
     service.configure(project({ returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(), getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), link: vi.fn(), scan: vi.fn() }, { startBuild, getBuild, getPreview }))
     projects.open('project-a')
     await settle()
@@ -219,7 +372,7 @@ describe('hosted repository service', () => {
     expect(getBuild).toHaveBeenCalledWith(buildId)
     expect(getPreview).toHaveBeenCalledWith(artifactId)
     expect(service.getSnapshot()).toMatchObject({ status: 'ready', executionAvailable: true, build: { id: buildId, status: 'completed', artifactId }, preview: { artifactId } })
-    expect(documents.getSnapshot().atoms).toMatchObject([{ componentId, status: 'missing' }])
+    expect(documents.getSnapshot().atoms).toEqual([])
     expect(documents.commands.components.place(componentId)).toBe(false)
   })
 
@@ -244,7 +397,7 @@ describe('hosted repository service', () => {
     }
     const prepareDocs = vi.fn(async () => queued)
     const getDocsReview = vi.fn(async () => prepared)
-    const service = createHostedRepositoryService(projects.store, documents, async () => undefined)
+    const service = createHostedRepositoryService(projects.store, documents, async () => undefined, bindings)
     service.configure(project({
       returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
       getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), link: vi.fn(), scan: vi.fn(),
@@ -258,7 +411,7 @@ describe('hosted repository service', () => {
     await settle()
     await settle()
 
-    expect(prepareDocs).toHaveBeenCalledWith({ fileId: 'file', fileRevision: 1, scanJobId: scanResult.jobId })
+    expect(prepareDocs).toHaveBeenCalledWith({ fileId: 'file', fileRevision: 0, scanJobId: scanResult.jobId })
     expect(getDocsReview).toHaveBeenCalledWith(queued.id)
     expect(service.getSnapshot()).toMatchObject({ status: 'ready', operation: null, docsReview: { id: queued.id, status: 'prepared' } })
   })
@@ -273,7 +426,7 @@ describe('hosted repository service', () => {
       preparedBundle: null, committedSha: null, errorId: 'docs-validator-rejected',
     }
     const prepareDocs = vi.fn(async () => failed)
-    const service = createHostedRepositoryService(projects.store, documents, async () => undefined)
+    const service = createHostedRepositoryService(projects.store, documents, async () => undefined, bindings)
     service.configure(project({
       returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
       getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), link: vi.fn(), scan: vi.fn(), prepareDocs,
@@ -304,7 +457,7 @@ describe('hosted repository service', () => {
     }
     let finishPreparation!: (review: EditorRepositoryDocsReview) => void
     const prepareDocs = vi.fn(() => new Promise<EditorRepositoryDocsReview>(resolve => { finishPreparation = resolve }))
-    const service = createHostedRepositoryService(projects.store, documents)
+    const service = createHostedRepositoryService(projects.store, documents, undefined, bindings)
     service.configure(project({
       returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
       getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), link: vi.fn(), scan: vi.fn(), prepareDocs,
@@ -340,7 +493,7 @@ describe('hosted repository service', () => {
     }
     const prepareDocs = vi.fn(async () => prepared)
     const saveDocs = vi.fn(async () => ({ ...prepared, status: 'queued_save' as const }))
-    const service = createHostedRepositoryService(projects.store, documents)
+    const service = createHostedRepositoryService(projects.store, documents, undefined, bindings)
     service.configure(project({
       returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
       getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), getLatestDocsReview: vi.fn(async () => prepared), link: vi.fn(), scan: vi.fn(), prepareDocs, saveDocs,
@@ -366,7 +519,7 @@ describe('hosted repository service', () => {
     const documents = createDocumentStore()
     documents.load(createBlankFile('file', 'page', 'root', 'Page'), [], { replace: true })
     const prepared: EditorRepositoryDocsReview = {
-      id: '00000000-0000-4000-8000-000000000603', fileId: 'file', fileRevision: 1,
+      id: '00000000-0000-4000-8000-000000000603', fileId: 'file', fileRevision: 0,
       status: 'prepared', baseRef: 'refs/heads/main', baseCommitSha: 'a'.repeat(40), approvalDigest: 'b'.repeat(64),
       preparedBundle: { files: [{ path: 'apps/docs/content/docs/components/button.mdx', diff: '+# Button' }], omissions: [], validation: [{ name: 'blume-check', detail: 'Passed' }] }, committedSha: null, errorId: null,
     }
@@ -375,7 +528,7 @@ describe('hosted repository service', () => {
     const prepareDocs = vi.fn(async () => prepared)
     const saveDocs = vi.fn(async () => queued)
     const getDocsReview = vi.fn(async () => saved)
-    const service = createHostedRepositoryService(projects.store, documents, async () => undefined)
+    const service = createHostedRepositoryService(projects.store, documents, async () => undefined, bindings)
     service.configure(project({
       returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(),
       getConnection: vi.fn(async () => connection), getLatestScan: vi.fn(async () => scanResult), link: vi.fn(), scan: vi.fn(),
@@ -401,7 +554,7 @@ describe('hosted repository service', () => {
     let release!: (value: EditorHostedRepositoryConnection | null) => void
     const first = new Promise<EditorHostedRepositoryConnection | null>(resolve => { release = resolve })
     const getConnection = vi.fn().mockReturnValueOnce(first).mockResolvedValueOnce(null)
-    const service = createHostedRepositoryService(projects.store)
+    const service = createHostedRepositoryService(projects.store, undefined, undefined, bindings)
     service.configure(project({ returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(), getConnection, getLatestScan: vi.fn(async () => null), link: vi.fn(), scan: vi.fn() }))
     projects.open('project-a')
     projects.open('project-b')
@@ -421,7 +574,7 @@ describe('hosted repository service', () => {
     const pendingScan = new Promise<typeof scanResult>(resolve => { release = resolve })
     const getConnection = vi.fn().mockResolvedValueOnce(connection).mockResolvedValueOnce(null)
     const getLatestScan = vi.fn().mockReturnValueOnce(pendingScan)
-    const service = createHostedRepositoryService(projects.store, documents)
+    const service = createHostedRepositoryService(projects.store, documents, undefined, bindings)
     service.configure(project({ returnInstallationId: () => null, clearReturnLocation: vi.fn(), startConnection: vi.fn(), listChoices: vi.fn(), getConnection, getLatestScan, link: vi.fn(), scan: vi.fn() }))
 
     projects.open('project-a')
@@ -444,7 +597,7 @@ describe('hosted repository service', () => {
     const projects = source()
     const clearReturnLocation = vi.fn()
     const listChoices = vi.fn().mockRejectedValueOnce(new Error('GitHub is unavailable.')).mockResolvedValueOnce([repository])
-    const service = createHostedRepositoryService(projects.store)
+    const service = createHostedRepositoryService(projects.store, undefined, undefined, bindings)
     service.configure(project({ returnInstallationId: () => '7', clearReturnLocation, startConnection: vi.fn(), listChoices, getConnection: vi.fn(), getLatestScan: vi.fn(), link: vi.fn(), scan: vi.fn() }))
     projects.open('project-a')
     await settle()

@@ -2,13 +2,14 @@ import { createStore } from 'zustand/vanilla'
 import type { EditorHostedPreview, EditorHostedPreviewBuild, EditorHostedRepository, EditorHostedRepositoryConnection, EditorHostedRepositoryScan, EditorProjectApi, EditorRepositoryDocsReview } from '../../capabilities'
 import { editorStore } from './store'
 import { documentStore } from './document-store'
-import { discoveredRegistryAtoms, discoveredRegistryDefinitions, documentRegistryAtoms } from './component-registry'
+import { hostedSourceBindingService } from './hosted-source-binding-service'
+import type { HostedSourceBindingReconcileOutcome, HostedSourceBindingRefreshOutcome } from './hosted-source-binding-service'
 
 export type HostedRepositoryState = Readonly<{
   available: boolean
   executionAvailable: boolean
   status: 'idle' | 'busy' | 'choosing' | 'ready' | 'error'
-  operation: 'loading' | 'connecting' | 'listing' | 'linking' | 'scanning' | 'building' | 'preparing-docs' | 'saving-docs' | null
+  operation: 'loading' | 'connecting' | 'listing' | 'linking' | 'scanning' | 'reconciling-bindings' | 'building' | 'preparing-docs' | 'saving-docs' | null
   connection: EditorHostedRepositoryConnection | null
   choices: readonly EditorHostedRepository[]
   installationId: string | null
@@ -20,7 +21,11 @@ export type HostedRepositoryState = Readonly<{
 }>
 
 type ProjectSource = Pick<typeof editorStore, 'subscribe' | 'getSnapshot'>
-type DocumentSource = Pick<typeof documentStore, 'subscribe' | 'getSnapshot' | 'commands'>
+type DocumentSource = Pick<typeof documentStore, 'subscribe' | 'getSnapshot'>
+export type HostedSourceBindingCommands = Readonly<{
+  reconcileScan(scan: EditorHostedRepositoryScan): Promise<HostedSourceBindingReconcileOutcome>
+  refresh(): Promise<HostedSourceBindingRefreshOutcome>
+}>
 
 const initialState: HostedRepositoryState = {
   available: false,
@@ -51,16 +56,12 @@ function docsReviewError(review: EditorRepositoryDocsReview): string | null {
   return `Component docs ${phase} failed. Error ID: ${review.errorId ?? fallback}`
 }
 
-function syncScan(documents: DocumentSource, scan: EditorHostedRepositoryScan): void {
-  const discovered = discoveredRegistryAtoms(scan.registry)
-  const document = documents.getSnapshot()
-  const atoms = documentRegistryAtoms(document.file, discovered, document.atoms)
-  if (!documents.commands.components.reconcileCodeDefinitions(discoveredRegistryDefinitions(scan.registry), atoms)) {
-    throw new Error('The discovered components could not be added to this file.')
-  }
-}
-
-export function createHostedRepositoryService(projectSource: ProjectSource = editorStore, documents: DocumentSource = documentStore, delay: (milliseconds: number) => Promise<void> = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))) {
+export function createHostedRepositoryService(
+  projectSource: ProjectSource = editorStore,
+  documents: DocumentSource = documentStore,
+  delay: (milliseconds: number) => Promise<void> = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
+  bindings: HostedSourceBindingCommands = hostedSourceBindingService,
+) {
   const backing = createStore<HostedRepositoryState>(() => initialState)
   let api: EditorProjectApi['hostedRepository'] | undefined
   let execution: EditorProjectApi['hostedExecution'] | undefined
@@ -70,6 +71,7 @@ export function createHostedRepositoryService(projectSource: ProjectSource = edi
   let stopProjectSync: (() => void) | null = null
   let stopDocumentSync: (() => void) | null = null
   let documentFileId: string | null = null
+  let docsGeneration = 0
 
   const run = async (operation: NonNullable<HostedRepositoryState['operation']>, task: () => Promise<Partial<HostedRepositoryState>>) => {
     const current = ++generation
@@ -77,10 +79,87 @@ export function createHostedRepositoryService(projectSource: ProjectSource = edi
     try {
       const result = await task()
       if (current !== generation) return
-      if (result.scan) syncScan(documents, result.scan)
       backing.setState({ available: true, executionAvailable: Boolean(execution), operation: null, error: null, ...result })
     } catch (error) {
       if (current === generation) backing.setState({ available: true, executionAvailable: Boolean(execution), status: 'error', operation: null, error: message(error) })
+    }
+  }
+
+  type ScanState = Readonly<{
+    connection: EditorHostedRepositoryConnection
+    scan: EditorHostedRepositoryScan
+    installationId: string
+  }>
+
+  const bindingFailure = (status: HostedSourceBindingReconcileOutcome['status'] | HostedSourceBindingRefreshOutcome): string => {
+    if (status === 'conflict') return 'Source bindings changed while the repository scan was being reconciled.'
+    if (status === 'access-removed') return 'Repository access was removed before source bindings could be reconciled.'
+    if (status === 'cancelled') return 'Source binding reconciliation was cancelled.'
+    return 'The committed source bindings could not be projected safely.'
+  }
+
+  const reconcileRetainedScan = async (retained: ScanState, mode: 'reconcile' | 'refresh' = 'reconcile') => {
+    const expectedProjectId = projectId
+    const current = ++generation
+    backing.setState({
+      available: true,
+      executionAvailable: Boolean(execution),
+      status: 'busy',
+      operation: 'reconciling-bindings',
+      connection: retained.connection,
+      choices: [],
+      installationId: retained.installationId,
+      scan: retained.scan,
+      build: null,
+      preview: null,
+      docsReview: null,
+      error: null,
+    })
+    try {
+      if (mode === 'refresh') {
+        const outcome = await bindings.refresh()
+        if (current !== generation || projectId !== expectedProjectId) return
+        if (outcome === 'ready') {
+          retry = null
+          backing.setState({ status: 'ready', operation: null, error: null })
+          return
+        }
+        retry = async () => { await reconcileRetainedScan(retained, 'refresh') }
+        backing.setState({ status: 'error', operation: null, error: bindingFailure(outcome) })
+        return
+      }
+      const outcome = await bindings.reconcileScan(retained.scan)
+      if (current !== generation || projectId !== expectedProjectId) return
+      if (outcome.status === 'projected') {
+        retry = null
+        backing.setState({ status: 'ready', operation: null, error: null })
+        return
+      }
+      const retryMode = outcome.status === 'committed-projection-stale' ? 'refresh' as const : 'reconcile' as const
+      retry = async () => { await reconcileRetainedScan(retained, retryMode) }
+      backing.setState({ status: 'error', operation: null, error: bindingFailure(outcome.status) })
+    } catch (error) {
+      if (current !== generation || projectId !== expectedProjectId) return
+      retry = async () => { await reconcileRetainedScan(retained, mode) }
+      backing.setState({ status: 'error', operation: null, error: message(error) })
+    }
+  }
+
+  const scanAndReconcile = async (
+    operation: 'linking' | 'scanning',
+    task: () => Promise<ScanState>,
+  ) => {
+    const expectedProjectId = projectId
+    const current = ++generation
+    backing.setState({ available: true, executionAvailable: Boolean(execution), status: 'busy', operation, error: null })
+    try {
+      const retained = await task()
+      if (current !== generation || projectId !== expectedProjectId) return
+      await reconcileRetainedScan(retained)
+    } catch (error) {
+      if (current === generation && projectId === expectedProjectId) {
+        backing.setState({ available: true, executionAvailable: Boolean(execution), status: 'error', operation: null, error: message(error) })
+      }
     }
   }
 
@@ -124,16 +203,40 @@ export function createHostedRepositoryService(projectSource: ProjectSource = edi
     if (nextProjectId === projectId) return
     projectId = nextProjectId
     generation += 1
+    docsGeneration += 1
     retry = null
     backing.setState({ ...initialState, available: Boolean(api), executionAvailable: Boolean(execution) }, true)
     if (nextProjectId) load()
+  }
+
+  const loadDocumentReview = async (fileId: string) => {
+    const currentApi = api
+    const expectedProjectId = projectId
+    const currentDocsGeneration = ++docsGeneration
+    if (!currentApi || !expectedProjectId || !backing.getState().connection) return
+    try {
+      let docsReview = await currentApi.getLatestDocsReview(fileId)
+      while (docsReview && (docsReview.status === 'queued_prepare' || docsReview.status === 'preparing' || docsReview.status === 'queued_save' || docsReview.status === 'saving')) {
+        await delay(750)
+        if (projectId !== expectedProjectId || documents.getSnapshot().file?.fileId !== fileId || currentDocsGeneration !== docsGeneration) return
+        docsReview = await currentApi.getDocsReview(docsReview.id)
+      }
+      if (projectId !== expectedProjectId || documents.getSnapshot().file?.fileId !== fileId || currentDocsGeneration !== docsGeneration) return
+      const docsError = docsReview ? docsReviewError(docsReview) : null
+      backing.setState({ docsReview, ...(docsError ? { status: 'error' as const, error: docsError } : {}) })
+    } catch (error) {
+      if (projectId === expectedProjectId && documents.getSnapshot().file?.fileId === fileId && currentDocsGeneration === docsGeneration) {
+        backing.setState({ status: 'error', error: message(error) })
+      }
+    }
   }
 
   const reconcileDocument = () => {
     const nextFileId = documents.getSnapshot().file?.fileId ?? null
     if (nextFileId === documentFileId) return
     documentFileId = nextFileId
-    if (nextFileId && projectId && api) load()
+    docsGeneration += 1
+    if (nextFileId && projectId && api) void loadDocumentReview(nextFileId)
   }
 
   return {
@@ -147,6 +250,7 @@ export function createHostedRepositoryService(projectSource: ProjectSource = edi
       projectId = null
       documentFileId = documents.getSnapshot().file?.fileId ?? null
       generation += 1
+      docsGeneration += 1
       retry = null
       backing.setState({ ...initialState, available: Boolean(api), executionAvailable: Boolean(execution) }, true)
       stopProjectSync = projectSource.subscribe(reconcile)
@@ -164,24 +268,24 @@ export function createHostedRepositoryService(projectSource: ProjectSource = edi
       const currentApi = api
       const installationId = backing.getState().installationId
       if (!currentApi || !projectId || !installationId) return
-      const task = async () => {
+      const task = async (): Promise<ScanState> => {
         const connection = await currentApi.link(installationId, repositoryId)
         const scan = await currentApi.scan()
-        return { status: 'ready' as const, connection, choices: [], installationId: connection.installationId, scan, build: null, preview: null, docsReview: null }
+        return { connection, installationId: connection.installationId, scan }
       }
-      retry = async () => { await run('linking', task) }
-      void run('linking', task)
+      retry = async () => { await scanAndReconcile('linking', task) }
+      void scanAndReconcile('linking', task)
     },
     scan() {
       const currentApi = api
       const connection = backing.getState().connection
       if (!currentApi || !connection) return
-      const task = async () => {
+      const task = async (): Promise<ScanState> => {
         const scan = await currentApi.scan()
-        return { status: 'ready' as const, connection, scan, build: null, preview: null, docsReview: null }
+        return { connection, installationId: connection.installationId, scan }
       }
-      retry = async () => { await run('scanning', task) }
-      void run('scanning', task)
+      retry = async () => { await scanAndReconcile('scanning', task) }
+      void scanAndReconcile('scanning', task)
     },
     build() {
       const currentExecution = execution
@@ -269,6 +373,7 @@ export function createHostedRepositoryService(projectSource: ProjectSource = edi
       projectId = null
       documentFileId = null
       generation += 1
+      docsGeneration += 1
       retry = null
       backing.setState(initialState, true)
     },

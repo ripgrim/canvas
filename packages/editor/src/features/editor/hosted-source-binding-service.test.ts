@@ -68,8 +68,12 @@ function projectSource(initial: { projectId: string; fileId?: string } | null = 
   }
 }
 
-function hosted(readSourceBindings: EditorHostedRepositoryApi['readSourceBindings'], getScan: EditorHostedRepositoryApi['getScan'] = vi.fn(async () => scan())) {
-  return { readSourceBindings, getScan } as EditorHostedRepositoryApi
+function hosted(
+  readSourceBindings: EditorHostedRepositoryApi['readSourceBindings'],
+  getScan: EditorHostedRepositoryApi['getScan'] = vi.fn(async () => scan()),
+  reconcileSourceBindings: EditorHostedRepositoryApi['reconcileSourceBindings'] = vi.fn(),
+) {
+  return { readSourceBindings, getScan, reconcileSourceBindings } as EditorHostedRepositoryApi
 }
 
 const settle = async () => {
@@ -170,8 +174,7 @@ describe('COMP-V2-BINDING-001 hosted source binding service', () => {
     await settle()
     const lastGood = service.getSnapshot().projection
 
-    service.refresh()
-    await settle()
+    await service.refresh()
 
     expect(service.getSnapshot()).toEqual({
       status: 'stale', context: { projectId: 'project-1', fileId: 'file-1' }, projection: lastGood, error: 'Source bindings are unavailable.',
@@ -189,15 +192,12 @@ describe('COMP-V2-BINDING-001 hosted source binding service', () => {
     const service = createHostedSourceBindingService(projects.source)
     service.start(hosted(reads))
     await settle()
-    service.refresh()
-    await settle()
+    await service.refresh()
     expect(service.getSnapshot()).toEqual({ status: 'empty', context: { projectId: 'project-1', fileId: 'file-1' }, projection: null, error: null })
 
-    service.refresh()
-    await settle()
+    await service.refresh()
     expect(service.getSnapshot().status).toBe('ready')
-    service.refresh()
-    await settle()
+    await service.refresh()
     expect(service.getSnapshot()).toEqual({ status: 'access-removed', context: { projectId: 'project-1', fileId: 'file-1' }, projection: null, error: null })
   })
 
@@ -210,8 +210,7 @@ describe('COMP-V2-BINDING-001 hosted source binding service', () => {
     service.start(hosted(reads))
     await settle()
     const accepted = service.getSnapshot().projection
-    service.refresh()
-    await settle()
+    await service.refresh()
 
     expect(service.getSnapshot().status).toBe('ready')
     expect(service.getSnapshot().projection).toBe(accepted)
@@ -227,13 +226,11 @@ describe('COMP-V2-BINDING-001 hosted source binding service', () => {
     const service = createHostedSourceBindingService(projects.source)
     service.start(hosted(reads))
     await settle()
-    service.refresh()
-    await settle()
+    await service.refresh()
     expect(service.getSnapshot()).toMatchObject({ status: 'ready', projection: { authority: { updatedAt: 500 } } })
     const metadataProjection = service.getSnapshot().projection
 
-    service.refresh()
-    await settle()
+    await service.refresh()
     expect(service.getSnapshot().status).toBe('stale')
     expect(service.getSnapshot().projection).toBe(metadataProjection)
   })
@@ -248,8 +245,7 @@ describe('COMP-V2-BINDING-001 hosted source binding service', () => {
     service.start(hosted(reads))
     await settle()
     const accepted = service.getSnapshot().projection
-    service.refresh()
-    await settle()
+    await service.refresh()
 
     expect(service.getSnapshot().status).toBe('stale')
     expect(service.getSnapshot().projection).toBe(accepted)
@@ -268,13 +264,205 @@ describe('COMP-V2-BINDING-001 hosted source binding service', () => {
     const service = createHostedSourceBindingService(projects.source)
     service.start(hosted(reads, getScan))
     await settle()
-    service.refresh()
-    await settle()
+    await service.refresh()
 
     expect(service.getSnapshot().projection?.components).toEqual([
       { bindingId: 'opaque-missing', status: 'missing' },
       { bindingId: 'opaque-choice', status: 'ambiguous', candidates: [{ choiceToken: 'candidate:1', name: 'Button' }, { choiceToken: 'candidate:2', name: 'Label' }] },
     ])
+  })
+
+  it('reconciles from a fresh authorized baseline with one exact empty-rebind command', async () => {
+    const projects = projectSource({ projectId: 'project-1', fileId: 'file-1' })
+    const committed = binding({ version: 5, updatedAt: 18 })
+    const readSourceBindings = vi.fn(async () => ({ status: 'authorized' as const, snapshot: binding() }))
+    const reconcileSourceBindings = vi.fn(async () => ({ status: 'committed' as const, snapshot: committed }))
+    const service = createHostedSourceBindingService(projects.source)
+    service.start(hosted(readSourceBindings, vi.fn(async () => scan()), reconcileSourceBindings))
+    await settle()
+    readSourceBindings.mockClear()
+
+    const outcome = await service.reconcileScan(scan())
+
+    expect(outcome).toEqual({ status: 'projected' })
+    expect(readSourceBindings).toHaveBeenCalledOnce()
+    expect(reconcileSourceBindings).toHaveBeenCalledOnce()
+    expect(reconcileSourceBindings).toHaveBeenCalledWith({
+      scanJobId: 'scan-1', expectedVersion: 4, expectedAuthority: authority, rebinds: [],
+    })
+    expect(service.getSnapshot()).toMatchObject({ status: 'ready', projection: { authority: { version: 5, updatedAt: 18 } } })
+  })
+
+  it('uses null expected state when the fresh authorized read is empty', async () => {
+    const projects = projectSource({ projectId: 'project-1', fileId: 'file-1' })
+    const readSourceBindings = vi.fn(async () => ({ status: 'authorized' as const, snapshot: null }))
+    const reconcileSourceBindings = vi.fn(async () => ({ status: 'committed' as const, snapshot: binding({ version: 1 }) }))
+    const service = createHostedSourceBindingService(projects.source)
+    service.start(hosted(readSourceBindings, vi.fn(async () => scan()), reconcileSourceBindings))
+    await settle()
+
+    const outcome = await service.reconcileScan(scan())
+
+    expect(outcome).toEqual({ status: 'projected' })
+    expect(reconcileSourceBindings).toHaveBeenCalledWith({ scanJobId: 'scan-1', expectedVersion: null, expectedAuthority: null, rebinds: [] })
+  })
+
+  it('refreshes once after conflict without retrying the write', async () => {
+    const projects = projectSource({ projectId: 'project-1', fileId: 'file-1' })
+    const refreshed = binding({ version: 5, updatedAt: 19 })
+    const readSourceBindings = vi.fn()
+      .mockResolvedValueOnce({ status: 'authorized', snapshot: binding() })
+      .mockResolvedValueOnce({ status: 'authorized', snapshot: binding() })
+      .mockResolvedValueOnce({ status: 'authorized', snapshot: refreshed })
+    const reconcileSourceBindings = vi.fn(async () => ({ status: 'conflict' as const }))
+    const service = createHostedSourceBindingService(projects.source)
+    service.start(hosted(readSourceBindings, vi.fn(async () => scan()), reconcileSourceBindings))
+    await settle()
+
+    const outcome = await service.reconcileScan(scan())
+
+    expect(outcome).toEqual({ status: 'conflict' })
+    expect(reconcileSourceBindings).toHaveBeenCalledOnce()
+    expect(readSourceBindings).toHaveBeenCalledTimes(3)
+    expect(service.getSnapshot()).toMatchObject({ status: 'ready', projection: { authority: { version: 5, updatedAt: 19 } } })
+  })
+
+  it('returns access-removed when the required conflict refresh loses authority', async () => {
+    const projects = projectSource({ projectId: 'project-1', fileId: 'file-1' })
+    const reads = vi.fn()
+      .mockResolvedValueOnce({ status: 'authorized', snapshot: binding() })
+      .mockResolvedValueOnce({ status: 'authorized', snapshot: binding() })
+      .mockResolvedValueOnce({ status: 'access-removed' })
+    const reconcileSourceBindings = vi.fn(async () => ({ status: 'conflict' as const }))
+    const service = createHostedSourceBindingService(projects.source)
+    service.start(hosted(reads, vi.fn(async () => scan()), reconcileSourceBindings))
+    await settle()
+
+    await expect(service.reconcileScan(scan())).resolves.toEqual({ status: 'access-removed' })
+    expect(reconcileSourceBindings).toHaveBeenCalledOnce()
+    expect(service.getSnapshot()).toEqual({ status: 'access-removed', context: { projectId: 'project-1', fileId: 'file-1' }, projection: null, error: null })
+  })
+
+  it.each(['read', 'write'] as const)('clears authority when access is removed during reconcile %s', async boundary => {
+    const projects = projectSource({ projectId: 'project-1', fileId: 'file-1' })
+    const reads = vi.fn()
+      .mockResolvedValueOnce({ status: 'authorized', snapshot: binding() })
+      .mockResolvedValueOnce(boundary === 'read' ? { status: 'access-removed' } : { status: 'authorized', snapshot: binding() })
+    const reconcileSourceBindings = vi.fn(async () => ({ status: 'access-removed' as const }))
+    const service = createHostedSourceBindingService(projects.source)
+    service.start(hosted(reads, vi.fn(async () => scan()), reconcileSourceBindings))
+    await settle()
+    expect(service.getSnapshot().status).toBe('ready')
+
+    const outcome = await service.reconcileScan(scan())
+
+    expect(outcome).toEqual({ status: 'access-removed' })
+    expect(service.getSnapshot()).toEqual({ status: 'access-removed', context: { projectId: 'project-1', fileId: 'file-1' }, projection: null, error: null })
+    expect(reconcileSourceBindings).toHaveBeenCalledTimes(boundary === 'read' ? 0 : 1)
+  })
+
+  it.each([
+    ['non-advancing version', (value: SourceBindingSnapshot) => ({ ...value, version: 4 })],
+    ['skipped version', (value: SourceBindingSnapshot) => ({ ...value, version: 6 })],
+    ['different project', (value: SourceBindingSnapshot) => ({ ...value, authority: { ...value.authority, repository: { ...value.authority.repository, projectId: 'project-other' } }, records: value.records.map(item => ({ ...item, repository: { ...item.repository, projectId: 'project-other' }, authority: { ...item.authority, repository: { ...item.authority.repository, projectId: 'project-other' } } })) })],
+    ['regressed grant', (value: SourceBindingSnapshot) => ({ ...value, authority: { ...value.authority, grantGeneration: 2 }, records: value.records.map(item => ({ ...item, authority: { ...item.authority, grantGeneration: 2 } })) })],
+    ['mismatched scan', (value: SourceBindingSnapshot) => ({ ...value, authority: { ...value.authority, scanId: 'scan-other' }, records: value.records.map(item => ({ ...item, authority: { ...item.authority, scanId: 'scan-other' } })) })],
+  ] as const)('marks a committed %s result projection-stale without replacing last-good', async (_name, mutate) => {
+    const projects = projectSource({ projectId: 'project-1', fileId: 'file-1' })
+    const reads = vi.fn().mockResolvedValue({ status: 'authorized', snapshot: binding() })
+    const invalid = mutate(binding({ version: 5, updatedAt: 18 })) as SourceBindingSnapshot
+    const reconcileSourceBindings = vi.fn(async () => ({ status: 'committed' as const, snapshot: invalid }))
+    const service = createHostedSourceBindingService(projects.source)
+    service.start(hosted(reads, vi.fn(async () => scan()), reconcileSourceBindings))
+    await settle()
+    const lastGood = service.getSnapshot().projection
+
+    const outcome = await service.reconcileScan(scan())
+
+    expect(outcome).toEqual({ status: 'committed-projection-stale' })
+    expect(service.getSnapshot().status).toBe('stale')
+    expect(service.getSnapshot().projection).toBe(lastGood)
+  })
+
+  it('does not let a commit based on a stale fresh read replace a newer accepted projection', async () => {
+    const projects = projectSource({ projectId: 'project-1', fileId: 'file-1' })
+    const accepted = binding({ version: 6, updatedAt: 20 })
+    const stale = binding({ version: 4, updatedAt: 17 })
+    const reads = vi.fn()
+      .mockResolvedValueOnce({ status: 'authorized', snapshot: accepted })
+      .mockResolvedValueOnce({ status: 'authorized', snapshot: stale })
+    const reconcileSourceBindings = vi.fn(async () => ({ status: 'committed' as const, snapshot: binding({ version: 5, updatedAt: 18 }) }))
+    const service = createHostedSourceBindingService(projects.source)
+    service.start(hosted(reads, vi.fn(async () => scan()), reconcileSourceBindings))
+    await settle()
+    const lastGood = service.getSnapshot().projection
+
+    await expect(service.reconcileScan(scan())).resolves.toEqual({ status: 'committed-projection-stale' })
+    expect(reconcileSourceBindings).toHaveBeenCalledWith({ scanJobId: 'scan-1', expectedVersion: 4, expectedAuthority: authority, rebinds: [] })
+    expect(service.getSnapshot().projection).toBe(lastGood)
+    expect(service.getSnapshot()).toMatchObject({ status: 'stale', projection: { authority: { version: 6 } } })
+  })
+
+  it.each(['read', 'write'] as const)('preserves last-good and rejects a transient reconcile %s failure', async boundary => {
+    const projects = projectSource({ projectId: 'project-1', fileId: 'file-1' })
+    const failure = new Error(`${boundary} failed`)
+    const reads = vi.fn()
+      .mockResolvedValueOnce({ status: 'authorized', snapshot: binding() })
+      .mockImplementationOnce(async () => {
+        if (boundary === 'read') throw failure
+        return { status: 'authorized', snapshot: binding() }
+      })
+    const reconcileSourceBindings = vi.fn(async () => { throw failure })
+    const service = createHostedSourceBindingService(projects.source)
+    service.start(hosted(reads, vi.fn(async () => scan()), reconcileSourceBindings))
+    await settle()
+    const lastGood = service.getSnapshot().projection
+
+    await expect(service.reconcileScan(scan())).rejects.toBe(failure)
+    expect(service.getSnapshot().status).toBe('stale')
+    expect(service.getSnapshot().projection).toBe(lastGood)
+    expect(reconcileSourceBindings).toHaveBeenCalledTimes(boundary === 'read' ? 0 : 1)
+  })
+
+  it.each(['read', 'write'] as const)('cancels after a context change during reconcile %s', async boundary => {
+    const projects = projectSource({ projectId: 'project-1', fileId: 'file-1' })
+    let releaseRead!: (value: Awaited<ReturnType<EditorHostedRepositoryApi['readSourceBindings']>>) => void
+    let releaseWrite!: (value: Awaited<ReturnType<EditorHostedRepositoryApi['reconcileSourceBindings']>>) => void
+    const pendingRead = new Promise<Awaited<ReturnType<EditorHostedRepositoryApi['readSourceBindings']>>>(resolve => { releaseRead = resolve })
+    const pendingWrite = new Promise<Awaited<ReturnType<EditorHostedRepositoryApi['reconcileSourceBindings']>>>(resolve => { releaseWrite = resolve })
+    const reads = vi.fn().mockResolvedValueOnce({ status: 'authorized', snapshot: binding() }).mockImplementationOnce(() => boundary === 'read' ? pendingRead : Promise.resolve({ status: 'authorized', snapshot: binding() }))
+    const reconcileSourceBindings = vi.fn(() => pendingWrite)
+    const service = createHostedSourceBindingService(projects.source)
+    service.start(hosted(reads, vi.fn(async () => scan()), reconcileSourceBindings))
+    await settle()
+
+    const pending = service.reconcileScan(scan())
+    await settle()
+    projects.set({ projectId: 'project-1', fileId: 'file-2' })
+    if (boundary === 'read') releaseRead({ status: 'authorized', snapshot: binding() })
+    else releaseWrite({ status: 'committed', snapshot: binding({ version: 5 }) })
+
+    await expect(pending).resolves.toEqual({ status: 'cancelled' })
+    expect(service.getSnapshot().context).toEqual({ projectId: 'project-1', fileId: 'file-2' })
+    expect(reconcileSourceBindings).toHaveBeenCalledTimes(boundary === 'read' ? 0 : 1)
+  })
+
+  it('cancels a committed response that arrives after disposal', async () => {
+    const projects = projectSource({ projectId: 'project-1', fileId: 'file-1' })
+    let release!: (value: Awaited<ReturnType<EditorHostedRepositoryApi['reconcileSourceBindings']>>) => void
+    const pendingWrite = new Promise<Awaited<ReturnType<EditorHostedRepositoryApi['reconcileSourceBindings']>>>(resolve => { release = resolve })
+    const reads = vi.fn().mockResolvedValue({ status: 'authorized', snapshot: binding() })
+    const service = createHostedSourceBindingService(projects.source)
+    service.start(hosted(reads, vi.fn(async () => scan()), vi.fn(() => pendingWrite)))
+    await settle()
+
+    const pending = service.reconcileScan(scan())
+    await settle()
+    service.dispose()
+    release({ status: 'committed', snapshot: binding({ version: 5 }) })
+
+    await expect(pending).resolves.toEqual({ status: 'cancelled' })
+    expect(service.getSnapshot()).toEqual({ status: 'idle', context: null, projection: null, error: null })
   })
 
   it('ignores a completion after disposal', async () => {

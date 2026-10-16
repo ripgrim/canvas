@@ -1353,12 +1353,78 @@ describe('cloud adapter', () => {
     adapter.dispose()
   })
 
+  it('COMP-V2-BINDING-001 reconciles exact initial and existing binding commands with bounded outcomes', async () => {
+    const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const repository = { provider: 'github' as const, projectId, repositoryId: '42' }
+    const authority = {
+      repository,
+      scanId: '00000000-0000-4000-8000-000000000092',
+      sourceRevision: 'a'.repeat(40),
+      registryFingerprint: `sha256:${'b'.repeat(64)}`,
+      grantGeneration: 1,
+      adapterId: 'shadcn-v1',
+    }
+    const snapshot = { version: 1, authority, records: [], updatedAt: 1 }
+    const initial = { scanJobId: authority.scanId, expectedVersion: null, expectedAuthority: null, rebinds: [] }
+    const existing = { scanJobId: authority.scanId, expectedVersion: 1, expectedAuthority: authority, rebinds: [] }
+    const requests: { url: string; method: string; body: unknown }[] = []
+    let response: 'committed' | 'conflict' | 'unrelated-conflict' | 'removed-401' | 'removed-404' | 'server' | 'network' | 'malformed' = 'committed'
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      ...scriptedSync(document),
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input)
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
+        if (url.endsWith(`/api/projects/${projectId}/repository/source-bindings`)) {
+          requests.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null })
+          if (response === 'conflict') return json({ error: { code: 'source_bindings_changed', message: 'Repository source bindings changed.' } }, 409)
+          if (response === 'unrelated-conflict') return json({ error: { code: 'repository_scan_required', message: 'Scan required.' } }, 409)
+          if (response === 'removed-401') return json({ error: { code: 'unauthorized', message: 'Unauthorized.' } }, 401)
+          if (response === 'removed-404') return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+          if (response === 'server') return json({ error: { code: 'server_error', message: 'Failed.' } }, 500)
+          if (response === 'network') throw new TypeError('offline')
+          if (response === 'malformed') return json({ ...snapshot, extra: true })
+          return json(snapshot)
+        }
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(initial)).resolves.toEqual({ status: 'committed', snapshot })
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).resolves.toEqual({ status: 'committed', snapshot })
+    expect(requests).toEqual([
+      { url: `https://api.canvas.test/api/projects/${projectId}/repository/source-bindings`, method: 'PUT', body: initial },
+      { url: `https://api.canvas.test/api/projects/${projectId}/repository/source-bindings`, method: 'PUT', body: existing },
+    ])
+    const requestCount = requests.length
+    await expect(adapter.hostedRepository?.reconcileSourceBindings({ ...initial, projectId } as never)).rejects.toThrow('Invalid source binding reconcile command')
+    expect(requests).toHaveLength(requestCount)
+    response = 'conflict'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).resolves.toEqual({ status: 'conflict' })
+    response = 'unrelated-conflict'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).rejects.toMatchObject({ status: 409, code: 'repository_scan_required' })
+    response = 'removed-401'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).resolves.toEqual({ status: 'access-removed' })
+    response = 'removed-404'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).resolves.toEqual({ status: 'access-removed' })
+    response = 'server'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).rejects.toMatchObject({ status: 500 })
+    response = 'network'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).rejects.toMatchObject({ status: 0, code: 'network_error' })
+    response = 'malformed'
+    await expect(adapter.hostedRepository?.reconcileSourceBindings(existing)).rejects.toThrow('Invalid source binding snapshot')
+    adapter.dispose()
+  })
+
   it('COMP-V2-BINDING-001 rejects source bindings when the active project changes before the response', async () => {
     const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
     const nextProjectId = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff'
     const nextMetadata = { ...metadata, id: '22222222-3333-4444-8555-666666666666', projectId: nextProjectId }
     const nextDocument = createBlankFile(nextMetadata.id, 'page_next', 'root_next', 'Page 1')
     const sourceBindings = deferred<Response>()
+    const sourceBindingReconcile = deferred<Response>()
+    const command = { scanJobId: '00000000-0000-4000-8000-000000000092', expectedVersion: null, expectedAuthority: null, rebinds: [] }
     const adapter = createCloudAdapter({
       apiOrigin: 'https://api.canvas.test',
       syncOrigin: 'wss://sync.canvas.test',
@@ -1369,20 +1435,23 @@ describe('cloud adapter', () => {
         scriptRoom(socket, url.includes(nextMetadata.id) ? nextDocument : document)
         return socket
       },
-      fetch: (async (input: string | URL | Request) => {
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input)
         if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
         if (url.endsWith(`/api/files/${nextMetadata.id}`)) return json({ file: nextMetadata })
-        if (url.endsWith(`/api/projects/${projectId}/repository/source-bindings`)) return sourceBindings.promise
+        if (url.endsWith(`/api/projects/${projectId}/repository/source-bindings`)) return init?.method === 'PUT' ? sourceBindingReconcile.promise : sourceBindings.promise
         return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
       }) as typeof fetch,
     })
 
     await adapter.openFile?.(metadata.id)
     const pending = adapter.hostedRepository!.readSourceBindings()
+    const pendingReconcile = adapter.hostedRepository!.reconcileSourceBindings(command)
     await adapter.openFile?.(nextMetadata.id)
     sourceBindings.resolve(json(null))
+    sourceBindingReconcile.resolve(json({ invalid: true }))
     await expect(pending).rejects.toThrow('Repository request was cancelled.')
+    await expect(pendingReconcile).rejects.toThrow('Repository request was cancelled.')
     adapter.dispose()
   })
 

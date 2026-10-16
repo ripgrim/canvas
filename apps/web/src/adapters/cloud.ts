@@ -1,5 +1,5 @@
 import { CloudApiError, createCloudApiClient } from '@canvas/cloud-client'
-import type { CloudFileSummary } from '@canvas/cloud-client'
+import type { CloudFileSummary, CloudSourceBindingReconcileInput } from '@canvas/cloud-client'
 import { validateHostedFileDocument } from '@canvas/cloud-document'
 import { authSessionView } from '@canvas/auth'
 import type { AuthSessionView } from '@canvas/auth'
@@ -231,6 +231,21 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
       } catch (error) {
         recheckProject(projectId)
         if (error instanceof CloudApiError && (error.status === 401 || error.status === 404)) return { status: 'access-removed' as const }
+        throw error
+      }
+    },
+    async reconcileSourceBindings(command: CloudSourceBindingReconcileInput) {
+      const projectId = activeProjectId()
+      try {
+        const snapshot = await client.reconcileGitHubSourceBindings(projectId, command)
+        recheckProject(projectId)
+        return { status: 'committed' as const, snapshot }
+      } catch (error) {
+        recheckProject(projectId)
+        if (error instanceof CloudApiError) {
+          if (error.status === 409 && error.code === 'source_bindings_changed') return { status: 'conflict' as const }
+          if (error.status === 401 || error.status === 404) return { status: 'access-removed' as const }
+        }
         throw error
       }
     },
