@@ -1,0 +1,385 @@
+packages/repo-engine/src/transform-matrix.ts
+  s_012c57818fbf95::t_5dbc35c995e089 1-9,11-99,110-115,118-125
+  s_012c57818fbf95::t_5c675c1741a024 10,100-109,116-117
+packages/editor/src/features/editor/matrix-style.test.ts
+  s_012c57818fbf95::t_bd796de490ad15 1-69
+packages/editor/src/features/editor/canvas-math.test.ts
+  s_012c57818fbf95::t_03e44b16728922 214-215
+  s_012c57818fbf95::t_777579b92d601a 207-208
+  s_012c57818fbf95::t_97f14260e4818b 2-8,221-226
+  s_012c57818fbf95::t_fc885b69466007 227-228
+packages/repo-engine/tests/layout.test.ts
+  s_012c57818fbf95::t_5f780416fa794c 120
+  s_012c57818fbf95::t_4355a2153adb90 123-124
+  s_012c57818fbf95::t_417ec262540530 299
+  s_012c57818fbf95::t_fae0f338f17cb1 20,115,117-119,121-122,297-298
+packages/editor/src/features/editor/scene-geometry.ts
+  s_012c57818fbf95::t_3c45ad18e13493 12-13,22
+packages/editor/src/features/editor/layout-measure-absolute-drop.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 20,78
+  s_012c57818fbf95::t_7c0f31a0d01eea 27,31,172
+packages/preview-runtime/tests/layout-runtime.test.ts
+  s_012c57818fbf95::t_8883e2e4b15194 103
+packages/repo-engine/tests/file-layout-v9.test.ts
+  s_012c57818fbf95::t_d79958ebfe0371 45-47
+  s_012c57818fbf95::t_4bc533c1f49412 8-9,58
+  s_012c57818fbf95::t_1abd08c746dc75 12
+packages/editor/src/features/editor/layout-measure-resize.test.ts
+  s_012c57818fbf95::t_97f14260e4818b 135,201
+  s_012c57818fbf95::t_777579b92d601a 296,322-326
+  s_012c57818fbf95::t_7c0f31a0d01eea 23,75,82
+  s_012c57818fbf95::t_6c9d6706f2a0f8 111
+  s_012c57818fbf95::t_a0643f46f636aa 306
+  s_012c57818fbf95::t_1abd08c746dc75 15
+  s_012c57818fbf95::t_81ee83b97bb5ca 312
+packages/editor/src/features/editor/primitive-sizing-projection.test.ts
+  s_012c57818fbf95::t_1fe36e31d69dc9 9
+  s_012c57818fbf95::t_1abd08c746dc75 8
+  s_012c57818fbf95::t_7c0f31a0d01eea 15,17
+packages/editor/src/features/editor/canvas-gestures.test.ts
+  s_012c57818fbf95::t_b23c2b6bb59778 4,52-53,60-61
+  s_012c57818fbf95::t_1abd08c746dc75 20
+  s_012c57818fbf95::t_03e44b16728922 730
+  s_012c57818fbf95::t_eb8fa672be00c9 10,81,93-98,108,111-121
+  s_012c57818fbf95::t_281be199ef6041 68
+  s_012c57818fbf95::t_72c616e6c1a6f5 250,714,741,745
+  s_012c57818fbf95::t_7c0f31a0d01eea 26-29,760,884,890,950,1112
+  s_012c57818fbf95::t_777579b92d601a 736-740,747
+  s_012c57818fbf95::t_629db43c06ece5 122
+packages/editor/src/features/editor/gesture-authority.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 10
+  s_012c57818fbf95::t_7c0f31a0d01eea 16-17
+packages/editor/src/features/editor/gesture-resize-command-planner.test.ts
+  s_012c57818fbf95::t_8505b820ee58bf 22
+  s_012c57818fbf95::t_1abd08c746dc75 27,345
+  s_012c57818fbf95::t_fcc4482d476f3c 109,113,190,194,240,244,286,290,432-434,436,447,477,482
+  s_012c57818fbf95::t_8da9386d73b41e 91,131
+  s_012c57818fbf95::t_7c0f31a0d01eea 218,309,417,419,453,457
+  s_012c57818fbf95::t_97f14260e4818b 497
+packages/editor/src/features/editor/canvas-math.ts
+  s_012c57818fbf95::t_b121315ad76e4b 299-303
+  s_012c57818fbf95::t_99d4062c2dd59a 7-9,174,217-220,225-226,294-298,307-308,321-322,324,343,345,378
+packages/editor/src/features/editor/layout-grid-store.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 34
+packages/editor/src/features/editor/canvas-hud-projection-service.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 15,233,289,359,424
+  s_012c57818fbf95::t_3eeba80c2106f4 501,758,897
+  s_012c57818fbf95::t_8da9386d73b41e 430
+  s_012c57818fbf95::t_b47800138dd822 118-144
+  s_012c57818fbf95::t_a78bf01c194c7c 37
+  s_012c57818fbf95::t_89c47d0770a608 366
+  s_012c57818fbf95::t_3163b7ae5e3c93 356-358,360-365,367-420
+  s_012c57818fbf95::t_7c0f31a0d01eea 19,239,295,305,310
+packages/repo-engine/tests/file-transform-matrix.test.ts
+  s_012c57818fbf95::t_ce96bb909b372e 45-47
+  s_012c57818fbf95::t_dd182031f2bbe9 68-76
+  s_012c57818fbf95::t_4bc533c1f49412 15
+  s_012c57818fbf95::t_d3281512132919 5,14,44,53
+  s_012c57818fbf95::t_8911549a087054 1-4,6-7,9-13,16-25,36-43,48-52,54-67,77
+  s_012c57818fbf95::t_1abd08c746dc75 8
+  s_012c57818fbf95::t_80354ed98b1014 26-35
+packages/editor/src/features/editor/layout-store.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 18
+packages/editor/src/features/editor/canvas-scene.test.ts
+  s_012c57818fbf95::t_72c616e6c1a6f5 136
+  s_012c57818fbf95::t_7c0f31a0d01eea 16-20
+  s_012c57818fbf95::t_52084495fd6d71 66,76
+  s_012c57818fbf95::t_1abd08c746dc75 9
+packages/editor/src/features/editor/canvas-hud-projection.test.ts
+  s_012c57818fbf95::t_a78bf01c194c7c 128
+  s_012c57818fbf95::t_b832154a200c54 325-331,334-346
+  s_012c57818fbf95::t_6295d8c54615ae 332-333
+  s_012c57818fbf95::t_1abd08c746dc75 21,71
+  s_012c57818fbf95::t_8da9386d73b41e 77
+  s_012c57818fbf95::t_7c0f31a0d01eea 28
+packages/editor/src/features/editor/preview-flow-drag-connection.test.ts
+  s_012c57818fbf95::t_b121315ad76e4b 178
+  s_012c57818fbf95::t_1abd08c746dc75 14
+  s_012c57818fbf95::t_8883e2e4b15194 142,362,365,368,378,442,460,495
+  s_012c57818fbf95::t_7c0f31a0d01eea 24
+packages/editor/src/features/editor/rotation-projection.test.ts
+  s_012c57818fbf95::t_97f14260e4818b 10,17,24-30
+  s_012c57818fbf95::t_ae9011cd74a408 31-32
+packages/repo-engine/src/layout-css.ts
+  s_012c57818fbf95::t_fbd686c38d5a50 17
+  s_012c57818fbf95::t_441071f92d0b09 18,49
+packages/editor/src/features/editor/live-resize-interaction.test.ts
+  s_012c57818fbf95::t_7c0f31a0d01eea 17
+  s_012c57818fbf95::t_1abd08c746dc75 9
+packages/editor/src/features/editor/layout-remove-planner.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 43,145,166
+  s_012c57818fbf95::t_8da9386d73b41e 34
+  s_012c57818fbf95::t_7c0f31a0d01eea 17,30,38,84,138,187
+packages/editor/src/features/editor/layout-panels-flex.test.ts
+  s_012c57818fbf95::t_2fed2d3abf50bf 12
+  s_012c57818fbf95::t_0fab6056fb504a 391-392
+  s_012c57818fbf95::t_35910abd0b3c09 26-28,30,34
+  s_012c57818fbf95::t_e4c7f8fe832b1e 69,99
+  s_012c57818fbf95::t_fd3658c91ed31a 95-98,100-102
+  s_012c57818fbf95::t_1abd08c746dc75 20
+packages/editor/src/features/editor/layout-flex-store.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 25,77,223
+  s_012c57818fbf95::t_a0643f46f636aa 81
+  s_012c57818fbf95::t_7c0f31a0d01eea 83-84,227-228,251
+packages/editor/src/features/editor/layer-tree-gesture.ts
+  s_012c57818fbf95::t_762c716161ff75 116,124
+  s_012c57818fbf95::t_0c92aef73f3ccd 31-32,102-115,117-123,125-131
+  s_1943db681d77ea::t_3b9adf0db1039d 132-133
+packages/repo-engine/tests/transform-matrix.test.ts
+  s_012c57818fbf95::t_80354ed98b1014 5
+  s_012c57818fbf95::t_5c675c1741a024 2,36-47,49-52
+  s_012c57818fbf95::t_29a89859b626b6 1,3-4,6-35,53-54
+  s_012c57818fbf95::t_5c41c7cdd15ab7 48
+packages/editor/src/features/editor/layout-measure-cross-parent-absolute.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 15
+  s_012c57818fbf95::t_7c0f31a0d01eea 19,21
+  s_012c57818fbf95::t_8da9386d73b41e 20
+apps/sync-room-core/src/legacy-document.ts
+  s_012c57818fbf95::t_cacc2411119e3a 11
+  s_012c57818fbf95::t_f2a7e4bb7874f7 9
+packages/editor/src/features/editor/layout-commands.ts
+  s_012c57818fbf95::t_d32d8e554014a6 8,26-29,40-41,46,51-53
+packages/editor/src/features/editor/LayoutPanels.tsx
+  s_012c57818fbf95::t_e60666c6860b46 2-3,17,35,70-85,87-94,96
+  s_012c57818fbf95::t_8f94224d2de816 8,86,153-154,169-170,233-235
+  s_012c57818fbf95::t_c195066a10a71e 9,193-195
+  s_012c57818fbf95::t_acda4f1450f114 313-314,317
+  s_e18d232d8e09ca::t_07ddecaad52bb8 95,97
+packages/editor/src/features/editor/layout-flex-actions.test.ts
+  s_012c57818fbf95::t_406f0cdeb87a5b 58
+  s_012c57818fbf95::t_93c1b1ef8eb69d 38-39
+  s_012c57818fbf95::t_f8054f219e3d91 45-49,158,173,192,223
+  s_012c57818fbf95::t_bea414b80e25e1 59-60
+  s_012c57818fbf95::t_1abd08c746dc75 10
+  s_012c57818fbf95::t_7c0f31a0d01eea 16-20
+  s_012c57818fbf95::t_fb972765c724dc 3,32-37,40-44,50-55,61-71
+  s_012c57818fbf95::t_f839c22b60df2b 56-57
+apps/sync-room-core/tests/legacy-document.test.ts
+  s_012c57818fbf95::t_eced73124bbf7e 107-109,111,122-123
+  s_012c57818fbf95::t_fabf634fcaf2ac 24,42,72,78-79,85,90,94-97,102,110,119
+  s_012c57818fbf95::t_1abd08c746dc75 26,46,104,112,121
+  s_012c57818fbf95::t_93f2548029b552 52
+  s_012c57818fbf95::t_e3c29dd2b93f03 113-118,120
+  s_012c57818fbf95::t_e2eca3efac6217 124-130
+  s_012c57818fbf95::t_cba020299e636d 47
+packages/editor/src/features/editor/layout-wrap-planner.ts
+  s_012c57818fbf95::t_a7d421095fbe11 171
+packages/editor/src/features/editor/layout-wrap-store.test.ts
+  s_012c57818fbf95::t_8505b820ee58bf 6
+  s_012c57818fbf95::t_7c0f31a0d01eea 18
+  s_012c57818fbf95::t_1abd08c746dc75 8
+packages/editor/src/features/editor/rotation-projection.ts
+  s_012c57818fbf95::t_eba6a54a442eff 4,20-22,30-31
+packages/editor/src/features/editor/layout-wrap-planner.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 27,29
+  s_012c57818fbf95::t_7c0f31a0d01eea 41-43,84,219-220,416
+  s_012c57818fbf95::t_f941471a73302e 138-140,170,256
+  s_012c57818fbf95::t_8505b820ee58bf 12,14,23
+packages/editor/src/features/editor/preview-resize-connection.test.ts
+  s_012c57818fbf95::t_7c0f31a0d01eea 23,276,390
+  s_012c57818fbf95::t_8883e2e4b15194 93,124,252
+  s_012c57818fbf95::t_a78bf01c194c7c 55
+  s_012c57818fbf95::t_1abd08c746dc75 13
+  s_012c57818fbf95::t_b49289b8cb8dc3 116,128
+  s_012c57818fbf95::t_f941471a73302e 283
+packages/editor/src/features/editor/layout-flex-actions.ts
+  s_012c57818fbf95::t_b74452075e30dd 90
+  s_012c57818fbf95::t_9882e93bb2bde6 133
+packages/preview-runtime/src/layout-protocol.ts
+  s_012c57818fbf95::t_fbd686c38d5a50 18
+  s_012c57818fbf95::t_441071f92d0b09 19,52
+packages/editor/src/features/editor/flow-drag-authority.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 35
+  s_012c57818fbf95::t_7c0f31a0d01eea 41-44,502-503,517
+packages/editor/src/features/editor/live-resize-interaction.ts
+  s_012c57818fbf95::t_99d4062c2dd59a 63
+packages/editor/src/features/collaboration/flow-drag-relay.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 11
+  s_012c57818fbf95::t_7c0f31a0d01eea 17-19
+packages/repo-engine/tests/last-baseline.test.ts
+  s_012c57818fbf95::t_3760ec80bcbf5e 112
+  s_012c57818fbf95::t_1abd08c746dc75 13
+  s_012c57818fbf95::t_4bc533c1f49412 23
+packages/editor/src/features/editor/resize-projection.ts
+  s_012c57818fbf95::t_df032332b026f4 3,71,93-96,190-191,276-277,300-301
+  s_012c57818fbf95::t_eba6a54a442eff 24-25,204-205
+packages/repo-engine/src/layout.ts
+  s_012c57818fbf95::t_c195066a10a71e 11-12
+  s_012c57818fbf95::t_441071f92d0b09 311,473,477
+  s_012c57818fbf95::t_d32d8e554014a6 277,310
+packages/preview-runtime/tests/layout-grid.test.ts
+  s_012c57818fbf95::t_8883e2e4b15194 126
+packages/editor/src/features/editor/paper-text-resize-math.test.ts
+  s_012c57818fbf95::t_97f14260e4818b 2-5
+packages/editor/src/features/editor/gesture-authority.ts
+  s_012c57818fbf95::t_99d4062c2dd59a 29-30
+packages/editor/src/features/editor/layout-last-baseline-store.test.ts
+  s_012c57818fbf95::t_7c0f31a0d01eea 19
+  s_012c57818fbf95::t_1abd08c746dc75 9
+packages/editor/src/features/editor/canvas-hud-hit-testing.ts
+  s_012c57818fbf95::t_eb8fa672be00c9 47-52,55-60,66-70
+  s_012c57818fbf95::t_43e57a2216a05c 12-15,53-54,61-65
+  s_012c57818fbf95::t_def0dd2196dbe6 71-72
+packages/preview-runtime/tests/primitive-sizing-browser-runtime.test.ts
+  s_012c57818fbf95::t_55d8e6d3e0ff81 13,22
+  s_012c57818fbf95::t_465e3513baf021 18,33
+  s_012c57818fbf95::t_8883e2e4b15194 71
+packages/editor/src/features/editor/layout-pose.ts
+  s_012c57818fbf95::t_d32d8e554014a6 7,12,48,65,69-71
+packages/editor/src/features/editor/gesture-command-planner.test.ts
+  s_012c57818fbf95::t_8da9386d73b41e 28
+  s_012c57818fbf95::t_c5de804d24e7c2 158
+  s_012c57818fbf95::t_1abd08c746dc75 16
+  s_012c57818fbf95::t_7c0f31a0d01eea 22-23,25,29,31,34,103-104
+packages/editor/src/features/editor/layer-tree-gesture.test.ts
+  s_012c57818fbf95::t_0c92aef73f3ccd 3,39-62
+packages/editor/src/features/editor/gesture-command-planner.ts
+  s_012c57818fbf95::t_e76483ba0d17e1 21,259-262,381-384
+packages/editor/src/features/editor/SelectionHud.test.ts
+  s_012c57818fbf95::t_7c0f31a0d01eea 20
+  s_012c57818fbf95::t_1abd08c746dc75 18
+packages/repo-engine/src/layout-pose.ts
+  s_012c57818fbf95::t_5dbc35c995e089 1-44
+packages/editor/src/features/editor/layout-measure.ts
+  s_012c57818fbf95::t_a7d421095fbe11 351,720,778
+  s_012c57818fbf95::t_06dab7b3cc50d1 10
+  s_012c57818fbf95::t_61cc7439a26b29 24,344,347,352,356,407,410-411,414-417,444,447,519-520,528,550
+  s_012c57818fbf95::t_b121315ad76e4b 655-658
+  s_012c57818fbf95::t_c195066a10a71e 349
+packages/editor/src/features/editor/layout-pose.test.ts
+  s_012c57818fbf95::t_fae0f338f17cb1 2,21,46,59-62,66-67,76,85-96
+packages/preview-runtime/tests/layout-pose-runtime.test.ts
+  s_012c57818fbf95::t_417ec262540530 84
+  s_012c57818fbf95::t_8883e2e4b15194 72
+packages/editor/src/features/editor/matrix-style.ts
+  s_012c57818fbf95::t_bd796de490ad15 2,31-39,43
+  s_012c57818fbf95::t_791996f41b7dc6 1,3-30,40-42,44-54
+packages/editor/src/features/editor/canvas-workspace.test.ts
+  s_012c57818fbf95::t_bcf3a46d23193e 2,12-16
+packages/editor/src/features/editor/resize-projection.test.ts
+  s_012c57818fbf95::t_7c0f31a0d01eea 170,194,196,224,267,386
+  s_012c57818fbf95::t_97f14260e4818b 120
+  s_012c57818fbf95::t_1abd08c746dc75 22,331
+  s_012c57818fbf95::t_8505b820ee58bf 17
+  s_012c57818fbf95::t_c232f2c6175c0c 147
+packages/preview-runtime/tests/flow-drag-browser-runtime.test.ts
+  s_012c57818fbf95::t_bff16fde079110 103
+  s_012c57818fbf95::t_8883e2e4b15194 38
+  s_012c57818fbf95::t_465e3513baf021 17
+  s_012c57818fbf95::t_55d8e6d3e0ff81 16
+packages/editor/src/features/editor/layout-remove-store.test.ts
+  s_012c57818fbf95::t_f941471a73302e 77,79
+  s_012c57818fbf95::t_7c0f31a0d01eea 12,20,24,101,104,136
+  s_012c57818fbf95::t_1abd08c746dc75 28
+packages/repo-engine/tests/file-resize-presentation-history.test.ts
+  s_012c57818fbf95::t_4bc533c1f49412 209,346,359
+  s_012c57818fbf95::t_31f7d0df2db8f5 5,35,40,44
+  s_012c57818fbf95::t_32867689d78da7 65,70,76,81
+  s_012c57818fbf95::t_741ab80232c227 124,128
+  s_012c57818fbf95::t_1abd08c746dc75 28,221,354
+  s_012c57818fbf95::t_a4f8d6a92d8026 170,212-213,217-218,243-244,297-298,349-350,365-366
+packages/repo-engine/tests/layout-pose.test.ts
+  s_012c57818fbf95::t_29a89859b626b6 1-14,16-22,27-30
+  s_012c57818fbf95::t_4782e427be4f2a 15,23-26
+packages/editor/src/features/editor/layout-measure.test.ts
+  s_012c57818fbf95::t_7c0f31a0d01eea 180,250,318-320,429,433-434,642,657
+  s_012c57818fbf95::t_1abd08c746dc75 18,174,246,277,314,370,423,566,641,654
+  s_012c57818fbf95::t_8da9386d73b41e 178-179,432
+packages/editor/src/features/editor/gesture-command-store.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 17
+  s_012c57818fbf95::t_7c0f31a0d01eea 23-24,26,29-30,32,115
+packages/repo-engine/tests/file-primitive-sizing.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 10
+  s_012c57818fbf95::t_4bc533c1f49412 8,39,93,166,192
+packages/editor/src/features/editor/gesture-resize-store.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 19
+  s_012c57818fbf95::t_7c0f31a0d01eea 29-30,32,36
+  s_012c57818fbf95::t_a0643f46f636aa 113,117
+  s_012c57818fbf95::t_fcc4482d476f3c 278,299,345
+  s_012c57818fbf95::t_6c9d6706f2a0f8 125,359
+packages/editor/src/features/editor/gesture-terminal-intent.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 40,101,137
+  s_012c57818fbf95::t_8da9386d73b41e 141
+  s_012c57818fbf95::t_7c0f31a0d01eea 46-51,142
+packages/editor/src/features/editor/gesture-paper-flow-terminal.test.ts
+  s_012c57818fbf95::t_f941471a73302e 120,125
+  s_012c57818fbf95::t_1abd08c746dc75 22
+  s_012c57818fbf95::t_7c0f31a0d01eea 26-30,147,211,217
+packages/editor/src/features/editor/flow-drag-target.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 66
+  s_012c57818fbf95::t_7c0f31a0d01eea 16,19
+packages/preview-runtime/tests/layout-root-baseline.test.ts
+  s_012c57818fbf95::t_8883e2e4b15194 113
+  s_012c57818fbf95::t_465e3513baf021 150
+packages/repo-engine/src/layout-matrix.ts
+  s_012c57818fbf95::t_5c675c1741a024 6,43,45
+  s_012c57818fbf95::t_5dbc35c995e089 7,9-15,18,20,22,25,33,35,41,44
+packages/repo-engine/tests/file-migration-v9.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 23
+  s_012c57818fbf95::t_281661058bc269 18
+  s_012c57818fbf95::t_06397138cda579 24
+packages/editor/src/features/editor/scene-geometry.test.ts
+  s_012c57818fbf95::t_b47800138dd822 23-25
+packages/editor/src/features/editor/SelectionHud.tsx
+  s_012c57818fbf95::t_f36d1dc12634c6 21,170,232
+packages/preview-runtime/tests/layout-flex.test.ts
+  s_012c57818fbf95::t_8883e2e4b15194 103
+packages/editor/src/features/editor/canvas-scene.ts
+  s_012c57818fbf95::t_52084495fd6d71 59
+  s_012c57818fbf95::t_c22ab38cc95bee 4-5,40-46
+  s_012c57818fbf95::t_c195066a10a71e 83
+  s_012c57818fbf95::t_cd3fb0b82b8cde 1,6,24-25,86-89,110-113,115-116
+packages/editor/src/features/editor/canvas-hud-projection.ts
+  s_012c57818fbf95::t_a8354b4086bb54 245-246,260
+  s_012c57818fbf95::t_43e57a2216a05c 23-25,407-408,582-583
+  s_012c57818fbf95::t_b832154a200c54 257,263,265-272
+packages/editor/src/features/editor/layout-panels-sizing.test.ts
+  s_012c57818fbf95::t_ef2f15c5d0da12 2-3,34-49
+  s_012c57818fbf95::t_eaf68d816561d6 50
+packages/editor/src/features/editor/canvas-gestures.ts
+  s_012c57818fbf95::t_20f7a71d22627c 43,110,413,424,429-437,445,454-455,457
+  s_012c57818fbf95::t_eb8fa672be00c9 10,203,205,211,215,979,995,1009
+  s_012c57818fbf95::t_43e57a2216a05c 214
+  s_012c57818fbf95::t_d9b4311582557f 42,957
+packages/editor/src/features/editor/layout-commands.test.ts
+  s_012c57818fbf95::t_1df674fdcd447e 42,44-45,47
+packages/editor/src/features/editor/canvas-hud-projection-service.ts
+  s_012c57818fbf95::t_c2bfac7e47bed5 99-112,135-150,208,219,225-230,233-237,300,309,345
+  s_012c57818fbf95::t_ae7e549769e3b6 151
+  s_012c57818fbf95::t_43e57a2216a05c 231-232,328-329
+packages/editor/src/features/editor/SelectionHud.client.test.ts
+  s_012c57818fbf95::t_1abd08c746dc75 24,248
+  s_012c57818fbf95::t_7c0f31a0d01eea 30,184,256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5410d500a7f0c1fffd60525aeacd26212ef7a9b6",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_1943db681d77ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bbb2232-23e6-4410-aa3f-cc55fff80659",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    },
+    "s_e18d232d8e09ca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebe3166b-6953-4167-91b3-9b62562c1fd6",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
