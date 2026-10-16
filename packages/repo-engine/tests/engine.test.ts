@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { cp, lstat, mkdtemp, readdir, readFile, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -59,6 +59,36 @@ afterEach(async () => {
 })
 
 describe('real source transactions', () => {
+  it('COMP-V2-DOCS-003 reviews Blume files and rejects a stale navigation source before Save', async () => {
+    const root = await fixture()
+    const docs = path.join(root, 'apps/docs/docs/components')
+    await mkdir(docs, { recursive: true })
+    const navigationPath = path.join(docs, 'meta.ts')
+    const initialNavigation = "declare function defineMeta<T>(value: T): T\nexport default defineMeta({ pages: ['badge'] })\n"
+    await writeFile(navigationPath, initialNavigation)
+    const engine = await createValidatedEngine(root, { validateDocumentation: async ({ changedPaths }) => { expect(changedPaths).toContain('apps/docs/docs/components/meta.ts') } })
+    const catalog = {
+      version: 1 as const,
+      navigation: [{ title: 'Button', href: '/components/button', componentId: 'component:button' }],
+      components: [{ componentId: 'component:button', name: 'Button', slug: 'button', route: '/components/button', source: 'code' as const, openInCanvas: { componentId: 'component:button' }, usage: { status: 'available' as const, snippet: '<Button />' }, controls: [], combinations: [{}] }],
+    }
+    const layout = { docsDirectory: 'apps/docs/docs/components', examplesDirectory: 'apps/docs/registry/comp', metaPath: 'apps/docs/docs/components/meta.ts', manifestPath: 'apps/docs/.canvas/components.json' }
+    const examples = [{ componentId: 'component:button', path: 'button/examples/button-generated', source: 'export default function Example() { return null }\n' }]
+    const prepared = await engine.prepareBlumeDocs(catalog, examples, layout)
+    expect(await readFile(navigationPath, 'utf8')).toBe(initialNavigation)
+    await expect(readFile(path.join(root, 'apps/docs/docs/components/button.mdx'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(engine.savePrepared(prepared.id, '0'.repeat(64))).rejects.toThrow('Approval')
+    await writeFile(navigationPath, `${initialNavigation}// external\n`)
+    expect((await engine.savePrepared(prepared.id, prepared.approvalDigest)).status).toBe('conflict')
+    await engine.refresh()
+    const reviewedAgain = await engine.prepareBlumeDocs(catalog, examples, layout)
+    const saved = await engine.savePrepared(reviewedAgain.id, reviewedAgain.approvalDigest)
+    expect(saved.status).toBe('saved')
+    expect(await readFile(navigationPath, 'utf8')).toContain("pages: ['badge', 'button']")
+    expect(await readFile(path.join(root, 'apps/docs/docs/components/button.mdx'), 'utf8')).toContain('<Component path="button/examples/button-generated" />')
+    expect(await readFile(path.join(root, 'apps/docs/registry/comp/button/examples/button-generated.tsx'), 'utf8')).toBe(examples[0]!.source)
+  }, 60_000)
+
   it('AT-SRC-006 persists reviewed source undo and redo without writing before Save', async () => {
     const root = await fixture()
     const engine = await createValidatedEngine(root)
@@ -143,7 +173,7 @@ describe('real source transactions', () => {
     const pageId = `page-${projectId}`
     const rootId = `root:${pageId}`
     const cardId = `${composition.id}:card`
-    expect(file).toMatchObject({ schemaVersion: 9, fileId: projectId, revision: 0, pages: [{ id: pageId, name: 'Page 1', rootNodeId: rootId }] })
+    expect(file).toMatchObject({ schemaVersion: 12, fileId: projectId, revision: 0, pages: [{ id: pageId, name: 'Page 1', rootNodeId: rootId }] })
     expect(composition.children.map(child => child.exportName)).toEqual(['Label', 'Input', 'Label', 'Input', 'Button'])
     expect(Object.keys(file.nodes).sort()).toEqual([rootId, cardId, ...composition.children.map(child => child.id)].sort())
     expect(file.nodes[cardId]).toMatchObject({ type: 'component', exportName: 'Card', props: { heading: 'Welcome back' } })
@@ -170,7 +200,7 @@ describe('real source transactions', () => {
     expect(componentNode(saved.file, button.id).props.children).toBe('Continue')
     const bytes = await readFile(documentPath(root), 'utf8')
     const stored = JSON.parse(bytes)
-    expect(stored).toMatchObject({ schemaVersion: 9, fileId: initial.projectId, revision: 1 })
+    expect(stored).toMatchObject({ schemaVersion: 12, fileId: initial.projectId, revision: 1 })
     expect(stored.nodes[button.id].props.children).toBe('Continue')
     expect(await readFile(path.join(root, 'src/atoms/Label.tsx'), 'utf8')).toBe(originalLabel)
     await expect(engine.savePrepared(patch.id, patch.approvalDigest)).rejects.toThrow('Approval')
@@ -202,9 +232,9 @@ describe('real source transactions', () => {
     const engine = await createValidatedEngine(root)
     const opened = await engine.inspectFixture()
     const pageId = `page-${first.projectId}`
-    expect(opened.file).toMatchObject({ schemaVersion: 9, fileId: first.projectId, revision: 3, pages: [{ id: pageId, name: 'Legacy page', rootNodeId: `root:${pageId}` }] })
+    expect(opened.file).toMatchObject({ schemaVersion: 12, fileId: first.projectId, revision: 3, pages: [{ id: pageId, name: 'Legacy page', rootNodeId: `root:${pageId}` }] })
     expect(opened.file.nodes['legacy-button']).toEqual({ id: 'legacy-button', type: 'component', componentId: buttonId, exportName: 'Button', props: { children: 'Legacy label' }, themeMode: 'inherit' })
-    expect(opened.file.nodes['legacy-rect']).toEqual({ id: 'legacy-rect', type: 'rectangle', name: 'Swatch', styles: { left: 10, top: 20, width: 30, height: 40 }, appearance: { fills: [{ id: 'legacy-rect:fill:1', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#ff0000' } } }] }, themeMode: 'inherit' })
+    expect(opened.file.nodes['legacy-rect']).toEqual({ id: 'legacy-rect', type: 'rectangle', name: 'Swatch', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 30, height: 40 }, appearance: { fills: [{ id: 'legacy-rect:fill:1', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#ff0000' } } }] }, themeMode: 'inherit' })
     expect(opened.file.relationships['legacy-rect']?.parentId).toBe(`root:${pageId}`)
     await engine.refresh()
     expect(await readFile(documentPath(root), 'utf8')).toBe(original)
@@ -218,7 +248,7 @@ describe('real source transactions', () => {
     expect(saved.file.revision).toBe(4)
     expect(await readFile(backupPath(root), 'utf8')).toBe(original)
     const stored = JSON.parse(await readFile(documentPath(root), 'utf8'))
-    expect(stored).toMatchObject({ schemaVersion: 9, fileId: first.projectId, revision: 4 })
+    expect(stored).toMatchObject({ schemaVersion: 12, fileId: first.projectId, revision: 4 })
     expect(stored).not.toHaveProperty('version')
     expect(stored.nodes['legacy-button'].props.children).toBe('Migrated label')
     const again = structuredClone(saved.file)
@@ -239,7 +269,7 @@ describe('real source transactions', () => {
     expect(opened.file.pages).toEqual([{ id: `page-${first.projectId}`, name: 'Page 1', rootNodeId: `root:page-${first.projectId}` }])
     await engine.saveFile(opened.file, 0)
     expect(await readFile(backupPath(root), 'utf8')).toBe('earlier backup\n')
-    expect(JSON.parse(await readFile(documentPath(root), 'utf8'))).toMatchObject({ schemaVersion: 9, revision: 1 })
+    expect(JSON.parse(await readFile(documentPath(root), 'utf8'))).toMatchObject({ schemaVersion: 12, revision: 1 })
   })
 
   it('discovers only configured atoms, keeps IDs on source edits and reopen, and reads real prop types', async () => {
@@ -377,7 +407,7 @@ describe('real source transactions', () => {
     const framed = structuredClone(edited.file)
     const rootId = framed.pages[0]!.rootNodeId
     const [orderKey] = appendOrderKeys(framed, rootId, 1)
-    framed.nodes['drawn-frame'] = { id: 'drawn-frame', type: 'frame', name: 'Frame 1', styles: { left: 0, top: 0, width: 100, height: 100, overflow: 'clip' } }
+    framed.nodes['drawn-frame'] = { id: 'drawn-frame', type: 'frame', name: 'Frame 1', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100, overflow: 'clip' } }
     framed.relationships['drawn-frame'] = { parentId: rootId, orderKey: orderKey! }
     await engine.saveFile(framed, 2)
     await expect(engine.preparePromotion('FramedLogin')).rejects.toThrow('Canvas layout')

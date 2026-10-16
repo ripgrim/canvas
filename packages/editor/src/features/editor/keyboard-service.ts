@@ -23,7 +23,6 @@ export function editorKeyDown(event: KeyLike) {
   if (state.reviewOpen || state.shareOpen || state.shortcutOpen) return
   if (event.key === ' ') { event.preventDefault(); documentStore.setSpaceHeld(true); return }
   const command = event.ctrlKey || event.metaKey
-  if (command && event.key.toLowerCase() === 's') { event.preventDefault(); editorStore.set({ reviewOpen: true }) }
   if (command && event.shiftKey && event.key.toLowerCase() === 'r') { event.preventDefault(); void editorStore.refresh() }
   if (!command && event.shiftKey && event.key.toLowerCase() === 'a') {
     const documentState = documentStore.getSnapshot()

@@ -1,5 +1,5 @@
 export const editorCopy = {
-  title: 'Comp Canvas', file: 'Login', files: 'Files', tabs: ['Pages', 'Layers', 'Components'],
+  title: 'Comp Canvas', file: 'Login', files: 'Files',
   sourceUnavailable: 'Source editing needs a connected repository.', reloadDraft: 'Reload file',
   open: 'Open fixture', refresh: 'Sync with source', review: 'Review changes', save: 'Save', discard: 'Discard review',
   themeLight: 'Switch editor appearance to light', themeDark: 'Switch editor appearance to dark', previewThemeUnsaved: 'The connected project cannot store a preview theme. This choice lasts for this session.', share: 'Share', panelActions: 'File actions',
@@ -12,7 +12,6 @@ export const editorCopy = {
   instanceHint: 'Instance edits are saved in this document. Create a component to save them as code.',
   selectLabel: 'Select Label to edit its shared padding.',
   source: 'Source changes', noReview: 'Prepare a change to review its source diff.', approved: 'I reviewed these source changes',
-  emptyComponents: 'Open a repository to discover its foundational components.',
   properties: 'Properties', noSelection: 'Select a layer to inspect its source.',
   conflict: 'Source changed', conflictHint: 'Review was cleared. Sync with source before preparing another change.',
   retry: 'Try again', error: 'Could not complete this action.',
@@ -20,7 +19,7 @@ export const editorCopy = {
   tools: ['Move', 'Hand', 'Frame', 'Shape', 'Pen', 'Text', 'Media'],
   unsupported: 'This tool is planned for the full editor.', zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomFit: 'Zoom to 100%',
   shortcutTitle: 'Keyboard shortcuts', shortcuts: 'Keyboard shortcuts', close: 'Close',
-  shortcutRows: [['Review changes', 'Ctrl / Cmd + S'], ['Sync with source', 'Ctrl / Cmd + Shift + R'], ['Undo document edit', 'Ctrl / Cmd + Z'], ['Redo document edit', 'Ctrl / Cmd + Shift + Z'], ['Duplicate', 'Ctrl / Cmd + D'], ['Select', 'V'], ['Hand', 'H'], ['Interact', 'I'], ['Zoom in', '+'], ['Zoom out', '-'], ['Reset zoom', '0'], ['Move up / down', 'Alt + Arrow'], ['Clear selection', 'Esc']],
+  shortcutRows: [['Reload file', 'Ctrl / Cmd + Shift + R'], ['Undo document edit', 'Ctrl / Cmd + Z'], ['Redo document edit', 'Ctrl / Cmd + Shift + Z'], ['Duplicate', 'Ctrl / Cmd + D'], ['Select', 'V'], ['Hand', 'H'], ['Interact', 'I'], ['Zoom in', '+'], ['Zoom out', '-'], ['Reset zoom', '0'], ['Move up / down', 'Alt + Arrow'], ['Clear selection', 'Esc']],
   position: 'Position', layout: 'Layout', appearance: 'Appearance', typography: 'Typography', effects: 'Effects', export: 'Export',
   validation: 'Validation', validationIncomplete: 'Every validation must run before saving.', unavailable: 'Not available', ready: 'Source loaded',
   fromCode: 'From code', mode: 'Mode', flex: 'Flex', direction: 'Direction', column: 'Column',

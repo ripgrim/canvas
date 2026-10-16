@@ -11,8 +11,13 @@ import type { DocumentState } from './document-store'
 import { CanvasWorkspace } from './CanvasWorkspace'
 import { canvasCopy } from './canvas-copy'
 import { DocumentLayers } from './DocumentLayers'
-import { ComponentLibrary } from './ComponentLibrary'
-import { ComponentProperties } from './ComponentProperties'
+import { ComponentModelProperties } from './ComponentModelProperties'
+import { ComponentMasterProperties } from './ComponentMasterProperties'
+import { ComponentKitPanel } from './ComponentKitPanel'
+import { componentKitNavigation, componentKitSidebarView } from './component-kit-navigation'
+import { ComponentRepositoryPanel } from './ComponentRepositoryPanel'
+import { ComponentCreationDialog } from './ComponentCreationDialog'
+import { componentKitCopy } from './component-kit-copy'
 import { PageContextMenu } from './PageContextMenu'
 import { editorKeyDown, editorKeyUp } from './keyboard-service'
 import { PageInspector, SelectionInspector } from './InspectorPanels'
@@ -23,7 +28,7 @@ import { focusSequence, sidebarViewFor, themeFocus } from './theme-focus'
 import type { SidebarChoice } from './theme-focus'
 import { FileHomeButton, HeaderIconButton, MobileSheet, PanelHeaderActions, PanelHeaderBar, PanelHeaderTitle, PanelResizer, PanelToolbar, PanelToolbarActions } from '../../design-system/shell-atoms'
 import { repositoryConnectionService } from './repository-service'
-import { connectedRegistryAtoms, documentRegistryAtoms } from './component-registry'
+import { connectedRegistryAtoms } from './component-registry'
 import { authSessionService } from '../application/auth-service'
 import { authCopy } from '../application/auth-copy'
 import { ToastRegion } from '../../design-system/toast-atoms'
@@ -31,6 +36,8 @@ import { collaborationService } from '../collaboration/collaboration-service'
 import { CollaborationPresence } from '../collaboration/CollaborationPresence'
 import { mobilePanelVisibility, mobileViewport, toggleMobilePanel } from './mobile-editor'
 import type { EditorMobilePanel } from './mobile-editor'
+import { canvasComponentNode } from './component-canvas-link'
+import { layerPresentation } from './layer-presentation'
 
 function FileHeader({ state, onHome, onTogglePanel }: { state: EditorState; onHome?: (() => void) | undefined; onTogglePanel: () => void }) {
   const name = state.snapshot?.composition.name ?? copy.file
@@ -46,7 +53,7 @@ function ActionsHeader({ state, readOnly = false, onTogglePanel }: { state: Edit
     if (auth.status === 'signed-in' || auth.status === 'unavailable') setAccountOpen(true)
     else authSessionService.signIn()
   }
-  return <><PanelToolbar label={copy.panelActions}><HeaderIconButton compact label={canvasCopy.hideProperties} icon="selection" onClick={onTogglePanel} /><CollaborationPresence /><PanelToolbarActions><HeaderIconButton compact label={reloadLabel} icon={state.snapshot ? 'refresh' : 'plus'} disabled={Boolean(state.busy)} onClick={() => void (state.snapshot ? store.refresh() : store.open())} /><HeaderIconButton compact label={state.mode === 'light' ? copy.themeDark : copy.themeLight} icon={state.mode === 'light' ? 'moon' : 'sun'} onClick={() => store.setAppearance(state.mode === 'light' ? 'dark' : 'light')} />{!readOnly && <HeaderIconButton compact label={copy.review} icon="code" pressed={state.reviewOpen} onClick={() => store.set({ reviewOpen: !state.reviewOpen })} />}<Button variant="secondary" disabled={auth.status === 'signing-in'} title={auth.message ?? undefined} onClick={accountAction}>{auth.status === 'signed-in' ? auth.user?.name : signInLabel}</Button>{!readOnly && <Button variant="secondary" disabled={!state.snapshot} onClick={() => void store.openShare()}>{copy.share}</Button>}</PanelToolbarActions></PanelToolbar><Popup mode={state.mode} closeLabel={copy.close} open={accountOpen} onOpenChange={setAccountOpen} title={authCopy.account}>{auth.status === 'signed-in' && auth.user ? <Layout roleName="stack"><Text roleName="strong">{auth.user.name}</Text><Text roleName="muted">{auth.user.email}</Text><Button variant="outline" onClick={() => { setAccountOpen(false); authSessionService.signOut() }}>{authCopy.signOut}</Button></Layout> : <Layout roleName="stack"><Text>{auth.message ?? authCopy.unavailable}</Text>{auth.status !== 'unavailable' && <Button variant="primary" onClick={() => { setAccountOpen(false); authSessionService.signIn() }}>{authCopy.github}</Button>}</Layout>}</Popup></>
+  return <><PanelToolbar label={copy.panelActions}><HeaderIconButton compact label={canvasCopy.hideProperties} icon="selection" onClick={onTogglePanel} /><CollaborationPresence /><PanelToolbarActions><HeaderIconButton compact label={reloadLabel} icon={state.snapshot ? 'refresh' : 'plus'} disabled={Boolean(state.busy)} onClick={() => void (state.snapshot ? store.refresh() : store.open())} /><HeaderIconButton compact label={state.mode === 'light' ? copy.themeDark : copy.themeLight} icon={state.mode === 'light' ? 'moon' : 'sun'} onClick={() => store.setAppearance(state.mode === 'light' ? 'dark' : 'light')} />{!readOnly && state.prepared && <HeaderIconButton compact label={copy.review} icon="code" pressed={state.reviewOpen} onClick={() => store.set({ reviewOpen: !state.reviewOpen })} />}<Button variant="secondary" disabled={auth.status === 'signing-in'} title={auth.message ?? undefined} onClick={accountAction}>{auth.status === 'signed-in' ? auth.user?.name : signInLabel}</Button>{!readOnly && <Button variant="secondary" disabled={!state.snapshot} onClick={() => void store.openShare()}>{copy.share}</Button>}</PanelToolbarActions></PanelToolbar><Popup mode={state.mode} closeLabel={copy.close} open={accountOpen} onOpenChange={setAccountOpen} title={authCopy.account}>{auth.status === 'signed-in' && auth.user ? <Layout roleName="stack"><Text roleName="strong">{auth.user.name}</Text><Text roleName="muted">{auth.user.email}</Text><Button variant="outline" onClick={() => { setAccountOpen(false); authSessionService.signOut() }}>{authCopy.signOut}</Button></Layout> : <Layout roleName="stack"><Text>{auth.message ?? authCopy.unavailable}</Text>{auth.status !== 'unavailable' && <Button variant="primary" onClick={() => { setAccountOpen(false); authSessionService.signIn() }}>{authCopy.github}</Button>}</Layout>}</Popup></>
 }
 
 function ShareDialog({ state }: { state: EditorState }) {
@@ -75,14 +82,15 @@ export function ShareDialogContent({ state }: { state: EditorState }) {
   </Layout>
 }
 
-type SidebarKey = 'pages' | 'layers' | 'components'
-type SidebarView = 'design' | 'theme'
-const sidebarViews = [{ value: 'design', label: sidebarCopy.design }, { value: 'theme', label: sidebarCopy.theme }] as const satisfies readonly { value: SidebarView; label: string }[]
+type SidebarKey = 'pages' | 'layers'
+type SidebarView = 'design' | 'theme' | 'kit' | 'sources'
+const sidebarViews = [{ value: 'design', label: sidebarCopy.design }, { value: 'theme', label: sidebarCopy.theme }, { value: 'kit', label: componentKitCopy.tab }, { value: 'sources', label: sidebarCopy.sources }] as const satisfies readonly { value: SidebarView; label: string }[]
 
-function Library({ state, document, atoms, documentAtoms, header, mobile = false, onPageChange }: { state: EditorState; document: DocumentState; atoms: ReturnType<typeof connectedRegistryAtoms>; documentAtoms: ReturnType<typeof documentRegistryAtoms>; header: ReactNode; mobile?: boolean; onPageChange?: ((pageId: string) => void) | undefined }) {
+function Library({ state, document, atoms, header, mobile = false, onPageChange }: { state: EditorState; document: DocumentState; atoms: ReturnType<typeof connectedRegistryAtoms>; header: ReactNode; mobile?: boolean; onPageChange?: ((pageId: string) => void) | undefined }) {
   const pages = document.file?.pages ?? []
   const openPage = (pageId: string) => { if (onPageChange) onPageChange(pageId); else documentStore.setPage(pageId) }
   const addPage = () => { const pageId = documentStore.commands.createPage({ activate: !onPageChange }); if (pageId && onPageChange) onPageChange(pageId) }
+  const duplicatePage = (pageId: string) => { const copyId = documentStore.commands.duplicatePage(pageId); if (copyId && onPageChange) onPageChange(copyId) }
   const deletePage = (pageId: string) => {
     const file = documentStore.getSnapshot().file
     if (!file || file.pages.length < 2) return
@@ -91,22 +99,27 @@ function Library({ state, document, atoms, documentAtoms, header, mobile = false
     const active = documentStore.getSnapshot().pageId === pageId
     if (documentStore.commands.deletePage(pageId) && active && fallback && onPageChange) onPageChange(fallback)
   }
-  const [open, setOpen] = useState<Record<SidebarKey, boolean>>({ pages: true, layers: true, components: false })
+  const [open, setOpen] = useState<Record<SidebarKey, boolean>>({ pages: true, layers: true })
   const [renamingPage, setRenamingPage] = useState<string | null>(null)
   const [pageMenu, setPageMenu] = useState<{ pageId: string; x: number; y: number } | null>(null)
   // Edit token requests (theme-focus) open the Theme tab; a later manual choice takes over until the next request.
   const focus = useSyncExternalStore(themeFocus.subscribe, themeFocus.getSnapshot, themeFocus.getSnapshot)
-  const [choice, setChoice] = useState<SidebarChoice>(() => ({ view: 'design', at: focusSequence(themeFocus.getSnapshot()) }))
-  const view: SidebarView = document.readOnly ? 'design' : sidebarViewFor(focus, choice)
-  const setView = (next: SidebarView) => setChoice({ view: next, at: focusSequence(themeFocus.getSnapshot()) })
+  const kitLocation = useSyncExternalStore(componentKitNavigation.subscribe, componentKitNavigation.getSnapshot, componentKitNavigation.getSnapshot)
+  const storedView = sidebarViews.some(option => option.value === state.tab) ? state.tab as SidebarView : 'design'
+  const [choice, setChoice] = useState<SidebarChoice & Readonly<{ kitAt: number }>>(() => ({ view: storedView, at: focusSequence(themeFocus.getSnapshot()), kitAt: 0 }))
+  const requestedView = componentKitSidebarView(kitLocation, document.file?.fileId, { view: sidebarViewFor(focus, choice), kitAt: choice.kitAt })
+  const view: SidebarView = document.readOnly ? 'design' : requestedView
+  const setView = (next: SidebarView) => {
+    store.set({ tab: next })
+    setChoice(current => ({ view: next, at: focusSequence(themeFocus.getSnapshot()), kitAt: Math.max(current.kitAt, kitLocation?.sequence ?? 0) }))
+  }
   const section = (key: SidebarKey, title: string, count?: number) => ({ expanded: open[key], toggleLabel: open[key] ? sidebarCopy.collapse(title, count) : sidebarCopy.expand(title, count), onToggle: () => setOpen(current => ({ ...current, [key]: !current[key] })) })
   if (mobile) return <DocumentLayers readOnly={document.readOnly} />
   return <Surface roleName="left-rail" label={sidebarCopy.label}>{header}{!document.readOnly && <SidebarTabs label={sidebarCopy.views} idPrefix="sidebar" value={view} options={sidebarViews} onChange={setView} />}
-    {view === 'theme' ? <SidebarTabPanel idPrefix="sidebar" value="theme"><ThemePanel /></SidebarTabPanel> : <SidebarTabPanel idPrefix="sidebar" value="design"><SidebarStack>
+    {view === 'theme' ? <SidebarTabPanel idPrefix="sidebar" value="theme"><ThemePanel /></SidebarTabPanel> : view === 'kit' ? <SidebarTabPanel idPrefix="sidebar" value="kit"><ComponentKitPanel atoms={atoms} onOpenCanvas={() => setView('design')} /></SidebarTabPanel> : view === 'sources' ? <SidebarTabPanel idPrefix="sidebar" value="sources"><ComponentRepositoryPanel /></SidebarTabPanel> : <SidebarTabPanel idPrefix="sidebar" value="design"><SidebarStack>
     <SidebarSection id="pages" title={sidebarCopy.pages} count={pages.length} {...section('pages', sidebarCopy.pages, pages.length)} {...(!document.readOnly ? { actions: <SidebarAction label={sidebarCopy.addPage} icon="plus" disabled={!document.file || document.blocked || Boolean(state.busy)} onSelect={addPage} /> } : {})}>{pages.map(page => <SidebarPageRow key={page.id} pageId={page.id} name={page.name} selected={page.id === document.pageId} renaming={!document.readOnly && renamingPage === page.id} renameLabel={sidebarCopy.renamePageName(page.name)} onSelect={() => openPage(page.id)} {...(!document.readOnly ? { onRename: () => { setPageMenu(null); setRenamingPage(page.id) }, onRenameCommit: (name: string) => { documentStore.commands.renamePage(page.id, name); setRenamingPage(null) }, onRenameCancel: () => setRenamingPage(null), onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); setRenamingPage(null); setPageMenu({ pageId: page.id, x: event.clientX, y: event.clientY }) } } : {})} />)}</SidebarSection>
     <SidebarSection id="layers" title={sidebarCopy.layers} grow {...section('layers', sidebarCopy.layers)}><DocumentLayers readOnly={document.readOnly} /></SidebarSection>
-    {!document.readOnly && <SidebarSection id="components" title={sidebarCopy.components} {...section('components', sidebarCopy.components)}><ComponentLibrary atoms={atoms} documentAtoms={documentAtoms} /></SidebarSection>}
-  </SidebarStack></SidebarTabPanel>}{!document.readOnly && pageMenu && <PageContextMenu position={pageMenu} canDelete={pages.length > 1} onRename={() => setRenamingPage(pageMenu.pageId)} onDelete={() => deletePage(pageMenu.pageId)} onClose={() => setPageMenu(null)} />}</Surface>
+  </SidebarStack></SidebarTabPanel>}{!document.readOnly && pageMenu && <PageContextMenu position={pageMenu} canDelete={pages.length > 1} onRename={() => setRenamingPage(pageMenu.pageId)} onDuplicate={() => duplicatePage(pageMenu.pageId)} onDelete={() => deletePage(pageMenu.pageId)} onClose={() => setPageMenu(null)} />}</Surface>
 }
 
 function Canvas({ state, saving, readOnly, following, mobile, panels, onHome }: { state: EditorState; saving: boolean; readOnly: boolean; following: boolean; mobile: boolean; panels: Readonly<{ left: boolean; right: boolean; onToggleLeft: () => void; onToggleRight: () => void }>; onHome?: (() => void) | undefined }) {
@@ -115,15 +128,26 @@ function Canvas({ state, saving, readOnly, following, mobile, panels, onHome }: 
   return <CanvasWorkspace {...(state.snapshot?.preview.url ? { src: state.snapshot.preview.url } : {})} {...(status ? { status } : {})} readOnly={readOnly} mobile={mobile} panels={following ? undefined : panels} onHome={onHome} ready={state.previewReady} onReady={target => previewConnection.connect(target)} onError={() => previewConnection.disconnect()} onShortcuts={() => store.set({ shortcutOpen: true })} placeholder={<Layout roleName="preview-placeholder"><Message title={state.busy ?? copy.previewUnavailable} body={copy.previewHint} action={!state.snapshot ? <Button variant="outline" disabled={Boolean(state.busy)} onClick={() => void store.open()}>{state.capabilities.openLabel}</Button> : undefined} /></Layout>} />
 }
 
-function Inspector({ state, document, atoms, header, mobile = false }: { state: EditorState; document: DocumentState; atoms: ReturnType<typeof connectedRegistryAtoms>; header: ReactNode; mobile?: boolean }) {
-  const selectedChild = state.snapshot?.composition.children.find(child => child.id === state.selected)
-  const selectedNode = document.file?.nodes[state.selected ?? '']
-  const selectedComponentId = selectedNode?.type === 'component' ? selectedNode.componentId : undefined
-  const selected = atoms.find(atom => atom.componentId === (selectedComponentId ?? selectedChild?.componentId ?? state.selected))
-  const title = document.selection.length > 1 ? copy.selectionCount(document.selection.length) : document.selection.length ? selected?.name ?? copy.inspector : document.file?.pages.find(page => page.id === document.pageId)?.name ?? copy.page
-  if (mobile) return <>{document.selection.length === 0 ? <PageInspector /> : <><SelectionInspector /><ComponentProperties atoms={atoms} /></>}</>
-  return <Surface roleName="right-rail" label={copy.inspector}>{header}<PanelHeader title={title} />
-    {document.selection.length === 0 ? <PageInspector /> : <><SelectionInspector /><ComponentProperties atoms={atoms} /></>}
+export function inspectorHeaderPresentation(file: DocumentState['file'], selection: readonly string[], pageId: string | null): Readonly<{ title: string; component: boolean }> {
+  if (selection.length > 1) return { title: copy.selectionCount(selection.length), component: false }
+  if (selection.length === 1 && file) {
+    const component = canvasComponentNode(file, selection[0]!)
+    return { title: component?.definition.name ?? layerPresentation(file, selection[0]!)?.name ?? copy.inspector, component: Boolean(component) }
+  }
+  return { title: file?.pages.find(page => page.id === pageId)?.name ?? copy.page, component: false }
+}
+
+function Inspector({ document, header, mobile = false }: { document: DocumentState; header: ReactNode; mobile?: boolean }) {
+  const modelInstanceRecord = document.selection.length === 1 ? document.file?.componentModel.instances[document.selection[0]!] : undefined
+  const modelInstanceComponentId = modelInstanceRecord?.componentId
+  const modelDefinition = document.selection.length === 1 && document.file ? canvasComponentNode(document.file, document.selection[0]!)?.definition : undefined
+  const presentation = inspectorHeaderPresentation(document.file, document.selection, document.pageId)
+  const componentInspector = modelInstanceComponentId
+    ? <ComponentModelProperties />
+    : modelDefinition ? <ComponentMasterProperties /> : null
+  if (mobile) return <>{document.selection.length === 0 ? <PageInspector /> : <>{componentInspector}<SelectionInspector /></>}</>
+  return <Surface roleName="right-rail" label={copy.inspector}>{header}<PanelHeader title={presentation.title} {...(presentation.component ? { icon: 'component' as const } : {})} />
+    {document.selection.length === 0 ? <PageInspector /> : <>{componentInspector}<SelectionInspector /></>}
   </Surface>
 }
 
@@ -164,7 +188,6 @@ export function Editor({ onHome, onPageChange }: { onHome?: () => void; onPageCh
   const followingPresenceId = useSyncExternalStore(collaborationService.subscribeFollowing, collaborationService.getFollowingSnapshot, collaborationService.getFollowingSnapshot)
   const connectedAtoms = connectedRegistryAtoms(repository.connection)
   const atoms = repository.connection ? connectedAtoms : state.snapshot?.atoms ?? []
-  const documentAtoms = documentRegistryAtoms(document.file, atoms, document.atoms)
   const [widths, setWidths] = useState({ left: 280, right: 280 })
   const [panelVisibility, setPanelVisibility] = useState<EditorPanelVisibility>(defaultPanelVisibility)
   const [mobilePanel, setMobilePanel] = useState<EditorMobilePanel>(null)
@@ -180,8 +203,8 @@ export function Editor({ onHome, onPageChange }: { onHome?: () => void; onPageCh
     onToggleLeft: () => { if (mobile) setMobilePanel(current => toggleMobilePanel(current, 'layers')); else setPanelVisibility(current => toggleEditorPanel(current, 'left')) },
     onToggleRight: () => { if (mobile) setMobilePanel(current => toggleMobilePanel(current, 'design')); else setPanelVisibility(current => toggleEditorPanel(current, 'right')) },
   })
-  const library = <Library state={state} document={document} atoms={atoms} documentAtoms={documentAtoms} header={<FileHeader state={state} onHome={onHome} onTogglePanel={panels.onToggleLeft} />} mobile={mobile} onPageChange={onPageChange} />
-  const inspector = !document.readOnly ? <Inspector state={state} document={document} atoms={atoms} header={<ActionsHeader state={state} onTogglePanel={panels.onToggleRight} />} mobile={mobile} /> : null
-  return <ToastRegion mode={state.mode}><ThemeRoot mode={state.mode} label={copy.title} onKeyDown={onKeyDown} onKeyUp={onKeyUp}><EditorWorkArea following={following} readOnly={document.readOnly} mobile={mobile} visibility={effectiveVisibility} columns={columns} library={library} canvas={<Canvas state={state} saving={document.saving} readOnly={document.readOnly} following={following} mobile={mobile} panels={panels} onHome={onHome} />} inspector={inspector} leftResizer={<PanelResizer label={sidebarCopy.resizeLeft} edge="left" offset={widths.left} value={widths.left} min={200} max={480} onChange={left => setWidths(current => ({ ...current, left }))} />} rightResizer={<PanelResizer label={sidebarCopy.resizeRight} edge="right" offset={widths.right} value={widths.right} min={240} max={480} onChange={right => setWidths(current => ({ ...current, right }))} />} />{mobile && <><MobileSheet open={mobilePanel === 'layers'} mode={state.mode} title={sidebarCopy.layers} closeLabel={`${copy.close} ${sidebarCopy.layers}`} onOpenChange={open => { if (!open) setMobilePanel(null) }}>{library}</MobileSheet>{!document.readOnly && <MobileSheet open={mobilePanel === 'design'} mode={state.mode} title={copy.properties} closeLabel={`${copy.close} ${copy.properties}`} onOpenChange={open => { if (!open) setMobilePanel(null) }}>{inspector}</MobileSheet>}</>}{state.reviewOpen && !document.readOnly && <SourceReview state={state} document={document} />}<Activity state={state} />{!document.readOnly && <ShareDialog state={state} />}<Popup mode={state.mode} closeLabel={copy.close} open={state.shortcutOpen} onOpenChange={shortcutOpen => store.set({ shortcutOpen })} title={copy.shortcutTitle}>{copy.shortcutRows.map(([label, value]) => <ValuePair key={label} label={label} value={value} />)}</Popup></ThemeRoot></ToastRegion>
+  const library = <Library state={state} document={document} atoms={atoms} header={<FileHeader state={state} onHome={onHome} onTogglePanel={panels.onToggleLeft} />} mobile={mobile} onPageChange={onPageChange} />
+  const inspector = !document.readOnly ? <Inspector document={document} header={<ActionsHeader state={state} onTogglePanel={panels.onToggleRight} />} mobile={mobile} /> : null
+  return <ToastRegion mode={state.mode}><ThemeRoot mode={state.mode} label={copy.title} onKeyDown={onKeyDown} onKeyUp={onKeyUp}><EditorWorkArea following={following} readOnly={document.readOnly} mobile={mobile} visibility={effectiveVisibility} columns={columns} library={library} canvas={<Canvas state={state} saving={document.saving} readOnly={document.readOnly} following={following} mobile={mobile} panels={panels} onHome={onHome} />} inspector={inspector} leftResizer={<PanelResizer label={sidebarCopy.resizeLeft} edge="left" offset={widths.left} value={widths.left} min={200} max={480} onChange={left => setWidths(current => ({ ...current, left }))} />} rightResizer={<PanelResizer label={sidebarCopy.resizeRight} edge="right" offset={widths.right} value={widths.right} min={240} max={480} onChange={right => setWidths(current => ({ ...current, right }))} />} />{mobile && <><MobileSheet open={mobilePanel === 'layers'} mode={state.mode} title={sidebarCopy.layers} closeLabel={`${copy.close} ${sidebarCopy.layers}`} onOpenChange={open => { if (!open) setMobilePanel(null) }}>{library}</MobileSheet>{!document.readOnly && <MobileSheet open={mobilePanel === 'design'} mode={state.mode} title={copy.properties} closeLabel={`${copy.close} ${copy.properties}`} onOpenChange={open => { if (!open) setMobilePanel(null) }}>{inspector}</MobileSheet>}</>}{state.reviewOpen && state.prepared && !document.readOnly && <SourceReview state={state} document={document} />}<Activity state={state} />{!document.readOnly && <><ComponentCreationDialog /><ShareDialog state={state} /></>}<Popup mode={state.mode} closeLabel={copy.close} open={state.shortcutOpen} onOpenChange={shortcutOpen => store.set({ shortcutOpen })} title={copy.shortcutTitle}>{copy.shortcutRows.map(([label, value]) => <ValuePair key={label} label={label} value={value} />)}</Popup></ThemeRoot></ToastRegion>
 }
 

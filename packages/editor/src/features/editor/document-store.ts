@@ -1,5 +1,5 @@
-import { acceptsChild, ancestorsOf, applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, legacyTextProperties, nodeChildDisplay, nodeIsLocked, nodePositionMode, pageRoot, resolveToken, validateFileCommand, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
-import type { ColorToken, FileCommand, FileDocument, FileNode, NodePlacement, Paint, PrimitiveKind, PrimitiveStylePatch, PrimitiveStyles, SourcePalette, TextSizing, TextStyle, TokenValue } from '@canvas/repo-engine/file-document'
+import { acceptsChild, ancestorsOf, applyFileCommand, applyFileCommandWithHistory, childrenOf, descendantsOf, legacyTextProperties, nodeChildDisplay, nodeIsLocked, nodePositionMode, nodeWorldTransform, pageRoot, resolveToken, validateFileCommand, validateFileDocument, worldPosition } from '@canvas/repo-engine/file-document'
+import type { ColorToken, FileCommand, FileDocument, FileNode, FileToken, NodePlacement, Paint, PrimitiveKind, PrimitiveStylePatch, PrimitiveStyles, SourcePalette, TextSizing, TextStyle, TokenType, TokenValue } from '@canvas/repo-engine/file-document'
 import { appearanceLimits, defaultFillColor, imageMimes, nextBorders, validateImageAssetReference } from '@canvas/repo-engine/appearance'
 import { nodeAppearance } from '@canvas/repo-engine/file-document'
 import type { Appearance, BlendMode, BorderSide, Borders, ColorValue, ImageAssetReference, ImageExtension, ImageMime, Outline, Stroke } from '@canvas/repo-engine/appearance'
@@ -29,6 +29,7 @@ import { compareOrder, orderKeyBetween } from '@canvas/repo-engine/order-keys'
 import type { Atom } from './types'
 import { validateFlowDragPresentationStructure } from '@canvas/sync-protocol/flow'
 import { canvasCopy } from './canvas-copy'
+import { clipboardCopy } from './clipboard-copy'
 import { canvasElementSizes } from './canvas-drawing'
 import { prepareImageFile } from './image-import'
 import { planGestureCommand } from './gesture-command-planner'
@@ -41,6 +42,18 @@ import { selectChildren, selectParents } from './canvas-scene'
 import type { Scene } from './canvas-scene'
 import { createStore } from 'zustand/vanilla'
 import type { EditorAssetPreview, EditorAssetUpload, EditorAssetUploadResult, EditorPersistenceIntent } from '../../capabilities'
+import { componentDefaultValues, componentDocsSlug, componentVariantCombinationLabel, componentVariantCombinations, resolveComponentInstanceValues } from '@canvas/repo-engine/component-model'
+import type { ComponentDefinition, ComponentInstanceValues, ComponentInteraction, ComponentPropertyDefinition, ComponentScalarValue } from '@canvas/repo-engine/component-model'
+import { identityTransform, invertTransform, multiplyTransforms, transformedBounds, transformPoint, translationTransform } from '@canvas/repo-engine/transform-matrix'
+import { canNestComponentInstance, linkCanvasComponentCommand, mapParallelComponentSubtrees } from './component-canvas-link'
+import { codeComponentInstanceValues, componentConfigurableDefinition, componentPropertyProjectionCommands, componentPropertyRebindingResetCommands, componentPropertyRemovalResetCommands, componentSlotRebindingCommands } from './component-property-projection'
+import { componentMaterialProjectionCommands } from './component-material-projection'
+import { planClipboardImageInsertion } from './clipboard-image-insertion'
+import { nearestCompatiblePasteParent } from './clipboard-placement'
+import { planValidatedInternalPaste, planValidatedInternalReplace } from './clipboard-internal'
+import type { InternalPastePlacement, InternalReplaceGeometry, VerifiedCrossFileAssets } from './clipboard-internal'
+import type { InternalClipboardAssetPreviews } from './clipboard-internal-buffer'
+import type { InternalClipboardPayload } from './clipboard-codec'
 
 export type Viewport = Camera
 export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text' | 'rectangle' | 'shape' | 'interact'
@@ -250,6 +263,12 @@ function validateAssetPreview(asset: ImageAssetReference, preview: EditorAssetPr
   return { sha256: preview.sha256, mime: preview.mime, data: preview.data }
 }
 
+function decodeAssetPreview(asset: ImageAssetReference, preview: EditorAssetPreview): Uint8Array {
+  validateAssetPreview(asset, preview)
+  const binary = atob(preview.data)
+  return Uint8Array.from(binary, character => character.charCodeAt(0))
+}
+
 function sameAssetReference(left: ImageAssetReference, right: ImageAssetReference): boolean {
   return left.id === right.id && left.name === right.name && left.mime === right.mime && left.extension === right.extension
     && left.width === right.width && left.height === right.height && left.bytes === right.bytes && left.sha256 === right.sha256
@@ -272,6 +291,11 @@ export function componentInsertionPoint(state: Pick<DocumentState, 'viewport' | 
 }
 /** Paper production bundle: duplicated and placed artboards sit 20 world units to the right of their source. */
 export const duplicateGap = 20
+
+const sparseComponentValues = (definition: ComponentDefinition, values: ComponentInstanceValues): ComponentInstanceValues => {
+  const defaults = componentDefaultValues(definition)
+  return Object.fromEntries(Object.entries(values).filter(([propertyId, value]) => defaults[propertyId] !== value))
+}
 const defaultCamera: Viewport = { x: 0, y: 0, zoom: 1 }
 const elementNames: Record<PrimitiveKind, string> = { frame: 'Frame', rectangle: 'Rectangle', shape: 'Shape', shader: 'Shader', text: 'Text' }
 const literalColor = (hex: string) => ({ kind: 'literal' as const, color: { kind: 'hex' as const, hex } })
@@ -448,13 +472,13 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     persistenceRun = tracked
     return tracked
   }
-  const changed = (file: FileDocument, pageId: string, selection: string[], intent: EditorPersistenceIntent, trackPersistence = false) => {
+  const changed = (file: FileDocument, pageId: string, selection: string[], intent: EditorPersistenceIntent, trackPersistence = false, patch: Partial<DocumentState> = {}) => {
     const receipt = trackPersistence && options.persist ? persistenceReceipt() : null
     pendingPersistenceChanges.push({ file, intent, receipt })
     const state = backing.getState()
     const pageChanged = pageId !== state.pageId
     emit({
-      file, pageId, selection, dirty: true, error: null, canUndo: past.length > 0, canRedo: future.length > 0,
+      file, pageId, selection, dirty: true, error: null, canUndo: past.length > 0, canRedo: future.length > 0, ...patch,
       ...(textSession ? { renaming: textSession.nodeId, textEditing: { sessionId: textSession.sessionId, nodeId: textSession.nodeId } } : {}),
     })
     if (pageChanged) options.onPageChange?.(pageId)
@@ -515,7 +539,11 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   const executeWithPersistence = (command: FileCommand, selection?: string[], pageId?: string, trackPersistence = false, persistenceCommand?: FileCommand, preCommitGuard?: () => boolean, persistenceIntent?: EditorPersistenceIntent): PersistenceCommit => {
     const state = backing.getState()
     if (!state.file || persistenceBlocked || textSession) return noPersistenceCommit
-    try { return commitWithPersistence(applyFileCommandWithHistory(state.file, command, state.atoms, { allowUnavailableBindings: true }), selection ?? state.selection, pageId, trackPersistence, persistenceCommand, preCommitGuard, persistenceIntent) }
+    if (commandMutatesProtectedInstanceStructure(state.file, command)) return noPersistenceCommit
+    try {
+      const linkedCommand = linkCanvasComponentCommand(state.file, command, state.atoms, makeId)
+      return commitWithPersistence(applyFileCommandWithHistory(state.file, linkedCommand, state.atoms, { allowUnavailableBindings: true }), selection ?? state.selection, pageId, trackPersistence, persistenceCommand ?? linkedCommand, preCommitGuard, persistenceIntent)
+    }
     catch (error) { fail(error); return noPersistenceCommit }
   }
   const execute = (command: FileCommand, selection?: string[], pageId?: string) => executeWithPersistence(command, selection, pageId).committed
@@ -646,11 +674,82 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     return { parentId, ...(target?.slot !== undefined ? { slot: target.slot } : {}), ...(target?.index !== undefined ? { index: target.index } : {}) }
   }
   const newIdsFor = (file: FileDocument, nodeId: string) => Object.fromEntries([nodeId, ...descendantsOf(file, nodeId)].map(id => [id, makeId()]))
+  const duplicatedInstanceCommands = (file: FileDocument, ids: Record<string, string>): FileCommand[] => Object.entries(ids).flatMap(([sourceId, id]) => {
+    const instance = file.componentModel.instances[sourceId]
+    return instance ? [{ type: 'component.instance.create', instance: { ...structuredClone(instance), id } }] : []
+  })
+  const semanticCleanupCommands = (file: FileDocument, removed: ReadonlySet<string>): FileCommand[] => {
+    const removedNodeIds = new Set(removed)
+    for (const definition of Object.values(file.componentModel.definitions)) {
+      if (definition.source.kind !== 'canvas' || removedNodeIds.has(definition.source.masterRootId)) continue
+      const removedMasterIds = [definition.source.masterRootId, ...descendantsOf(file, definition.source.masterRootId)].filter(nodeId => removedNodeIds.has(nodeId))
+      if (!removedMasterIds.length) continue
+      for (const instance of Object.values(file.componentModel.instances)) {
+        if (instance.componentId !== definition.id) continue
+        const map = mapParallelComponentSubtrees(file, definition.source.masterRootId, instance.id)
+        if (!map) continue
+        for (const masterId of removedMasterIds) {
+          const instanceId = map.get(masterId)
+          if (instanceId) for (const nodeId of [instanceId, ...descendantsOf(file, instanceId)]) removedNodeIds.add(nodeId)
+        }
+      }
+    }
+    const removedDefinitions = Object.values(file.componentModel.definitions).filter(definition => definition.source.kind === 'canvas' && removed.has(definition.source.masterRootId))
+    const removedComponentIds = new Set(removedDefinitions.map(definition => definition.id))
+    const instanceCommands: FileCommand[] = Object.values(file.componentModel.instances)
+      .filter(instance => removedNodeIds.has(instance.id) || removedComponentIds.has(instance.componentId))
+      .map(instance => ({ type: 'component.instance.delete', instanceId: instance.id, expected: instance }))
+    const deletedInstanceIds = new Set(instanceCommands.map(command => command.type === 'component.instance.delete' ? command.instanceId : ''))
+    const instanceReplaceCommands: FileCommand[] = []
+    const definitionReplaceCommands: FileCommand[] = []
+    for (const definition of Object.values(file.componentModel.definitions)) {
+      if (definition.source.kind !== 'canvas' || removedComponentIds.has(definition.id)) continue
+      const properties = definition.properties.filter(property => !property.binding || !removedNodeIds.has(property.binding.nodeId))
+      const propertyIds = new Set(properties.map(property => property.id))
+      const parts = definition.parts.filter(part => !removedNodeIds.has(part.nodeId))
+      const interactions = definition.interactions.filter(interaction => propertyIds.has(interaction.propertyId))
+      if (properties.length === definition.properties.length && parts.length === definition.parts.length && interactions.length === definition.interactions.length) continue
+      for (const instance of Object.values(file.componentModel.instances)) {
+        if (instance.componentId !== definition.id || deletedInstanceIds.has(instance.id)) continue
+        const values = Object.fromEntries(Object.entries(instance.values).filter(([propertyId]) => propertyIds.has(propertyId)))
+        if (JSON.stringify(values) !== JSON.stringify(instance.values)) instanceReplaceCommands.push({ type: 'component.instance.replace', instanceId: instance.id, expected: instance, instance: { ...instance, values } })
+      }
+      definitionReplaceCommands.push({ type: 'component.replace', componentId: definition.id, expectedRevision: definition.revision, definition: { ...definition, revision: definition.revision + 1, properties, parts, interactions } })
+    }
+    const definitionCommands: FileCommand[] = removedDefinitions.map(definition => ({ type: 'component.delete', componentId: definition.id, expectedRevision: definition.revision }))
+    return [...instanceCommands, ...instanceReplaceCommands, ...definitionReplaceCommands, ...definitionCommands]
+  }
+  const semanticDeleteCommands = (file: FileDocument, nodeIds: readonly string[]): FileCommand[] => {
+    const removed = new Set(nodeIds.flatMap(nodeId => [nodeId, ...descendantsOf(file, nodeId)]))
+    return [...semanticCleanupCommands(file, removed), { type: 'node.delete', nodeIds: [...nodeIds] }]
+  }
+  const isProtectedInstanceDescendant = (file: FileDocument, nodeId: string) => {
+    let current = nodeId
+    let slotContent = false
+    while (file.relationships[current]) {
+      const relationship = file.relationships[current]!
+      if (relationship.slot !== undefined) slotContent = true
+      current = relationship.parentId
+      if (file.componentModel.instances[current]) return !slotContent
+    }
+    return false
+  }
+  const commandMutatesProtectedInstanceStructure = (file: FileDocument, command: FileCommand): boolean => {
+    if (command.type === 'batch') return command.commands.some(inner => commandMutatesProtectedInstanceStructure(file, inner))
+    if (command.type === 'node.delete') return command.nodeIds.some(nodeId => isProtectedInstanceDescendant(file, nodeId))
+    if (command.type === 'node.duplicate' || command.type === 'node.reparent' || command.type === 'node.reorder' || command.type === 'node.setStyles' || command.type === 'node.setLayout') return isProtectedInstanceDescendant(file, command.nodeId)
+    if (command.type === 'node.resizePresentation') return command.entries.some(entry => isProtectedInstanceDescendant(file, entry.expected.nodeId))
+    if (command.type === 'node.wrap') return command.groups.some(group => group.children.some(child => isProtectedInstanceDescendant(file, child.nodeId)))
+    if (command.type === 'node.unwrap') return command.groups.some(group => isProtectedInstanceDescendant(file, group.wrapperId) || group.children.some(child => isProtectedInstanceDescendant(file, child.nodeId)))
+    if (command.type === 'node.removeFlex') return command.groups.some(group => isProtectedInstanceDescendant(file, group.parent.nodeId) || group.children.some(child => isProtectedInstanceDescendant(file, child.nodeId)))
+    return false
+  }
   const duplicate = (nodeId?: string) => {
     const state = backing.getState()
     if (!state.file || persistenceBlocked) return false
     const file = state.file
     const candidates = (nodeId ? [nodeId] : state.selection).filter(id => file.nodes[id] && file.nodes[id]!.type !== 'root')
+    if (candidates.some(id => isProtectedInstanceDescendant(file, id))) return false
     // Only subtree roots duplicate; their descendants come along.
     const roots = candidates.filter(id => !candidates.some(other => other !== id && descendantsOf(file, other).includes(id)))
     if (!roots.length) return false
@@ -663,6 +762,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       const width = placement ? placement.width ?? 0 : current.type === 'root' || current.type === 'component' ? 0 : current.styles.width
       const offset = placement && placement.mode !== 'absolute' ? undefined : { x: width + duplicateGap, y: 0 }
       commands.push({ type: 'node.duplicate', nodeId: id, ids, ...(offset ? { offset } : {}) })
+      commands.push(...duplicatedInstanceCommands(file, ids))
       selection.push(ids[id]!)
     }
     return executeBatch(commands, selection)
@@ -674,6 +774,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     const file = state.file
     const order = documentOrder(file, state.pageId)
     const candidates = [...new Set(nodeIds)].filter(id => file.nodes[id] && file.nodes[id]!.type !== 'root')
+    if (candidates.some(id => isProtectedInstanceDescendant(file, id))) return false
     const roots = candidates.filter(id => !candidates.some(other => other !== id && descendantsOf(file, other).includes(id))).sort((a, b) => order.indexOf(a) - order.indexOf(b))
     const parentId = target.parentId ?? pageRoot(file, state.pageId)
     if (!parentId) return false
@@ -697,6 +798,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         const ids = newIdsFor(file, id)
         const duplicateId = ids[id]!
         commands.push({ type: 'node.duplicate', nodeId: id, ids })
+        commands.push(...duplicatedInstanceCommands(file, ids))
         commands.push({ type: 'node.reparent', nodeId: duplicateId, placement, preserveWorldPosition: true })
         const source = file.nodes[id]!
         if (source.type !== 'root' && source.type !== 'component') {
@@ -770,16 +872,29 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     const state = backing.getState()
     const ids = nodeIds.filter(id => state.file?.nodes[id] && state.file.nodes[id]!.type !== 'root')
     if (!state.file || !ids.length) return false
-    return execute({ type: 'node.delete', nodeIds: ids }, [])
+    if (ids.some(id => isProtectedInstanceDescendant(state.file!, id))) return false
+    const commands = semanticDeleteCommands(state.file, ids)
+    return execute(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, [])
+  }
+  const movedPrimitiveMatrix = (file: FileDocument, id: string, targetParentId: string, x: number, y: number) => {
+    const item = file.nodes[id]
+    if (!item || item.type === 'root' || item.type === 'component') return null
+    const world = nodeWorldTransform(file, id)
+    const bounds = transformedBounds(world, item.styles)
+    const movedWorld = multiplyTransforms(translationTransform(x - bounds.x, y - bounds.y), world)
+    const parentWorld = file.nodes[targetParentId]?.type === 'root' ? identityTransform : nodeWorldTransform(file, targetParentId)
+    const inverse = invertTransform(parentWorld)
+    return inverse ? multiplyTransforms(inverse, movedWorld) : null
   }
   const primitiveMove = (id: string, world: Point, parentId: string | null): FileCommand[] => {
     const state = backing.getState()
     const file = state.file!
     const target = parentId ?? root(state)!
-    const parentWorld = target === root(state) ? { x: 0, y: 0 } : worldPosition(file, target)
+    const relativeTransform = movedPrimitiveMatrix(file, id, target, Math.round(world.x), Math.round(world.y))
+    if (!relativeTransform) return []
     const commands: FileCommand[] = []
     if (parentOf(id) !== target) commands.push({ type: 'node.reparent', nodeId: id, placement: { parentId: target } })
-    commands.push({ type: 'node.setStyles', nodeId: id, styles: { left: Math.round(world.x - parentWorld.x), top: Math.round(world.y - parentWorld.y) } })
+    commands.push({ type: 'node.setStyles', nodeId: id, styles: { relativeTransform } })
     return commands
   }
   /** Nudges primitives and freeform component roots; a root still in the host flow leaves it at its measured position, keeping its width. */
@@ -790,7 +905,13 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     for (const id of state.selection) {
       const item = state.file.nodes[id]
       if (!item) continue
-      if (isPrimitive(item)) { commands.push({ type: 'node.setStyles', nodeId: id, styles: { left: item.styles.left + dx, top: item.styles.top + dy } }); continue }
+      if (isPrimitive(item)) {
+        const bounds = transformedBounds(nodeWorldTransform(state.file, id), item.styles)
+        const target = parentOf(id) ?? root(state)!
+        const relativeTransform = movedPrimitiveMatrix(state.file, id, target, bounds.x + dx, bounds.y + dy)
+        if (relativeTransform) commands.push({ type: 'node.setStyles', nodeId: id, styles: { relativeTransform } })
+        continue
+      }
       if (item.type !== 'component') continue
       const placement = legacyLayout(item.layout)
       if (placement.mode === 'absolute') { commands.push(placementCommand(item, { ...placement, x: placement.x + dx, y: placement.y + dy })); continue }
@@ -838,10 +959,67 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     while (used.has(`${base} ${sequence}`)) sequence += 1
     return `${base} ${sequence}`
   }
+  const componentNameExists = (file: FileDocument, name: string, exceptId?: string) => Object.values(file.componentModel.definitions).some(definition => definition.id !== exceptId && definition.name.localeCompare(name, undefined, { sensitivity: 'accent' }) === 0)
+  const componentPropertyNameExists = (definition: ComponentDefinition, name: string, exceptId: string) => definition.properties.some(property => property.id !== exceptId && property.name.localeCompare(name, undefined, { sensitivity: 'accent' }) === 0)
+  const componentMaterialNameExists = (definition: ComponentDefinition, name: string, group: string, exceptId: string) => definition.materials.some(material => material.id !== exceptId && material.group.localeCompare(group, undefined, { sensitivity: 'accent' }) === 0 && material.name.localeCompare(name, undefined, { sensitivity: 'accent' }) === 0)
   const tokenName = (file: FileDocument, base: string) => uniqueName(Object.values(file.theme.tokens).map(token => token.name), base)
   const lastTokenKey = (file: FileDocument) => Object.values(file.theme.tokens).sort(compareOrder).at(-1)?.orderKey ?? null
+  const componentValuesFor = (properties: readonly ComponentPropertyDefinition[], values: Readonly<Record<string, ComponentScalarValue>>): Record<string, ComponentScalarValue> => {
+    const propertyById = new Map(properties.map(property => [property.id, property]))
+    return Object.fromEntries(Object.entries(values).filter(([propertyId, value]) => {
+      const property = propertyById.get(propertyId)
+      return property?.type === 'text' && typeof value === 'string'
+        || property?.type === 'boolean' && typeof value === 'boolean'
+        || property?.type === 'variant' && typeof value === 'string' && property.values.some(option => option.id === value)
+    }))
+  }
+  const replaceComponentPropertyCommands = (file: FileDocument, definition: ComponentDefinition, properties: readonly ComponentPropertyDefinition[]) => {
+    const propertyById = new Map(properties.map(property => [property.id, property]))
+    const interactions = definition.interactions.filter(interaction => {
+      const property = propertyById.get(interaction.propertyId)
+      return property?.type === 'variant' && property.values.some(value => value.id === interaction.valueId)
+    })
+    const commands: FileCommand[] = []
+    const instances = []
+    for (const instance of Object.values(file.componentModel.instances)) {
+      if (instance.componentId !== definition.id) continue
+      const values = componentValuesFor(properties, instance.values)
+      const next = { ...instance, values }
+      instances.push(next)
+      if (JSON.stringify(values) !== JSON.stringify(instance.values)) commands.push({ type: 'component.instance.replace', instanceId: instance.id, expected: instance, instance: next })
+    }
+    const nextDefinition = { ...definition, revision: definition.revision + 1, properties: structuredClone(properties), interactions }
+    commands.push({ type: 'component.replace', componentId: definition.id, expectedRevision: definition.revision, definition: nextDefinition })
+    for (const instance of instances) commands.push(...componentPropertyProjectionCommands(file, nextDefinition, instance))
+    return commands
+  }
+  const replaceComponentProperties = (componentId: string, properties: readonly ComponentPropertyDefinition[]) => {
+    const state = backing.getState()
+    const definition = state.file?.componentModel.definitions[componentId]
+    return state.file && definition ? executeBatch(replaceComponentPropertyCommands(state.file, definition, properties)) : false
+  }
+  const insertCodeComponent = (componentId: string, target: InsertTarget | undefined, props: Record<string, string | number | boolean>, point?: ComponentInsertPoint) => {
+    const state = backing.getState()
+    const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
+    const definition = state.file?.componentModel.definitions[componentId]
+    if (!atom || definition?.source.kind !== 'code') return fail(new Error(canvasCopy.componentUnavailable))
+    if (!state.file || !state.pageId) return fail(new Error(canvasCopy.openFileForTools))
+    const id = makeId()
+    const rootTarget = target?.parentId == null
+    const layout = point && rootTarget ? layoutFromLegacy({ mode: 'absolute', x: Math.round(point.x), y: Math.round(point.y) }) : undefined
+    const insert: FileCommand = {
+      type: 'node.insert',
+      node: { id, type: 'component', componentId, exportName: atom.exportName, props: { ...componentDefaultProps(atom), ...props }, ...(layout ? { layout } : {}) },
+      placement: placementFor(target, state),
+    }
+    const withNode = applyFileCommand(state.file, insert, state.atoms, { allowUnavailableBindings: true })
+    const values = codeComponentInstanceValues(withNode, definition, id)
+    if (!values) return false
+    return executeBatch([insert, { type: 'component.instance.create', instance: { id, componentId, values } }], [id])
+  }
   return {
     getSnapshot: backing.getState,
+    getDocumentGeneration: () => generation,
     /** Resolves after the current persistence drain has acknowledged or rejected every queued change. */
     waitForPersistence: () => persistenceRun,
     getViewSnapshot,
@@ -963,6 +1141,11 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       if (state.file && state.dirty && !settings.replace) {
         if (incoming.revision <= savedRevision) { emit({ atoms }); return }
         try {
+          const acknowledgesPendingChange = pendingPersistenceChanges.some(change => same(change.file, incoming))
+          if (!acknowledgesPendingChange) {
+            past = []
+            future = []
+          }
           savedRevision = incoming.revision
           pendingPersistenceChanges = rebasePersistenceChanges(incoming, pendingPersistenceChanges, atoms)
           const rebased = pendingPersistenceChanges.at(-1)?.file ?? incoming
@@ -1090,28 +1273,519 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     commands: {
       execute,
       executeBatch,
+      components: {
+        reconcileCodeDefinitions: (definitions: readonly ComponentDefinition[], registryAtoms?: readonly Atom[]) => {
+          const state = backing.getState()
+          if (!state.file || state.blocked || state.readOnly) return false
+          const commands = definitions.flatMap((definition): FileCommand[] => {
+            const current = state.file!.componentModel.definitions[definition.id]
+            if (current && current.source.kind !== 'code') return []
+            const next = current ? { ...definition, revision: current.revision + 1 } : definition
+            const comparable = current ? { ...current, revision: 0 } : null
+            const changedDefinition = !current || JSON.stringify(comparable) !== JSON.stringify({ ...definition, revision: 0 })
+            const instanceCommands: FileCommand[] = []
+            const projectionCommands: FileCommand[] = []
+            const previousPropNames = new Set(current?.properties.flatMap(property => property.type === 'slot' ? [] : [property.name]) ?? [])
+            const nextPropNames = new Set(next.properties.flatMap(property => property.type === 'slot' ? [] : [property.name]))
+            const removedPropNames = [...previousPropNames].filter(name => !nextPropNames.has(name))
+            for (const instance of Object.values(state.file!.componentModel.instances)) {
+              if (instance.componentId !== definition.id) continue
+              const values = componentValuesFor(next.properties, instance.values)
+              const updated = { ...instance, values }
+              if (JSON.stringify(values) !== JSON.stringify(instance.values)) instanceCommands.push({ type: 'component.instance.replace', instanceId: instance.id, expected: instance, instance: updated })
+              if (changedDefinition) projectionCommands.push(...componentPropertyProjectionCommands(state.file!, next, updated))
+              if (removedPropNames.length) projectionCommands.push({ type: 'node.setProps', nodeId: instance.id, props: {}, remove: removedPropNames })
+            }
+            const adoptionCommands: FileCommand[] = []
+            for (const node of Object.values(state.file!.nodes)) {
+              if (node.type !== 'component' || node.componentId !== definition.id || state.file!.componentModel.instances[node.id]) continue
+              const values = codeComponentInstanceValues(state.file!, next, node.id)
+              if (values) adoptionCommands.push({ type: 'component.instance.create', instance: { id: node.id, componentId: definition.id, values } })
+              if (removedPropNames.length) adoptionCommands.push({ type: 'node.setProps', nodeId: node.id, props: {}, remove: removedPropNames })
+            }
+            const definitionCommand: FileCommand[] = !changedDefinition ? [] : current
+              ? [{ type: 'component.replace', componentId: current.id, expectedRevision: current.revision, definition: next }]
+              : [{ type: 'component.create', definition: next }]
+            return [...instanceCommands, ...definitionCommand, ...adoptionCommands, ...projectionCommands]
+          })
+          if (!registryAtoms) return commands.length === 0 || executeBatch(commands)
+          const nextAtoms: Atom[] = registryAtoms ? structuredClone([...registryAtoms]) : state.atoms
+          if (commands.length === 0) {
+            try {
+              validateFileDocument(state.file, nextAtoms, { allowUnavailableBindings: true })
+              if (registryAtoms && JSON.stringify(state.atoms) !== JSON.stringify(nextAtoms)) emit({ atoms: nextAtoms, error: null })
+              return true
+            } catch (error) { return report(error) }
+          }
+          try {
+            const command: FileCommand = commands.length === 1 ? commands[0]! : { type: 'batch', commands }
+            const nextById = new Map(nextAtoms.map(atom => [atom.componentId, atom]))
+            const compatibilityAtoms = state.atoms.map(atom => {
+              const replacement = nextById.get(atom.componentId)
+              if (!replacement) return atom
+              nextById.delete(atom.componentId)
+              const nextProps = new Map(replacement.props.map(prop => [prop.name, prop]))
+              const props = atom.props.map(prop => {
+                const nextProp = nextProps.get(prop.name)
+                nextProps.delete(prop.name)
+                return nextProp ? { ...nextProp, type: [...new Set([prop.type, nextProp.type])].join(' | '), optional: true } : { ...prop, optional: true }
+              })
+              props.push(...[...nextProps.values()].map(prop => ({ ...prop, optional: true })))
+              return { ...replacement, props, slots: [...new Set([...(atom.slots ?? []), ...(replacement.slots ?? [])])] }
+            }).concat([...nextById.values()])
+            const projected = applyFileCommand(state.file, command, compatibilityAtoms, { allowUnavailableBindings: true })
+            const next = validateFileDocument(projected, nextAtoms, { allowUnavailableBindings: true })
+            if (!permits(next)) return false
+            past = []
+            future = []
+            changed(next, state.pageId!, state.selection.filter(id => selectable(next, state.pageId, id)), { kind: 'commands', commands: [command] }, false, { atoms: nextAtoms })
+            return true
+          } catch (error) { return report(error) }
+        },
+        createFromSelection: (name: string) => {
+          const state = backing.getState()
+          const masterRootId = state.selection.length === 1 ? state.selection[0] : undefined
+          const master = masterRootId ? state.file?.nodes[masterRootId] : undefined
+          const nextName = name.trim()
+          if (!state.file || !masterRootId || !master || master.type === 'root' || !nextName) return false
+          if ([masterRootId, ...ancestorsOf(state.file, masterRootId)].some(nodeId => state.file!.componentModel.instances[nodeId])) return false
+          if (componentNameExists(state.file, nextName)) return false
+          if (Object.values(state.file.componentModel.definitions).some(definition => definition.source.kind === 'canvas' && definition.source.masterRootId === masterRootId)) return false
+          return execute({
+            type: 'component.create',
+            definition: { id: makeId(), name: nextName, source: { kind: 'canvas', masterRootId }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+          })
+        },
+        rename: (componentId: string, name: string) => {
+          const definition = backing.getState().file?.componentModel.definitions[componentId]
+          const nextName = name.trim()
+          const file = backing.getState().file
+          if (!file || definition?.source.kind !== 'canvas' || !nextName || nextName === definition.name || componentNameExists(file, nextName, componentId)) return false
+          return execute({
+            type: 'component.replace',
+            componentId,
+            expectedRevision: definition.revision,
+            definition: { ...definition, name: nextName, revision: definition.revision + 1 },
+          })
+        },
+        setDetails: (componentId: string, details: Readonly<{ name: string; description: string }>) => {
+          const file = backing.getState().file
+          const definition = file?.componentModel.definitions[componentId]
+          const name = details.name.trim()
+          const description = details.description.trim()
+          if (!file || definition?.source.kind !== 'canvas' || !name || componentNameExists(file, name, componentId)) return false
+          const usedSlugs = new Set(Object.values(file.componentModel.definitions).flatMap(candidate => candidate.id === componentId ? [] : [candidate.docs?.slug ?? componentDocsSlug(candidate.name, candidate.id)]))
+          const baseSlug = componentDocsSlug(name, componentId)
+          let slug = definition.docs?.slug ?? baseSlug
+          for (let suffix = 2; usedSlugs.has(slug); suffix += 1) slug = `${baseSlug}-${suffix}`
+          const docs = description ? { slug, description } : definition.docs ? { slug } : undefined
+          if (name === definition.name && description === (definition.docs?.description ?? '')) return false
+          const { docs: _previousDocs, ...definitionWithoutDocs } = definition
+          return execute({
+            type: 'component.replace',
+            componentId,
+            expectedRevision: definition.revision,
+            definition: docs
+              ? { ...definition, name, revision: definition.revision + 1, docs }
+              : { ...definitionWithoutDocs, name, revision: definition.revision + 1 },
+          })
+        },
+        addProperty: (componentId: string, type: ComponentPropertyDefinition['type']) => {
+          const file = backing.getState().file
+          const definition = file?.componentModel.definitions[componentId]
+          if (!file || !definition) return null
+          const id = makeId()
+          const name = uniqueName(definition.properties.map(property => property.name), 'Property')
+          const masterIds = definition.source.kind === 'canvas' ? [definition.source.masterRootId, ...descendantsOf(file, definition.source.masterRootId)] : []
+          const textNode = masterIds.map(nodeId => file.nodes[nodeId]).find(candidate => candidate?.type === 'text')
+          const masterNode = definition.source.kind === 'canvas' ? file.nodes[definition.source.masterRootId] : undefined
+          const defaultValueId = type === 'variant' ? makeId() : null
+          const property: ComponentPropertyDefinition = type === 'variant'
+            ? { id, name, type, defaultValueId: defaultValueId!, currentValueId: defaultValueId!, values: [], ...(masterNode && masterNode.type !== 'root' ? { binding: { kind: 'variant' as const, nodeId: masterNode.id, appearances: { [defaultValueId!]: structuredClone(nodeAppearance(masterNode) ?? {}) } } } : {}) }
+            : type === 'text'
+              ? { id, name, type, defaultValue: textNode?.type === 'text' ? textNode.text ?? '' : 'Text', ...(textNode?.type === 'text' ? { binding: { kind: 'text' as const, nodeId: textNode.id } } : {}) }
+              : type === 'boolean'
+                ? { id, name, type, defaultValue: masterNode ? nodeAppearance(masterNode)?.visible !== false : true, ...(masterNode && masterNode.type !== 'root' ? { binding: { kind: 'visibility' as const, nodeId: masterNode.id } } : {}) }
+                : { id, name, type, ...(masterNode && masterNode.type !== 'root' ? { binding: { kind: 'slot' as const, nodeId: masterNode.id } } : {}) }
+          const complete = property.type === 'variant' ? { ...property, values: [{ id: property.defaultValueId, name: 'Default' }] } : property
+          return replaceComponentProperties(componentId, [...definition.properties, complete]) ? id : null
+        },
+        setProperty: (componentId: string, property: ComponentPropertyDefinition) => {
+          const definition = backing.getState().file?.componentModel.definitions[componentId]
+          if (!definition || !definition.properties.some(candidate => candidate.id === property.id) || componentPropertyNameExists(definition, property.name, property.id)) return false
+          let nextProperty = property
+          if (property.type === 'variant') {
+            const names = property.values.map(value => value.name.trim().toLocaleLowerCase())
+            if (names.some(name => !name) || new Set(names).size !== names.length) return false
+            if (!property.values.some(value => value.id === property.defaultValueId)) return false
+            nextProperty = property.values.some(value => value.id === property.currentValueId)
+              ? property
+              : { ...property, currentValueId: property.defaultValueId }
+          }
+          const file = backing.getState().file
+          if (!file) return false
+          return executeBatch([
+            ...componentPropertyRebindingResetCommands(file, definition, nextProperty),
+            ...componentSlotRebindingCommands(file, definition, nextProperty),
+            ...replaceComponentPropertyCommands(file, definition, definition.properties.map(candidate => candidate.id === property.id ? nextProperty : candidate)),
+          ])
+        },
+        addVariantValue: (componentId: string, propertyId: string) => {
+          const definition = backing.getState().file?.componentModel.definitions[componentId]
+          const property = definition?.properties.find(candidate => candidate.id === propertyId)
+          if (!definition || property?.type !== 'variant') return null
+          const id = makeId()
+          const name = uniqueName(property.values.map(value => value.name), 'Value')
+          const appearance = property.binding?.appearances[property.currentValueId ?? property.defaultValueId] ?? {}
+          const next = { ...property, currentValueId: id, values: [...property.values, { id, name }], ...(property.binding ? { binding: { ...property.binding, appearances: { ...property.binding.appearances, [id]: structuredClone(appearance) } } } : {}) }
+          return replaceComponentProperties(componentId, definition.properties.map(candidate => candidate.id === property.id ? next : candidate)) ? id : null
+        },
+        setVariantCurrent: (componentId: string, propertyId: string, valueId: string) => {
+          const state = backing.getState()
+          const definition = state.file?.componentModel.definitions[componentId]
+          const property = definition?.properties.find(candidate => candidate.id === propertyId)
+          if (!state.file || !definition || property?.type !== 'variant' || !property.values.some(value => value.id === valueId)) return false
+          const nextProperty = { ...property, currentValueId: valueId }
+          const nextDefinition = { ...definition, revision: definition.revision + 1, properties: definition.properties.map(candidate => candidate.id === property.id ? nextProperty : candidate) }
+          const commands: FileCommand[] = [{ type: 'component.replace', componentId, expectedRevision: definition.revision, definition: nextDefinition }]
+          if (property.binding) commands.push({ type: 'node.setAppearance', nodeId: property.binding.nodeId, appearance: structuredClone(property.binding.appearances[valueId]!) })
+          for (const instance of Object.values(state.file.componentModel.instances)) if (instance.componentId === componentId) commands.push(...componentPropertyProjectionCommands(state.file, nextDefinition, instance, [nextProperty]))
+          return executeBatch(commands)
+        },
+        setInteraction: (componentId: string, trigger: 'pointer-hover' | 'pointer-press', propertyId: string, valueId: string) => {
+          const definition = backing.getState().file?.componentModel.definitions[componentId]
+          const property = definition?.properties.find(candidate => candidate.id === propertyId)
+          if (!definition || property?.type !== 'variant' || !property.values.some(value => value.id === valueId)) return false
+          const existing = definition.interactions.find(interaction => interaction.trigger === trigger && interaction.propertyId === propertyId)
+          const interaction = { id: existing?.id ?? makeId(), trigger, propertyId, valueId, transition: existing?.transition ?? { type: 'smart-animate' as const, durationMs: 300, easing: 'ease-out' as const } }
+          const interactions = existing ? definition.interactions.map(candidate => candidate.id === existing.id ? interaction : candidate) : [...definition.interactions, interaction]
+          return execute({ type: 'component.replace', componentId, expectedRevision: definition.revision, definition: { ...definition, revision: definition.revision + 1, interactions } })
+        },
+        setInteractionTransition: (componentId: string, interactionId: string, transition: NonNullable<ComponentInteraction['transition']>) => {
+          const definition = backing.getState().file?.componentModel.definitions[componentId]
+          const interaction = definition?.interactions.find(candidate => candidate.id === interactionId)
+          if (!definition || !interaction) return false
+          const interactions = definition.interactions.map(candidate => candidate.id === interactionId ? { ...candidate, transition } : candidate)
+          return execute({ type: 'component.replace', componentId, expectedRevision: definition.revision, definition: { ...definition, revision: definition.revision + 1, interactions } })
+        },
+        removeInteraction: (componentId: string, interactionId: string) => {
+          const definition = backing.getState().file?.componentModel.definitions[componentId]
+          if (!definition || !definition.interactions.some(interaction => interaction.id === interactionId)) return false
+          return execute({ type: 'component.replace', componentId, expectedRevision: definition.revision, definition: { ...definition, revision: definition.revision + 1, interactions: definition.interactions.filter(interaction => interaction.id !== interactionId) } })
+        },
+        addMaterial: (componentId: string, nodeId?: string) => {
+          const state = backing.getState()
+          const definition = state.file?.componentModel.definitions[componentId]
+          if (!state.file || definition?.source.kind !== 'canvas') return null
+          const targetId = nodeId ?? definition.source.masterRootId
+          const target = state.file.nodes[targetId]
+          if (!target || target.type === 'root' || ![definition.source.masterRootId, ...descendantsOf(state.file, definition.source.masterRootId)].includes(targetId)) return null
+          const id = makeId()
+          const part = definition.parts.find(candidate => candidate.nodeId === targetId)
+          const nextPart = { id: part?.id ?? makeId(), name: target.name ?? target.type, nodeId: targetId, materialId: id }
+          const material = { id, group: 'Layers', name: uniqueName(definition.materials.map(candidate => candidate.name), 'Material'), appearance: structuredClone(nodeAppearance(target) ?? {}) }
+          const parts = part ? definition.parts.map(candidate => candidate.id === part.id ? nextPart : candidate) : [...definition.parts, nextPart]
+          const next = { ...definition, revision: definition.revision + 1, materials: [...definition.materials, material], parts }
+          return execute({ type: 'component.replace', componentId, expectedRevision: definition.revision, definition: next }) ? id : null
+        },
+        setMaterial: (componentId: string, materialId: string, patch: { name?: string; group?: string; description?: string }) => {
+          const definition = backing.getState().file?.componentModel.definitions[componentId]
+          const material = definition?.materials.find(candidate => candidate.id === materialId)
+          if (!definition || !material) return false
+          const nextMaterial = { ...material, ...patch }
+          if (!nextMaterial.name.trim() || !nextMaterial.group.trim() || componentMaterialNameExists(definition, nextMaterial.name, nextMaterial.group, materialId)) return false
+          const materials = definition.materials.map(candidate => candidate.id === materialId ? nextMaterial : candidate)
+          return execute({ type: 'component.replace', componentId, expectedRevision: definition.revision, definition: { ...definition, revision: definition.revision + 1, materials } })
+        },
+        assignMaterial: (componentId: string, materialId: string, nodeId: string) => {
+          const state = backing.getState()
+          const definition = state.file?.componentModel.definitions[componentId]
+          const material = definition?.materials.find(candidate => candidate.id === materialId)
+          if (!state.file || definition?.source.kind !== 'canvas' || !material || ![definition.source.masterRootId, ...descendantsOf(state.file, definition.source.masterRootId)].includes(nodeId)) return false
+          const target = state.file.nodes[nodeId]
+          if (!target || target.type === 'root') return false
+          const occupied = definition.parts.find(part => part.nodeId === nodeId)
+          const part = { id: occupied?.id ?? makeId(), name: target.name ?? target.type, nodeId, materialId }
+          const parts = definition.parts.filter(candidate => candidate.id !== occupied?.id).concat(part)
+          const next = { ...definition, revision: definition.revision + 1, parts }
+          return executeBatch([
+            { type: 'component.replace', componentId, expectedRevision: definition.revision, definition: next },
+            { type: 'node.setAppearance', nodeId, appearance: structuredClone(material.appearance) },
+          ])
+        },
+        clearMaterial: (componentId: string, nodeId: string) => {
+          const definition = backing.getState().file?.componentModel.definitions[componentId]
+          const part = definition?.parts.find(candidate => candidate.nodeId === nodeId && candidate.materialId !== undefined)
+          if (!definition || !part) return false
+          const parts = definition.parts.map(candidate => candidate.id === part.id ? { id: candidate.id, name: candidate.name, nodeId: candidate.nodeId } : candidate)
+          return execute({ type: 'component.replace', componentId, expectedRevision: definition.revision, definition: { ...definition, revision: definition.revision + 1, parts } })
+        },
+        captureMaterial: (componentId: string, materialId: string, nodeId?: string) => {
+          const state = backing.getState()
+          const definition = state.file?.componentModel.definitions[componentId]
+          const material = definition?.materials.find(candidate => candidate.id === materialId)
+          const assigned = definition?.parts.filter(candidate => candidate.materialId === materialId) ?? []
+          const part = assigned.find(candidate => candidate.nodeId === nodeId) ?? assigned[0]
+          const target = part ? state.file?.nodes[part.nodeId] : undefined
+          if (!state.file || !definition || !material || !part || !target || target.type === 'root') return false
+          const nextMaterial = { ...material, appearance: structuredClone(nodeAppearance(target) ?? {}) }
+          const next = { ...definition, revision: definition.revision + 1, materials: definition.materials.map(candidate => candidate.id === materialId ? nextMaterial : candidate) }
+          const commands: FileCommand[] = [
+            { type: 'component.replace', componentId, expectedRevision: definition.revision, definition: next },
+            ...componentMaterialProjectionCommands(definition, nextMaterial, assigned, part.nodeId),
+          ]
+          return executeBatch(commands)
+        },
+        removeMaterial: (componentId: string, materialId: string) => {
+          const definition = backing.getState().file?.componentModel.definitions[componentId]
+          if (!definition || !definition.materials.some(material => material.id === materialId)) return false
+          const parts = definition.parts.map(part => part.materialId === materialId ? { id: part.id, name: part.name, nodeId: part.nodeId } : part)
+          return execute({ type: 'component.replace', componentId, expectedRevision: definition.revision, definition: { ...definition, revision: definition.revision + 1, materials: definition.materials.filter(material => material.id !== materialId), parts } })
+        },
+        removeProperty: (componentId: string, propertyId: string) => {
+          const state = backing.getState()
+          const definition = state.file?.componentModel.definitions[componentId]
+          const property = definition?.properties.find(candidate => candidate.id === propertyId)
+          if (!state.file || !definition || !property) return false
+          const commands: FileCommand[] = []
+          if (property.type === 'slot') {
+            const slotNodes: string[] = []
+            for (const instance of Object.values(state.file.componentModel.instances)) {
+              if (instance.componentId !== componentId) continue
+              const map = definition.source.kind === 'canvas' ? mapParallelComponentSubtrees(state.file, definition.source.masterRootId, instance.id) : null
+              const hostId = definition.source.kind === 'canvas' ? property.binding ? map?.get(property.binding.nodeId) : undefined : instance.id
+              if (hostId) slotNodes.push(...childrenOf(state.file, hostId, definition.source.kind === 'canvas' ? property.id : property.name))
+            }
+            if (slotNodes.length) commands.push(...semanticDeleteCommands(state.file, slotNodes))
+          } else commands.push(...componentPropertyRemovalResetCommands(state.file, definition, property))
+          commands.push(...replaceComponentPropertyCommands(state.file, definition, definition.properties.filter(candidate => candidate.id !== propertyId)))
+          return executeBatch(commands)
+        },
+        remove: (componentId: string) => {
+          const state = backing.getState()
+          const definition = state.file?.componentModel.definitions[componentId]
+          if (!state.file || definition?.source.kind !== 'canvas') return false
+          const instanceCommands: FileCommand[] = Object.values(state.file.componentModel.instances)
+            .filter(instance => instance.componentId === componentId)
+            .map(instance => ({ type: 'component.instance.delete', instanceId: instance.id, expected: instance }))
+          return executeBatch([...instanceCommands, { type: 'component.delete', componentId, expectedRevision: definition.revision }])
+        },
+        addSlotContent: (instanceId: string, propertyId: string, kind: 'text' | 'frame') => {
+          const state = backing.getState()
+          const instance = state.file?.componentModel.instances[instanceId]
+          const definition = instance ? state.file?.componentModel.definitions[instance.componentId] : undefined
+          const property = definition?.properties.find(candidate => candidate.id === propertyId)
+          if (!state.file || !instance || !definition || property?.type !== 'slot') return false
+          const nodeMap = definition.source.kind === 'canvas' ? mapParallelComponentSubtrees(state.file, definition.source.masterRootId, instance.id) : null
+          const parentId = definition.source.kind === 'canvas' ? property.binding ? nodeMap?.get(property.binding.nodeId) : undefined : instance.id
+          if (!parentId) return false
+          const id = makeId()
+          const appearance = defaultAppearance(kind, makeId, options.editorMode?.() ?? 'light')
+          const parent = state.file.nodes[parentId]
+          const slotLayout = parent && nodeChildDisplay(parent) !== 'freeform' ? { layout: { item: { position: { mode: 'flow' as const } } } } : {}
+          const node: FileNode = kind === 'text'
+            ? { id, type: 'text', name: 'Text', styles: { relativeTransform: identityTransform, width: 120, height: 20 }, ...slotLayout, appearance, text: 'Text', ...legacyTextProperties(), themeMode: 'inherit' }
+            : { id, type: 'frame', name: 'Frame', styles: { relativeTransform: identityTransform, width: 160, height: 120, overflow: 'clip' }, ...slotLayout, appearance, themeMode: 'inherit' }
+          return execute({ type: 'node.insert', node, placement: { parentId, slot: definition.source.kind === 'code' ? property.name : property.id } }, [id])
+        },
+        addSlotComponent: (instanceId: string, propertyId: string, componentId: string) => {
+          const state = backing.getState()
+          const instance = state.file?.componentModel.instances[instanceId]
+          const definition = instance ? state.file?.componentModel.definitions[instance.componentId] : undefined
+          const property = definition?.properties.find(candidate => candidate.id === propertyId)
+          const insertedDefinition = state.file?.componentModel.definitions[componentId]
+          if (!state.file || !instance || !definition || property?.type !== 'slot' || !insertedDefinition || !canNestComponentInstance(state.file, instanceId, componentId)) return false
+          const nodeMap = definition.source.kind === 'canvas' ? mapParallelComponentSubtrees(state.file, definition.source.masterRootId, instance.id) : null
+          const parentId = definition.source.kind === 'canvas' ? property.binding ? nodeMap?.get(property.binding.nodeId) : undefined : instance.id
+          if (!parentId) return false
+          const slot = definition.source.kind === 'code' ? property.name : property.id
+          const values: ComponentInstanceValues = {}
+          if (insertedDefinition.source.kind === 'canvas') {
+            const master = state.file.nodes[insertedDefinition.source.masterRootId]
+            if (!master || master.type === 'root') return false
+            const ids = newIdsFor(state.file, master.id)
+            const nestedId = ids[master.id]!
+            const nestedInstance = { id: nestedId, componentId, values }
+            const commands: FileCommand[] = [
+              { type: 'node.duplicate', nodeId: master.id, ids },
+              ...duplicatedInstanceCommands(state.file, ids),
+              { type: 'node.reparent', nodeId: nestedId, placement: { parentId, slot } },
+              { type: 'component.instance.create', instance: nestedInstance },
+            ]
+            const projected = applyFileCommand(state.file, { type: 'batch', commands }, state.atoms, { allowUnavailableBindings: true })
+            commands.push(...componentPropertyProjectionCommands(projected, insertedDefinition, nestedInstance, insertedDefinition.properties))
+            return executeBatch(commands, [nestedId])
+          }
+          const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
+          if (!atom) return false
+          const nestedId = makeId()
+          const nestedInstance = { id: nestedId, componentId, values }
+          const parent = state.file.nodes[parentId]
+          const layout = parent && nodeChildDisplay(parent) === 'freeform' ? layoutFromLegacy({ mode: 'absolute', x: 0, y: 0 }) : undefined
+          const commands: FileCommand[] = [
+            { type: 'node.insert', node: { id: nestedId, type: 'component', componentId, exportName: atom.exportName, props: componentDefaultProps(atom), ...(layout ? { layout } : {}) }, placement: { parentId, slot } },
+            { type: 'component.instance.create', instance: nestedInstance },
+          ]
+          const projected = applyFileCommand(state.file, { type: 'batch', commands }, state.atoms, { allowUnavailableBindings: true })
+          commands.push(...componentPropertyProjectionCommands(projected, insertedDefinition, nestedInstance, insertedDefinition.properties))
+          return executeBatch(commands, [nestedId])
+        },
+        place: (componentId: string, values: ComponentInstanceValues = {}) => {
+          const state = backing.getState()
+          const definition = state.file?.componentModel.definitions[componentId]
+          if (!state.file || !state.pageId || !definition) return false
+          if (definition.source.kind === 'canvas') {
+            const configurablePropertyIds = new Set(componentConfigurableDefinition(definition).properties.map(property => property.id))
+            if (Object.keys(values).some(propertyId => !configurablePropertyIds.has(propertyId))) return false
+          }
+          resolveComponentInstanceValues(definition, values)
+          if (definition.source.kind === 'canvas') {
+            const master = state.file.nodes[definition.source.masterRootId]
+            const targetRoot = root(state)
+            if (!master || master.type === 'root' || !targetRoot) return false
+            const ids = newIdsFor(state.file, master.id)
+            const instanceId = ids[master.id]!
+            const width = master.type === 'component' ? legacyLayout(master.layout).width ?? 0 : master.styles.width
+            const commands: FileCommand[] = [{ type: 'node.duplicate', nodeId: master.id, ids, offset: { x: width + duplicateGap, y: 0 } }, ...duplicatedInstanceCommands(state.file, ids)]
+            if (state.file.relationships[master.id]?.parentId !== targetRoot) commands.push({ type: 'node.reparent', nodeId: instanceId, placement: { parentId: targetRoot }, preserveWorldPosition: true })
+            const instance = { id: instanceId, componentId, values }
+            commands.push({ type: 'component.instance.create', instance })
+            const projected = applyFileCommand(state.file, { type: 'batch', commands }, state.atoms, { allowUnavailableBindings: true })
+            commands.push(...componentPropertyProjectionCommands(projected, definition, instance, definition.properties))
+            return executeBatch(commands, [instanceId])
+          }
+          const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
+          if (!atom) return false
+          const id = makeId()
+          const commands: FileCommand[] = [
+            { type: 'node.insert', node: { id, type: 'component', componentId, exportName: atom.exportName, props: componentDefaultProps(atom) }, placement: placementFor(undefined, state) },
+            { type: 'component.instance.create', instance: { id, componentId, values } },
+          ]
+          const projected = applyFileCommand(state.file, { type: 'batch', commands }, state.atoms, { allowUnavailableBindings: true })
+          const instance = { id, componentId, values }
+          commands.push(...componentPropertyProjectionCommands(projected, definition, instance, definition.properties))
+          return executeBatch(commands, [id])
+        },
+        placeVariantSheet: (componentId: string) => {
+          const state = backing.getState()
+          const definition = state.file?.componentModel.definitions[componentId]
+          if (!state.file || !state.pageId || definition?.source.kind !== 'canvas') return false
+          const master = state.file.nodes[definition.source.masterRootId]
+          const targetRoot = root(state)
+          if (!master || master.type === 'root' || !targetRoot) return false
+          const configurableDefinition = componentConfigurableDefinition(definition)
+          if (!configurableDefinition.properties.some(property => property.type === 'variant')) return false
+          const combinations = componentVariantCombinations(configurableDefinition)
+          const width = master.type === 'component' ? legacyLayout(master.layout).width ?? 0 : master.styles.width
+          const height = master.type === 'component' ? legacyLayout(master.layout).height ?? 0 : master.styles.height
+          const labelHeight = 20
+          const labelGap = 8
+          const labelBand = labelHeight + labelGap
+          const labels = combinations.map(combination => componentVariantCombinationLabel(configurableDefinition, combination))
+          const labelWidth = Math.max(width, 160)
+          const cellWidth = Math.max(labelWidth, 1) + duplicateGap
+          const cellHeight = Math.max(height, 1) + labelBand + duplicateGap
+          const columns = Math.max(1, Math.ceil(Math.sqrt(combinations.length)))
+          const rows = Math.ceil(combinations.length / columns)
+          const placements = combinations.map((combination, index) => {
+            const ids = newIdsFor(state.file!, master.id)
+            const column = index % columns
+            const row = Math.floor(index / columns)
+            return { ids, instanceId: ids[master.id]!, label: labels[index]!, column, row, values: sparseComponentValues(configurableDefinition, combination), offset: { x: (column + 1) * cellWidth, y: labelBand + row * cellHeight } }
+          })
+          const first = placements[0]!
+          const firstProjected = applyFileCommand(state.file, { type: 'node.duplicate', nodeId: master.id, ids: first.ids, offset: first.offset }, state.atoms, { allowUnavailableBindings: true })
+          const firstWorld = worldPosition(firstProjected, first.instanceId)
+          const sheetOrigin = { x: firstWorld.x, y: firstWorld.y - labelBand }
+          const sheetId = makeId()
+          const sheet: FileNode = {
+            id: sheetId,
+            type: 'frame',
+            name: `${definition.name} variants`,
+            styles: {
+              relativeTransform: [1, 0, 0, 1, sheetOrigin.x, sheetOrigin.y],
+              width: columns * cellWidth - duplicateGap,
+              height: rows * cellHeight - duplicateGap,
+              overflow: 'visible',
+            },
+            appearance: {},
+          }
+          const commands: FileCommand[] = [{ type: 'node.insert', node: sheet, placement: { parentId: targetRoot } }]
+          let projected = applyFileCommand(state.file, commands[0]!, state.atoms, { allowUnavailableBindings: true })
+          for (const placement of placements) {
+            const labelId = makeId()
+            const label: FileNode = {
+              id: labelId,
+              type: 'text',
+              name: placement.label,
+              text: placement.label,
+              ...legacyTextProperties(),
+              styles: {
+                relativeTransform: [1, 0, 0, 1, placement.column * cellWidth, placement.row * cellHeight],
+                width: labelWidth,
+                height: labelHeight,
+              },
+              appearance: defaultAppearance('text', makeId, options.editorMode?.() ?? 'light'),
+            }
+            const instance = { id: placement.instanceId, componentId, values: placement.values }
+            const placementCommands: FileCommand[] = [
+              { type: 'node.insert', node: label, placement: { parentId: sheetId } },
+              { type: 'node.duplicate', nodeId: master.id, ids: placement.ids, offset: placement.offset },
+              ...duplicatedInstanceCommands(projected, placement.ids),
+              { type: 'node.reparent', nodeId: placement.instanceId, placement: { parentId: sheetId }, preserveWorldPosition: true },
+            ]
+            placementCommands.push({ type: 'component.instance.create', instance })
+            const withInstance = applyFileCommand(projected, { type: 'batch', commands: placementCommands }, state.atoms, { allowUnavailableBindings: true })
+            placementCommands.push(...componentPropertyProjectionCommands(withInstance, definition, instance, definition.properties))
+            projected = applyFileCommand(projected, { type: 'batch', commands: placementCommands }, state.atoms, { allowUnavailableBindings: true })
+            commands.push(...placementCommands)
+          }
+          return executeBatch(commands, [sheetId])
+        },
+        setInstanceValue: (instanceId: string, propertyId: string, value: ComponentScalarValue | null) => {
+          const state = backing.getState()
+          const instance = state.file?.componentModel.instances[instanceId]
+          if (!instance) return false
+          const definition = state.file?.componentModel.definitions[instance.componentId]
+          const property = definition?.properties.find(candidate => candidate.id === propertyId)
+          if (!definition || !property || (value !== null && definition.source.kind === 'canvas' && !property.binding)) return false
+          const values = { ...instance.values }
+          if (value === null) delete values[propertyId]
+          else values[propertyId] = value
+          const next = { ...instance, values }
+          const commands: FileCommand[] = [{ type: 'component.instance.replace', instanceId, expected: instance, instance: next }]
+          if (state.file) commands.push(...componentPropertyProjectionCommands(state.file, definition, next, [property]))
+          return executeBatch(commands)
+        },
+        detach: (instanceId: string) => {
+          const state = backing.getState()
+          const instance = state.file?.componentModel.instances[instanceId]
+          const definition = instance ? state.file?.componentModel.definitions[instance.componentId] : undefined
+          if (!instance || definition?.source.kind !== 'canvas') return false
+          return execute({ type: 'component.instance.delete', instanceId, expected: instance })
+        },
+        resetInstanceValues: (instanceId: string) => {
+          const state = backing.getState()
+          const instance = state.file?.componentModel.instances[instanceId]
+          const definition = instance ? state.file?.componentModel.definitions[instance.componentId] : undefined
+          if (!state.file || !instance || !definition || Object.keys(instance.values).length === 0) return false
+          const next = { ...instance, values: {} }
+          return executeBatch([
+            { type: 'component.instance.replace', instanceId, expected: instance, instance: next },
+            ...componentPropertyProjectionCommands(state.file, definition, next, definition.properties),
+          ])
+        },
+        openMaster: (componentId: string) => {
+          const definition = backing.getState().file?.componentModel.definitions[componentId]
+          if (definition?.source.kind !== 'canvas') return false
+          setSelection([definition.source.masterRootId])
+          return true
+        },
+      },
       /** Inserts a component instance under the page root or into a component slot. */
-      insert: (componentId: string, target?: InsertTarget, props: Record<string, string | number | boolean> = {}) => {
-        const state = backing.getState()
-        const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
-        if (!atom) return fail(new Error(canvasCopy.componentUnavailable))
-        if (!state.file || !state.pageId) return fail(new Error(canvasCopy.openFileForTools))
-        const id = makeId()
-        const defaults = componentDefaultProps(atom)
-        return execute({ type: 'node.insert', node: { id, type: 'component', componentId, exportName: atom.exportName, props: { ...defaults, ...props } }, placement: placementFor(target, state) }, [id])
-      },
+      insert: (componentId: string, target?: InsertTarget, props: Record<string, string | number | boolean> = {}) => insertCodeComponent(componentId, target, props),
       /** Inserts a root component at one deterministic world point. Slot targets retain their component-owned flow. */
-      insertAt: (componentId: string, point: ComponentInsertPoint, target?: InsertTarget, props: Record<string, string | number | boolean> = {}) => {
-        const state = backing.getState()
-        const atom = state.atoms.find(item => item.componentId === componentId && item.status === 'bound')
-        if (!atom) return fail(new Error(canvasCopy.componentUnavailable))
-        if (!state.file || !state.pageId) return fail(new Error(canvasCopy.openFileForTools))
-        const id = makeId()
-        const defaults = componentDefaultProps(atom)
-        const rootTarget = target?.parentId == null
-        const layout = rootTarget ? layoutFromLegacy({ mode: 'absolute', x: Math.round(point.x), y: Math.round(point.y) }) : undefined
-        return execute({ type: 'node.insert', node: { id, type: 'component', componentId, exportName: atom.exportName, props: { ...defaults, ...props }, ...(layout ? { layout } : {}) }, placement: placementFor(target, state) }, [id])
-      },
+      insertAt: (componentId: string, point: ComponentInsertPoint, target?: InsertTarget, props: Record<string, string | number | boolean> = {}) => insertCodeComponent(componentId, target, props, point),
       duplicate,
       layerTreeDrop,
       delete: (nodeIds = backing.getState().selection) => deleteSelection(nodeIds),
@@ -1260,7 +1934,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         reparent: (nodeId: string, placement: NodePlacement, measured: Record<string, MeasuredNode>) => {
           const state = backing.getState()
           const current = node(nodeId)
-          if (!state.file || current?.type !== 'component') return false
+          if (!state.file || current?.type !== 'component' || isProtectedInstanceDescendant(state.file, nodeId)) return false
           const target = state.file.nodes[placement.parentId]
           if (!target || (target.type !== 'root' && target.type !== 'component')) return false
           const pose = reparentPose(measured, nodeId, target.type === 'root' ? null : placement.parentId, hostOrigin(flowHost))
@@ -1371,6 +2045,166 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           }
           return uploaded.asset.id
         },
+        /** Stages every clipboard image before one semantic attach-and-insert batch. */
+        insertClipboard: async (images: readonly Readonly<{ file: File; width: number; height: number }>[], insertionPoint?: Point) => {
+          const captured = backing.getState()
+          if (!captured.file || !captured.pageId || captured.readOnly || persistenceBlocked || !images.length) return { inserted: [] as string[], failures: images.map(image => ({ name: image.file.name, diagnostic: canvasCopy.imageFailed })) }
+          const capturedGeneration = generation
+          const capturedFileId = captured.file.fileId
+          const capturedRevision = captured.file.revision
+          const capturedPageId = captured.pageId
+          const capturedSelection = [...captured.selection]
+          const capturedCenter = insertionPoint ?? screenToWorld({ x: captured.viewportSize.width / 2, y: captured.viewportSize.height / 2 }, captured.viewport, captured.viewportSize)
+          const capturedVisibleSize = { width: captured.viewportSize.width / captured.viewport.zoom, height: captured.viewportSize.height / captured.viewport.zoom }
+          const extensionFor = (file: File): ImageExtension => {
+            const named = /\.([A-Za-z0-9]+)$/.exec(file.name)?.[1]?.toLowerCase()
+            if (file.type === 'image/jpeg') return named === 'jpg' ? 'jpg' : 'jpeg'
+            return ({ 'image/avif': 'avif', 'image/gif': 'gif', 'image/png': 'png', 'image/webp': 'webp' } as const)[file.type as Exclude<ImageMime, 'image/jpeg'>]
+          }
+          const reserved = images.map(image => ({ image, assetId: makeId(), nodeId: makeId(), fillId: makeId() }))
+          try {
+            const preflightAssets: ImageAssetReference[] = reserved.map(entry => ({
+              id: entry.assetId,
+              name: entry.image.file.name.slice(0, 256) || 'Image',
+              mime: entry.image.file.type as ImageMime,
+              extension: extensionFor(entry.image.file),
+              bytes: entry.image.file.size,
+              width: entry.image.width,
+              height: entry.image.height,
+              sha256: '0'.repeat(64),
+            }))
+            const preflightIds = reserved.flatMap(entry => [entry.nodeId, entry.fillId])
+            planClipboardImageInsertion(captured.file, captured.pageId, preflightAssets, { center: capturedCenter, visibleSize: capturedVisibleSize, selection: capturedSelection, containSelectionAtCenter: Boolean(insertionPoint) }, () => preflightIds.shift()!, captured.atoms)
+          } catch (error) {
+            const diagnostic = error instanceof Error ? error.message : canvasCopy.imageFailed
+            return { inserted: [] as string[], failures: images.map(image => ({ name: image.file.name, diagnostic })) }
+          }
+          type Staged = Readonly<{ asset: ImageAssetReference; preview: EditorAssetPreview; nodeId: string; fillId: string; sourceName: string }>
+          const results: ({ staged: Staged } | { failure: { name: string; diagnostic: string } } | undefined)[] = new Array(images.length)
+          let cursor = 0
+          const stage = async (entry: typeof reserved[number]): Promise<Staged> => {
+            const image = entry.image
+            const prepared = image.file
+            if (!(imageMimes as readonly string[]).includes(prepared.type) || prepared.size < 1 || prepared.size > appearanceLimits.assetBytes) throw new Error(canvasCopy.unsupportedImage)
+            const bitmap = await createImageBitmap(prepared)
+            try {
+              if (bitmap.width !== image.width || bitmap.height !== image.height) throw new Error(canvasCopy.unsupportedImage)
+              const bytes = new Uint8Array(await prepared.arrayBuffer())
+              let binary = ''
+              for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+              const mime = prepared.type as ImageMime
+              const namedExtension = /\.([A-Za-z0-9]+)$/.exec(prepared.name)?.[1]?.toLowerCase()
+              const extensionByMime: Record<ImageMime, ImageExtension> = { 'image/avif': 'avif', 'image/gif': 'gif', 'image/jpeg': namedExtension === 'jpg' ? 'jpg' : 'jpeg', 'image/png': 'png', 'image/webp': 'webp' }
+              const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(value => value.toString(16).padStart(2, '0')).join('')
+              const asset: ImageAssetReference = { id: entry.assetId, name: prepared.name.slice(0, 256) || 'Image', mime, extension: extensionByMime[mime], width: bitmap.width, height: bitmap.height, bytes: bytes.length, sha256: digest }
+              validateImageAssetReference(asset)
+              const localPreview: EditorAssetPreview = { assetId: asset.id, sha256: asset.sha256, mime: asset.mime, data: btoa(binary) }
+              const uploaded = options.uploadImage ? await options.uploadImage({ fileId: capturedFileId, asset, bytes }) : { asset, preview: localPreview }
+              validateImageAssetReference(uploaded.asset)
+              if (!sameAssetReference(uploaded.asset, asset) || uploaded.preview.data !== localPreview.data) throw new Error(canvasCopy.unsupportedImage)
+              validateAssetPreview(uploaded.asset, uploaded.preview)
+              return { asset: uploaded.asset, preview: uploaded.preview, nodeId: entry.nodeId, fillId: entry.fillId, sourceName: image.file.name || 'Image' }
+            } finally { bitmap.close() }
+          }
+          const workers = Array.from({ length: Math.min(4, images.length) }, async () => {
+            while (cursor < images.length) {
+              const index = cursor++
+              const entry = reserved[index]!
+              try { results[index] = { staged: await stage(entry) } }
+              catch (error) { results[index] = { failure: { name: entry.image.file.name, diagnostic: error instanceof Error ? error.message : canvasCopy.unsupportedImage } } }
+            }
+          })
+          await Promise.all(workers)
+          const current = backing.getState()
+          const authorityChanged = generation !== capturedGeneration || current.file?.fileId !== capturedFileId || current.file?.revision !== capturedRevision || current.pageId !== capturedPageId || current.readOnly || persistenceBlocked || JSON.stringify(current.selection) !== JSON.stringify(capturedSelection)
+          const failures = results.flatMap(result => result && 'failure' in result ? [result.failure] : [])
+          if (authorityChanged || !current.file) return { inserted: [] as string[], failures: [...failures, ...results.flatMap((result, index) => result && 'staged' in result ? [{ name: images[index]!.file.name, diagnostic: 'The canvas changed before the images were ready.' }] : [])] }
+          const staged = results.flatMap(result => result && 'staged' in result ? [result.staged] : [])
+          if (!staged.length) return { inserted: [] as string[], failures }
+          let plan: ReturnType<typeof planClipboardImageInsertion>
+          try {
+            const insertionIds = staged.flatMap(item => [item.nodeId, item.fillId])
+            plan = planClipboardImageInsertion(current.file, current.pageId!, staged.map(item => item.asset), {
+              center: capturedCenter,
+              visibleSize: capturedVisibleSize,
+              selection: current.selection,
+              containSelectionAtCenter: Boolean(insertionPoint),
+            }, () => insertionIds.shift()!, current.atoms)
+          } catch (error) {
+            const diagnostic = error instanceof Error ? error.message : canvasCopy.imageFailed
+            return { inserted: [] as string[], failures: [...failures, ...staged.map(item => ({ name: item.sourceName, diagnostic }))] }
+          }
+          for (const item of staged) assetPreviewData.set(item.asset.id, validateAssetPreview(item.asset, item.preview))
+          if (!execute(plan.command, [...plan.selection])) {
+            for (const item of staged) assetPreviewData.delete(item.asset.id)
+            return { inserted: [] as string[], failures: [...failures, ...staged.map(item => ({ name: item.asset.name, diagnostic: backing.getState().error ?? canvasCopy.imageFailed }))] }
+          }
+          return { inserted: [...plan.selection], failures }
+        },
+        /** Imports verified clipboard sidecars before attaching assets and nodes in one semantic history entry. */
+        insertInternalClipboard: async (payload: InternalClipboardPayload, previews: InternalClipboardAssetPreviews, placement: InternalPastePlacement = {}, replaceGeometry?: InternalReplaceGeometry) => {
+          const captured = backing.getState()
+          if (!captured.file || !captured.pageId || captured.readOnly || persistenceBlocked) return { inserted: [] as string[], error: clipboardCopy.internalRejected }
+          const capturedGeneration = generation
+          const capturedFileId = captured.file.fileId
+          const capturedRevision = captured.file.revision
+          const capturedPageId = captured.pageId
+          const capturedLayoutGeneration = captured.layoutGeneration
+          const capturedSelection = [...captured.selection]
+          const crossFile = payload.source.fileId !== capturedFileId
+          const sourceAssets = payload.assets ?? {}
+          const sourceIds = Object.keys(sourceAssets)
+          type StagedAsset = Readonly<{ sourceId: string; asset: ImageAssetReference; preview: EditorAssetPreview }>
+          const staged: StagedAsset[] = []
+          try {
+            const planFor = (file: FileDocument, pageId: string, selection: readonly string[], atoms: readonly Atom[], verifiedAssets: VerifiedCrossFileAssets) => replaceGeometry
+              ? planValidatedInternalReplace(file, pageId, payload, selection, makeId, replaceGeometry, atoms, verifiedAssets)
+              : planValidatedInternalPaste(file, pageId, payload, makeId, placement, selection, atoms, verifiedAssets)
+            const reserved = new Set(Object.keys(captured.file.assets ?? {}))
+            const prepared: Readonly<{ sourceId: string; asset: ImageAssetReference; bytes: Uint8Array; preview: EditorAssetPreview }>[] = []
+            if (crossFile) {
+              for (const sourceId of sourceIds) {
+                const source = sourceAssets[sourceId]!
+                const preview = previews[sourceId]
+                if (!preview || preview.assetId !== sourceId || preview.sha256 !== source.sha256 || preview.mime !== source.mime) throw new Error('Cross-file image paste needs verified source bytes')
+                const bytes = decodeAssetPreview(source, preview)
+                const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.slice().buffer as ArrayBuffer))].map(value => value.toString(16).padStart(2, '0')).join('')
+                if (digest !== source.sha256) throw new Error('Cross-file image paste needs verified source bytes')
+                let targetId = makeId()
+                while (reserved.has(targetId)) targetId = makeId()
+                reserved.add(targetId)
+                const asset = validateImageAssetReference({ ...structuredClone(source), id: targetId })
+                prepared.push({ sourceId, asset, bytes, preview: { assetId: asset.id, sha256: asset.sha256, mime: asset.mime, data: preview.data } })
+              }
+              if (Object.keys(previews).some(id => !sourceAssets[id])) throw new Error('Cross-file image paste needs verified source bytes')
+              const preflightAssets = Object.fromEntries(prepared.map(item => [item.sourceId, item.asset])) as VerifiedCrossFileAssets
+              planFor(captured.file, captured.pageId, captured.selection, captured.atoms, preflightAssets)
+              for (const item of prepared) {
+                const uploaded = options.uploadImage ? await options.uploadImage({ fileId: capturedFileId, asset: item.asset, bytes: item.bytes }) : { asset: item.asset, preview: item.preview }
+                validateImageAssetReference(uploaded.asset)
+                if (!sameAssetReference(uploaded.asset, item.asset) || uploaded.preview.data !== item.preview.data) throw new Error('Cross-file image paste needs verified source bytes')
+                validateAssetPreview(uploaded.asset, uploaded.preview)
+                staged.push({ sourceId: item.sourceId, asset: uploaded.asset, preview: uploaded.preview })
+              }
+            }
+            const current = backing.getState()
+            const authorityChanged = generation !== capturedGeneration || current.file?.fileId !== capturedFileId || current.file?.revision !== capturedRevision
+              || current.pageId !== capturedPageId || current.layoutGeneration !== capturedLayoutGeneration || current.readOnly || persistenceBlocked
+              || JSON.stringify(current.selection) !== JSON.stringify(capturedSelection)
+            if (authorityChanged || !current.file || !current.pageId) throw new Error(clipboardCopy.canvasChanged)
+            const verifiedAssets = Object.fromEntries(staged.map(item => [item.sourceId, item.asset]))
+            const plan = planFor(current.file, current.pageId, current.selection, current.atoms, verifiedAssets)
+            for (const item of staged) assetPreviewData.set(item.asset.id, validateAssetPreview(item.asset, item.preview))
+            if (!execute(plan.command, [...plan.selection])) {
+              for (const item of staged) assetPreviewData.delete(item.asset.id)
+              throw new Error(backing.getState().error ?? clipboardCopy.internalRejected)
+            }
+            return { inserted: [...plan.selection], error: null }
+          } catch (error) {
+            for (const item of staged) assetPreviewData.delete(item.asset.id)
+            return { inserted: [] as string[], error: error instanceof Error ? error.message : clipboardCopy.internalRejected }
+          }
+        },
         remove: (assetId: string) => execute({ type: 'asset.detach', assetId }),
       },
       /** Draws a primitive at parent-local coordinates (world when no parent). */
@@ -1384,7 +2218,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         const parent = state.file.nodes[parentId]
         const parentDisplay = parent && parent.type !== 'root' ? parent.layout?.container?.display : undefined
         const layout: NodeLayout | undefined = parentDisplay && parentDisplay !== 'freeform' ? { item: { position: { mode: 'flow' } } } : undefined
-        const item: FileNode = { id, type: kind, name: elementNames[kind], styles: { left: Math.round(bounds.x), top: Math.round(bounds.y), width: bounds.width === undefined ? size.width : Math.max(1, Math.round(bounds.width)), height: bounds.height === undefined ? size.height : Math.max(1, Math.round(bounds.height)), ...(kind === 'frame' ? { overflow: 'clip' as const } : {}) }, appearance: defaultAppearance(kind, makeId, textMode), ...(kind === 'text' ? { text: 'Text', ...legacyTextProperties() } : {}), ...(layout ? { layout } : {}) }
+        const item: FileNode = { id, type: kind, name: elementNames[kind], styles: { relativeTransform: [1, 0, 0, 1, Math.round(bounds.x), Math.round(bounds.y)], width: bounds.width === undefined ? size.width : Math.max(1, Math.round(bounds.width)), height: bounds.height === undefined ? size.height : Math.max(1, Math.round(bounds.height)), ...(kind === 'frame' ? { overflow: 'clip' as const } : {}) }, appearance: defaultAppearance(kind, makeId, textMode), ...(kind === 'text' ? { text: 'Text', ...legacyTextProperties() } : {}), ...(layout ? { layout } : {}) }
         return execute({ type: 'node.insert', node: item, placement: { parentId } }, [id])
       },
       /** Creates Paper-style empty text and starts one grouped creation/edit transaction. */
@@ -1409,8 +2243,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           textStyle: legacyTextProperties().textStyle,
           textSizing,
           styles: {
-            left: Math.round(bounds.x),
-            top: Math.round(bounds.y),
+            relativeTransform: [1, 0, 0, 1, Math.round(bounds.x), Math.round(bounds.y)],
             // The schema requires positive measured bounds. Fit/Fit, not this floor, owns point-text layout.
             width: intent === 'point' ? 1 : Math.max(1, Math.round(bounds.width!)),
             height: intent === 'point' ? 1 : Math.max(1, Math.round(bounds.height!)),
@@ -1440,10 +2273,41 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           return true
         } catch (error) { textSession = null; return fail(error) }
       },
+      /** Inserts one clipboard text node at the visible canvas center as one semantic history step. */
+      insertClipboardText: (text: string, insertionPoint?: Point) => {
+        const state = backing.getState()
+        if (!state.file || !state.pageId || textSession || !text || text.length > 10_000) return false
+        const id = makeId()
+        const textMode = options.editorMode?.() ?? 'light'
+        const center = insertionPoint ?? componentInsertionPoint(state)
+        const candidate: FileNode = {
+          id,
+          type: 'text',
+          name: elementNames.text,
+          text,
+          textStyle: legacyTextProperties().textStyle,
+          textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } },
+          styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 1, height: 1 },
+          appearance: defaultAppearance('text', makeId, textMode),
+        }
+        const parent = nearestCompatiblePasteParent(state.file, state.pageId, state.selection, [candidate], state.atoms, center)
+        const parentId = parent.id
+        const parentWorld = parent.type === 'root' ? identityTransform : nodeWorldTransform(state.file, parentId)
+        const inverse = invertTransform(parentWorld)
+        if (!inverse) return false
+        const local = transformPoint(inverse, center)
+        const display = parent.type === 'root' ? 'freeform' : parent.layout?.container?.display ?? 'freeform'
+        const node: FileNode = {
+          ...candidate,
+          styles: { ...candidate.styles, relativeTransform: [1, 0, 0, 1, Math.round(local.x), Math.round(local.y)] },
+          ...(display === 'freeform' ? {} : { layout: { item: { position: { mode: 'flow' as const } } } }),
+        }
+        return execute({ type: 'node.insert', node, placement: { parentId } }, [id])
+      },
       /** Reparents a primitive (null parent means the page root) keeping its world position. */
       reparent: (nodeId: string, parentId: string | null) => {
         const state = backing.getState()
-        if (!state.file || !isPrimitive(state.file.nodes[nodeId]) || parentId === nodeId) return false
+        if (!state.file || !isPrimitive(state.file.nodes[nodeId]) || parentId === nodeId || isProtectedInstanceDescendant(state.file, nodeId)) return false
         const target = parentId ?? root(state)!
         if (parentId && state.file.nodes[parentId]?.type !== 'frame') return false
         return execute({ type: 'node.reparent', nodeId, placement: { parentId: target }, preserveWorldPosition: true })
@@ -1472,7 +2336,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       /** Commits freeform moves in world coordinates as one history step. Primitives may change parent; component roots leave the host flow. */
       commitMove: (moves: MoveCommit[], settings: { duplicate?: boolean } = {}): PersistenceCommit => {
         const state = backing.getState()
-        if (!state.file) return noPersistenceCommit
+        if (!state.file || moves.some(move => isProtectedInstanceDescendant(state.file!, move.id))) return noPersistenceCommit
         const commands: FileCommand[] = []
         const movedIds: Record<string, string> = {}
         if (settings.duplicate) {
@@ -1482,6 +2346,7 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
             const subtree = [move.id, ...descendantsOf(state.file, move.id)]
             const ids = Object.fromEntries(subtree.map(id => [id, makeId()]))
             commands.push({ type: 'node.duplicate', nodeId: move.id, ids })
+            commands.push(...duplicatedInstanceCommands(state.file, ids))
             movedIds[move.id] = ids[move.id]!
           }
         }
@@ -1493,9 +2358,10 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
             const parentId = move.parentId === undefined ? parentOf(move.id) : move.parentId
             if (parentId && parentId !== root(state) && state.file.nodes[parentId]?.type !== 'frame') continue
             const target = parentId ?? root(state)!
-            const parentWorld = target === root(state) ? { x: 0, y: 0 } : worldPosition(state.file, target)
+            const relativeTransform = movedPrimitiveMatrix(state.file, move.id, target, Math.round(move.x), Math.round(move.y))
+            if (!relativeTransform) continue
             if (parentOf(move.id) !== target) commands.push({ type: 'node.reparent', nodeId: movedId, placement: { parentId: target } })
-            commands.push({ type: 'node.setStyles', nodeId: movedId, styles: { left: Math.round(move.x - parentWorld.x), top: Math.round(move.y - parentWorld.y) } })
+            commands.push({ type: 'node.setStyles', nodeId: movedId, styles: { relativeTransform } })
             continue
           }
           if (item.type !== 'component' || !isRootChild(move.id)) continue
@@ -1523,7 +2389,12 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         if (!state.file || state.file.pages.length < 2) return false
         const index = state.file.pages.findIndex(page => page.id === pageId)
         const fallback = state.file.pages[index === 0 ? 1 : index - 1]!.id
-        return execute({ type: 'page.delete', pageId }, [], state.pageId === pageId ? fallback : state.pageId!)
+        const page = state.file.pages[index]
+        if (!page) return false
+        const removed = new Set(descendantsOf(state.file, page.rootNodeId))
+        const commands = semanticCleanupCommands(state.file, removed)
+        commands.push({ type: 'page.delete', pageId })
+        return execute(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, [], state.pageId === pageId ? fallback : state.pageId!)
       },
       duplicatePage: (pageId: string): string | null => {
         const state = backing.getState()
@@ -1531,7 +2402,8 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         if (!state.file || !source) return null
         const ids = Object.fromEntries(descendantsOf(state.file, source.rootNodeId).map(id => [id, makeId()]))
         const page = { id: makeId(), name: uniqueName(state.file.pages.map(candidate => candidate.name), `${source.name} copy`), rootNodeId: makeId() }
-        return execute({ type: 'page.duplicate', pageId, page, ids }, [], page.id) ? page.id : null
+        const commands: FileCommand[] = [{ type: 'page.duplicate', pageId, page, ids }, ...duplicatedInstanceCommands(state.file, ids)]
+        return execute(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, [], page.id) ? page.id : null
       },
       reorderPage: (pageId: string, index: number) => execute({ type: 'page.reorder', pageId, index }),
       // Theme ------------------------------------------------------------------------------------------------------
@@ -1555,10 +2427,25 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           }
           return executeBatch(commands) ? commands.length : 0
         },
-        createToken: (color: Color = { kind: 'hex', hex: '#d9d9d9' }): string | null => {
+        createToken: (typeOrColor: TokenType | Color = 'color', fallbackColor: Color = { kind: 'hex', hex: '#d9d9d9' }): string | null => {
           const state = backing.getState()
           if (!state.file) return null
-          const token: ColorToken = { id: makeId(), type: 'color', name: tokenName(state.file, 'Untitled'), orderKey: orderKeyBetween(lastTokenKey(state.file), null), value: { kind: 'literal', color } }
+          const type: TokenType = typeof typeOrColor === 'string' ? typeOrColor : 'color'
+          const color = typeof typeOrColor === 'string' ? fallbackColor : typeOrColor
+          const defaults: Record<Exclude<TokenType, 'color'>, string | number> = {
+            opacity: 0.5,
+            radius: '8px',
+            spacing: '8px',
+            container: '1200px',
+            breakpoint: '768px',
+            fontFamily: 'Inter',
+            fontWeight: 400,
+            fontSize: '16px',
+            lineHeight: 1.5,
+            letterSpacing: '0px',
+          }
+          const base = { id: makeId(), name: tokenName(state.file, 'Untitled'), orderKey: orderKeyBetween(lastTokenKey(state.file), null) }
+          const token: FileToken = type === 'color' ? { ...base, type, value: { kind: 'literal', color } } : { ...base, type, value: { kind: 'literal', value: defaults[type] } }
           return execute({ type: 'token.create', token }) ? token.id : null
         },
         renameToken: (tokenId: string, name: string) => { const next = name.trim(); return next ? execute({ type: 'token.rename', tokenId, name: next }) : false },

@@ -3,6 +3,7 @@ import { legacyTextProperties, validateFileDocument } from '../src/file-document
 import type { Appearance, ColorValue, ComponentNode, FileDocument, ImageAssetReference, Paint, PrimitiveNode } from '../src/file-document.js'
 import { projectPreviewPage } from '../src/file-preview.js'
 import type { Atom } from '../src/types.js'
+import { matrixFromLegacyPose } from '../src/layout-pose.js'
 
 const card: Atom = { name: 'Card', kind: 'atom', componentId: 'sample-card', exportName: 'Card', path: 'src/atoms/Card.tsx', fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props: [{ name: 'children', type: 'ReactNode', optional: true }, { name: 'heading', type: 'ReactNode', optional: true }] }
 const button: Atom = { name: 'Button', kind: 'atom', componentId: 'sample-button', exportName: 'Button', path: 'src/atoms/Button.tsx', fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props: [{ name: 'children', type: 'ReactNode', optional: true }, { name: 'variant', type: '"primary" | "quiet" | undefined', optional: true }] }
@@ -22,7 +23,8 @@ const pixel = (id: string, sha256 = 'a'.repeat(64)): ImageAssetReference => ({ i
  * a half-opacity instance appearance with a red border on every side; caption has no appearance.
  */
 const fixture = (): FileDocument => validateFileDocument({
-  schemaVersion: 9,
+  schemaVersion: 12,
+  componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 9,
   pages: [{ id: 'page-1', name: 'Landing', rootNodeId: 'root-1' }, { id: 'page-2', name: 'Empty', rootNodeId: 'root-2' }],
@@ -34,10 +36,10 @@ const fixture = (): FileDocument => validateFileDocument({
     'btn-2': { ...buttonNode('btn-2', { variant: 'quiet' }), layout: { item: { position: { mode: 'flow' }, height: { value: { kind: 'px', value: 40 } } } } },
     title: buttonNode('title'),
     solo: { ...buttonNode('solo'), appearance: { opacity: 0.5, borders: { all: { color: lit('#ff0000'), width: 2, style: 'solid' } } } },
-    outer: primitive('outer', 'frame', { left: -50, top: 60, width: 400, height: 300, overflow: 'visible' }, { fills: [solid('outer:fill:1', tok('surface'))] }),
-    inner: primitive('inner', 'frame', { left: 12, top: 18, width: 100, height: 80 }, { fills: [solid('inner:fill:1', lit('#ABCDEF'))] }),
-    dot: primitive('dot', 'shape', { left: 4, top: 6, width: 8, height: 8, rotation: 45, flipX: true }, { fills: [{ id: 'dot:fill:1', type: 'gradient', shape: 'linear', angle: 90, center, length: 1, interpolation: 'srgb', stops: [{ id: 'b', position: 1, color: tok('surface') }, { id: 'a', position: 0, color: lit('#000000') }] }] }),
-    caption: { ...primitive('caption', 'text', { left: 0, top: 400, width: 200, height: 24 }), text: 'Welcome', ...legacyTextProperties() },
+    outer: primitive('outer', 'frame', { relativeTransform: [1, 0, 0, 1, -50, 60], width: 400, height: 300, overflow: 'visible' }, { fills: [solid('outer:fill:1', tok('surface'))] }),
+    inner: primitive('inner', 'frame', { relativeTransform: [1, 0, 0, 1, 12, 18], width: 100, height: 80 }, { fills: [solid('inner:fill:1', lit('#ABCDEF'))] }),
+    dot: primitive('dot', 'shape', { relativeTransform: matrixFromLegacyPose({ left: 4, top: 6, rotation: 45, flipX: true }, { width: 8, height: 8 }), width: 8, height: 8 }, { fills: [{ id: 'dot:fill:1', type: 'gradient', shape: 'linear', angle: 90, center, length: 1, interpolation: 'srgb', stops: [{ id: 'b', position: 1, color: tok('surface') }, { id: 'a', position: 0, color: lit('#000000') }] }] }),
+    caption: { ...primitive('caption', 'text', { relativeTransform: [1, 0, 0, 1, 0, 400], width: 200, height: 24 }), text: 'Welcome', ...legacyTextProperties() },
   },
   relationships: {
     card: { parentId: 'root-1', orderKey: 'U' },
@@ -106,10 +108,10 @@ describe('preview projection', () => {
   it('flattens primitives in pre-order with parent-local positions, clipping, text, and resolved appearance', () => {
     const { document } = projectPreviewPage(fixture(), 'page-1')!
     expect(document.canvas.elements).toStrictEqual([
-      { id: 'outer', kind: 'frame', name: 'outer name', x: -50, y: 60, width: 400, height: 300, rotation: 0, appearance: flat('#ffffff'), parentId: null, clip: false },
-      { id: 'inner', kind: 'frame', name: 'inner name', x: 12, y: 18, width: 100, height: 80, rotation: 0, appearance: flat('#abcdef'), parentId: 'outer', clip: true },
-      { id: 'dot', kind: 'shape', name: 'dot name', x: 4, y: 6, width: 8, height: 8, rotation: 45, flipX: true, appearance: ramp('#ffffff'), parentId: 'inner' },
-      { id: 'caption', kind: 'text', name: 'caption name', x: 0, y: 400, width: 200, height: 24, rotation: 0, text: 'Welcome', ...legacyTextProperties(), parentId: null },
+      { id: 'outer', kind: 'frame', name: 'outer name', relativeTransform: [1, 0, 0, 1, -50, 60], width: 400, height: 300, appearance: flat('#ffffff'), parentId: null, clip: false },
+      { id: 'inner', kind: 'frame', name: 'inner name', relativeTransform: [1, 0, 0, 1, 12, 18], width: 100, height: 80, appearance: flat('#abcdef'), parentId: 'outer', clip: true },
+      { id: 'dot', kind: 'shape', name: 'dot name', relativeTransform: matrixFromLegacyPose({ left: 4, top: 6, rotation: 45, flipX: true }, { width: 8, height: 8 }), width: 8, height: 8, appearance: ramp('#ffffff'), parentId: 'inner' },
+      { id: 'caption', kind: 'text', name: 'caption name', relativeTransform: [1, 0, 0, 1, 0, 400], width: 200, height: 24, text: 'Welcome', ...legacyTextProperties(), parentId: null },
     ])
     expect(document).not.toHaveProperty('assets')
   })
@@ -136,7 +138,7 @@ describe('preview projection', () => {
     })
     expect(byId.inner!.layout).toStrictEqual({ mode: 'flow', declarations: { 'flex-shrink': '0' } })
     expect(byId.dot!.layout).toStrictEqual({ mode: 'absolute', declarations: { position: 'absolute', left: '7px', top: '25%' } })
-    expect(byId.dot).toMatchObject({ rotation: 45, flipX: true })
+    expect(byId.dot!.relativeTransform).toStrictEqual(matrixFromLegacyPose({ left: 4, top: 6, rotation: 45, flipX: true }, { width: 8, height: 8 }))
     expect(byId.caption).not.toHaveProperty('layout')
   })
 
@@ -157,7 +159,7 @@ describe('preview projection', () => {
     const file = fixture()
     file.assets = { photo: pixel('photo', '1'.repeat(64)), spare: pixel('spare'), other: pixel('other', '2'.repeat(64)) }
     ;(file.nodes.inner as PrimitiveNode).appearance = { fills: [solid('inner:fill:1', lit('#abcdef')), { id: 'inner:fill:2', type: 'image', assetId: 'photo', fit: 'cover' }] }
-    file.nodes.away = primitive('away', 'rectangle', { left: 0, top: 0, width: 10, height: 10 }, { fills: [{ id: 'away:fill:1', type: 'image', assetId: 'other', fit: 'tile' }] })
+    file.nodes.away = primitive('away', 'rectangle', { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 }, { fills: [{ id: 'away:fill:1', type: 'image', assetId: 'other', fit: 'tile' }] })
     file.relationships.away = { parentId: 'root-2', orderKey: 'V' }
     const { document } = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!
     expect(document.assets).toStrictEqual({ photo: { name: 'photo.png', mime: 'image/png', extension: 'png', bytes: 3, width: 1, height: 1, sha256: '1'.repeat(64) } })
@@ -186,5 +188,58 @@ describe('preview projection', () => {
   it('projects an empty page and returns null for an unknown page', () => {
     expect(projectPreviewPage(fixture(), 'page-2')).toStrictEqual({ document: { version: 2, revision: 9, rootIds: [], nodes: {}, frame: { name: 'Empty', width: 400, height: 520, direction: 'column', gap: 16, padding: 24, clip: false }, canvas: { elements: [] } }, layout: [], themeDiagnostics: [] })
     expect(projectPreviewPage(fixture(), 'page-x')).toBeNull()
+  })
+
+  it('COMP-V2-UI-003 projects model defaults and one instance override by source prop name', () => {
+    const file = fixture()
+    file.componentModel = {
+      definitions: {
+        'sample-button': {
+          id: 'sample-button', name: 'Button', source: { kind: 'code', bindingId: 'button-binding' }, revision: 0,
+          properties: [
+            { id: 'label', name: 'children', type: 'text', defaultValue: 'Default label' },
+            { id: 'tone', name: 'variant', type: 'variant', defaultValueId: 'primary', values: [{ id: 'primary', name: 'Primary' }, { id: 'quiet', name: 'Quiet' }] },
+          ], materials: [], parts: [], interactions: [],
+        },
+      },
+      instances: {
+        'btn-1': { id: 'btn-1', componentId: 'sample-button', values: { label: 'Only one', tone: 'quiet' } },
+        'btn-2': { id: 'btn-2', componentId: 'sample-button', values: {} },
+      },
+    }
+    const { document } = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!
+    expect(document.nodes['btn-1']!.props).toEqual({ children: 'Only one', variant: 'quiet' })
+    expect(document.nodes['btn-2']!.props).toEqual({ variant: 'primary', children: 'Default label' })
+  })
+
+  it('COMP-V2-UI-009 projects authored hover and press states onto the bound canvas layer', () => {
+    const file = fixture()
+    const white = { fills: [solid('default-fill', lit('#ffffff'))] }
+    const red = { fills: [solid('hover-fill', lit('#ff0000'))] }
+    const blue = { fills: [solid('press-fill', lit('#0000ff'))] }
+    file.componentModel = {
+      definitions: {
+        card: {
+          id: 'card', name: 'Canvas card', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 1,
+          properties: [{
+            id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', currentValueId: 'default',
+            values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }, { id: 'pressed', name: 'Pressed' }],
+            binding: { kind: 'variant', nodeId: 'inner', appearances: { default: white, hover: red, pressed: blue } },
+          }],
+          materials: [], parts: [],
+          interactions: [
+            { id: 'hover-state', trigger: 'pointer-hover', propertyId: 'state', valueId: 'hover', transition: { type: 'smart-animate', durationMs: 180, easing: 'ease-out' } },
+            { id: 'press-state', trigger: 'pointer-press', propertyId: 'state', valueId: 'pressed' },
+          ],
+        },
+      },
+      instances: {},
+    }
+    const projected = projectPreviewPage(validateFileDocument(file, atoms), 'page-1')!.document.canvas.elements.find(element => element.id === 'inner')
+    expect(projected?.interactions).toStrictEqual([
+      { trigger: 'pointer-hover', appearance: flat('#ff0000'), transition: { type: 'smart-animate', durationMs: 180, easing: 'ease-out' } },
+      { trigger: 'pointer-press', appearance: flat('#0000ff') },
+    ])
+    expect(projected?.appearance).toStrictEqual(flat('#abcdef'))
   })
 })

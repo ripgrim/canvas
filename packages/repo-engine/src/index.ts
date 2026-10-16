@@ -12,6 +12,9 @@ import { fileFromLegacyDocument, loadFile, readDocumentState, saveDocument as pe
 import { designThemesFromTokens } from './design-themes.js'
 import { legacyPageDocument, pageNodes } from './file-document.js'
 import type { FileDocument } from './file-document.js'
+import { planBlumeComponentDocs } from './component-docs-blume.js'
+import type { BlumeComponentDocsLayout, BlumeComponentExample } from './component-docs-blume.js'
+import type { ComponentDocsCatalog } from './component-model.js'
 export * from './design-themes.js'
 export * from './file-document.js'
 export * from './file-migration.js'
@@ -20,7 +23,11 @@ export * from './color.js'
 export * from './order-keys.js'
 export * from './node-theme.js'
 export * from './component-model.js'
+export * from './component-docs-blume.js'
+export * from './component-docs-adapter.js'
+export * from './hosted-source-review.js'
 export * from './layout.js'
+export * from './transform-matrix.js'
 export type { Rect as LayoutRect } from './flex-inference.js'
 export * from './grid-tracks.js'
 export * from './grid-placement.js'
@@ -123,6 +130,16 @@ export class RepoEngine {
     return Object.fromEntries(Object.entries(inputs).map(([file, value]) => [file, hash(value)]))
   }
 
+  private async transactionSources(paths: readonly string[] = []): Promise<Record<string, string>> {
+    const sources = await sourceFiles(this.root)
+    for (const relative of paths) {
+      await confined(this.root, relative)
+      const value = await readOptional(this.root, relative)
+      if (value !== null) sources[relative] = value
+    }
+    return sources
+  }
+
   private async snapshot(): Promise<ProjectSnapshot> {
     const files = await sourceFiles(this.root)
     const sourceHashes = await this.inputHashes(files)
@@ -137,7 +154,8 @@ export class RepoEngine {
     if (unresolved.length) this.conflict = { kind: 'identity', message: 'A component binding needs review before saving.', paths: unresolved.map(atom => atom.path) }
     for (const transaction of this.prepared.values()) {
       if (transaction.consumed) continue
-      const changes = changedPaths(transaction.inputs, sourceHashes)
+      const current = await this.inputHashes(await this.transactionSources(transaction.public.files.map(file => file.path)))
+      const changes = changedPaths(transaction.inputs, current)
       if (changes.length) this.conflict = { kind: 'external-change', message: 'Source changed. Review a new patch before saving.', paths: changes }
     }
     const tokens: ProjectSnapshot['tokens'] = []
@@ -184,9 +202,9 @@ export class RepoEngine {
     if (this.metadata.atoms.some(atom => atom.status !== 'bound')) throw new Error('Resolve component identity before preparing a source change')
   }
 
-  private async prepare(scope: PreparedChange['scope'], summary: string, changes: { path: string; after: string | null; expectedBefore: string | null }[], promotionName: string | null = null, reversal?: { action: 'undo' | 'redo'; composition: Composition | null; binding: Atom | null }): Promise<PreparedChange> {
+  private async prepare(scope: PreparedChange['scope'], summary: string, changes: { path: string; after: string | null; expectedBefore: string | null }[], promotionName: string | null = null, reversal?: { action: 'undo' | 'redo'; composition: Composition | null; binding: Atom | null }, validation: 'preview' | 'documentation' = 'preview'): Promise<PreparedChange> {
     this.assertWritable()
-    const sources = await sourceFiles(this.root)
+    const sources = await this.transactionSources(changes.map(change => change.path))
     const inputs = await this.inputHashes(sources)
     const files = changes.map(change => {
       const before = sources[change.path] ?? null
@@ -218,13 +236,17 @@ export class RepoEngine {
       ...selectedBinding,
       registry: [{ ...selectedBinding, props: {}, slots: [] }],
     }
-    if (this.options.validatePreview) await this.options.validatePreview({ root: this.root, files: staged, binding })
+    if (validation === 'preview' && this.options.validatePreview) await this.options.validatePreview({ root: this.root, files: staged, binding })
+    if (validation === 'documentation' && this.options.validateDocumentation) await this.options.validateDocumentation({ root: this.root, files: staged, changedPaths: files.map(file => file.path) })
+    const validationAvailable = validation === 'documentation' ? Boolean(this.options.validateDocumentation) : Boolean(this.options.validatePreview)
+    const validationName = validation === 'documentation' ? 'Documentation build' : 'Preview build'
+    const validationDetail = validation === 'documentation' ? 'The staged documentation candidate built successfully.' : 'The preview adapter built the staged candidate successfully.'
     const change: PreparedChange = {
       id, approvalDigest: '', scope, summary, files,
       validation: [
         { name: 'Parse', status: 'passed', detail: 'Changed TSX and CSS parsed successfully.' },
         { name: 'Types', status: 'passed', detail: 'The staged source passed TypeScript diagnostics.' },
-        { name: 'Preview build', status: this.options.validatePreview ? 'passed' : 'not-run', detail: this.options.validatePreview ? 'The preview adapter built the staged candidate successfully.' : 'Connect a preview validator before saving.' },
+        { name: validationName, status: validationAvailable ? 'passed' : 'not-run', detail: validationAvailable ? validationDetail : `Connect a ${validation === 'documentation' ? 'documentation' : 'preview'} validator before saving.` },
       ],
     }
     change.approvalDigest = digest(change, inputs, this.metadata.composition)
@@ -280,13 +302,26 @@ export class RepoEngine {
     })
   }
 
+  prepareBlumeDocs(catalog: ComponentDocsCatalog, examples: readonly BlumeComponentExample[], layout: Omit<BlumeComponentDocsLayout, 'navigationSource'>): Promise<PreparedChange> {
+    return this.serial(async () => {
+      await this.snapshot()
+      const validated = planBlumeComponentDocs(catalog, examples, { ...layout, navigationSource: null })
+      const navigationPath = validated.files.find(file => file.role === 'navigation')?.path
+      if (!navigationPath) throw new Error('Blume navigation output is missing')
+      const navigationSource = await readOptional(this.root, navigationPath)
+      const plan = planBlumeComponentDocs(catalog, examples, { ...layout, navigationSource })
+      const changes = await Promise.all(plan.files.map(async file => ({ path: file.path, expectedBefore: await readOptional(this.root, file.path), after: file.content })))
+      return this.prepare('Shared component', 'Update component documentation', changes, null, undefined, 'documentation')
+    })
+  }
+
   savePrepared(id: string, approvalDigest: string): Promise<SaveResult> {
     return this.serial(async () => {
       const transaction = this.prepared.get(id)
       if (!transaction || transaction.consumed || transaction.digest !== approvalDigest || digest(transaction.public, transaction.inputs, this.metadata.composition) !== approvalDigest) throw new Error('Approval is missing, expired, or does not match this change')
       if (transaction.public.validation.some(check => check.status !== 'passed')) throw new Error('Complete preview build validation before saving')
       this.assertWritable()
-      const sources = await sourceFiles(this.root)
+      const sources = await this.transactionSources(transaction.public.files.map(file => file.path))
       const changes = changedPaths(transaction.inputs, await this.inputHashes(sources))
       if (changes.length) {
         transaction.consumed = true
@@ -300,7 +335,7 @@ export class RepoEngine {
       const metadataBefore = structuredClone(this.metadata)
       transaction.consumed = true
       try {
-        const lockedInputs = await sourceFiles(this.root)
+        const lockedInputs = await this.transactionSources(transaction.public.files.map(file => file.path))
         if (changedPaths(transaction.inputs, await this.inputHashes(lockedInputs)).length) throw new Error('Source changed while acquiring the transaction lock')
         await atomicText(this.root, '.design-editor/transaction.json', JSON.stringify(journal, null, 2))
         for (const file of transaction.public.files) {

@@ -13,6 +13,8 @@ import type { LayoutContainer, NodeLayout, ParentLayoutContext, PositionMode } f
 import { assetReferences, childrenOf, flowHost, hostOrigin, nodeAppearance, nodeChildDisplay, pageRoot, projectAppearance, resolveColorValue } from './file-document.js'
 import type { FileDocument, ImageAssetReference, PreviewAppearance, SourcePalette } from './file-document.js'
 import type { TextSizing, TextStyle } from './text.js'
+import { resolveComponentInstanceValues } from './component-model.js'
+import type { Appearance } from './appearance.js'
 
 /** The effective design theme of one component instance; `explicit` marks the root where the runtime stamps the attribute. */
 export type PreviewNodeTheme = { mode: ColorScheme; designThemeId: string; attribute: string | null; colorScheme: ColorScheme; explicit: boolean }
@@ -24,11 +26,24 @@ export type ThemeDiagnostic = { nodeId: string; reason: 'missing-theme' | 'ambig
 const isThemeContext = (value: SourcePalette | ThemeProjectionContext): value is ThemeProjectionContext => typeof (value as ThemeProjectionContext).palette === 'function' && Array.isArray((value as ThemeProjectionContext).themes)
 const baseTheme: DesignTheme = { id: defaultDesignThemeId, name: 'Default', selector: ':root', attribute: null, colorScheme: 'light' }
 export type PreviewPrimitiveLayout = { mode: PositionMode; declarations: Record<string, string> }
-export type PreviewPageElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; x: number; y: number; width: number; height: number; rotation: number; flipX?: boolean; flipY?: boolean; text?: string; textStyle?: TextStyle; textSizing?: TextSizing; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance; layout?: PreviewPrimitiveLayout }
+export type PreviewPageInteraction = { trigger: 'pointer-hover' | 'pointer-press'; appearance: PreviewAppearance; transition?: { type: 'instant' | 'smart-animate'; durationMs?: number; easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' } }
+export type PreviewPageElement = { id: string; kind: 'frame' | 'rectangle' | 'shape' | 'shader' | 'text'; name: string; relativeTransform: readonly [number, number, number, number, number, number]; width: number; height: number; text?: string; textStyle?: TextStyle; textSizing?: TextSizing; parentId: string | null; clip?: boolean; appearance?: PreviewAppearance; interactions?: PreviewPageInteraction[]; layout?: PreviewPrimitiveLayout }
 export type PreviewPageAsset = Omit<ImageAssetReference, 'id'>
 export type PreviewPageDocument = { version: 2; revision: number; rootIds: string[]; nodes: Record<string, PreviewPageNode>; frame: { name?: string; width: number; height: number; direction: 'column' | 'row'; gap: number; padding: number; clip: boolean }; canvas: { elements: PreviewPageElement[] }; background?: string; assets?: Record<string, PreviewPageAsset> }
 export type PreviewLayoutEntry = { nodeId: string; mode: DocumentNodeLayout['mode']; x: number; y: number; order: number; width?: number; height?: number; declarations?: Record<string, string> }
 const kebab = (name: string) => name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)
+const componentProps = (file: FileDocument, nodeId: string, stored: Record<string, DocumentValue>): Record<string, DocumentValue> => {
+  const instance = file.componentModel.instances[nodeId]
+  const definition = instance ? file.componentModel.definitions[instance.componentId] : undefined
+  if (!instance || !definition) return structuredClone(stored)
+  const resolved = resolveComponentInstanceValues(definition, instance.values)
+  const projected = { ...stored }
+  for (const property of definition.properties) {
+    if (property.type === 'slot') continue
+    projected[property.name] = resolved[property.id]!
+  }
+  return projected
+}
 /**
  * Layout longhands for one node as kebab-case declarations. Nodes that carry only the five-field placement send none,
  * so documents authored before schema v4 reach the runtime unchanged; px insets and px sizes travel in the placement
@@ -129,10 +144,9 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
     : context
   const resolvedBackground = page.background ? resolveColorValue(file.theme, page.background, pagePalette) : null
   const hasAsset = (assetId: string) => Boolean(file.assets?.[assetId])
-  const appearanceOf = (id: string, sources: SourcePalette): { appearance: PreviewAppearance } | Record<string, never> => {
-    const source = nodeAppearance(file.nodes[id])
-    const projected = projectAppearance(source, value => resolveColorValue(file.theme, value, sources), hasAsset)
-    if (source) for (const assetId of assetReferences(source)) {
+  const registerAppearanceAssets = (source: Appearance | undefined) => {
+    if (!source) return
+    for (const assetId of assetReferences(source)) {
       const asset = file.assets?.[assetId]
       if (asset) {
         assets[assetId] = {
@@ -146,7 +160,54 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
         }
       }
     }
+  }
+  const projectedAppearance = (source: Appearance | undefined, sources: SourcePalette): PreviewAppearance | undefined => {
+    const projected = projectAppearance(source, value => resolveColorValue(file.theme, value, sources), hasAsset)
+    registerAppearanceAssets(source)
+    return projected
+  }
+  const appearanceOf = (id: string, sources: SourcePalette): { appearance: PreviewAppearance } | Record<string, never> => {
+    const projected = projectedAppearance(nodeAppearance(file.nodes[id]), sources)
     return projected ? { appearance: projected } : {}
+  }
+  type AuthoredInteraction = Readonly<{ trigger: 'pointer-hover' | 'pointer-press'; appearance: Appearance; transition?: { type: 'instant' | 'smart-animate'; durationMs?: number; easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' } }>
+  const authoredInteractions = new Map<string, AuthoredInteraction[]>()
+  const addDefinitionInteractions = (definition: FileDocument['componentModel']['definitions'][string], masterRootId: string, instanceRootId: string) => {
+    const nodeMap = new Map<string, string>()
+    const visit = (masterId: string, instanceId: string): boolean => {
+      const master = file.nodes[masterId]
+      const instance = file.nodes[instanceId]
+      if (!master || !instance || master.type !== instance.type) return false
+      nodeMap.set(masterId, instanceId)
+      const masterChildren = childrenOf(file, masterId).filter(nodeId => file.relationships[nodeId]?.slot === undefined)
+      const instanceChildren = childrenOf(file, instanceId).filter(nodeId => file.relationships[nodeId]?.slot === undefined)
+      if (masterChildren.length !== instanceChildren.length) return false
+      return masterChildren.every((masterChild, index) => visit(masterChild, instanceChildren[index]!))
+    }
+    if (!visit(masterRootId, instanceRootId)) return
+    for (const interaction of definition.interactions) {
+      const property = definition.properties.find(candidate => candidate.id === interaction.propertyId)
+      if (property?.type !== 'variant' || !property.binding) continue
+      const nodeId = nodeMap.get(property.binding.nodeId)
+      const appearance = property.binding.appearances[interaction.valueId]
+      if (!nodeId || !appearance) continue
+      const existing = authoredInteractions.get(nodeId) ?? []
+      const authored: AuthoredInteraction = { trigger: interaction.trigger, appearance, ...(interaction.transition ? { transition: interaction.transition } : {}) }
+      authoredInteractions.set(nodeId, [...existing.filter(candidate => candidate.trigger !== authored.trigger), authored])
+    }
+  }
+  for (const definition of Object.values(file.componentModel.definitions)) {
+    if (definition.source.kind !== 'canvas') continue
+    addDefinitionInteractions(definition, definition.source.masterRootId, definition.source.masterRootId)
+    for (const instance of Object.values(file.componentModel.instances)) if (instance.componentId === definition.id) addDefinitionInteractions(definition, definition.source.masterRootId, instance.id)
+  }
+  const interactionsOf = (id: string, sources: SourcePalette): { interactions: PreviewPageInteraction[] } | Record<string, never> => {
+    const interactions = authoredInteractions.get(id)?.map(interaction => ({
+      trigger: interaction.trigger,
+      appearance: projectedAppearance(interaction.appearance, sources) ?? {},
+      ...(interaction.transition ? { transition: interaction.transition } : {}),
+    }))
+    return interactions?.length ? { interactions } : {}
   }
   const visitComponent = (id: string, order: number, parentContainer: LayoutContainer | null) => {
     const node = file.nodes[id]
@@ -163,7 +224,7 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
       visitComponent(childId, childOrder, ownContainer)
     }
     const themed = themeOf(id)
-    nodes[id] = { id, componentId: node.componentId, exportName: node.exportName, props: structuredClone(node.props), children, ...(node.name !== undefined ? { name: node.name } : {}), ...appearanceOf(id, themed.palette), theme: themed.theme }
+    nodes[id] = { id, componentId: node.componentId, exportName: node.exportName, props: componentProps(file, id, node.props), children, ...(node.name !== undefined ? { name: node.name } : {}), ...appearanceOf(id, themed.palette), theme: themed.theme }
     const placement = legacyLayout(node.layout)
     const declarations = layoutDeclarations(node.layout, parentContainer, parentContainer === null && file.relationships[id]?.parentId === root ? hostOrigin(flowHost) : null)
     layout.push({ nodeId: id, mode: placement.mode, x: placement.x, y: placement.y, order, ...(placement.width !== undefined ? { width: placement.width } : {}), ...(placement.height !== undefined ? { height: placement.height } : {}), ...(declarations ? { declarations } : {}) })
@@ -172,10 +233,10 @@ export function projectPreviewPage(file: FileDocument, pageId: string, context: 
     const node = file.nodes[id]
     if (!node || node.type === 'root' || node.type === 'component') return
     const primitiveLayout = primitiveLayoutProjection(node.layout, parentContainer, node.type === 'text' ? node.textSizing : undefined)
+    const themed = themeOf(id)
     elements.push({
-      id, kind: node.type, name: node.name, x: node.styles.left, y: node.styles.top, width: node.styles.width, height: node.styles.height, rotation: node.styles.rotation ?? 0,
-      ...(node.styles.flipX ? { flipX: true } : {}), ...(node.styles.flipY ? { flipY: true } : {}),
-      parentId, ...appearanceOf(id, themeOf(id).palette),
+      id, kind: node.type, name: node.name, relativeTransform: node.styles.relativeTransform, width: node.styles.width, height: node.styles.height,
+      parentId, ...appearanceOf(id, themed.palette), ...interactionsOf(id, themed.palette),
       ...(node.type === 'text' ? { text: node.text ?? '', textStyle: structuredClone(node.textStyle!), textSizing: structuredClone(node.textSizing!) } : {}),
       ...(node.type === 'frame' ? { clip: node.styles.overflow !== 'visible' } : {}),
       ...(primitiveLayout ? { layout: primitiveLayout } : {}),

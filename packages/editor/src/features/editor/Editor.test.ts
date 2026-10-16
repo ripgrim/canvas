@@ -2,8 +2,9 @@ import { createElement as h } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { createBlankFile } from '@canvas/repo-engine/file-document'
 import { Text } from '../../design-system/atoms'
-import { EditorWorkArea, ShareDialogContent, editorColumns, toggleEditorPanel } from './Editor'
+import { EditorWorkArea, ShareDialogContent, editorColumns, inspectorHeaderPresentation, toggleEditorPanel } from './Editor'
 import type { EditorState } from './store'
 
 describe('share access presentation', () => {
@@ -86,6 +87,51 @@ describe('UI-COLLAB-READONLY-001 editor read-only shell', () => {
     expect(source).toContain('<DocumentLayers readOnly={document.readOnly} />')
     expect(source).not.toContain('!document.readOnly && <SidebarSection id="layers"')
   })
+
+  it('does not mount the retired components library', () => {
+    const source = readFileSync(new URL('./Editor.tsx', import.meta.url), 'utf8')
+    expect(source).not.toContain('ComponentLibrary')
+    expect(source).not.toContain('id="components"')
+    expect(source).not.toContain("components: false")
+  })
+
+  it('COMP-V2-UI-001 exposes the unified Kit view and model inspector', () => {
+    const source = readFileSync(new URL('./Editor.tsx', import.meta.url), 'utf8')
+    expect(source).toContain("type SidebarView = 'design' | 'theme' | 'kit' | 'sources'")
+    expect(source).toContain("<ComponentKitPanel atoms={atoms} onOpenCanvas={() => setView('design')} />")
+    expect(source).toContain('<ComponentCreationDialog />')
+    expect(source).toContain('? <ComponentModelProperties />')
+    expect(source).not.toContain('<ComponentMasterProperties componentId=')
+    expect(source).toContain('<>{componentInspector}<SelectionInspector /></>')
+    expect(source).toContain('inspectorHeaderPresentation(document.file, document.selection, document.pageId)')
+    expect(source).not.toContain('selectedChild?.componentId')
+    expect(source).not.toContain('atoms.find(atom => atom.componentId')
+    expect(readFileSync(new URL('./InspectorPanels.tsx', import.meta.url), 'utf8')).toContain('Boolean(canvasComponentNode(file, primitives[0]!.id))')
+    expect(source).not.toContain('id="components"')
+  })
+
+  it('COMP-V2-UI-062 exposes source review only for a prepared transaction', () => {
+    const source = readFileSync(new URL('./Editor.tsx', import.meta.url), 'utf8')
+    const shortcuts = readFileSync(new URL('./copy.ts', import.meta.url), 'utf8')
+    expect(source).toContain('!readOnly && state.prepared && <HeaderIconButton compact label={copy.review}')
+    expect(source).toContain('state.reviewOpen && state.prepared && !document.readOnly && <SourceReview')
+    expect(shortcuts).not.toContain("['Review changes', 'Ctrl / Cmd + S']")
+    expect(shortcuts).toContain("['Reload file', 'Ctrl / Cmd + Shift + R']")
+  })
+
+  it('COMP-V2-UI-063 keeps component inventory separate from repository lifecycle', () => {
+    const editor = readFileSync(new URL('./Editor.tsx', import.meta.url), 'utf8')
+    const kit = readFileSync(new URL('./ComponentKitPanel.tsx', import.meta.url), 'utf8')
+    const repository = readFileSync(new URL('./ComponentRepositoryPanel.tsx', import.meta.url), 'utf8')
+    expect(kit).toContain('<ComponentKitSection title={copy.components}>{content}</ComponentKitSection>')
+    expect(kit).not.toContain('ComponentRepositoryPanel')
+    expect(kit).not.toContain('hostedRepositoryService')
+    expect(kit).not.toContain('RepositoryDocsReviewDialog')
+    expect(editor).toContain("{ value: 'sources', label: sidebarCopy.sources }")
+    expect(editor).toContain('<SidebarTabPanel idPrefix="sidebar" value="sources"><ComponentRepositoryPanel /></SidebarTabPanel>')
+    expect(repository).toContain('<ComponentKitSection title={copy.repository}>')
+    expect(repository).toContain('hostedRepositoryService.saveDocs()')
+  })
 })
 
 describe('AT-PERF-001 collaboration render isolation', () => {
@@ -112,6 +158,37 @@ describe('UI-DESKTOP-SHELL-001 Paper-style canvas chrome', () => {
     expect(editor).toMatch(/PanelToolbar label=\{copy\.panelActions\}><HeaderIconButton compact label=\{canvasCopy\.hideProperties\}/)
     expect(canvas).toContain('canvas-panel-reveal-left')
     expect(canvas).toContain('canvas-panel-reveal-right')
+  })
+
+  it('COMP-V2-UI-054 identifies component masters and instances in the inspector header', () => {
+    const editor = readFileSync(new URL('./Editor.tsx', import.meta.url), 'utf8')
+    expect(editor).toContain("<PanelHeader title={presentation.title} {...(presentation.component ? { icon: 'component' as const } : {})} />")
+  })
+
+  it('COMP-V2-UI-061 derives component identity only from the semantic model', () => {
+    const blank = createBlankFile('inspector-identity', 'page', 'root', 'Page')
+    const ordinaryCodeNode = {
+      id: 'code-node', type: 'component' as const, name: 'Unreconciled button', componentId: 'source-button', exportName: 'Button', props: {},
+    }
+    const ordinary = {
+      ...blank,
+      nodes: { ...blank.nodes, [ordinaryCodeNode.id]: ordinaryCodeNode },
+      relationships: { ...blank.relationships, [ordinaryCodeNode.id]: { parentId: 'root', index: 0, orderKey: 'a' } },
+    }
+    expect(inspectorHeaderPresentation(ordinary, [ordinaryCodeNode.id], 'page')).toEqual({ title: 'Unreconciled button', component: false })
+
+    const semantic = {
+      ...ordinary,
+      componentModel: {
+        definitions: {
+          button: { id: 'button', name: 'Semantic button', source: { kind: 'code' as const, bindingId: 'source-button' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+        },
+        instances: { [ordinaryCodeNode.id]: { id: ordinaryCodeNode.id, componentId: 'button', values: {} } },
+      },
+    }
+    expect(inspectorHeaderPresentation(semantic, [ordinaryCodeNode.id], 'page')).toEqual({ title: 'Semantic button', component: true })
+    expect(inspectorHeaderPresentation(semantic, [], 'page')).toEqual({ title: 'Page', component: false })
+    expect(inspectorHeaderPresentation(semantic, ['code-node', 'missing'], 'page')).toEqual({ title: '2 selected', component: false })
   })
 
   it('reserves a real tool column and removes persistent footer clutter', () => {

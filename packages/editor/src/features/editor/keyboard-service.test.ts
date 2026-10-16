@@ -8,14 +8,14 @@ import { canvasGestures } from './canvas-gestures'
 import { toastManager } from '../../design-system/toast-atoms'
 
 const file = (withChild = false): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: withChild ? 'shortcut-measured' : 'shortcut-empty',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
-    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 101, height: 100 } },
-    ...(withChild ? { child: { id: 'child', type: 'rectangle' as const, name: 'Child', styles: { left: 10, top: 10, width: 20, height: 20 } } } : {}),
+    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 101, height: 100 } },
+    ...(withChild ? { child: { id: 'child', type: 'rectangle' as const, name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 10, 10], width: 20, height: 20 } } } : {}),
   },
   relationships: {
     frame: { parentId: 'root-1', orderKey: 'V' },
@@ -25,14 +25,14 @@ const file = (withChild = false): FileDocument => ({
 })
 
 const componentFile = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'shortcut-component',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
     card: { id: 'card', type: 'component', componentId: 'card', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } }, container: { display: 'freeform' } } },
-    other: { id: 'other', type: 'rectangle', name: 'Other', styles: { left: 120, top: 0, width: 20, height: 20 } },
+    other: { id: 'other', type: 'rectangle', name: 'Other', styles: { relativeTransform: [1, 0, 0, 1, 120, 0], width: 20, height: 20 } },
   },
   relationships: { card: { parentId: 'root-1', orderKey: 'V' }, other: { parentId: 'root-1', orderKey: 'W' } },
   theme: { tokens: {} },
@@ -45,6 +45,25 @@ const key = (overrides: Partial<Parameters<typeof editorKeyDown>[0]> = {}) => {
   return { event: { key: 'A', ctrlKey: false, metaKey: false, shiftKey: true, altKey: false, defaultPrevented: false, target: null, preventDefault, ...overrides }, preventDefault }
 }
 
+const publishNodeGeometry = (nodeId: 'frame' | 'card', width = 100, height = 100) => {
+  const state = documentStore.getSnapshot()
+  const node = state.file?.nodes[nodeId]
+  if (!state.file || !node || node.type === 'root') throw new Error('Expected a loaded canvas node')
+  sceneGeometry.update({
+    [nodeId]: {
+      ...(node.type === 'component' ? { componentId: node.componentId, parentInstanceId: null } : { canvasKind: node.type }),
+      directChild: true,
+      offsetParentNodeId: null,
+      offsetParentToRoot: [1, 0, 0, 1, 0, 0],
+      documentRevision: state.file.revision,
+      layoutGeneration: state.layoutGeneration,
+      rect: { x: 0, y: 0, width, height },
+      offset: { x: 0, y: 0, width, height, origin: { x: width / 2, y: height / 2 } },
+      box: { border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { top: 0, right: 0, bottom: 0, left: 0 } },
+    },
+  }, { documentRevision: state.file.revision, layoutGeneration: state.layoutGeneration, measurementRevision: 1 })
+}
+
 afterEach(() => {
   documentStore.clear()
   sceneGeometry.clear()
@@ -54,14 +73,20 @@ afterEach(() => {
 })
 
 describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
-  it('adds Flex to the currently selected freeform frame in one semantic revision', () => {
+  it('recovers Add flex as soon as fresh matching geometry is published', () => {
     documentStore.load(file(), [], { replace: true })
     documentStore.select('frame')
     const geometry = vi.spyOn(sceneGeometry, 'getSnapshot')
+    const unavailable = key()
+    editorKeyDown(unavailable.event)
+    expect(unavailable.preventDefault).toHaveBeenCalledOnce()
+    expect(documentStore.getSnapshot().file?.revision).toBe(0)
+
+    publishNodeGeometry('frame', 101, 100)
     const { event, preventDefault } = key()
     editorKeyDown(event)
     expect(preventDefault).toHaveBeenCalledOnce()
-    expect(geometry).toHaveBeenCalledOnce()
+    expect(geometry).toHaveBeenCalledTimes(2)
     expect(documentStore.getSnapshot().file?.revision).toBe(1)
     expect(documentStore.getSnapshot().file?.nodes.frame).toMatchObject({ layout: { container: { display: 'flex', gap: 16, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'center' } } } })
     documentStore.undo()
@@ -128,6 +153,7 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
     card.layout = { item: { position: { mode: 'flow' } }, container: { display: 'block' } }
     documentStore.load(source, componentAtoms, { replace: true })
     documentStore.select('card')
+    publishNodeGeometry('card')
     const geometry = vi.spyOn(sceneGeometry, 'getSnapshot')
     const shortcut = key()
     editorKeyDown(shortcut.event)
@@ -154,6 +180,7 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
     card.layout = { item: { position: { mode: 'flow' } }, container: { display: 'grid', grid: { columns: [{ kind: 'fr', value: 1 }], rows: [{ kind: 'auto' }], autoFlow: 'row' } } }
     documentStore.load(source, componentAtoms, { replace: true })
     documentStore.select('card')
+    publishNodeGeometry('card')
     const geometry = vi.spyOn(sceneGeometry, 'getSnapshot')
     const shortcut = key()
     editorKeyDown(shortcut.event)
@@ -202,9 +229,9 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
   it('omits nested Flex removal before claiming the shortcut or reading geometry', () => {
     const flexContainer = { display: 'flex' as const, gap: 0, flex: { direction: 'row' as const, wrap: 'nowrap' as const, justify: 'start' as const, align: 'start' as const } }
     const source: FileDocument = {
-      schemaVersion: 9, fileId: 'nested-remove', revision: 0,
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'nested-remove', revision: 0,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
-      nodes: { root: { id: 'root', type: 'root' }, outer: { id: 'outer', type: 'frame', name: 'Outer', styles: { left: 0, top: 0, width: 100, height: 100 }, layout: { item: { position: { mode: 'freeform' } }, container: flexContainer } }, inner: { id: 'inner', type: 'frame', name: 'Inner', styles: { left: 0, top: 0, width: 20, height: 20 }, layout: { item: { position: { mode: 'flow' } }, container: flexContainer } } },
+      nodes: { root: { id: 'root', type: 'root' }, outer: { id: 'outer', type: 'frame', name: 'Outer', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 }, layout: { item: { position: { mode: 'freeform' } }, container: flexContainer } }, inner: { id: 'inner', type: 'frame', name: 'Inner', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 20, height: 20 }, layout: { item: { position: { mode: 'flow' } }, container: flexContainer } } },
       relationships: { outer: { parentId: 'root', orderKey: 'A' }, inner: { parentId: 'outer', orderKey: 'A' } }, theme: { tokens: {} },
     }
     documentStore.load(source, [], { replace: true })
@@ -285,13 +312,13 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
   it('removes only eligible Flex parents from a mixed selection and preserves exact selection through undo and redo', () => {
     const px = (value: number) => ({ kind: 'px' as const, value })
     const source: FileDocument = {
-      schemaVersion: 9, fileId: 'keyboard-remove', revision: 0,
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'keyboard-remove', revision: 0,
       pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
       nodes: {
         root: { id: 'root', type: 'root' },
-        parent: { id: 'parent', type: 'frame', name: 'Parent', styles: { left: 20, top: 30, width: 200, height: 100 }, layout: { item: { position: { mode: 'absolute', left: px(20), top: px(30) } }, container: { display: 'flex', gap: 10, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
-        child: { id: 'child', type: 'rectangle', name: 'Child', styles: { left: 0, top: 0, width: 40, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
-        other: { id: 'other', type: 'rectangle', name: 'Other', styles: { left: 300, top: 0, width: 30, height: 30 } },
+        parent: { id: 'parent', type: 'frame', name: 'Parent', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 200, height: 100 }, layout: { item: { position: { mode: 'absolute', left: px(20), top: px(30) } }, container: { display: 'flex', gap: 10, flex: { direction: 'row', wrap: 'nowrap', justify: 'start', align: 'start' } } } },
+        child: { id: 'child', type: 'rectangle', name: 'Child', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 20 }, layout: { item: { position: { mode: 'flow' } } } },
+        other: { id: 'other', type: 'rectangle', name: 'Other', styles: { relativeTransform: [1, 0, 0, 1, 300, 0], width: 30, height: 30 } },
       },
       relationships: { parent: { parentId: 'root', orderKey: 'A' }, child: { parentId: 'parent', orderKey: 'A' }, other: { parentId: 'root', orderKey: 'B' } }, theme: { tokens: {} },
     }
@@ -365,12 +392,12 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
 
   it('rejects an ancestor and descendant container selection before reading geometry', () => {
     const nested: FileDocument = {
-      schemaVersion: 9, fileId: 'nested-add', revision: 0,
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'nested-add', revision: 0,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
-        outer: { id: 'outer', type: 'frame', name: 'Outer', styles: { left: 0, top: 0, width: 200, height: 200 } },
-        inner: { id: 'inner', type: 'frame', name: 'Inner', styles: { left: 20, top: 20, width: 100, height: 100 } },
+        outer: { id: 'outer', type: 'frame', name: 'Outer', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 200, height: 200 } },
+        inner: { id: 'inner', type: 'frame', name: 'Inner', styles: { relativeTransform: [1, 0, 0, 1, 20, 20], width: 100, height: 100 } },
       },
       relationships: { outer: { parentId: 'root-1', orderKey: 'V' }, inner: { parentId: 'outer', orderKey: 'V' } },
       theme: { tokens: {} },
@@ -385,11 +412,11 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
 
   it('keeps a multi-container action atomic when a later component capture is unavailable', () => {
     const source: FileDocument = {
-      schemaVersion: 9, fileId: 'atomic-add', revision: 0,
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'atomic-add', revision: 0,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
-        frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 100, height: 100 } },
+        frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 } },
         card: { id: 'card', type: 'component', componentId: 'card', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } }, container: { display: 'freeform' } } },
       },
       relationships: { frame: { parentId: 'root-1', orderKey: 'V' }, card: { parentId: 'root-1', orderKey: 'W' } },
@@ -406,12 +433,12 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
   it('rejects a text child when the otherwise-current measurement omits resolved line height', () => {
     const style = { fontFamily: 'Inter', fontStyle: 'normal' as const, fontWeight: 400, fontSize: 16, lineHeight: { kind: 'px' as const, value: 20 }, letterSpacing: 0, horizontalAlign: 'left' as const, verticalAlign: 'top' as const, case: 'none' as const, wrap: 'normal' as const, keepWords: false }
     const source: FileDocument = {
-      schemaVersion: 9, fileId: 'missing-text-metric', revision: 0,
+      schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'missing-text-metric', revision: 0,
       pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
       nodes: {
         'root-1': { id: 'root-1', type: 'root' },
-        frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 0, top: 0, width: 200, height: 100 } },
-        text: { id: 'text', type: 'text', name: 'Text', text: 'Missing metric', styles: { left: 10, top: 10, width: 100, height: 40 }, textStyle: style, textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } } },
+        frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 200, height: 100 } },
+        text: { id: 'text', type: 'text', name: 'Text', text: 'Missing metric', styles: { relativeTransform: [1, 0, 0, 1, 10, 10], width: 100, height: 40 }, textStyle: style, textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } } },
       },
       relationships: { frame: { parentId: 'root-1', orderKey: 'V' }, text: { parentId: 'frame', orderKey: 'V' } },
       theme: { tokens: {} },
@@ -426,5 +453,14 @@ describe('PAPER-FLEX-001 Shift+A Direct Add', () => {
     expect(directAddFlexToCurrentSelection()).toEqual({ status: 'unavailable', message: directAddFlexCopy.unavailable })
     expect(documentStore.getSnapshot().file).toEqual(source)
     expect(documentStore.getSnapshot().canUndo).toBe(false)
+  })
+})
+
+describe('COMP-V2-UI-062 source review shortcut', () => {
+  it('does not claim Ctrl+S without a prepared source transaction', () => {
+    const shortcut = key({ key: 's', ctrlKey: true, shiftKey: false })
+    editorKeyDown(shortcut.event)
+    expect(shortcut.preventDefault).not.toHaveBeenCalled()
+    expect(editorStore.getSnapshot().reviewOpen).toBe(false)
   })
 })

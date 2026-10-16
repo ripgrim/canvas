@@ -1,0 +1,862 @@
+import { resolve } from "node:path"
+import { createPlaywrightAutomation } from "../../../packages/editor-automation/dist/playwright.js"
+import { geometryTarget, nodeId } from "../../../packages/editor-automation/dist/index.js"
+import { expect, test, type Page } from "@playwright/test"
+import { evidencePort, writeCaptureReport } from "../evidence-capture.js"
+import { prEvidenceDefaultPorts, prEvidenceUrl } from "../ports.js"
+
+const editorUrl = prEvidenceUrl("PR_EVIDENCE_EDITOR_PORT", prEvidenceDefaultPorts.editor)
+const evidenceRoot = resolve(import.meta.dirname, "../../../outputs/pr-evidence/local/editor.component-system/browser")
+
+async function openComponentInventory(page: Page) {
+  await page.getByRole("tab", { name: "Kit", exact: true }).click()
+  const back = page.getByRole("button", { name: "Back to components", exact: true })
+  if (await back.isVisible()) await back.click()
+}
+
+test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
+  const frameTimes: number[] = []
+  const automation = createPlaywrightAutomation({ page, evidence: evidencePort(evidenceRoot, frameTimes) })
+
+  await page.goto(editorUrl, { waitUntil: "domcontentloaded" })
+  await page.getByRole("button", { name: /New file/i }).first().click()
+  await page.locator(".canvas-stage").waitFor()
+  await page.frameLocator('iframe[title="Canvas"]').locator("#preview-root").waitFor({ state: "attached" })
+  await page.getByRole("tab", { name: "Sources", exact: true }).click()
+  const sources = page.getByRole("tabpanel", { name: "Sources", exact: true })
+  await expect(sources).toBeVisible()
+  await expect(sources.getByText("Components", { exact: true })).toHaveCount(0)
+  await expect(sources.getByRole("button", { name: "Create component", exact: true })).toHaveCount(0)
+  await page.getByRole("tab", { name: "Design", exact: true }).click()
+
+  const stage = await requiredBox(page.locator(".canvas-stage").boundingBox(), "canvas stage")
+  const center = geometryTarget(async () => ({ x: stage.x + stage.width / 2, y: stage.y + stage.height / 2 }))
+  const frameTool = page.getByRole("radio", { name: "Frame", exact: true })
+  await frameTool.click()
+  await expect(frameTool).toBeChecked()
+  await automation.mouse.drag(center.offset(-120, -70), center.offset(120, 70), { steps: 10 })
+  await expect(page.getByRole("tree", { name: "Layers" }).getByRole("treeitem", { name: "Frame", exact: true })).toHaveCount(1)
+  const master = await automation.layers.named("Frame")
+  await master.expectKind("frame")
+  await automation.keyboard.press("t")
+  await automation.mouse.drag(center.offset(-72, -16), center.offset(72, 16), { steps: 8 })
+  await page.locator(".canvas-text-editor").waitFor()
+  await automation.keyboard.type("Evidence label")
+  await automation.keyboard.press("Escape")
+  await page.getByRole("radio", { name: "Move", exact: true }).click()
+  const masterTextId = await storedDirectChildOfType(page, master.id, "text")
+  expect(masterTextId).toBeDefined()
+  await page.getByRole("radio", { name: "Frame", exact: true }).click()
+  await automation.mouse.drag(center.offset(58, 34), center.offset(108, 62), { steps: 6 })
+  const masterSlotHostId = await storedDirectChildOfType(page, master.id, "frame")
+  expect(masterSlotHostId).toBeDefined()
+  const slotHostLayer = page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${masterSlotHostId}"]`)
+  await slotHostLayer.focus()
+  await slotHostLayer.press("F2")
+  const slotHostName = page.getByRole("textbox", { name: "Rename Frame", exact: true })
+  await slotHostName.fill("Content host")
+  await slotHostName.press("Enter")
+  expect((await storedNode(page, masterSlotHostId!)).type).toBe("frame")
+  await page.locator(`[data-instance-id="${master.id}"]`).click()
+  const inspectorHeader = page.locator(".right-rail .panel-header").first()
+  await expect(inspectorHeader.getByRole("heading", { name: "Frame", exact: true })).toBeVisible()
+  await expect(inspectorHeader.locator('[data-icon="component"]')).toHaveCount(0)
+
+  await automation.components.createFromSelection("Evidence card")
+  const kit = page.getByRole("tabpanel", { name: "Kit", exact: true })
+  await expect(kit).toBeVisible()
+  await expect(kit.getByRole("heading", { name: "Evidence card", exact: true })).toBeVisible()
+  await expect(kit.getByRole("button", { name: "Back to components", exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Create component", exact: true })).toHaveCount(0)
+  const created = await storedComponentModel(page)
+  const definition = Object.values(created.definitions)[0]
+  expect(definition).toMatchObject({ name: "Evidence card", source: { kind: "canvas", masterRootId: master.id } })
+  expect(Object.keys(created.instances)).toHaveLength(0)
+
+  await page.getByRole("tab", { name: "Design", exact: true }).click()
+  await expect(inspectorHeader.getByRole("heading", { name: "Evidence card", exact: true })).toBeVisible()
+  await expect(inspectorHeader.locator('[data-icon="component"]')).toHaveCount(1)
+  await page.getByRole("button", { name: "Add property", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Variant", exact: true }).click()
+  const propertyDialog = page.getByRole("dialog", { name: "New property", exact: true })
+  await propertyDialog.getByRole("textbox", { name: "Name", exact: true }).fill("State")
+  await propertyDialog.getByRole("textbox", { name: "Description", exact: true }).fill("Visual interaction state.")
+  await propertyDialog.getByRole("button", { name: "Add option", exact: true }).click()
+  await propertyDialog.getByRole("textbox", { name: "Option 2", exact: true }).fill("Hover")
+  await propertyDialog.getByRole("button", { name: "Add option", exact: true }).click()
+  await propertyDialog.getByRole("textbox", { name: "Option 3", exact: true }).fill("Pressed")
+  await propertyDialog.getByRole("combobox", { name: "Hover shows", exact: true }).click()
+  await page.getByRole("option", { name: "Hover", exact: true }).click()
+  await propertyDialog.locator("#component-property-dialog-hover-duration").fill("120")
+  await propertyDialog.locator("#component-property-dialog-hover-easing").click()
+  await page.getByRole("option", { name: "Ease in out", exact: true }).click()
+  await propertyDialog.getByRole("combobox", { name: "Press shows", exact: true }).click()
+  await page.getByRole("option", { name: "Pressed", exact: true }).click()
+  await propertyDialog.locator("#component-property-dialog-press-transition").click()
+  await page.getByRole("option", { name: "Instant", exact: true }).click()
+  await propertyDialog.screenshot({ path: resolve(evidenceRoot, "variant-property-dialog.png") })
+  await propertyDialog.getByRole("button", { name: "Save property", exact: true }).click()
+  await expect(page.getByRole("combobox", { name: "Canvas edits", exact: true })).toHaveText("Default")
+  await expect(page.getByText("Evidence card · Default appearance", { exact: true })).toBeVisible()
+  await page.getByRole("combobox", { name: "Canvas edits", exact: true }).click()
+  await page.getByRole("option", { name: "Pressed", exact: true }).click()
+  await expect(page.getByRole("combobox", { name: "Canvas edits", exact: true })).toHaveText("Pressed")
+  await expect(page.getByText("Evidence card · Pressed appearance", { exact: true })).toBeVisible()
+  await expect(page.getByText("Evidence card · Pressed appearance · On hover: Hover · On press: Pressed", { exact: true })).toHaveCount(0)
+  const authored = Object.values((await storedComponentModel(page)).definitions)[0]!
+  expect(authored.properties[0]).toMatchObject({ type: "variant", description: "Visual interaction state.", binding: { kind: "variant", nodeId: master.id } })
+  const hoverValue = authored.properties[0]!.values?.find(value => value.name === "Hover")
+  const pressedValue = authored.properties[0]!.values?.find(value => value.name === "Pressed")
+  expect(hoverValue).toBeDefined()
+  expect(pressedValue).toBeDefined()
+  expect(authored.properties[0]!.currentValueId).toBe(pressedValue!.id)
+  expect(Object.keys(authored.properties[0]!.binding?.appearances ?? {})).toEqual([authored.properties[0]!.defaultValueId, hoverValue!.id, pressedValue!.id])
+  expect(authored.properties[0]!.binding!.appearances![hoverValue!.id]).toEqual(authored.properties[0]!.binding!.appearances![authored.properties[0]!.defaultValueId!])
+  expect(authored.properties[0]!.binding!.appearances![pressedValue!.id]).toEqual(authored.properties[0]!.binding!.appearances![authored.properties[0]!.defaultValueId!])
+  expect(authored.interactions).toMatchObject([
+    { trigger: "pointer-hover", propertyId: authored.properties[0]!.id, valueId: hoverValue!.id, transition: { type: "smart-animate", durationMs: 120, easing: "ease-in-out" } },
+    { trigger: "pointer-press", propertyId: authored.properties[0]!.id, valueId: pressedValue!.id, transition: { type: "instant" } },
+  ])
+  const defaultAppearance = authored.properties[0]!.binding!.appearances![authored.properties[0]!.defaultValueId!]!
+  await page.getByRole("combobox", { name: "Canvas edits", exact: true }).click()
+  await page.getByRole("option", { name: "Hover", exact: true }).click()
+  await page.getByRole("button", { name: "Edit Fill 1 color", exact: true }).click()
+  const hex = page.getByRole("textbox", { name: "Hex", exact: true })
+  await hex.fill("#FF0055")
+  await hex.press("Enter")
+  await page.getByRole("button", { name: "Close color picker", exact: true }).click()
+  await expect.poll(async () => {
+    const current = Object.values((await storedComponentModel(page)).definitions)[0]?.properties[0]
+    return JSON.stringify(current?.binding?.appearances?.[hoverValue!.id])
+  }).not.toBe(JSON.stringify(defaultAppearance))
+  const hoverAppearance = Object.values((await storedComponentModel(page)).definitions)[0]!.properties[0]!.binding!.appearances![hoverValue!.id]!
+  await page.getByRole("combobox", { name: "Canvas edits", exact: true }).click()
+  await page.getByRole("option", { name: "Default", exact: true }).click()
+  expect((await storedNode(page, master.id)).appearance).toEqual(defaultAppearance)
+  await page.getByRole("combobox", { name: "Canvas edits", exact: true }).click()
+  await page.getByRole("option", { name: "Hover", exact: true }).click()
+  expect((await storedNode(page, master.id)).appearance).toEqual(hoverAppearance)
+  await page.getByRole("combobox", { name: "Canvas edits", exact: true }).click()
+  await page.getByRole("option", { name: "Pressed", exact: true }).click()
+  await page.getByRole("button", { name: "Edit Fill 1 color", exact: true }).click()
+  const pressedHex = page.getByRole("textbox", { name: "Hex", exact: true })
+  await pressedHex.fill("#0055FF")
+  await pressedHex.press("Enter")
+  await page.getByRole("button", { name: "Close color picker", exact: true }).click()
+  await expect.poll(async () => {
+    const current = Object.values((await storedComponentModel(page)).definitions)[0]?.properties[0]
+    return JSON.stringify(current?.binding?.appearances?.[pressedValue!.id])
+  }).not.toBe(JSON.stringify(defaultAppearance))
+  const pressedAppearance = Object.values((await storedComponentModel(page)).definitions)[0]!.properties[0]!.binding!.appearances![pressedValue!.id]!
+  expect((await storedNode(page, master.id)).appearance).toEqual(pressedAppearance)
+  await page.getByRole("combobox", { name: "Canvas edits", exact: true }).click()
+  await page.getByRole("option", { name: "Hover", exact: true }).click()
+  await page.locator(".right-rail").screenshot({ path: resolve(evidenceRoot, "variant-state-panel.png") })
+
+  await openComponentInventory(page)
+  await automation.components.place("Evidence card")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(1)
+  const model = await storedComponentModel(page)
+  const instance = Object.values(model.instances)[0]!
+  await page.getByRole("tab", { name: "Design", exact: true }).click()
+  const instanceRef = automation.layers.node(nodeId(instance.id))
+  await instanceRef.expectKind("component")
+  await expect(previewNode(page, instance.id)).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Instance properties", exact: true })).toBeVisible()
+  await expect(page.getByRole("radiogroup", { name: "Edit scope", exact: true })).toBeVisible()
+  await expect(page.getByRole("radio", { name: "Instance", exact: true })).toBeChecked()
+  await expect(page.getByText("Visual interaction state.", { exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Shared properties", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("heading", { name: "Shared materials", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Add material", exact: true })).toHaveCount(0)
+  expect((await storedNode(page, instance.id)).appearance).toEqual(defaultAppearance)
+  await page.getByRole("radio", { name: "Shared component", exact: true }).click()
+  await expect(page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${master.id}"]`)).toHaveAttribute("data-selected", "true")
+  await expect(page.getByRole("heading", { name: "Properties", exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Materials", exact: true })).toBeVisible()
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${instance.id}"]`).click()
+  await expect(page.getByRole("radio", { name: "Instance", exact: true })).toBeChecked()
+  await page.getByRole("combobox", { name: "State", exact: true }).click()
+  await page.getByRole("option", { name: "Hover", exact: true }).click()
+  await expect.poll(async () => (await storedComponentModel(page)).instances[instance.id]?.values[authored.properties[0]!.id]).toBe(hoverValue!.id)
+  expect((await storedNode(page, instance.id)).appearance).toEqual(hoverAppearance)
+  await page.getByRole("button", { name: "Reset State", exact: true }).click()
+  await expect.poll(async () => Object.hasOwn((await storedComponentModel(page)).instances[instance.id]?.values ?? {}, authored.properties[0]!.id)).toBe(false)
+  expect((await storedNode(page, instance.id)).appearance).toEqual(defaultAppearance)
+  await expect(page.getByRole("button", { name: "Reset State", exact: true })).toHaveCount(0)
+  await page.getByRole("combobox", { name: "State", exact: true }).click()
+  await page.getByRole("option", { name: "Hover", exact: true }).click()
+  await expect.poll(async () => (await storedComponentModel(page)).instances[instance.id]?.values[authored.properties[0]!.id]).toBe(hoverValue!.id)
+  expect((await storedNode(page, instance.id)).appearance).toEqual(hoverAppearance)
+
+  await page.getByRole("radio", { name: "Shared component", exact: true }).click()
+  await expect(page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${master.id}"]`)).toHaveAttribute("data-selected", "true")
+  await page.getByRole("button", { name: "Add material", exact: true }).click()
+  const materialDialog = page.getByRole("dialog", { name: "New material", exact: true })
+  await expect(materialDialog.getByRole("combobox", { name: "Appearance source", exact: true })).toHaveText("Evidence card")
+  await materialDialog.getByRole("textbox", { name: "Name", exact: true }).fill("Hover surface")
+  await materialDialog.getByRole("textbox", { name: "Group", exact: true }).fill("Interaction")
+  await materialDialog.getByRole("textbox", { name: "Description", exact: true }).fill("Hover and selected states")
+  await materialDialog.getByRole("button", { name: "Save material", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Layer materials", exact: true })).toBeVisible()
+  const materialDefinition = Object.values((await storedComponentModel(page)).definitions)[0]!
+  expect(materialDefinition.materials).toMatchObject([{ name: "Hover surface", group: "Interaction", description: "Hover and selected states", appearance: hoverAppearance }])
+  expect(materialDefinition.parts).toEqual([])
+  const masterMaterial = page.locator(`#component-part-${master.id}-material`)
+  await expect(masterMaterial).toHaveText("No material")
+  await masterMaterial.click()
+  await page.getByRole("option", { name: "Hover surface", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.parts.filter(part => part.materialId === materialDefinition.materials[0]!.id).length).toBe(1)
+  const textMaterial = page.locator(`#component-part-${masterTextId}-material`)
+  await expect(textMaterial).toHaveText("No material")
+  await textMaterial.click()
+  await expect(page.getByRole("group", { name: "Interaction", exact: true })).toContainText("Hover surface")
+  await page.getByRole("option", { name: "Hover surface", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.parts.filter(part => part.materialId === materialDefinition.materials[0]!.id).length).toBe(2)
+  await textMaterial.click()
+  await page.getByRole("option", { name: "No material", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.parts.filter(part => part.materialId === materialDefinition.materials[0]!.id).length).toBe(1)
+  await page.getByRole("button", { name: "Undo document edit", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.parts.filter(part => part.materialId === materialDefinition.materials[0]!.id).length).toBe(2)
+  await page.locator(".right-rail").evaluate(panel => { panel.scrollTop = panel.scrollHeight })
+  await page.locator(".right-rail").screenshot({ path: resolve(evidenceRoot, "materials-panel.png") })
+  await automation.evidence.screenshot("materials", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
+
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${instance.id}"]`).click()
+  await expect(page.getByRole("heading", { name: "Instance properties", exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Shared properties", exact: true })).toHaveCount(0)
+  const masterBefore = await storedNode(page, master.id)
+  const instanceBefore = await storedNode(page, instance.id)
+  await automation.mouse.drag(instanceRef.center(), instanceRef.center().offset(48, 24), { steps: 8 })
+  const masterAfter = await storedNode(page, master.id)
+  const instanceAfter = await storedNode(page, instance.id)
+  expect(masterAfter.styles.relativeTransform).toEqual(masterBefore.styles.relativeTransform)
+  expect(instanceAfter.styles.relativeTransform).not.toEqual(instanceBefore.styles.relativeTransform)
+  await automation.evidence.screenshot("instance", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
+
+  await automation.evidence.record({
+    crop: { kind: "dimensions", width: 1100, height: 760 },
+    quality: { mode: "motion" },
+  }, async () => {
+    await automation.mouse.move(instanceRef.center().offset(-60, 0))
+    await automation.mouse.move(instanceRef.center().offset(60, 0))
+  })
+
+  expect(frameTimes.length).toBeGreaterThan(1)
+
+  await page.getByRole("combobox", { name: "State", exact: true }).click()
+  await page.getByRole("option", { name: "Default", exact: true }).click()
+  await expect.poll(async () => Object.hasOwn((await storedComponentModel(page)).instances[instance.id]?.values ?? {}, authored.properties[0]!.id)).toBe(false)
+  expect((await storedNode(page, instance.id)).appearance).toEqual(defaultAppearance)
+  const defaultBackground = await previewBackground(page, instance.id)
+  await automation.keyboard.press("i")
+  await automation.mouse.move(instanceRef.center())
+  await expect.poll(async () => previewBackground(page, instance.id)).toBe("rgb(255, 0, 85)")
+  const hoverBackground = await previewBackground(page, instance.id)
+  await page.mouse.down()
+  await expect.poll(async () => previewBackground(page, instance.id)).toBe("rgb(0, 85, 255)")
+  await page.mouse.up()
+  await expect.poll(async () => previewBackground(page, instance.id)).toBe(hoverBackground)
+  await automation.mouse.move(center.offset(-240, -140))
+  await expect.poll(async () => previewBackground(page, instance.id)).toBe(defaultBackground)
+  expect(Object.hasOwn((await storedComponentModel(page)).instances[instance.id]?.values ?? {}, authored.properties[0]!.id)).toBe(false)
+  await page.getByRole("radio", { name: "Move", exact: true }).click()
+  await page.getByRole("combobox", { name: "State", exact: true }).click()
+  await page.getByRole("option", { name: "Hover", exact: true }).click()
+  await expect.poll(async () => (await storedComponentModel(page)).instances[instance.id]?.values[authored.properties[0]!.id]).toBe(hoverValue!.id)
+
+  await page.getByRole("radio", { name: "Shared component", exact: true }).click()
+  await expect(page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${master.id}"]`)).toHaveAttribute("data-selected", "true")
+  await page.getByRole("button", { name: "Add property", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Text", exact: true }).click()
+  const textDialog = page.getByRole("dialog", { name: "New property", exact: true })
+  await textDialog.getByRole("textbox", { name: "Name", exact: true }).fill("Label")
+  const textDefault = textDialog.getByRole("textbox", { name: "Default value", exact: true })
+  await expect(textDefault).toHaveValue("Evidence label")
+  await textDefault.fill("Default label")
+  await textDialog.getByRole("button", { name: "Save property", exact: true }).click()
+  await page.getByRole("button", { name: "Add property", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Boolean", exact: true }).click()
+  const booleanDialog = page.getByRole("dialog", { name: "New property", exact: true })
+  await booleanDialog.getByRole("textbox", { name: "Name", exact: true }).fill("Visible")
+  await booleanDialog.getByRole("combobox", { name: "Layer", exact: true }).click()
+  await page.getByRole("option", { name: "Default label", exact: true }).click()
+  const booleanDefault = booleanDialog.getByRole("checkbox", { name: "On by default", exact: true })
+  await expect(booleanDefault).toBeChecked()
+  await booleanDefault.uncheck()
+  await booleanDialog.getByRole("button", { name: "Save property", exact: true }).click()
+  await page.getByRole("button", { name: "Add property", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Slot", exact: true }).click()
+  const slotDialog = page.getByRole("dialog", { name: "New property", exact: true })
+  await slotDialog.getByRole("textbox", { name: "Name", exact: true }).fill("Content")
+  await slotDialog.getByRole("button", { name: "Save property", exact: true }).click()
+  const propertyDefinition = Object.values((await storedComponentModel(page)).definitions)[0]!
+  const textProperty = propertyDefinition.properties.find(property => property.type === "text")!
+  const booleanProperty = propertyDefinition.properties.find(property => property.type === "boolean")!
+  const slotProperty = propertyDefinition.properties.find(property => property.type === "slot")!
+  expect(textProperty.binding).toMatchObject({ kind: "text", nodeId: masterTextId })
+  expect(booleanProperty).toMatchObject({ defaultValue: false, binding: { kind: "visibility", nodeId: masterTextId } })
+  const instanceTextId = await storedDirectChildOfType(page, instance.id, "text")
+  expect(instanceTextId).toBeDefined()
+  expect(await storedNode(page, masterTextId!)).toMatchObject({ text: "Default label", appearance: expect.objectContaining({ visible: false }) })
+  expect(await storedNode(page, instanceTextId!)).toMatchObject({ text: "Default label", appearance: expect.objectContaining({ visible: false }) })
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${instance.id}"]`).click()
+  await expect(page.getByRole("heading", { name: "Instance properties", exact: true })).toBeVisible()
+  const label = page.getByRole("textbox", { name: "Label", exact: true })
+  await label.fill("Instance label")
+  await label.press("Enter")
+  await expect.poll(async () => (await storedComponentModel(page)).instances[instance.id]?.values[textProperty.id]).toBe("Instance label")
+  expect((await storedNode(page, instanceTextId!)).text).toBe("Instance label")
+  expect((await storedNode(page, masterTextId!)).text).toBe("Default label")
+  await page.getByRole("button", { name: "Reset Label", exact: true }).click()
+  await expect.poll(async () => Object.hasOwn((await storedComponentModel(page)).instances[instance.id]?.values ?? {}, textProperty.id)).toBe(false)
+  expect((await storedNode(page, instanceTextId!)).text).toBe("Default label")
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => (await storedComponentModel(page)).instances[instance.id]?.values[textProperty.id]).toBe("Instance label")
+  expect((await storedNode(page, instanceTextId!)).text).toBe("Instance label")
+  const visible = page.getByRole("checkbox", { name: "Visible", exact: true })
+  await visible.check()
+  await expect.poll(async () => (await storedComponentModel(page)).instances[instance.id]?.values[booleanProperty.id]).toBe(true)
+  expect((await storedNode(page, instanceTextId!)).appearance?.visible).not.toBe(false)
+  expect((await storedNode(page, masterTextId!)).appearance).toEqual(expect.objectContaining({ visible: false }))
+  await visible.uncheck()
+  await expect.poll(async () => Object.hasOwn((await storedComponentModel(page)).instances[instance.id]?.values ?? {}, booleanProperty.id)).toBe(false)
+  expect((await storedNode(page, instanceTextId!)).appearance).toEqual(expect.objectContaining({ visible: false }))
+  await page.getByRole("button", { name: "Undo document edit", exact: true }).click()
+  await expect.poll(async () => (await storedComponentModel(page)).instances[instance.id]?.values[booleanProperty.id]).toBe(true)
+  expect((await storedNode(page, instanceTextId!)).appearance?.visible).not.toBe(false)
+  await visible.uncheck()
+  await expect.poll(async () => Object.hasOwn((await storedComponentModel(page)).instances[instance.id]?.values ?? {}, booleanProperty.id)).toBe(false)
+  await page.locator(".right-rail").screenshot({ path: resolve(evidenceRoot, "instance-properties-panel.png") })
+
+  await automation.mouse.click(center.offset(-260, 160))
+  await automation.keyboard.press("f")
+  await automation.mouse.drag(center.offset(-230, 90), center.offset(-170, 130), { steps: 6 })
+  await automation.components.createFromSelection("Slot badge")
+  await automation.components.openKit()
+  const slotBadgeDefinition = Object.values((await storedComponentModel(page)).definitions).find(candidate => candidate.name === "Slot badge")!
+  await page.getByRole("tab", { name: "Design", exact: true }).click()
+  await page.getByRole("button", { name: "Add property", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Slot", exact: true }).click()
+  const nestedSlotDialog = page.getByRole("dialog", { name: "New property", exact: true })
+  await nestedSlotDialog.getByRole("textbox", { name: "Name", exact: true }).fill("Inner")
+  await nestedSlotDialog.getByRole("button", { name: "Save property", exact: true }).click()
+  await page.getByRole("button", { name: "Add property", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Boolean", exact: true }).click()
+  const nestedBooleanDialog = page.getByRole("dialog", { name: "New property", exact: true })
+  await nestedBooleanDialog.getByRole("textbox", { name: "Name", exact: true }).fill("Shown")
+  await nestedBooleanDialog.getByRole("button", { name: "Save property", exact: true }).click()
+  const nestedDefinition = (await storedComponentModel(page)).definitions[slotBadgeDefinition.id]!
+  const nestedSlotProperty = nestedDefinition.properties.find(property => property.type === "slot")!
+  const nestedBooleanProperty = nestedDefinition.properties.find(property => property.type === "boolean")!
+  await openComponentInventory(page)
+  await automation.components.place("Evidence card")
+  const secondOuterInstance = Object.values((await storedComponentModel(page)).instances).find(candidate => candidate.componentId === definition.id && candidate.id !== instance.id)!
+  expect(secondOuterInstance).toBeDefined()
+  await page.getByRole("tab", { name: "Design", exact: true }).click()
+  await openComponentInventory(page)
+  await automation.components.place("Slot badge")
+  const sourceBadge = Object.values((await storedComponentModel(page)).instances).find(candidate => candidate.componentId === slotBadgeDefinition.id)!
+  await page.getByRole("tab", { name: "Design", exact: true }).click()
+  const layers = page.getByRole("tree", { name: "Layers" })
+  const sourceBadgeLayer = await requiredBox(layers.locator(`[data-layer-node-id="${sourceBadge.id}"]`).boundingBox(), "Slot badge layer")
+  const masterLayer = await requiredBox(layers.locator(`[data-layer-node-id="${master.id}"]`).boundingBox(), "Evidence card layer")
+  await page.mouse.move(sourceBadgeLayer.x + sourceBadgeLayer.width / 2, sourceBadgeLayer.y + sourceBadgeLayer.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(sourceBadgeLayer.x + sourceBadgeLayer.width / 2, sourceBadgeLayer.y + sourceBadgeLayer.height / 2 + 6)
+  await page.mouse.move(masterLayer.x + masterLayer.width / 2, masterLayer.y + masterLayer.height / 2 - 1, { steps: 20 })
+  await page.waitForTimeout(60)
+  await page.mouse.move(masterLayer.x + masterLayer.width / 2, masterLayer.y + masterLayer.height / 2)
+  await page.mouse.up()
+  await expect.poll(async () => (await storedFile(page)).relationships[sourceBadge.id]?.parentId).toBe(master.id)
+  const nestedModelAfterMove = await storedComponentModel(page)
+  const nestedFileAfterMove = await storedFile(page)
+  const mirroredBadge = Object.values(nestedModelAfterMove.instances).find(candidate => candidate.componentId === slotBadgeDefinition.id && nestedFileAfterMove.relationships[candidate.id]?.parentId === instance.id)!
+  const secondMirroredBadge = Object.values(nestedModelAfterMove.instances).find(candidate => candidate.componentId === slotBadgeDefinition.id && nestedFileAfterMove.relationships[candidate.id]?.parentId === secondOuterInstance.id)!
+  expect(mirroredBadge).toBeDefined()
+  expect(secondMirroredBadge).toBeDefined()
+  expect([instance.id, ...await storedDirectChildren(page, instance.id)]).toContain(mirroredBadge.id)
+  await layers.locator(`[data-layer-node-id="${mirroredBadge.id}"]`).click()
+  await page.getByRole("checkbox", { name: "Shown", exact: true }).uncheck()
+  await expect.poll(async () => (await storedComponentModel(page)).instances[mirroredBadge.id]?.values[nestedBooleanProperty.id]).toBe(false)
+  expect((await storedComponentModel(page)).instances[sourceBadge.id]!.values).not.toHaveProperty(nestedBooleanProperty.id)
+  expect((await storedComponentModel(page)).instances[secondMirroredBadge.id]!.values).not.toHaveProperty(nestedBooleanProperty.id)
+  expect(((await storedNode(page, mirroredBadge.id)).appearance as { visible?: boolean })?.visible).toBe(false)
+  expect(((await storedNode(page, sourceBadge.id)).appearance as { visible?: boolean })?.visible).not.toBe(false)
+  expect(((await storedNode(page, secondMirroredBadge.id)).appearance as { visible?: boolean })?.visible).not.toBe(false)
+  await page.getByRole("button", { name: "Undo document edit", exact: true }).click()
+  await expect.poll(async () => Object.hasOwn((await storedComponentModel(page)).instances[mirroredBadge.id]?.values ?? {}, nestedBooleanProperty.id)).toBe(false)
+  expect(((await storedNode(page, mirroredBadge.id)).appearance as { visible?: boolean })?.visible).not.toBe(false)
+  await layers.locator(`[data-layer-node-id="${sourceBadge.id}"]`).click()
+  await page.keyboard.press("Control+d")
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === slotBadgeDefinition.id).length).toBe(6)
+  const duplicatedBadgeFile = await storedFile(page)
+  const badgeInstanceIds = new Set(Object.values(duplicatedBadgeFile.componentModel.instances).filter(candidate => candidate.componentId === slotBadgeDefinition.id).map(candidate => candidate.id))
+  const masterBadgeIds = (await storedDirectChildren(page, master.id)).filter(nodeId => badgeInstanceIds.has(nodeId))
+  const firstOuterBadgeIds = (await storedDirectChildren(page, instance.id)).filter(nodeId => badgeInstanceIds.has(nodeId))
+  const secondOuterBadgeIds = (await storedDirectChildren(page, secondOuterInstance.id)).filter(nodeId => badgeInstanceIds.has(nodeId))
+  expect(masterBadgeIds).toHaveLength(2)
+  expect(firstOuterBadgeIds).toHaveLength(2)
+  expect(secondOuterBadgeIds).toHaveLength(2)
+  const duplicatedSourceBadgeId = masterBadgeIds.find(nodeId => nodeId !== sourceBadge.id)!
+  const duplicatedFirstOuterBadgeId = firstOuterBadgeIds.find(nodeId => nodeId !== mirroredBadge.id)!
+  const duplicatedSecondOuterBadgeId = secondOuterBadgeIds.find(nodeId => nodeId !== secondMirroredBadge.id)!
+  const semanticBeforeReorder = structuredClone((await storedComponentModel(page)).instances)
+  await layers.locator(`[data-layer-node-id="${duplicatedSourceBadgeId}"]`).click()
+  await page.keyboard.press("Alt+ArrowUp")
+  await expect.poll(async () => (await storedFile(page)).relationships[duplicatedSourceBadgeId]?.parentId).toBe(master.id)
+  await expect.poll(async () => (await storedOrderedDirectChildren(page, master.id)).indexOf(duplicatedSourceBadgeId)).toBeLessThan((await storedOrderedDirectChildren(page, master.id)).indexOf(sourceBadge.id))
+  expect((await storedOrderedDirectChildren(page, instance.id)).indexOf(duplicatedFirstOuterBadgeId)).toBeLessThan((await storedOrderedDirectChildren(page, instance.id)).indexOf(mirroredBadge.id))
+  expect((await storedOrderedDirectChildren(page, secondOuterInstance.id)).indexOf(duplicatedSecondOuterBadgeId)).toBeLessThan((await storedOrderedDirectChildren(page, secondOuterInstance.id)).indexOf(secondMirroredBadge.id))
+  expect((await storedComponentModel(page)).instances).toEqual(semanticBeforeReorder)
+  await page.getByRole("button", { name: "Undo document edit", exact: true }).click()
+  await expect.poll(async () => (await storedOrderedDirectChildren(page, master.id)).indexOf(sourceBadge.id)).toBeLessThan((await storedOrderedDirectChildren(page, master.id)).indexOf(duplicatedSourceBadgeId))
+  expect((await storedOrderedDirectChildren(page, instance.id)).indexOf(mirroredBadge.id)).toBeLessThan((await storedOrderedDirectChildren(page, instance.id)).indexOf(duplicatedFirstOuterBadgeId))
+  expect((await storedOrderedDirectChildren(page, secondOuterInstance.id)).indexOf(secondMirroredBadge.id)).toBeLessThan((await storedOrderedDirectChildren(page, secondOuterInstance.id)).indexOf(duplicatedSecondOuterBadgeId))
+  expect((await storedComponentModel(page)).instances).toEqual(semanticBeforeReorder)
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === slotBadgeDefinition.id).length).toBe(3)
+  const nestedSourceLayer = await requiredBox(layers.locator(`[data-layer-node-id="${sourceBadge.id}"]`).boundingBox(), "Nested Slot badge layer")
+  const outerMasterLayer = await requiredBox(layers.locator(`[data-layer-node-id="${master.id}"]`).boundingBox(), "Evidence card layer")
+  await page.mouse.move(nestedSourceLayer.x + nestedSourceLayer.width / 2, nestedSourceLayer.y + nestedSourceLayer.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(nestedSourceLayer.x + nestedSourceLayer.width / 2, nestedSourceLayer.y + nestedSourceLayer.height / 2 + 6)
+  await page.mouse.move(outerMasterLayer.x + outerMasterLayer.width / 2, outerMasterLayer.y + 2, { steps: 20 })
+  await page.waitForTimeout(60)
+  await page.mouse.move(outerMasterLayer.x + outerMasterLayer.width / 2, outerMasterLayer.y + 1)
+  await page.mouse.up()
+  await expect.poll(async () => (await storedFile(page)).relationships[sourceBadge.id]?.parentId).not.toBe(master.id)
+  expect((await storedFile(page)).nodes[mirroredBadge.id]).toBeUndefined()
+  expect((await storedComponentModel(page)).instances[mirroredBadge.id]).toBeUndefined()
+  expect((await storedFile(page)).nodes[secondMirroredBadge.id]).toBeUndefined()
+  expect((await storedComponentModel(page)).instances[secondMirroredBadge.id]).toBeUndefined()
+  expect((await storedComponentModel(page)).instances[sourceBadge.id]).toBeDefined()
+  await page.getByRole("button", { name: "Undo document edit", exact: true }).click()
+  await expect.poll(async () => (await storedFile(page)).relationships[sourceBadge.id]?.parentId).toBe(master.id)
+  expect((await storedFile(page)).nodes[mirroredBadge.id]).toBeDefined()
+  expect((await storedComponentModel(page)).instances[mirroredBadge.id]).toBeDefined()
+  expect((await storedFile(page)).nodes[secondMirroredBadge.id]).toBeDefined()
+  expect((await storedComponentModel(page)).instances[secondMirroredBadge.id]).toBeDefined()
+  await layers.locator(`[data-layer-node-id="${secondOuterInstance.id}"]`).click()
+  await page.keyboard.press("Delete")
+  await expect.poll(async () => (await storedComponentModel(page)).instances[secondOuterInstance.id]).toBeUndefined()
+  expect((await storedComponentModel(page)).instances[secondMirroredBadge.id]).toBeUndefined()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === slotBadgeDefinition.id).length).toBe(2)
+  await page.locator(`[data-instance-id="${instance.id}"]`).click()
+  await page.getByRole("button", { name: "Add content to Content", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: "Evidence card", exact: true })).toHaveCount(0)
+  await page.locator(".component-property-menu").screenshot({ path: resolve(evidenceRoot, "slot-menu.png") })
+  await page.getByRole("menuitem", { name: "Slot badge", exact: true }).click()
+  const nestedFile = await storedFile(page)
+  const nestedComponent = Object.values(nestedFile.componentModel.instances).find(candidate => candidate.componentId === slotBadgeDefinition.id && nestedFile.relationships[candidate.id]?.slot === slotProperty.id)!
+  expect(nestedComponent).toBeDefined()
+  expect((await storedFile(page)).relationships[nestedComponent.id]).toMatchObject({ parentId: instance.id, slot: slotProperty.id })
+  await page.getByRole("button", { name: "Add content to Inner", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: "Evidence card", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("menuitem", { name: "Slot badge", exact: true })).toHaveCount(0)
+  expect(nestedSlotProperty).toBeDefined()
+  await page.keyboard.press("Escape")
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => (await storedComponentModel(page)).instances[nestedComponent.id]).toBeUndefined()
+  await page.locator(`[data-instance-id="${instance.id}"]`).click()
+  await page.getByRole("button", { name: "Add content to Content", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Frame", exact: true }).click()
+  const slotChildren = await storedSlotChildren(page, instance.id, slotProperty.id)
+  expect(slotChildren).toHaveLength(1)
+  expect((await storedNode(page, slotChildren[0]!)).type).toBe("frame")
+
+  await automation.components.openKit()
+  await automation.components.inspect("Slot badge")
+  await page.getByRole("button", { name: "Remove Slot badge as a component", exact: true }).click()
+  await expect.poll(async () => (await storedComponentModel(page)).definitions[slotBadgeDefinition.id]).toBeUndefined()
+
+  await automation.components.openKit()
+  const kitTab = page.getByRole("tab", { name: "Kit", exact: true })
+  await expect(kitTab).toHaveAttribute("aria-selected", "true")
+  await automation.components.inspect("Evidence card")
+  await expect(kitTab).toHaveAttribute("aria-selected", "true")
+  await expect(page.getByText("Playground", { exact: true })).toBeVisible()
+  const configuredPreview = page.frameLocator('iframe[title="Configured component preview"]')
+  const configuredMaster = configuredPreview.locator(`[data-preview-canvas="${master.id}"]`)
+  await expect(configuredMaster).toBeVisible()
+  await expect.poll(async () => {
+    const [surface, component] = await Promise.all([page.locator('.component-docs-preview').boundingBox(), configuredMaster.boundingBox()])
+    if (!surface || !component) return Number.POSITIVE_INFINITY
+    return Math.max(
+      Math.abs(surface.x + surface.width / 2 - (component.x + component.width / 2)),
+      Math.abs(surface.y + surface.height / 2 - (component.y + component.height / 2)),
+    )
+  }).toBeLessThan(2)
+  await expect.poll(async () => page.locator('.component-docs-preview').evaluate(element => getComputedStyle(element).backgroundImage)).toContain('repeating-conic-gradient')
+  await configuredMaster.hover()
+  await expect.poll(async () => configuredMaster.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 0, 85)")
+  await page.mouse.down()
+  await expect.poll(async () => configuredMaster.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(0, 85, 255)")
+  await page.mouse.up()
+  await expect.poll(async () => configuredMaster.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 0, 85)")
+  await expect(page.getByText("Variant sheet", { exact: true })).toBeVisible()
+  const variantSheet = page.getByRole("list", { name: "Variant sheet", exact: true })
+  await expect(variantSheet.getByRole("listitem")).toHaveCount(3)
+  await expect(variantSheet).toContainText("State: Default")
+  await expect(variantSheet).toContainText("State: Hover")
+  await expect(variantSheet).toContainText("State: Pressed")
+  await page.getByRole("button", { name: "Preview State: Pressed", exact: true }).click()
+  await expect(page.getByRole("combobox", { name: "State", exact: true })).toHaveText("Pressed")
+  await expect(page.getByRole("button", { name: "Preview State: Pressed", exact: true })).toHaveAttribute("aria-pressed", "true")
+  await expect.poll(async () => configuredMaster.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(0, 85, 255)")
+  await page.getByRole("button", { name: "Reset playground", exact: true }).click()
+  await expect(page.getByRole("combobox", { name: "State", exact: true })).toHaveText("Default")
+  await expect(page.getByRole("button", { name: "Reset playground", exact: true })).toHaveCount(0)
+  await expect.poll(async () => configuredMaster.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)")
+  await expect(page.getByText("Canvas components are used by placing an instance from this kit.", { exact: true })).toHaveCount(0)
+  await page.locator(".left-rail").screenshot({ path: resolve(evidenceRoot, "component-details-panel.png") })
+  await automation.evidence.screenshot("docs", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
+  await expect(kitTab).toHaveAttribute("aria-selected", "true")
+
+  await page.getByRole("combobox", { name: "State", exact: true }).click()
+  await page.getByRole("option", { name: "Hover", exact: true }).click()
+  await page.getByRole("textbox", { name: "Label", exact: true }).fill("Docs label")
+  await page.getByRole("checkbox", { name: "Visible", exact: true }).check()
+  await expect(configuredPreview.locator(`[data-preview-canvas="${masterTextId}"]`)).toContainText("Docs label")
+  await expect(configuredPreview.locator(`[data-preview-canvas="${masterTextId}"]`)).toBeVisible()
+  await page.getByRole("button", { name: "Place", exact: true }).click()
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(2)
+  await expect(page.getByRole("list", { name: "Instances", exact: true }).getByRole("listitem")).toHaveCount(2)
+  const configuredModel = await storedComponentModel(page)
+  const configured = Object.values(configuredModel.instances).find(candidate => candidate.id !== instance.id)!
+  expect(configured.values).toEqual({ [authored.properties[0]!.id]: hoverValue!.id, [textProperty.id]: "Docs label", [booleanProperty.id]: true })
+  const configuredTextId = await storedDirectChildOfType(page, configured.id, "text")
+  expect((await storedNode(page, configuredTextId!)).text).toBe("Docs label")
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(1)
+  await expect(page.getByRole("list", { name: "Instances", exact: true }).getByRole("listitem")).toHaveCount(1)
+  await expect(page.getByRole("textbox", { name: "Label", exact: true })).toHaveValue("Docs label")
+  await expect(page.getByRole("combobox", { name: "State", exact: true })).toHaveText("Hover")
+  await expect(page.getByRole("checkbox", { name: "Visible", exact: true })).toBeChecked()
+
+  await page.getByRole("button", { name: "Place State: Pressed", exact: true }).click()
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(2)
+  const pressedSheetModel = await storedComponentModel(page)
+  const fromPressedSheet = Object.values(pressedSheetModel.instances).find(candidate => candidate.id !== instance.id)!
+  expect(fromPressedSheet.values).toEqual({ [authored.properties[0]!.id]: pressedValue!.id })
+  expect((await storedNode(page, fromPressedSheet.id)).appearance).toEqual(pressedAppearance)
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(1)
+
+  await page.getByRole("button", { name: "Place State: Hover", exact: true }).click()
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(2)
+  const sheetModel = await storedComponentModel(page)
+  const fromSheet = Object.values(sheetModel.instances).find(candidate => candidate.id !== instance.id)!
+  expect(fromSheet.values).toEqual({ [authored.properties[0]!.id]: hoverValue!.id })
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(1)
+
+  const beforeGeneratedSheet = new Set(Object.keys((await storedComponentModel(page)).instances))
+  await page.getByRole("button", { name: "Place every Evidence card variant on the canvas", exact: true }).click()
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(4)
+  const generatedSheetModel = await storedComponentModel(page)
+  const generatedSheet = Object.values(generatedSheetModel.instances).filter(candidate => !beforeGeneratedSheet.has(candidate.id))
+  expect(generatedSheet.map(candidate => candidate.values)).toEqual([
+    {},
+    { [authored.properties[0]!.id]: hoverValue!.id },
+    { [authored.properties[0]!.id]: pressedValue!.id },
+  ])
+  const generatedTransforms = await Promise.all(generatedSheet.map(candidate => storedNode(page, candidate.id).then(node => node.styles.relativeTransform)))
+  expect(new Set(generatedTransforms.map(transform => JSON.stringify(transform))).size).toBe(3)
+  const generatedFile = await storedFile(page)
+  const generatedFrame = Object.values(generatedFile.nodes).find(node => node.type === "frame" && node.name === "Evidence card variants")!
+  const generatedLabels = Object.values(generatedFile.nodes)
+    .filter(node => node.type === "text" && generatedFile.relationships[node.id]?.parentId === generatedFrame.id)
+    .map(node => node.type === "text" ? node.text : "")
+  expect(generatedLabels).toEqual(["State: Default", "State: Hover", "State: Pressed"])
+  await expect(page.getByRole("heading", { name: "Instance properties", exact: true })).toHaveCount(0)
+  await expect(page.getByText("Select a component instance to edit its properties.", { exact: true })).toHaveCount(0)
+  await automation.evidence.screenshot("variant-sheet", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
+  await expect(page.getByRole("list", { name: "Instances", exact: true }).getByRole("listitem")).toHaveCount(4)
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(1)
+
+  const instances = page.getByRole("list", { name: "Instances", exact: true })
+  await expect(instances.getByRole("listitem")).toHaveCount(1)
+  await page.getByRole("button", { name: "Open Evidence card instance 1 on Page 1", exact: true }).click()
+  await expect(page.getByRole("tab", { name: "Design", exact: true })).toHaveAttribute("aria-selected", "true")
+  await expect(page.locator(`[data-instance-id="${instance.id}"]`)).toHaveAttribute("aria-selected", "true")
+  await page.keyboard.press("Control+d")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(2)
+  const duplicatedModel = await storedComponentModel(page)
+  const duplicatedInstance = Object.values(duplicatedModel.instances).find(candidate => candidate.id !== instance.id)!
+  expect(duplicatedInstance).toMatchObject({ componentId: instance.componentId, values: instance.values })
+  await automation.layers.node(nodeId(duplicatedInstance.id)).expectKind("component")
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(1)
+
+  await page.getByRole("button", { name: "Page 1", exact: true }).click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Duplicate page", exact: true }).click()
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(2)
+  await expect(page.getByRole("button", { name: "Page 1 copy", exact: true })).toBeVisible()
+  await automation.components.openKit()
+  await expect(page.getByRole("list", { name: "Instances", exact: true }).getByRole("listitem")).toHaveCount(2)
+  await expect(page.getByRole("list", { name: "Instances", exact: true })).toContainText("Page 1 copy")
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(1)
+  await expect(page.getByRole("list", { name: "Instances", exact: true }).getByRole("listitem")).toHaveCount(1)
+  await page.getByRole("button", { name: "Open Evidence card instance 1 on Page 1", exact: true }).click()
+  await page.keyboard.press("Delete")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(0)
+  expect((await storedFile(page)).nodes[instance.id]).toBeUndefined()
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).instances).length).toBe(1)
+  expect((await storedFile(page)).nodes[instance.id]).toBeDefined()
+  await automation.components.openKit()
+  await page.getByRole("button", { name: "Open in canvas", exact: true }).click()
+  await expect(page.getByRole("tab", { name: "Design", exact: true })).toHaveAttribute("aria-selected", "true")
+  await expect(page.locator(`[data-instance-id="${master.id}"]`)).toHaveAttribute("aria-selected", "true")
+
+  await page.getByRole("tab", { name: "Kit", exact: true }).click()
+  const editDetails = page.getByRole("button", { name: "Edit Evidence card details", exact: true })
+  if (!await editDetails.isVisible()) await automation.components.inspect("Evidence card")
+  await editDetails.click()
+  await page.getByRole("textbox", { name: "Component name", exact: true }).fill("Evidence tile")
+  await page.getByRole("textbox", { name: "Description", exact: true }).fill("Reusable evidence card.")
+  await page.getByRole("button", { name: "Save details", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.name).toBe("Evidence tile")
+  expect(Object.values((await storedComponentModel(page)).definitions)[0]?.id).toBe(definition.id)
+  expect(Object.values((await storedComponentModel(page)).definitions)[0]?.docs).toEqual({ slug: "evidence-tile", description: "Reusable evidence card." })
+
+  await page.reload({ waitUntil: "domcontentloaded" })
+  await page.locator(".canvas-stage").waitFor()
+  await page.frameLocator('iframe[title="Canvas"]').locator("#preview-root").waitFor({ state: "attached" })
+  const reloaded = await storedComponentModel(page)
+  const reloadedDefinition = Object.values(reloaded.definitions)[0]!
+  expect(reloadedDefinition).toMatchObject({ id: definition.id, name: "Evidence tile", docs: { slug: "evidence-tile", description: "Reusable evidence card." }, interactions: [
+    { trigger: "pointer-hover", valueId: hoverValue!.id, transition: { type: "smart-animate", durationMs: 120, easing: "ease-in-out" } },
+    { trigger: "pointer-press", valueId: pressedValue!.id, transition: { type: "instant" } },
+  ], materials: [{ name: "Hover surface", group: "Interaction" }] })
+  expect(reloadedDefinition.parts).toEqual(expect.arrayContaining([
+    expect.objectContaining({ nodeId: master.id, materialId: materialDefinition.materials[0]!.id }),
+    expect.objectContaining({ nodeId: masterTextId, materialId: materialDefinition.materials[0]!.id }),
+  ]))
+  expect(reloadedDefinition.properties).toEqual(expect.arrayContaining([
+    expect.objectContaining({ type: "variant", description: "Visual interaction state.", currentValueId: hoverValue!.id }),
+    expect.objectContaining({ id: textProperty.id, type: "text", name: "Label" }),
+    expect.objectContaining({ id: booleanProperty.id, type: "boolean", name: "Visible" }),
+    expect.objectContaining({ id: slotProperty.id, type: "slot", name: "Content" }),
+  ]))
+  expect(Object.keys(reloaded.instances)).toEqual([instance.id])
+  expect((await storedNode(page, instanceTextId!)).text).toBe("Instance label")
+  expect((await storedNode(page, masterTextId!)).text).toBe("Default label")
+  expect(await storedSlotChildren(page, instance.id, slotProperty.id)).toEqual(slotChildren)
+  await expect(previewNode(page, instance.id)).toBeVisible()
+
+  await page.locator(`[data-instance-id="${instanceTextId}"]`).click()
+  const protectedTextBefore = (await storedFile(page)).nodes[instanceTextId!]
+  await page.keyboard.press("ArrowRight")
+  expect((await storedFile(page)).nodes[instanceTextId!]).toEqual(protectedTextBefore)
+  await page.keyboard.press("Delete")
+  expect((await storedFile(page)).nodes[instanceTextId!]).toBeDefined()
+  expect((await storedComponentModel(page)).instances[instance.id]!.values[textProperty.id]).toBe("Instance label")
+
+  await page.locator(`[data-instance-id="${instance.id}"]`).click()
+  await page.getByRole("radio", { name: "Shared component", exact: true }).click()
+  await expect(page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${master.id}"]`)).toHaveAttribute("data-selected", "true")
+  await page.getByRole("button", { name: "Edit State", exact: true }).click()
+  const editVariant = page.getByRole("dialog", { name: "Edit property", exact: true })
+  await editVariant.getByRole("button", { name: "Remove Hover", exact: true }).click()
+  await editVariant.getByRole("button", { name: "Save property", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.interactions.length).toBe(1)
+  const withoutHover = await storedComponentModel(page)
+  expect(withoutHover.definitions[definition.id]!.properties.find(property => property.id === authored.properties[0]!.id)?.values).toEqual([
+    { id: authored.properties[0]!.defaultValueId, name: "Default" },
+    { id: pressedValue!.id, name: "Pressed" },
+  ])
+  expect(withoutHover.definitions[definition.id]!.interactions).toMatchObject([{ trigger: "pointer-press", valueId: pressedValue!.id, transition: { type: "instant" } }])
+  expect(Object.hasOwn(withoutHover.instances[instance.id]!.values, authored.properties[0]!.id)).toBe(false)
+  expect((await storedNode(page, instance.id)).appearance).toEqual(defaultAppearance)
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.interactions.length).toBe(2)
+  expect((await storedComponentModel(page)).definitions[definition.id]!.interactions).toMatchObject([
+    { trigger: "pointer-hover", valueId: hoverValue!.id, transition: { type: "smart-animate", durationMs: 120, easing: "ease-in-out" } },
+    { trigger: "pointer-press", valueId: pressedValue!.id, transition: { type: "instant" } },
+  ])
+  expect((await storedComponentModel(page)).instances[instance.id]!.values[authored.properties[0]!.id]).toBe(hoverValue!.id)
+  expect((await storedNode(page, instance.id)).appearance).toEqual(hoverAppearance)
+
+  await page.getByRole("button", { name: "Edit Hover surface", exact: true }).click()
+  await page.getByRole("dialog", { name: "Edit material", exact: true }).getByRole("button", { name: "Remove Hover surface", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.materials.length).toBe(0)
+  expect(Object.values((await storedComponentModel(page)).definitions)[0]?.parts).toEqual(expect.arrayContaining([
+    expect.objectContaining({ nodeId: master.id }),
+    expect.objectContaining({ nodeId: masterTextId }),
+  ]))
+  expect(Object.values((await storedComponentModel(page)).definitions)[0]?.parts.every(part => part.materialId === undefined)).toBe(true)
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.materials[0]?.id).toBe(materialDefinition.materials[0]!.id)
+  expect(Object.values((await storedComponentModel(page)).definitions)[0]?.parts.filter(part => part.materialId === materialDefinition.materials[0]!.id)).toHaveLength(2)
+
+  const instanceSlotHostId = await storedDirectChildNamed(page, instance.id, "Content host")
+  expect(instanceSlotHostId).toBeDefined()
+  await page.getByRole("button", { name: "Edit Content", exact: true }).click()
+  const editSlot = page.getByRole("dialog", { name: "Edit property", exact: true })
+  await editSlot.getByRole("combobox", { name: "Layer", exact: true }).click()
+  await page.getByRole("option", { name: "Content host", exact: true }).click()
+  await editSlot.getByRole("button", { name: "Save property", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.properties.find(property => property.id === slotProperty.id)?.binding?.nodeId).toBe(masterSlotHostId)
+  expect(await storedSlotChildren(page, instance.id, slotProperty.id)).toEqual([])
+  expect(await storedSlotChildren(page, instanceSlotHostId!, slotProperty.id)).toEqual(slotChildren)
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.properties.find(property => property.id === slotProperty.id)?.binding?.nodeId).toBe(master.id)
+  expect(await storedSlotChildren(page, instance.id, slotProperty.id)).toEqual(slotChildren)
+  expect(await storedSlotChildren(page, instanceSlotHostId!, slotProperty.id)).toEqual([])
+
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${instance.id}"]`).click()
+  await visible.check()
+  await expect.poll(async () => (await storedComponentModel(page)).instances[instance.id]?.values[booleanProperty.id]).toBe(true)
+  await page.getByRole("radio", { name: "Shared component", exact: true }).click()
+  await page.getByRole("button", { name: "Edit Visible", exact: true }).click()
+  const editVisible = page.getByRole("dialog", { name: "Edit property", exact: true })
+  await editVisible.getByRole("combobox", { name: "Layer", exact: true }).click()
+  await page.getByRole("option", { name: "Content host", exact: true }).click()
+  await editVisible.getByRole("button", { name: "Save property", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.properties.find(property => property.id === booleanProperty.id)?.binding?.nodeId).toBe(masterSlotHostId)
+  expect(((await storedNode(page, instanceTextId!)).appearance as { visible?: boolean })?.visible).toBe(false)
+  expect(((await storedNode(page, instanceSlotHostId!)).appearance as { visible?: boolean })?.visible).not.toBe(false)
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.properties.find(property => property.id === booleanProperty.id)?.binding?.nodeId).toBe(masterTextId)
+  expect(((await storedNode(page, instanceTextId!)).appearance as { visible?: boolean })?.visible).not.toBe(false)
+  expect(((await storedNode(page, instanceSlotHostId!)).appearance as { visible?: boolean })?.visible).not.toBe(false)
+
+  await page.getByRole("button", { name: "Edit Content", exact: true }).click()
+  await page.getByRole("dialog", { name: "Edit property", exact: true }).getByRole("button", { name: "Remove Content", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.properties.some(property => property.id === slotProperty.id)).toBe(false)
+  for (const slotChild of slotChildren) expect((await storedFile(page)).nodes[slotChild]).toBeUndefined()
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.properties.some(property => property.id === slotProperty.id)).toBe(true)
+  for (const slotChild of slotChildren) expect((await storedFile(page)).nodes[slotChild]).toBeDefined()
+
+  await page.getByRole("button", { name: "Edit Label", exact: true }).click()
+  await page.getByRole("dialog", { name: "Edit property", exact: true }).getByRole("button", { name: "Remove Label", exact: true }).click()
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.properties.some(property => property.id === textProperty.id)).toBe(false)
+  expect((await storedComponentModel(page)).instances[instance.id]!.values).not.toHaveProperty(textProperty.id)
+  expect((await storedNode(page, instanceTextId!)).text).toBe("Default label")
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.properties.some(property => property.id === textProperty.id)).toBe(true)
+  expect((await storedComponentModel(page)).instances[instance.id]!.values[textProperty.id]).toBe("Instance label")
+  expect((await storedNode(page, instanceTextId!)).text).toBe("Instance label")
+
+  await automation.components.openKit()
+  await automation.components.inspect("Evidence tile")
+  await page.getByRole("button", { name: "Open in canvas", exact: true }).click()
+  await page.locator(`[data-instance-id="${masterTextId}"]`).click()
+  await page.keyboard.press("Delete")
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.properties.some(property => property.id === textProperty.id)).toBe(false)
+  expect((await storedFile(page)).nodes[masterTextId]).toBeUndefined()
+  expect((await storedFile(page)).nodes[instanceTextId!]).toBeUndefined()
+  expect(Object.hasOwn((await storedComponentModel(page)).instances[instance.id]!.values, textProperty.id)).toBe(false)
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).definitions)[0]?.properties.some(property => property.id === textProperty.id)).toBe(true)
+  expect((await storedFile(page)).nodes[masterTextId]).toBeDefined()
+  expect((await storedFile(page)).nodes[instanceTextId!]).toBeDefined()
+  expect((await storedComponentModel(page)).instances[instance.id]!.values[textProperty.id]).toBe("Instance label")
+
+  await automation.components.openKit()
+  const removeComponent = page.getByRole("button", { name: "Remove Evidence tile as a component", exact: true })
+  if (!await removeComponent.isVisible()) await automation.components.inspect("Evidence tile")
+  await removeComponent.click()
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).definitions).length).toBe(0)
+  expect(Object.keys((await storedComponentModel(page)).instances)).toHaveLength(0)
+  await page.getByRole("tab", { name: "Design", exact: true }).click()
+  await instanceRef.expectKind("frame")
+  await expect(previewNode(page, instance.id)).toBeVisible()
+
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).definitions).length).toBe(1)
+  expect(Object.keys((await storedComponentModel(page)).instances)).toEqual([instance.id])
+  await instanceRef.expectKind("component")
+
+  await page.getByRole("tab", { name: "Kit", exact: true }).click()
+  if (!await page.getByRole("button", { name: "Open in canvas", exact: true }).isVisible()) await automation.components.inspect("Evidence tile")
+  await page.getByRole("button", { name: "Open in canvas", exact: true }).click()
+  await page.keyboard.press("Delete")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).definitions).length).toBe(0)
+  expect((await storedFile(page)).nodes[master.id]).toBeUndefined()
+  expect((await storedFile(page)).nodes[instance.id]).toBeDefined()
+  await instanceRef.expectKind("frame")
+  await page.keyboard.press("Control+z")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).definitions).length).toBe(1)
+  expect(Object.keys((await storedComponentModel(page)).instances)).toEqual([instance.id])
+  await instanceRef.expectKind("component")
+  await writeCaptureReport(evidenceRoot, frameTimes)
+})
+
+function previewNode(page: Page, id: string) {
+  return page.frameLocator('iframe[title="Canvas"]').locator(`[data-preview-canvas="${id}"]`)
+}
+
+async function previewBackground(page: Page, id: string): Promise<string> {
+  return previewNode(page, id).evaluate(element => getComputedStyle(element).backgroundColor)
+}
+
+async function requiredBox(input: Promise<{ x: number; y: number; width: number; height: number } | null>, label: string) {
+  const box = await input
+  if (!box) throw new Error(`${label} has no bounds.`)
+  return box
+}
+
+async function storedFile(page: Page): Promise<{ componentModel: ComponentModel; nodes: Record<string, StoredNode>; relationships: Record<string, { parentId: string; slot?: string }> }> {
+  const fileId = decodeURIComponent(new URL(page.url()).pathname.split("/").pop() ?? "")
+  return page.evaluate(selectedFile => {
+    const raw = localStorage.getItem(`design-editor.browser-file.${selectedFile}.v3`)
+    if (!raw) throw new Error("Stored file is unavailable.")
+    return JSON.parse(raw).file
+  }, fileId)
+}
+
+async function storedComponentModel(page: Page): Promise<ComponentModel> {
+  return (await storedFile(page)).componentModel
+}
+
+async function storedNode(page: Page, id: string): Promise<StoredNode> {
+  const node = (await storedFile(page)).nodes[id]
+  if (!node) throw new Error(`Stored node ${id} is unavailable.`)
+  return node
+}
+
+async function storedSlotChildren(page: Page, parentId: string, slot: string): Promise<string[]> {
+  const file = await storedFile(page)
+  return Object.entries(file.relationships).filter(([, relationship]) => relationship.parentId === parentId && relationship.slot === slot).map(([nodeId]) => nodeId).sort()
+}
+
+async function storedDirectChildren(page: Page, parentId: string): Promise<string[]> {
+  const file = await storedFile(page)
+  return Object.entries(file.relationships).filter(([, relationship]) => relationship.parentId === parentId && relationship.slot === undefined).map(([nodeId]) => nodeId).sort()
+}
+
+async function storedOrderedDirectChildren(page: Page, parentId: string): Promise<string[]> {
+  const file = await storedFile(page)
+  return Object.entries(file.relationships)
+    .filter(([, relationship]) => relationship.parentId === parentId && relationship.slot === undefined)
+    .map(([nodeId, relationship]) => ({ nodeId, orderKey: relationship.orderKey }))
+    .sort((left, right) => left.orderKey < right.orderKey ? -1 : left.orderKey > right.orderKey ? 1 : left.nodeId.localeCompare(right.nodeId))
+    .map(item => item.nodeId)
+}
+
+async function storedDirectChildOfType(page: Page, parentId: string, type: string): Promise<string | undefined> {
+  for (const nodeId of await storedDirectChildren(page, parentId)) {
+    if ((await storedNode(page, nodeId)).type === type) return nodeId
+  }
+  return undefined
+}
+
+async function storedDirectChildNamed(page: Page, parentId: string, name: string): Promise<string | undefined> {
+  for (const nodeId of await storedDirectChildren(page, parentId)) {
+    if ((await storedNode(page, nodeId)).name === name) return nodeId
+  }
+  return undefined
+}
+
+type ComponentModel = {
+  definitions: Record<string, { id: string; name: string; source: { kind: string; masterRootId?: string }; properties: Array<{ id: string; type: string; defaultValueId?: string; currentValueId?: string; values?: Array<{ id: string; name: string }>; binding?: { kind: string; nodeId: string; appearances?: Record<string, unknown> } }>; interactions: Array<{ trigger: string; propertyId: string; valueId: string }>; materials: Array<{ id: string; name: string; group: string; description?: string; appearance: unknown }>; parts: Array<{ id: string; name: string; nodeId: string; materialId?: string }> }>
+  instances: Record<string, { id: string; componentId: string; values: Record<string, unknown> }>
+}
+
+type StoredNode = { type: string; name?: string; text?: string; styles: { relativeTransform: readonly number[] }; appearance?: unknown }

@@ -30,13 +30,12 @@ describe('CC-NT-001: v4 theme-mode migration through current schema', () => {
   it('sets every non-root node to inherit and leaves everything else byte-equal', () => {
     const input = v4()
     const upgraded = upgradeFileDocument(input) as FileDocument
-    expect(upgraded.schemaVersion).toBe(9)
+    expect(upgraded.schemaVersion).toBe(12)
     for (const id of ['card', 'btn', 'box', 'caption']) expect((upgraded.nodes[id] as { themeMode?: string }).themeMode).toBe('inherit')
     expect(upgraded.nodes['root-1']).toBe(input.nodes['root-1'])
     expect(upgraded.nodes['root-2']).toBe(input.nodes['root-2'])
-    // Everything but the version and the new field is the same data.
-    const strip = (file: unknown) => JSON.parse(JSON.stringify(file, (key, value) => ['themeMode', 'schemaVersion', 'textStyle', 'textSizing'].includes(key) ? undefined : value))
-    expect(strip(upgraded)).toEqual(strip(input))
+    expect((upgraded.nodes.box as { styles: unknown }).styles).toEqual({ relativeTransform: [1, 0, 0, 1, 1, 2], width: 30, height: 40 })
+    expect((upgraded.nodes.caption as { styles: unknown }).styles).toEqual({ relativeTransform: [1, 0, 0, 1, 0, 0], width: 80, height: 20 })
     expect(upgraded.pages).toBe(input.pages)
     expect(upgraded.relationships).toBe(input.relationships)
     expect(upgraded.theme).toBe(input.theme)
@@ -48,22 +47,25 @@ describe('CC-NT-001: v4 theme-mode migration through current schema', () => {
   it('chains from version 2 and 3 to the current schema and recognizes every stored version', () => {
     const v3 = { ...v4(), schemaVersion: 3, nodes: { ...v4().nodes, card: { id: 'card', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {}, layout: { mode: 'flow', x: 0, y: 0 } } } }
     const upgraded = upgradeFileDocument(v3) as FileDocument
-    expect(upgraded.schemaVersion).toBe(9)
+    expect(upgraded.schemaVersion).toBe(12)
     expect(upgraded.nodes.card).toEqual({ id: 'card', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {}, layout: { item: { position: { mode: 'flow' } } }, themeMode: 'inherit' })
-    for (const version of [2, 3, 4, 5, 6, 7, 8, 9]) expect(isFileDocumentShape({ ...v4(), schemaVersion: version })).toBe(true)
-    expect(isFileDocumentShape({ ...v4(), schemaVersion: 10 })).toBe(false)
-    expect(() => validateFileDocument(upgradeFileDocument({ ...v4(), schemaVersion: 10 }), atoms)).toThrow('Unsupported design file version')
+    for (const version of [2, 3, 4, 5, 6, 7, 8, 9, 10]) expect(isFileDocumentShape({ ...v4(), schemaVersion: version })).toBe(true)
+    expect(isFileDocumentShape({ ...v4(), schemaVersion: 11 })).toBe(true)
+    expect(isFileDocumentShape({ ...v4(), schemaVersion: 12 })).toBe(true)
+    expect(isFileDocumentShape({ ...v4(), schemaVersion: 13 })).toBe(false)
     expect(() => validateFileDocument(v4(), atoms)).toThrow('Unsupported design file version')
   })
 
   it('upgrades a version 5 file through the current schema without inventing page backgrounds', () => {
-    const version5 = { ...(upgradeFileDocument(v4()) as FileDocument), schemaVersion: 5 }
+    const { componentModel: _componentModel, ...current } = upgradeFileDocument(v4()) as FileDocument
+    const version5 = { ...current, schemaVersion: 5 }
     const upgraded = upgradeFileDocument(version5) as FileDocument
     expect(upgraded).not.toBe(version5)
-    expect(upgraded.schemaVersion).toBe(9)
+    expect(upgraded.schemaVersion).toBe(12)
     expect(upgraded.pages).toBe(version5.pages)
     expect(upgraded.pages.every(page => !Object.hasOwn(page, 'background'))).toBe(true)
-    expect({ ...upgraded, schemaVersion: null }).toEqual({ ...version5, schemaVersion: null })
+    const { componentModel: _upgradedComponentModel, ...upgradedWithoutComponentModel } = upgraded
+    expect({ ...upgradedWithoutComponentModel, schemaVersion: null }).toEqual({ ...version5, schemaVersion: null })
     expect(validateFileDocument(upgraded, atoms)).toEqual(upgraded)
     expect(upgradeFileDocument(upgraded)).toBe(upgraded)
   })
@@ -80,8 +82,8 @@ describe('CC-NT-001: v4 theme-mode migration through current schema', () => {
 describe('CC-NT-002 and CC-NT-006: stored modes through commands', () => {
   const file = () => validateFileDocument(upgradeFileDocument(v4()), atoms)
   it('a new node defaults to inherit and setThemeMode changes only that field', () => {
-    const inserted = applyFileCommand(file(), { type: 'node.insert', node: { id: 'fresh', type: 'rectangle', name: 'Fresh', styles: { left: 0, top: 0, width: 10, height: 10 } }, placement: { parentId: 'root-1' } }, atoms)
-    expect(inserted.nodes.fresh).toEqual({ id: 'fresh', type: 'rectangle', name: 'Fresh', styles: { left: 0, top: 0, width: 10, height: 10 }, themeMode: 'inherit' })
+    const inserted = applyFileCommand(file(), { type: 'node.insert', node: { id: 'fresh', type: 'rectangle', name: 'Fresh', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 } }, placement: { parentId: 'root-1' } }, atoms)
+    expect(inserted.nodes.fresh).toEqual({ id: 'fresh', type: 'rectangle', name: 'Fresh', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 }, themeMode: 'inherit' })
     const before = file()
     const after = applyFileCommand(before, { type: 'node.setThemeMode', nodeId: 'box', themeMode: 'dark' }, atoms)
     expect((after.nodes.box as { themeMode?: string }).themeMode).toBe('dark')

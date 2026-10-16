@@ -44,6 +44,19 @@ export type FileLocationResult =
 type LegacyViewHandOff = { legacyView?: { activePageId: string; previewTheme?: string } }
 const cameraWriteDelayMs = 250
 
+function waitForSignal<Value>(operation: Promise<Value>, signal?: AbortSignal): Promise<Value> {
+  if (!signal) return operation
+  if (signal.aborted) return Promise.reject(signal.reason)
+  return new Promise((resolve, reject) => {
+    const aborted = () => reject(signal.reason)
+    signal.addEventListener('abort', aborted, { once: true })
+    operation.then(
+      value => { signal.removeEventListener('abort', aborted); resolve(value) },
+      error => { signal.removeEventListener('abort', aborted); reject(error) },
+    )
+  })
+}
+
 class ProjectAccessUnavailableError extends Error {
   constructor() { super(editorCopy.projectAccessUnavailable) }
 }
@@ -72,7 +85,7 @@ export async function reconcileShareUpdate(input: Readonly<{ requestedAccess: Ed
 }
 
 export function createEditorStore(api: () => DesignEditorApi | undefined, documents?: DocumentController, storage?: () => HistoryStorage) {
-  const backing = createStore<EditorState>(() => ({ capabilities: api()?.capabilities ?? unavailableCapabilities, mode: readAppearance(), tab: 'Layers', scope: 'Shared component', selected: null, zoom: 100, snapshot: null, prepared: null, approved: false, busy: null, error: null, notice: null, reviewOpen: false, shortcutOpen: false, shareOpen: false, shareAccess: null, shareDraft: 'private', shareBusy: false, shareError: null, padding: '8px', token: '#009ff0', previewReady: false, compositionPreview: false, runtimeInstanceIds: null, previewThemeId: null }))
+  const backing = createStore<EditorState>(() => ({ capabilities: api()?.capabilities ?? unavailableCapabilities, mode: readAppearance(), tab: 'design', scope: 'Shared component', selected: null, zoom: 100, snapshot: null, prepared: null, approved: false, busy: null, error: null, notice: null, reviewOpen: false, shortcutOpen: false, shareOpen: false, shareAccess: null, shareDraft: 'private', shareBusy: false, shareError: null, padding: '8px', token: '#009ff0', previewReady: false, compositionPreview: false, runtimeInstanceIds: null, previewThemeId: null }))
   const subscriptions = new Set<() => void>()
   const update = (patch: Partial<EditorState>) => backing.setState(patch)
   let generation = 0
@@ -315,7 +328,7 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
      * Opens a file (and optionally one of its pages) for a route. Newer calls supersede older ones, so a slow load can never
      * land another file's data in the editor. Reopening the current location only switches the page or selection.
      */
-    openLocation: async (fileId: string, pageId: string | null, nodeId: string | null = null): Promise<FileLocationResult> => {
+    openLocation: async (fileId: string, pageId: string | null, nodeId: string | null = null, signal?: AbortSignal): Promise<FileLocationResult> => {
       const token = ++locationGeneration
       const current = backing.getState()
       const openFile = documents?.getSnapshot().file
@@ -330,10 +343,10 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
       generation++
       update({ busy: editorCopy.opening, error: null, notice: null, approved: false, prepared: null })
       try {
-        const files = await active.listFiles()
+        const files = await waitForSignal(active.listFiles(), signal)
         if (token !== locationGeneration) return { status: 'stale' }
         if (!files.some(file => file.id === fileId)) { update({ busy: null }); return { status: 'missing-file', fileId } }
-        const loaded = await active.openFile(fileId)
+        const loaded = await waitForSignal(active.openFile(fileId), signal)
         if (token !== locationGeneration) return { status: 'stale' }
         const snapshot = newestSnapshot(loaded)
         if (pageId !== null && !snapshot.file.pages.some(page => page.id === pageId)) { update({ busy: null }); return { status: 'missing-page', fileId, pageId, fileName: snapshot.composition.name } }
@@ -355,7 +368,7 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
       }
     },
     /** Opens a public-link view directly, without requiring the file to appear in the signed-in account listing. */
-    openSharedLocation: async (fileId: string, pageId: string | null, nodeId: string | null = null): Promise<FileLocationResult> => {
+    openSharedLocation: async (fileId: string, pageId: string | null, nodeId: string | null = null, signal?: AbortSignal): Promise<FileLocationResult> => {
       const token = ++locationGeneration
       const active = connection()
       if (!active.openSharedFile) return { status: 'missing-file', fileId }
@@ -363,7 +376,7 @@ export function createEditorStore(api: () => DesignEditorApi | undefined, docume
       documents?.setReadOnly(true)
       update({ busy: editorCopy.opening, error: null, notice: null, approved: false, prepared: null })
       try {
-        const loaded = await active.openSharedFile(fileId)
+        const loaded = await waitForSignal(active.openSharedFile(fileId), signal)
         if (token !== locationGeneration) return { status: 'stale' }
         if (!loaded) { update({ busy: null }); return { status: 'missing-file', fileId } }
         const snapshot = newestSnapshot(loaded)
@@ -425,10 +438,10 @@ export const configureEditorStore = (api: DesignEditorApi | undefined) => {
   else if (hadApi) configured = configurationGate()
   editorStore.set({ capabilities: api?.capabilities ?? unavailableCapabilities })
 }
-export const waitForEditorStoreConfiguration = (): Promise<void> => configuredApi ? Promise.resolve() : configured.promise
-export const withEditorStoreConfiguration = async <Result>(operation: () => Promise<Result>): Promise<Result> => {
+export const waitForEditorStoreConfiguration = (signal?: AbortSignal): Promise<void> => configuredApi ? Promise.resolve() : waitForSignal(configured.promise, signal)
+export const withEditorStoreConfiguration = async <Result>(operation: () => Promise<Result>, signal?: AbortSignal): Promise<Result> => {
   for (;;) {
-    await waitForEditorStoreConfiguration()
+    await waitForEditorStoreConfiguration(signal)
     try { return await operation() }
     catch (error) {
       if (!(error instanceof ProjectAccessUnavailableError)) throw error

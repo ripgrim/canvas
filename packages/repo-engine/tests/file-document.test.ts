@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   ancestorsOf, applyFileCommand, childrenOf, createBlankFile, descendantsOf, frameAt, legacyPageDocument, nodeAppearance, pageNodes,
-  legacyTextProperties, pageOfNode, projectAppearance, resolveColorValue, resolveToken, tokenReferences, validateFileDocument, worldPosition, worldRect,
+  legacyTextProperties, pageOfNode, projectAppearance, resolveColorValue, resolveToken, resolveTokenLiteral, tokenReferences, validateFileDocument, worldPosition, worldRect,
 } from '../src/file-document.js'
 import type { Appearance, ColorToken, ColorValue, ComponentNode, FileCommand, FileDocument, FileNode, FileTheme, ImageAssetReference, Paint, PrimitiveNode, PrimitiveStyles, Stroke } from '../src/file-document.js'
 import type { Color } from '../src/color.js'
 import type { NodeLayout } from '../src/layout.js'
 import type { Atom } from '../src/types.js'
+import { matrixFromLegacyPose } from '../src/layout-pose.js'
 
 const card: Atom = { name: 'Card', kind: 'atom', componentId: 'sample-card', exportName: 'Card', path: 'src/atoms/Card.tsx', fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props: [{ name: 'children', type: 'ReactNode', optional: true }, { name: 'heading', type: 'ReactNode', optional: true }] }
 const button: Atom = { name: 'Button', kind: 'atom', componentId: 'sample-button', exportName: 'Button', path: 'src/atoms/Button.tsx', fingerprint: 'f', sourceHash: 'h', status: 'bound', candidates: [], props: [{ name: 'children', type: 'ReactNode', optional: true }, { name: 'variant', type: '"primary" | "quiet" | undefined', optional: true }] }
@@ -19,9 +20,9 @@ const solid = (id: string, value: string): Paint => ({ id, type: 'solid', color:
 const tokenPaint = (id: string, tokenId: string): Paint => ({ id, type: 'solid', color: tok(tokenId) })
 const gradient = (id: string, angle: number, stops: [string, number, ColorValue][]): Paint => ({ id, type: 'gradient', shape: 'linear', angle, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'srgb', stops: stops.map(([stopId, position, color]) => ({ id: stopId, position, color })) })
 const stroke = (color: ColorValue, width = 1): Stroke => ({ color, width, style: 'solid' })
-const frame = (id: string, left: number, top: number, width = 100, height = 100): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { left, top, width, height } })
-const rect = (id: string, left: number, top: number, fills: Paint[] = []): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { left, top, width: 10, height: 10 }, ...(fills.length ? { appearance: { fills } } : {}) })
-const text = (id: string, value: string): PrimitiveNode => ({ id, type: 'text', name: id, styles: { left: 0, top: 0, width: 80, height: 20 }, text: value, ...legacyTextProperties() })
+const frame = (id: string, left: number, top: number, width = 100, height = 100): PrimitiveNode => ({ id, type: 'frame', name: id, styles: { relativeTransform: [1, 0, 0, 1, left, top], width, height } })
+const rect = (id: string, left: number, top: number, fills: Paint[] = []): PrimitiveNode => ({ id, type: 'rectangle', name: id, styles: { relativeTransform: [1, 0, 0, 1, left, top], width: 10, height: 10 }, ...(fills.length ? { appearance: { fills } } : {}) })
+const text = (id: string, value: string): PrimitiveNode => ({ id, type: 'text', name: id, styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 80, height: 20 }, text: value, ...legacyTextProperties() })
 const pixel = (id = 'img'): ImageAssetReference => ({ id, name: 'Pixel', mime: 'image/png', extension: 'png', bytes: 3, width: 1, height: 1, sha256: 'a'.repeat(64) })
 const appearanceOf = (file: FileDocument, nodeId: string) => nodeAppearance(file.nodes[nodeId])
 /** The exact error message, so a broader message with the same prefix cannot satisfy the assertion. */
@@ -36,7 +37,7 @@ const aliasToken = (id: string, orderKey: string, target: string): ColorToken =>
  * (5,7) world (125,87 10x10). label sits on the root after outer.
  */
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'file-1',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -64,7 +65,7 @@ describe('file validation', () => {
   it('accepts a blank file and returns a detached copy', () => {
     const blank = createBlankFile('file-1', 'page-1', 'root-1')
     const validated = validateFileDocument(blank, [])
-    expect(validated).toEqual({ schemaVersion: 9, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes: { 'root-1': { id: 'root-1', type: 'root' } }, relationships: {}, theme: { tokens: {} } })
+    expect(validated).toEqual({ schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 0, pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }], nodes: { 'root-1': { id: 'root-1', type: 'root' } }, relationships: {}, theme: { tokens: {} } })
     expect(validated).not.toBe(blank)
   })
 
@@ -89,7 +90,6 @@ describe('file validation', () => {
     ['a parent cycle', file => { file.relationships.outer = { parentId: 'inner', orderKey: 'V' } }, 'Node hierarchy contains a cycle'],
     ['a rectangle used as a parent', file => { file.relationships.label!.parentId = 'box' }, 'A node cannot live under that parent'],
     ['a component under a frame', file => { file.nodes.card = cardNode('card'); file.relationships.card = { parentId: 'outer', orderKey: 'W' } }, 'A node cannot live under that parent'],
-    ['a primitive under a component', file => { file.nodes.card = cardNode('card'); file.relationships.card = { parentId: 'root-1', orderKey: 'X' }; file.relationships.label = { parentId: 'card', orderKey: 'V', slot: 'children' } }, 'A node cannot live under that parent'],
     ['a component child without a slot', file => { file.nodes.card = cardNode('card'); file.nodes.btn = buttonNode('btn'); file.relationships.card = { parentId: 'root-1', orderKey: 'X' }; file.relationships.btn = { parentId: 'card', orderKey: 'V' } }, 'A node cannot live under that parent'],
     ['a component child in an unknown slot', file => { file.nodes.card = cardNode('card'); file.nodes.btn = buttonNode('btn'); file.relationships.card = { parentId: 'root-1', orderKey: 'X' }; file.relationships.btn = { parentId: 'card', orderKey: 'V', slot: 'footer' } }, 'A node cannot live under that parent'],
     ['a slot on a root child', file => { file.relationships.label!.slot = 'children' }, 'A node cannot live under that parent'],
@@ -122,7 +122,7 @@ describe('file validation', () => {
     ['an unknown relationship field', file => { asRecord(file.relationships.box).z = 1 }, 'Unsupported relationship field'],
     ['an unknown token field', file => { asRecord(file.theme.tokens.brand).group = 'x' }, 'Unsupported token field'],
     ['an unknown file field', file => { asRecord(file).extra = true }, 'Unsupported design file field'],
-    ['a __proto__ node id', file => { defineOwn(file.nodes, '__proto__', { id: '__proto__', type: 'rectangle', name: 'x', styles: { left: 0, top: 0, width: 1, height: 1 } }) }, 'Invalid node identity'],
+    ['a __proto__ node id', file => { defineOwn(file.nodes, '__proto__', { id: '__proto__', type: 'rectangle', name: 'x', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 1, height: 1 } }) }, 'Invalid node identity'],
     ['a constructor token id', file => { defineOwn(file.theme.tokens, 'constructor', literalToken('constructor', 'X', '#000000')) }, 'Invalid token identity'],
     ['a __proto__ page id', file => { file.pages[0]!.id = '__proto__' }, 'Invalid page identity'],
     ['a node keyed differently from its id', file => { file.nodes.box = { ...file.nodes.box!, id: 'other' } as FileNode }, 'Invalid node identity'],
@@ -140,6 +140,74 @@ describe('file validation', () => {
     const missing = [{ ...card, status: 'missing' as const }]
     expect(() => validateFileDocument(file, missing)).toThrow('Component binding needs review')
     expect(validateFileDocument(file, missing, { allowUnavailableBindings: true }).nodes.card).toEqual(cardNode('card'))
+  })
+
+  it('rejects orphaned and physically mismatched component instance records', () => {
+    const orphaned = fixture()
+    orphaned.componentModel = { definitions: {
+      canvas: { id: 'canvas', name: 'Canvas', source: { kind: 'canvas', masterRootId: 'box' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+    }, instances: { ghost: { id: 'ghost', componentId: 'canvas', values: {} } } }
+    expect(thrown(() => validateFileDocument(orphaned, atoms))).toBe('A component instance needs a design node')
+
+    const mismatched = fixture()
+    mismatched.nodes.card = cardNode('card')
+    mismatched.relationships.card = { parentId: 'root-1', orderKey: 'X' }
+    mismatched.componentModel = { definitions: {
+      'sample-button': { id: 'sample-button', name: 'Button', source: { kind: 'code', bindingId: 'sample-button' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+    }, instances: { card: { id: 'card', componentId: 'sample-button', values: {} } } }
+    expect(thrown(() => validateFileDocument(mismatched, atoms))).toBe('A code component instance needs its bound component node')
+  })
+
+  it('rejects canvas component sources and bindings outside the master subtree', () => {
+    const missingMaster = fixture()
+    missingMaster.componentModel = { definitions: {
+      canvas: { id: 'canvas', name: 'Canvas', source: { kind: 'canvas', masterRootId: 'ghost' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] },
+    }, instances: {} }
+    expect(thrown(() => validateFileDocument(missingMaster, atoms))).toBe('A canvas component needs its master node')
+
+    const missingPropertyLayer = fixture()
+    missingPropertyLayer.componentModel = { definitions: {
+      canvas: {
+        id: 'canvas', name: 'Canvas', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 0,
+        properties: [{ id: 'label-property', name: 'Label', type: 'text', defaultValue: 'Hello', binding: { kind: 'text', nodeId: 'label' } }],
+        materials: [], parts: [], interactions: [],
+      },
+    }, instances: {} }
+    expect(thrown(() => validateFileDocument(missingPropertyLayer, atoms))).toBe('A component property references a missing master layer')
+
+    const missingPartLayer = fixture()
+    missingPartLayer.componentModel = { definitions: {
+      canvas: {
+        id: 'canvas', name: 'Canvas', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 0,
+        properties: [], materials: [], parts: [{ id: 'label-part', name: 'Label', nodeId: 'label' }], interactions: [],
+      },
+    }, instances: {} }
+    expect(thrown(() => validateFileDocument(missingPartLayer, atoms))).toBe('A component part references a missing master layer')
+  })
+
+  it('COMP-V2-UI-030 rejects recursive canvas component dependencies', () => {
+    const component = (id: string, masterRootId: string) => ({
+      id, name: id, source: { kind: 'canvas' as const, masterRootId }, revision: 0,
+      properties: [], materials: [], parts: [], interactions: [],
+    })
+    const nested = (links: ReadonlyArray<readonly [string, string]>) => {
+      const file = fixture()
+      file.nodes['b-master'] = frame('b-master', 600, 0)
+      file.nodes['b-use'] = rect('b-use', 0, 0)
+      file.nodes['c-master'] = frame('c-master', 800, 0)
+      file.relationships['b-master'] = { parentId: 'root-1', orderKey: 'X' }
+      file.relationships['b-use'] = { parentId: 'b-master', orderKey: 'V' }
+      file.relationships['c-master'] = { parentId: 'root-1', orderKey: 'Y' }
+      file.componentModel = {
+        definitions: { a: component('a', 'outer'), b: component('b', 'b-master'), c: component('c', 'c-master') },
+        instances: Object.fromEntries(links.map(([instanceId, componentId]) => [instanceId, { id: instanceId, componentId, values: {} }])),
+      }
+      return file
+    }
+
+    expect(validateFileDocument(nested([['inner', 'b'], ['b-use', 'c']]), atoms).componentModel.instances['b-use']?.componentId).toBe('c')
+    expect(thrown(() => validateFileDocument(nested([['inner', 'a']]), atoms))).toBe('Components cannot contain themselves recursively')
+    expect(thrown(() => validateFileDocument(nested([['inner', 'b'], ['b-use', 'a']]), atoms))).toBe('Components cannot contain themselves recursively')
   })
 })
 
@@ -285,7 +353,7 @@ describe('node commands', () => {
     ['a rectangle parent', { type: 'node.insert', node: rect('d', 0, 0), placement: { parentId: 'a' } }, 'That node cannot be placed there'],
     ['an existing id', { type: 'node.insert', node: rect('a', 0, 0), placement: { parentId: 'root-1' } }, 'Node identity is invalid'],
     ['a root node', { type: 'node.insert', node: { id: 'r2', type: 'root' }, placement: { parentId: 'root-1' } }, 'Node identity is invalid'],
-    ['invalid geometry', { type: 'node.insert', node: { ...rect('d', 0, 0), styles: { left: 0, top: 0, width: 0, height: 10 } }, placement: { parentId: 'root-1' } }, 'Invalid node geometry'],
+    ['invalid geometry', { type: 'node.insert', node: { ...rect('d', 0, 0), styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 0, height: 10 } }, placement: { parentId: 'root-1' } }, 'Invalid node geometry'],
   ] as [string, FileCommand, string][])('rejects an insert with %s and leaves the input unchanged', (_label, command, message) => {
     const file = withRow()
     const before = structuredClone(file)
@@ -298,7 +366,7 @@ describe('node commands', () => {
     file = run(file, { type: 'node.insert', node: frame('1-0', -156, -194), placement: { parentId: 'root-1' } })
     file = run(file, { type: 'node.insert', node: frame('2-0', -174, -221), placement: { parentId: 'root-1' } })
     file = run(file, { type: 'node.reparent', nodeId: '1-0', placement: { parentId: '2-0' }, preserveWorldPosition: true })
-    expect((file.nodes['1-0'] as PrimitiveNode).styles).toEqual({ left: 18, top: 27, width: 100, height: 100 })
+    expect((file.nodes['1-0'] as PrimitiveNode).styles).toEqual({ relativeTransform: [1, 0, 0, 1, 18, 27], width: 100, height: 100 })
     expect(file.relationships['1-0']).toEqual({ parentId: '2-0', orderKey: 'V' })
     expect(worldPosition(file, '1-0')).toEqual({ x: -156, y: -194 })
     expect(file.revision).toBe(3)
@@ -307,18 +375,18 @@ describe('node commands', () => {
   it('reparents across two nested levels preserving world position', () => {
     // box world (125,87). Into outer (world 100,50): local (25,37). Out to the root: (125,87). Into inner (120,80): (5,7).
     let file = run(fixture(), { type: 'node.reparent', nodeId: 'box', placement: { parentId: 'outer' }, preserveWorldPosition: true })
-    expect((file.nodes.box as PrimitiveNode).styles).toMatchObject({ left: 25, top: 37 })
+    expect((file.nodes.box as PrimitiveNode).styles.relativeTransform).toEqual([1, 0, 0, 1, 25, 37])
     file = run(file, { type: 'node.reparent', nodeId: 'box', placement: { parentId: 'root-1', index: 0 }, preserveWorldPosition: true })
-    expect((file.nodes.box as PrimitiveNode).styles).toMatchObject({ left: 125, top: 87 })
+    expect((file.nodes.box as PrimitiveNode).styles.relativeTransform).toEqual([1, 0, 0, 1, 125, 87])
     expect(childrenOf(file, 'root-1')).toEqual(['box', 'outer', 'label'])
     file = run(file, { type: 'node.reparent', nodeId: 'label', placement: { parentId: 'inner' }, preserveWorldPosition: true })
-    expect((file.nodes.label as PrimitiveNode).styles).toMatchObject({ left: -120, top: -80 })
+    expect((file.nodes.label as PrimitiveNode).styles.relativeTransform).toEqual([1, 0, 0, 1, -120, -80])
     expect(worldPosition(file, 'label')).toEqual({ x: 0, y: 0 })
   })
 
   it('keeps local styles when world position is not preserved', () => {
     const file = run(fixture(), { type: 'node.reparent', nodeId: 'box', placement: { parentId: 'root-1' } })
-    expect((file.nodes.box as PrimitiveNode).styles).toEqual({ left: 5, top: 7, width: 10, height: 10 })
+    expect((file.nodes.box as PrimitiveNode).styles).toEqual({ relativeTransform: [1, 0, 0, 1, 5, 7], width: 10, height: 10 })
     expect(worldPosition(file, 'box')).toEqual({ x: 5, y: 7 })
   })
 
@@ -381,22 +449,22 @@ describe('node commands', () => {
 
   it('updates styles partially and validates the result', () => {
     const file = fixture()
-    const moved = run(file, { type: 'node.setStyles', nodeId: 'box', styles: { left: 9, rotation: 15 } })
-    expect((moved.nodes.box as PrimitiveNode).styles).toEqual({ left: 9, top: 7, width: 10, height: 10, rotation: 15 })
-    const unrotated = run(moved, { type: 'node.setStyles', nodeId: 'box', styles: { rotation: null } })
-    expect((unrotated.nodes.box as PrimitiveNode).styles).toEqual({ left: 9, top: 7, width: 10, height: 10 })
+    const transformed = matrixFromLegacyPose({ left: 9, top: 7, rotation: 15 }, { width: 10, height: 10 })
+    const moved = run(file, { type: 'node.setStyles', nodeId: 'box', styles: { relativeTransform: transformed } })
+    expect((moved.nodes.box as PrimitiveNode).styles).toEqual({ relativeTransform: transformed, width: 10, height: 10 })
+    const unrotated = run(moved, { type: 'node.setStyles', nodeId: 'box', styles: { relativeTransform: [1, 0, 0, 1, 9, 7] } })
+    expect((unrotated.nodes.box as PrimitiveNode).styles).toEqual({ relativeTransform: [1, 0, 0, 1, 9, 7], width: 10, height: 10 })
     const visible = run(file, { type: 'node.setStyles', nodeId: 'outer', styles: { overflow: 'visible' } })
     expect((visible.nodes.outer as PrimitiveNode).styles.overflow).toBe('visible')
-    const flipped = run(file, { type: 'node.setStyles', nodeId: 'box', styles: { flipX: true, flipY: true } })
-    expect((flipped.nodes.box as PrimitiveNode).styles).toEqual({ left: 5, top: 7, width: 10, height: 10, flipX: true, flipY: true })
-    const unflipped = run(flipped, { type: 'node.setStyles', nodeId: 'box', styles: { flipX: null, flipY: null } })
-    expect((unflipped.nodes.box as PrimitiveNode).styles).toEqual({ left: 5, top: 7, width: 10, height: 10 })
+    const reflected = matrixFromLegacyPose({ left: 5, top: 7, flipX: true, flipY: true }, { width: 10, height: 10 })
+    const flipped = run(file, { type: 'node.setStyles', nodeId: 'box', styles: { relativeTransform: reflected } })
+    expect((flipped.nodes.box as PrimitiveNode).styles.relativeTransform).toEqual(reflected)
     expect(() => run(file, { type: 'node.setStyles', nodeId: 'box', styles: { width: null } } as unknown as FileCommand)).toThrow('Invalid node geometry')
-    expect(() => run(file, { type: 'node.setStyles', nodeId: 'box', styles: { flipX: 'yes' as unknown as boolean } })).toThrow('Invalid node geometry')
+    expect(() => run(file, { type: 'node.setStyles', nodeId: 'box', styles: { relativeTransform: [0, 0, 0, 1, 0, 0] } })).toThrow('Invalid node geometry')
     expect(() => run(file, { type: 'node.setStyles', nodeId: 'box', styles: { width: -1 } })).toThrow('Invalid node geometry')
     expect(() => run(file, { type: 'node.setStyles', nodeId: 'box', styles: { overflow: 'clip' } })).toThrow('Invalid node geometry')
-    expect(() => run(file, { type: 'node.setStyles', nodeId: 'box', styles: { left: Number.NaN } })).toThrow('Invalid node geometry')
-    expect(() => run(file, { type: 'node.setStyles', nodeId: 'root-1', styles: { left: 1 } })).toThrow('Select a design node')
+    expect(() => run(file, { type: 'node.setStyles', nodeId: 'box', styles: { relativeTransform: [1, 0, 0, 1, Number.NaN, 0] } })).toThrow('Invalid node geometry')
+    expect(() => run(file, { type: 'node.setStyles', nodeId: 'root-1', styles: { relativeTransform: [1, 0, 0, 1, 1, 0] } })).toThrow('Select a design node')
   })
 
   it('sets text only on text nodes', () => {
@@ -669,8 +737,10 @@ describe('component nodes', () => {
     expect(() => run(withCard(), { type: 'node.insert', node: buttonNode('extra'), placement })).toThrow('That node cannot be placed there')
   })
 
-  it('rejects a primitive inside a component slot', () => {
-    expect(() => run(withCard(), { type: 'node.insert', node: rect('r', 0, 0), placement: { parentId: 'card', slot: 'children' } })).toThrow('That node cannot be placed there')
+  it('accepts any drawable layer inside a declared component slot', () => {
+    const node = { ...rect('r', 0, 0), layout: { item: { position: { mode: 'flow' as const } } } }
+    const file = run(withCard(), { type: 'node.insert', node, placement: { parentId: 'card', slot: 'children' } })
+    expect(childrenOf(file, 'card', 'children')).toEqual(['btn', 'r'])
   })
 
   it('sets and removes props with prop validation', () => {
@@ -792,7 +862,7 @@ describe('token commands', () => {
       accent: aliasToken('accent', 'W', 'brand'),
       ink: literalToken('ink', 'X', '#202124'),
     }
-    file.nodes.shader = { id: 'shader', type: 'shader', name: 'Shader', styles: { left: 0, top: 0, width: 40, height: 40 }, appearance: { fills: [gradient('shader:fill:1', 135, [['a', 0, tok('brand')], ['b', 1, tok('ink')]])] } }
+    file.nodes.shader = { id: 'shader', type: 'shader', name: 'Shader', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 40 }, appearance: { fills: [gradient('shader:fill:1', 135, [['a', 0, tok('brand')], ['b', 1, tok('ink')]])] } }
     file.relationships.shader = { parentId: 'root-1', orderKey: 'X' }
     file.pages.push({ id: 'page-2', name: 'Page 2', rootNodeId: 'root-2' })
     file.nodes['root-2'] = { id: 'root-2', type: 'root' }
@@ -825,6 +895,41 @@ describe('token commands', () => {
     expect(resolveToken(file.theme, 'accent', { '--ink': hex('#eeeeee') })).toEqual(hex('#eeeeee'))
     expect(() => run(file, { type: 'token.setValue', tokenId: 'ink', value: { kind: 'source', property: 'ink', fallback: hex('#000000') } })).toThrow('Invalid token value')
     expect(() => run(file, { type: 'token.setValue', tokenId: 'ink', value: { kind: 'alias', tokenId: 'ghost' } })).toThrow('Token alias target is missing')
+  })
+
+  it('AT-DOC-004 stores and resolves every supported scalar token domain', () => {
+    const scalar = [
+      ['opacity', 0.5], ['radius', '8px'], ['spacing', '12px'], ['container', '1200px'], ['breakpoint', '768px'],
+      ['fontFamily', 'Inter'], ['fontWeight', 600], ['fontSize', '16px'], ['lineHeight', 1.5], ['letterSpacing', '-0.2px'],
+    ] as const
+    const next = run(createBlankFile('tokens', 'page', 'root'), { type: 'batch', commands: scalar.map(([type, value], index) => ({
+      type: 'token.create' as const,
+      token: { id: `token-${index}`, type, name: type, orderKey: `${String.fromCharCode(65 + index)}`, value: { kind: 'literal' as const, value } },
+    })) })
+    for (const [index, [, value]] of scalar.entries()) expect(resolveTokenLiteral(next.theme, `token-${index}`)).toEqual({ kind: 'literal', value })
+    expect(resolveToken(next.theme, 'token-0')).toBeNull()
+  })
+
+  it('keeps aliases inside one token domain and preserves scalar aliases on delete', () => {
+    let file = createBlankFile('tokens', 'page', 'root')
+    file = run(file, { type: 'batch', commands: [
+      { type: 'token.create', token: { id: 'space-1', type: 'spacing', name: 'Small', orderKey: 'V', value: { kind: 'literal', value: '8px' } } },
+      { type: 'token.create', token: { id: 'space-2', type: 'spacing', name: 'Medium', orderKey: 'W', value: { kind: 'alias', tokenId: 'space-1' } } },
+      { type: 'token.create', token: literalToken('ink', 'X', '#000000') },
+    ] })
+    expect(resolveTokenLiteral(file.theme, 'space-2')).toEqual({ kind: 'literal', value: '8px' })
+    expect(() => run(file, { type: 'token.setValue', tokenId: 'space-2', value: { kind: 'alias', tokenId: 'ink' } })).toThrow('Token alias target has a different type')
+    const deleted = run(file, { type: 'token.delete', tokenIds: ['space-1'] })
+    expect(deleted.theme.tokens['space-2']!.value).toEqual({ kind: 'literal', value: '8px' })
+  })
+
+  it('rejects scalar tokens in color bindings', () => {
+    const file = createBlankFile('tokens', 'page', 'root')
+    const withSpacing = run(file, { type: 'token.create', token: { id: 'space', type: 'spacing', name: 'Space', orderKey: 'V', value: { kind: 'literal', value: '8px' } } })
+    withSpacing.nodes.box = rect('box', 0, 0)
+    withSpacing.relationships.box = { parentId: 'root', orderKey: 'V' }
+    ;(withSpacing.nodes.box as PrimitiveNode).appearance = { fills: [tokenPaint('fill', 'space')] }
+    expect(() => validateFileDocument(withSpacing, atoms)).toThrow('A fill references a missing token')
   })
 
   it('rejects self and transitive alias cycles', () => {
@@ -940,18 +1045,18 @@ describe('batch commands', () => {
       { type: 'node.insert', node: rect('a', 0, 0), placement: { parentId: 'root-1' } },
       { type: 'node.insert', node: rect('b', 0, 0), placement: { parentId: 'root-1', index: 0 } },
       { type: 'node.insert', node: rect('c', 0, 0), placement: { parentId: 'root-1', index: 1 } },
-      { type: 'node.setStyles', nodeId: 'a', styles: { left: 30 } },
+      { type: 'node.setStyles', nodeId: 'a', styles: { relativeTransform: [1, 0, 0, 1, 30, 0] } },
     ] })
     expect(next.revision).toBe(1)
     expect(childrenOf(next, 'root-1')).toEqual(['b', 'c', 'a'])
-    expect((next.nodes.a as PrimitiveNode).styles.left).toBe(30)
+    expect((next.nodes.a as PrimitiveNode).styles.relativeTransform[4]).toBe(30)
   })
 
   it('is all-or-nothing when an inner command fails', () => {
     const file = fixture()
     const before = structuredClone(file)
     expect(() => run(file, { type: 'batch', commands: [
-      { type: 'node.setStyles', nodeId: 'box', styles: { left: 99 } },
+      { type: 'node.setStyles', nodeId: 'box', styles: { relativeTransform: [1, 0, 0, 1, 99, 7] } },
       { type: 'node.insert', node: rect('d', 0, 0), placement: { parentId: 'ghost' } },
     ] })).toThrow('Select an existing node')
     expect(file).toEqual(before)

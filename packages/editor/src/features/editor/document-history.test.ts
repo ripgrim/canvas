@@ -8,12 +8,12 @@ const atoms: Atom[] = [{ componentId: 'button', name: 'Button', exportName: 'But
 
 function file(revision: number, text = 'Sign in'): FileDocument {
   return {
-    schemaVersion: 9, fileId: 'file-a', revision,
+    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file-a', revision,
     pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
     nodes: {
       'root-1': { id: 'root-1', type: 'root' },
       submit: { id: 'submit', type: 'component', componentId: 'button', exportName: 'Button', props: { children: text, variant: 'primary' } },
-      shape: { id: 'shape', type: 'rectangle', name: 'Shape', styles: { left: 10, top: 20, width: 120, height: 120 }, appearance: { fills: [{ id: 'shape-fill', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#d9d9d9' } } }] } },
+      shape: { id: 'shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 120, height: 120 }, appearance: { fills: [{ id: 'shape-fill', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#d9d9d9' } } }] } },
     },
     relationships: { submit: { parentId: 'root-1', orderKey: 'V' }, shape: { parentId: 'root-1', orderKey: 'W' } },
     theme: { tokens: {} },

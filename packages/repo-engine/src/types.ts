@@ -74,4 +74,5 @@ export type EngineOptions = {
       }[]
     }
   }) => Promise<void>
+  validateDocumentation?: (input: Readonly<{ root: string; files: Record<string, string>; changedPaths: readonly string[] }>) => Promise<void>
 }

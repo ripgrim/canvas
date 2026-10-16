@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { componentDefaultValues, componentDocsManifest, componentVariantCombinations, resolveComponentInstanceValues, validateComponentDefinition } from '../src/component-model.js'
+import { applyComponentAuthoringCommand, componentDefaultValues, componentDescriptionLimit, componentDocsCatalog, componentDocsManifest, componentDocsSlug, componentVariantCombinationLabel, componentVariantCombinations, resolveComponentInstanceValues, validateComponentAuthoringCommand, validateComponentDefinition, validateComponentModelState } from '../src/component-model.js'
 import type { ComponentDefinition } from '../src/component-model.js'
+import { applyFileCommand, applyFileCommandWithHistory, createBlankFile } from '../src/file-document.js'
+import type { FileDocument } from '../src/file-document.js'
 
 const button = (): ComponentDefinition => ({
   id: 'component:button',
@@ -19,6 +21,17 @@ const button = (): ComponentDefinition => ({
   interactions: [{ id: 'interaction:hover', trigger: 'pointer-hover', propertyId: 'property:state', valueId: 'value:hover', transition: { type: 'smart-animate', durationMs: 300, easing: 'ease-out' } }],
   docs: { slug: 'button', description: 'Triggers an action.' },
 })
+
+const buttonFile = (): FileDocument => {
+  const file = createBlankFile('file-1', 'page-1', 'root-1')
+  file.nodes['node:button-master'] = { id: 'node:button-master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 120, height: 40 } }
+  file.nodes['node:button-face'] = { id: 'node:button-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 120, height: 40 } }
+  file.nodes['node:button-label'] = { id: 'node:button-label', type: 'rectangle', name: 'Label', styles: { relativeTransform: [1, 0, 0, 1, 16, 10], width: 88, height: 20 } }
+  file.relationships['node:button-master'] = { parentId: 'root-1', orderKey: 'V' }
+  file.relationships['node:button-face'] = { parentId: 'node:button-master', orderKey: 'V' }
+  file.relationships['node:button-label'] = { parentId: 'node:button-master', orderKey: 'W' }
+  return file
+}
 
 describe('component model v2', () => {
   it('[COMP-V2-IDENTITY-001] keeps source identity separate from mutable source location', () => {
@@ -62,13 +75,189 @@ describe('component model v2', () => {
       { 'property:state': 'value:hover', 'property:size': 'value:small' },
       { 'property:state': 'value:hover', 'property:size': 'value:large' },
     ])
+    expect(componentVariantCombinations(definition).map(combination => componentVariantCombinationLabel(definition, combination))).toEqual([
+      'State: Default, Size: Small',
+      'State: Default, Size: Large',
+      'State: Hover, Size: Small',
+      'State: Hover, Size: Large',
+    ])
+    expect(componentVariantCombinationLabel({ ...definition, properties: definition.properties.filter(property => property.type !== 'variant') }, {}, 'Base')).toBe('Base')
     const manifest = componentDocsManifest(definition)
-    expect(manifest).toMatchObject({ componentId: 'component:button', slug: 'button', source: 'canvas' })
+    expect(manifest).toMatchObject({ componentId: 'component:button', slug: 'button', route: '/components/button', source: 'canvas', openInCanvas: { componentId: 'component:button' }, usage: { status: 'unavailable', reason: 'canvas-source' } })
     expect(manifest.controls.map(control => control.type)).toEqual(['variant', 'variant', 'text', 'boolean', 'slot'])
+    expect(manifest.controls.map(control => control.defaultValue)).toEqual(['value:default', 'value:small', 'Continue', false, undefined])
+    expect(componentDocsManifest({ ...definition, properties: definition.properties.map((property, index) => index === 0 ? { ...property, description: 'Pointer state.' } : property) }).controls[0]).toMatchObject({ name: 'State', description: 'Pointer state.' })
     expect(manifest.combinations).toHaveLength(4)
+    expect(componentDocsSlug('  Primary button  ')).toBe('primary-button')
+    expect(componentDocsSlug('按钮', 'component:button')).toBe('component-button')
   })
 
   it('[COMP-V2-SHEET-NEG-001] bounds generated combinations instead of materializing an unbounded product', () => {
     expect(() => componentVariantCombinations(button(), 3)).toThrow('exceed the supported limit')
+  })
+
+  it('[COMP-V2-PERSIST-001] validates a serialized definition and isolated instance record', () => {
+    const definition = button()
+    const state = validateComponentModelState({
+      definitions: { [definition.id]: JSON.parse(JSON.stringify(definition)) },
+      instances: { instance1: { id: 'instance1', componentId: definition.id, values: { 'property:label': 'Review', 'property:disabled': true } } },
+    })
+    expect(state.instances.instance1).toEqual({
+      id: 'instance1', componentId: definition.id,
+      values: { 'property:label': 'Review', 'property:disabled': true },
+    })
+  })
+
+  it('[COMP-V2-UI-067] keeps authored descriptions inside the persisted model boundary', () => {
+    const definition = button()
+    expect(validateComponentDefinition({ ...definition, docs: { slug: 'button', description: 'x'.repeat(componentDescriptionLimit) } }).docs?.description).toHaveLength(componentDescriptionLimit)
+    expect(() => validateComponentDefinition({ ...definition, docs: { slug: 'button', description: 'x'.repeat(componentDescriptionLimit + 1) } })).toThrow('Invalid component docs')
+  })
+
+  it('[COMP-V2-CODE-013] allows optional properties only on verified code definitions', () => {
+    const definition = button()
+    const optional = definition.properties.map((property, index) => index === 0 ? { ...property, optional: true as const } : property)
+    expect(validateComponentDefinition({ ...definition, source: { kind: 'code', bindingId: definition.id }, properties: optional }).properties[0]).toMatchObject({ optional: true })
+    expect(() => validateComponentDefinition({ ...definition, properties: optional })).toThrow('Canvas component properties cannot be optional')
+    const control = componentDocsManifest({ ...definition, source: { kind: 'code', bindingId: definition.id }, properties: optional }).controls[0]!
+    expect(control).toMatchObject({ optional: true })
+    expect(Object.hasOwn(control, 'defaultValue')).toBe(false)
+  })
+
+  it('[COMP-V2-BINDING-001] validates typed canvas property bindings without accepting cross-type bindings', () => {
+    const definition = button()
+    const bound = validateComponentDefinition({ ...definition, properties: definition.properties.map(property => {
+      if (property.type === 'text') return { ...property, binding: { kind: 'text', nodeId: 'node:button-label' } }
+      if (property.type === 'boolean') return { ...property, binding: { kind: 'visibility', nodeId: 'node:button-face' } }
+      if (property.type === 'slot') return { ...property, binding: { kind: 'slot', nodeId: 'node:button-master' } }
+      return property
+    }) })
+    expect(bound.properties).toMatchObject([
+      { type: 'variant' },
+      { type: 'variant' },
+      { type: 'text', binding: { kind: 'text', nodeId: 'node:button-label' } },
+      { type: 'boolean', binding: { kind: 'visibility', nodeId: 'node:button-face' } },
+      { type: 'slot', binding: { kind: 'slot', nodeId: 'node:button-master' } },
+    ])
+    expect(() => validateComponentDefinition({ ...definition, properties: definition.properties.map(property => property.type === 'text' ? { ...property, binding: { kind: 'visibility', nodeId: 'node:button-label' } } : property) })).toThrow('Invalid component property binding')
+  })
+
+  it('[COMP-V2-PERSIST-NEG-001] rejects malformed serialized definitions and orphaned instances', () => {
+    expect(() => validateComponentDefinition({ ...button(), injected: true })).toThrow('Invalid component definition')
+    expect(() => validateComponentDefinition({ ...button(), materials: [{ ...button().materials[0], appearance: { opacity: 2 } }] })).toThrow('Invalid node opacity')
+    expect(() => validateComponentModelState({ definitions: {}, instances: { instance1: { id: 'instance1', componentId: 'component:missing', values: {} } } })).toThrow('missing definition')
+    expect(() => validateComponentModelState({ definitions: { 'component:button': button() }, instances: { wrong: { id: 'instance1', componentId: 'component:button', values: {} } } })).toThrow('Invalid component instance')
+  })
+
+  it('[COMP-V2-AUTHOR-001] creates and replaces one complete master at checked revisions', () => {
+    const created = { ...button(), revision: 0 }
+    const initial = applyComponentAuthoringCommand({ definitions: {}, instances: {} }, { type: 'component.create', definition: created })
+    const renamed = { ...created, revision: 1, name: 'Action' }
+    const replaced = applyComponentAuthoringCommand(initial, { type: 'component.replace', componentId: created.id, expectedRevision: 0, definition: renamed })
+    expect(replaced.definitions[created.id]).toEqual(renamed)
+    expect(initial.definitions[created.id]).toEqual(created)
+    expect(() => applyComponentAuthoringCommand(replaced, { type: 'component.replace', componentId: created.id, expectedRevision: 0, definition: renamed })).toThrow('changed before this edit')
+    expect(() => applyComponentAuthoringCommand(initial, { type: 'component.replace', componentId: created.id, expectedRevision: 0, definition: { ...renamed, source: { kind: 'canvas', masterRootId: 'node:other' } } })).toThrow('source identity cannot change')
+  })
+
+  it('[COMP-V2-AUTHOR-NEG-001] admits only the closed authoring command schema', () => {
+    const created = { ...button(), revision: 0 }
+    expect(validateComponentAuthoringCommand({ type: 'component.create', definition: created })).toEqual({ type: 'component.create', definition: created })
+    expect(() => validateComponentAuthoringCommand({ type: 'component.create', definition: created, injected: true })).toThrow('Invalid component authoring command')
+    expect(() => validateComponentAuthoringCommand({ type: 'component.replace', componentId: created.id, expectedRevision: -1, definition: created })).toThrow('Invalid component authoring command')
+  })
+
+  it('[COMP-V2-HISTORY-001] applies component authoring through file history with checked undo and redo', () => {
+    const created = { ...button(), revision: 0 }
+    const start = buttonFile()
+    const creation = applyFileCommandWithHistory(start, { type: 'component.create', definition: created }, [])
+    expect(creation.file.revision).toBe(1)
+    expect(creation.file.componentModel.definitions[created.id]).toEqual(created)
+    const undone = applyFileCommand(creation.file, creation.undo, [])
+    expect(undone.componentModel.definitions).toEqual({})
+    const redone = applyFileCommand(undone, creation.redo, [])
+    expect(redone.componentModel.definitions[created.id]).toEqual(created)
+
+    const changedAtSameRevision = structuredClone(creation.file)
+    ;(changedAtSameRevision.componentModel.definitions as Record<string, ComponentDefinition>)[created.id] = { ...created, name: 'Injected' }
+    expect(() => applyFileCommand(changedAtSameRevision, creation.undo, [])).toThrow('changed before this edit')
+  })
+
+  it('[COMP-V2-AUTHOR-NEG-002] refuses deletion while an instance still owns the definition', () => {
+    const definition = button()
+    const state = validateComponentModelState({
+      definitions: { [definition.id]: definition },
+      instances: { instance1: { id: 'instance1', componentId: definition.id, values: {} } },
+    })
+    expect(() => applyComponentAuthoringCommand(state, { type: 'component.delete', componentId: definition.id, expectedRevision: definition.revision })).toThrow('Remove component instances')
+  })
+
+  it('[COMP-V2-INSTANCE-002] replaces only one instance and keeps unset values connected to master defaults', () => {
+    const definition = button()
+    const first = { id: 'instance:first', componentId: definition.id, values: { 'property:label': 'First' } }
+    const second = { id: 'instance:second', componentId: definition.id, values: { 'property:label': 'Second' } }
+    let state = validateComponentModelState({ definitions: { [definition.id]: definition }, instances: { [first.id]: first, [second.id]: second } })
+    const changed = { ...first, values: { ...first.values, 'property:disabled': true } }
+    state = applyComponentAuthoringCommand(state, { type: 'component.instance.replace', instanceId: first.id, expected: first, instance: changed })
+    expect(state.instances[first.id]).toEqual(changed)
+    expect(state.instances[second.id]).toEqual(second)
+    expect(state.definitions[definition.id]).toEqual(definition)
+
+    const nextDefinition = { ...definition, revision: 2, properties: definition.properties.map(property => property.id === 'property:disabled' && property.type === 'boolean' ? { ...property, defaultValue: true } : property) }
+    state = applyComponentAuthoringCommand(state, { type: 'component.replace', componentId: definition.id, expectedRevision: 1, definition: nextDefinition })
+    expect(resolveComponentInstanceValues(nextDefinition, state.instances[second.id]!.values)['property:disabled']).toBe(true)
+    expect(state.instances[second.id]!.values).not.toHaveProperty('property:disabled')
+  })
+
+  it('[COMP-V2-INSTANCE-ORDER-001] accepts an unchanged expected instance after JSON storage reorders object keys', () => {
+    const definition = button()
+    const stored = { id: 'instance:first', values: { 'property:label': 'First' }, componentId: definition.id }
+    const expected = { id: 'instance:first', componentId: definition.id, values: { 'property:label': 'First' } }
+    const next = { ...expected, values: { 'property:label': 'Updated' } }
+    const state = validateComponentModelState({ definitions: { [definition.id]: definition }, instances: { [stored.id]: stored } })
+    const changed = applyComponentAuthoringCommand(state, { type: 'component.instance.replace', instanceId: stored.id, expected, instance: next })
+    expect(changed.instances[stored.id]).toEqual(next)
+  })
+
+  it('[COMP-V2-INSTANCE-HISTORY-001] creates, edits, and restores instances through checked file history', () => {
+    const definition = { ...button(), revision: 0 }
+    const withDefinition = applyFileCommand(buttonFile(), { type: 'component.create', definition }, [])
+    const instance = { id: 'instance:first', componentId: definition.id, values: { 'property:label': 'First' } }
+    const withInstanceNode = structuredClone(withDefinition)
+    withInstanceNode.nodes[instance.id] = { id: instance.id, type: 'frame', name: 'Button instance', styles: { relativeTransform: [1, 0, 0, 1, 160, 0], width: 120, height: 40 } }
+    withInstanceNode.relationships[instance.id] = { parentId: 'root-1', orderKey: 'W' }
+    const creation = applyFileCommandWithHistory(withInstanceNode, { type: 'component.instance.create', instance }, [])
+    const changed = { ...instance, values: { 'property:label': 'Updated', 'property:disabled': true } }
+    const edit = applyFileCommandWithHistory(creation.file, { type: 'component.instance.replace', instanceId: instance.id, expected: instance, instance: changed }, [])
+    expect(edit.file.componentModel.instances[instance.id]).toEqual(changed)
+    expect(applyFileCommand(edit.file, edit.undo, []).componentModel.instances[instance.id]).toEqual(instance)
+
+    const stale = structuredClone(edit.file)
+    ;(stale.componentModel.instances as Record<string, typeof instance>)[instance.id] = { ...instance, values: { 'property:label': 'Concurrent' } }
+    expect(() => applyFileCommand(stale, edit.undo, [])).toThrow('changed before this edit')
+  })
+
+  it('[COMP-V2-DOCS-001] emits one deterministic Blume catalog from the component model', () => {
+    const primary = { ...button(), source: { kind: 'code', bindingId: 'binding:button' } as const }
+    const notice = { ...button(), id: 'component:notice', name: 'Notice', source: { kind: 'canvas', masterRootId: 'node:notice' } as const, docs: { slug: 'notice', description: 'Shows a short message.' } }
+    const state = validateComponentModelState({ definitions: { [notice.id]: notice, [primary.id]: primary }, instances: {} })
+    const usage = "import { Button } from '@comp/ui'\n\n<Button>Continue</Button>"
+    const catalog = componentDocsCatalog(state, { [primary.id]: usage })
+    expect(catalog.version).toBe(1)
+    expect(catalog.navigation).toEqual([
+      { title: 'Button', href: '/components/button', componentId: primary.id },
+      { title: 'Notice', href: '/components/notice', componentId: notice.id },
+    ])
+    expect(catalog.components[0]!.usage).toEqual({ status: 'available', snippet: usage })
+    expect(catalog.components[1]!.usage).toEqual({ status: 'unavailable', reason: 'canvas-source' })
+  })
+
+  it('[COMP-V2-DOCS-NEG-001] refuses ambiguous routes and invented usage sources', () => {
+    const primary = button()
+    const duplicate = { ...button(), id: 'component:duplicate', name: 'Duplicate', source: { kind: 'canvas', masterRootId: 'node:duplicate' } as const }
+    const state = validateComponentModelState({ definitions: { [primary.id]: primary, [duplicate.id]: duplicate }, instances: {} })
+    expect(() => componentDocsCatalog(state)).toThrow('Duplicate component docs slug')
+    expect(() => componentDocsCatalog(validateComponentModelState({ definitions: { [primary.id]: primary }, instances: {} }), { missing: '<Missing />' })).toThrow('missing definition')
+    expect(componentDocsManifest({ ...primary, source: { kind: 'code', bindingId: 'binding:button' } }).usage).toEqual({ status: 'unavailable', reason: 'source-adapter-required' })
   })
 })

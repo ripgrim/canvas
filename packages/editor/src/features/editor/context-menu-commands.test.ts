@@ -7,8 +7,8 @@ const atoms: Parameters<typeof applyFileCommand>[2] = []
 const fixture = () => {
   let file = createBlankFile('file-1', 'page-1', 'root-1', 'Page 1')
   const insert = (command: FileCommand) => { file = applyFileCommand(file, command, atoms) }
-  insert({ type: 'node.insert', node: { id: 'a', type: 'rectangle', name: 'A', styles: { left: 10, top: 20, width: 30, height: 40 } }, placement: { parentId: pageRoot(file, 'page-1')! } })
-  insert({ type: 'node.insert', node: { id: 'b', type: 'rectangle', name: 'B', styles: { left: 70, top: 20, width: 20, height: 40 } }, placement: { parentId: pageRoot(file, 'page-1')! } })
+  insert({ type: 'node.insert', node: { id: 'a', type: 'rectangle', name: 'A', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 30, height: 40 } }, placement: { parentId: pageRoot(file, 'page-1')! } })
+  insert({ type: 'node.insert', node: { id: 'b', type: 'rectangle', name: 'B', styles: { relativeTransform: [1, 0, 0, 1, 70, 20], width: 20, height: 40 } }, placement: { parentId: pageRoot(file, 'page-1')! } })
   return file
 }
 const run = (file: FileDocument, commands: FileCommand[]) => commands.reduce((current, command) => applyFileCommand(current, command, atoms), file)
@@ -30,7 +30,7 @@ describe('context menu command plans', () => {
   it('frames primitive siblings and can ungroup the resulting frame', () => {
     const plan = frameSelectionPlan(fixture(), 'page-1', ['a', 'b'], () => 'frame-1')!
     const framed = run(fixture(), plan.commands)
-    expect(framed.nodes['frame-1']).toMatchObject({ type: 'frame', styles: { left: 10, top: 20, width: 80, height: 40 } })
+    expect(framed.nodes['frame-1']).toMatchObject({ type: 'frame', styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 80, height: 40 } })
     expect(framed.relationships.a?.parentId).toBe('frame-1')
     const ungroup = ungroupPlan(framed, ['frame-1'])!
     const restored = run(framed, ungroup.commands)
