@@ -1,0 +1,45 @@
+apps/sync-room-core/tests/support.ts
+  s_012c57818fbf95::t_6f32eae7ec43bd 186-187,195
+  s_012c57818fbf95::t_110b5199530a46 169-172,185,188-191,194,196
+packages/database/src/collaboration.ts
+  s_012c57818fbf95::t_fc929da5fbae03 327-340
+packages/database/tests/collaboration-postgres-acceptance.mjs
+  s_012c57818fbf95::t_c070de4137f72e 46,251-283,292-356,359-360,365
+  s_012c57818fbf95::t_3d49862e29a952 284-291
+  s_012c57818fbf95::t_fc929da5fbae03 2,357-358,361-364,366-372
+  s_012c57818fbf95::t_d8bbe274c57200 373
+docs/plans/canvas-authored-component-closure.md
+  s_012c57818fbf95::t_6318ee3a955ac6 59-60
+packages/database/tests/collaboration-persistence.test.ts
+  s_012c57818fbf95::t_84a011b7fa4fb3 4,142,179-195,588
+  s_012c57818fbf95::t_dc729e27dde9b1 747
+apps/sync-room-core/tests/network.test.ts
+  s_012c57818fbf95::t_6f32eae7ec43bd 257,261,353-356,360,362,369,371,378,380,387,400-401
+  s_012c57818fbf95::t_9984a1c9b5aafb 397-399,402-420,422-430
+  s_012c57818fbf95::t_eca7dde4ef1067 297-299,303,315
+  s_012c57818fbf95::t_d714d0913f5642 246-252,256,258,260,263-265,268-269,272-273,275-277,279-281,283-285,296,300-302,304-314,322-329,334,339-346,352,357,373-377,379,381-386,388-393,436-437
+  s_012c57818fbf95::t_c7f0f936f54796 255,259,266-267,270-271,274,278,282,286-295,316-321,330-333,335-338,347-351,421,431-435
+  s_012c57818fbf95::t_ea656a340e462e 2,66-120
+  s_012c57818fbf95::t_5afbecf52e507e 253-254,262
+  s_012c57818fbf95::t_973fd0cc66516d 358-359,361,363-368,370,372
+  s_012c57818fbf95::t_5b9151bd3dc99c 394-396
+  s_012c57818fbf95::t_b3a0e7f8eb3f94 121
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_6318ee3a955ac6 1148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "771515d72d06d104900b974398fd33e3d3a9d852",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
