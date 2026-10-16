@@ -5,6 +5,7 @@ import { createPostgresRepositoryDocsReviewStore } from '@canvas/database/github
 import {
   GitHubGrantService,
   GitHubWebhookService,
+  HostedSourceBindingService,
   InstallationStateService,
   RepositoryDocsReviewService,
   RepositoryJobService,
@@ -24,6 +25,7 @@ export type GitHubApiServices = Readonly<{
   webhooks: GitHubWebhookService
   jobs: RepositoryJobService
   docs: RepositoryDocsReviewService
+  sourceBindings: HostedSourceBindingService
   resolveActor(user: HostedSessionUser): Promise<GitHubActor | null>
   authorizeUser(input: Readonly<{ accountId: string; code: string; codeVerifierCiphertext: string }>): Promise<GitHubActor>
   issueAuthorization(input: Readonly<{ accountId: string; tenantId: string; installationId: string; returnToUrl: string }>): Promise<Readonly<{ authorizationUrl: string; expiresAt: number }>>
@@ -69,12 +71,14 @@ export function createPostgresGitHubApiServices(pool: Pool, options: GitHubRunti
   const states = new InstallationStateService(persistence.states, { now })
   const grants = new GitHubGrantService(provider, persistence.grants, states, persistence.projectAuthorization, now)
   const tokens = createInstallationTokenProvider(options, request, now)
+  const jobs = new RepositoryJobService(grants, persistence.jobs, tokens, now)
   return Object.freeze({
     states,
     grants,
     webhooks: new GitHubWebhookService(options.webhookSecret, persistence.deliveries, persistence.grants, now),
-    jobs: new RepositoryJobService(grants, persistence.jobs, tokens, now),
+    jobs,
     docs: new RepositoryDocsReviewService(grants, docsPersistence, tokens, now),
+    sourceBindings: new HostedSourceBindingService(grants, jobs, persistence.sourceBindings, now),
     async resolveActor(user) {
       const credential = await credentials.getFresh(user.id)
       return credential ? Object.freeze({ accountId: user.id, providerUserId: credential.providerUserId }) : null

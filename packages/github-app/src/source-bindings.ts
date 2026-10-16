@@ -1,12 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import {
+  parseSourceBindingReconcileCommand,
   parseSourceBindingSnapshot,
   parseSourceScanAuthority,
   planSourceBindingAllocations,
   reconcileSourceBindings,
+  SourceBindingRebindConflictError,
   type SourceBindingRebind,
   type SourceBindingSnapshot,
   type SourceScanAuthority,
+  type SourceBindingTransportRebind,
+  type SourceSymbolEvidence,
 } from '@canvas/repository'
 import {
   componentCatalogFromShadcnScan,
@@ -24,6 +28,10 @@ import type {
 import type { GitHubGrantService } from './grants.js'
 import type { RepositoryJobService } from './jobs.js'
 import { GitHubAppError, opaqueId, validateActor } from './validation.js'
+
+export class HostedSourceBindingConflictError extends Error {
+  readonly name = 'HostedSourceBindingConflictError'
+}
 
 export class HostedSourceBindingService {
   constructor(
@@ -60,16 +68,21 @@ export class HostedSourceBindingService {
     scanJobId: string
     expectedVersion: number | null
     expectedAuthority: SourceScanAuthority | null
-    rebinds: readonly SourceBindingRebind[]
+    rebinds: readonly SourceBindingTransportRebind[]
   }>): Promise<HostedSourceBindingSnapshot> {
     const context = contextFrom(input)
-    const expectedVersion = version(input.expectedVersion)
-    const expectedAuthority = input.expectedAuthority === null ? null : parseSourceScanAuthority(input.expectedAuthority)
-    if (!Array.isArray(input.rebinds) || input.rebinds.length > 10_000) throw invalid()
+    const command = parseSourceBindingReconcileCommand({
+      scanJobId: input.scanJobId,
+      expectedVersion: input.expectedVersion,
+      expectedAuthority: input.expectedAuthority,
+      rebinds: input.rebinds,
+    })
+    const expectedVersion = version(command.expectedVersion)
+    const expectedAuthority = command.expectedAuthority === null ? null : parseSourceScanAuthority(command.expectedAuthority)
 
     const grant = await this.grants.assertLiveRepositoryAccess({ ...context, operation: 'pull' })
     const job = await this.jobs.readAuthorizedCompletedScan({
-      id: input.scanJobId,
+      id: command.scanJobId,
       actor: context.actor,
       tenantId: context.tenantId,
       projectId: context.projectId,
@@ -89,6 +102,7 @@ export class HostedSourceBindingService {
       adapterId: artifact.scan.adapterId,
     })
     const symbols = Object.freeze(catalog.components.map(sourceSymbolEvidenceFromCatalogEntry))
+    const rebinds = resolveTrustedRebinds(command.rebinds, symbols)
 
     const stored = await this.store.getAuthorized({
       actorAccountId: context.actor.accountId,
@@ -100,10 +114,16 @@ export class HostedSourceBindingService {
     assertExpected(current, expectedVersion, expectedAuthority)
     if (current) assertPriorAuthorityCompatible(current.authority, grant)
     const previous = current === null ? null : { authority: current.authority, records: current.records }
-    const base = { repository, scan: { authority, symbols }, previous, seeds: [], rebinds: input.rebinds }
-    const plan = planSourceBindingAllocations(base)
-    const allocations = plan.requiredSymbolKeys.map(symbolKey => ({ bindingId: serverUuid(this.allocateBindingId()), symbolKey }))
-    const reconciled = reconcileSourceBindings({ ...base, allocations })
+    const base = { repository, scan: { authority, symbols }, previous, seeds: [], rebinds }
+    let reconciled: ReturnType<typeof reconcileSourceBindings>
+    try {
+      const plan = planSourceBindingAllocations(base)
+      const allocations = plan.requiredSymbolKeys.map(symbolKey => ({ bindingId: serverUuid(this.allocateBindingId()), symbolKey }))
+      reconciled = reconcileSourceBindings({ ...base, allocations })
+    } catch (error) {
+      if (error instanceof SourceBindingRebindConflictError) throw stale()
+      throw error
+    }
     const updatedAt = this.now()
     if (!Number.isSafeInteger(updatedAt) || updatedAt < 0) throw invalid()
 
@@ -131,6 +151,24 @@ export class HostedSourceBindingService {
       || JSON.stringify(snapshot.records) !== JSON.stringify(reconciled.records)) throw invalid()
     return snapshot
   }
+}
+
+function resolveTrustedRebinds(
+  rebinds: readonly SourceBindingTransportRebind[],
+  symbols: readonly SourceSymbolEvidence[],
+): readonly SourceBindingRebind[] {
+  const consumedTargets = new Set<string>()
+  return Object.freeze(rebinds.map(item => {
+    const matches = symbols.filter(symbol => symbol.symbolKey === item.nextSymbolKey)
+    if (matches.length !== 1 || consumedTargets.has(item.nextSymbolKey)) throw stale()
+    consumedTargets.add(item.nextSymbolKey)
+    return Object.freeze({
+      bindingId: item.bindingId,
+      expectedAuthority: item.expectedAuthority,
+      expectedEvidence: item.expectedEvidence,
+      replacement: matches[0]!,
+    })
+  }))
 }
 
 function contextFrom(input: Readonly<{ actor: GitHubActor; tenantId: string; projectId: string }>) {
@@ -194,7 +232,7 @@ function unavailable(): GitHubAppError {
 }
 
 function stale(): Error {
-  return new Error('Repository source bindings changed.')
+  return new HostedSourceBindingConflictError('Repository source bindings changed.')
 }
 
 function invalid(): Error {

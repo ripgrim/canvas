@@ -8,6 +8,32 @@ const file = {
 
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+const sourceBindingProjectId = file.id
+const sourceBindingAuthority = {
+  repository: { provider: 'github' as const, projectId: sourceBindingProjectId, repositoryId: '4001' },
+  scanId: '00000000-0000-4000-8000-000000000041',
+  sourceRevision: 'a'.repeat(40),
+  registryFingerprint: `sha256:${'b'.repeat(64)}`,
+  grantGeneration: 2,
+  adapterId: 'shadcn-v1',
+}
+const sourceBindingEvidence = {
+  symbolKey: 'button', packageName: '@canvas/ui', path: 'src/button.tsx', exportName: 'Button',
+  sourceHash: 'c'.repeat(64), fingerprint: 'd'.repeat(64),
+}
+const sourceBindingSnapshot = {
+  version: 1,
+  authority: sourceBindingAuthority,
+  records: [{
+    id: '00000000-0000-4000-8000-000000000042',
+    repository: sourceBindingAuthority.repository,
+    authority: sourceBindingAuthority,
+    evidence: sourceBindingEvidence,
+    status: 'bound' as const,
+  }],
+  updatedAt: 1_800_000_000,
+}
+
 describe('cloud api client', () => {
   it('accepts the opaque account ids issued by the auth service', async () => {
     const user = { id: 'better-auth-user_01', name: 'Ada', email: 'ada@example.test', image: null }
@@ -190,6 +216,108 @@ describe('cloud api client', () => {
       validateDocument: value => value,
     })
     await expect(client.getGitHubRepositoryScan(jobId)).resolves.toEqual({ id: jobId, status: 'failed', attempt: 3, errorId: 'repository-scan-failed', result: null })
+  })
+
+  it('COMP-V2-BINDING-001 uses the exact source-binding GET and PUT contracts', async () => {
+    const calls: Array<{ url: string; method: string; body: unknown }> = []
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null })
+      return response(sourceBindingSnapshot)
+    })
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+    const input = {
+      scanJobId: sourceBindingAuthority.scanId,
+      expectedVersion: 1,
+      expectedAuthority: sourceBindingAuthority,
+      rebinds: [{
+        bindingId: sourceBindingSnapshot.records[0]!.id,
+        expectedAuthority: sourceBindingAuthority,
+        expectedEvidence: sourceBindingEvidence,
+        nextSymbolKey: 'button-next',
+      }],
+    }
+
+    await expect(client.getGitHubSourceBindings(sourceBindingProjectId)).resolves.toEqual(sourceBindingSnapshot)
+    await expect(client.reconcileGitHubSourceBindings(sourceBindingProjectId, input)).resolves.toEqual(sourceBindingSnapshot)
+    expect(calls).toEqual([
+      { url: `https://api.canvas.test/api/projects/${sourceBindingProjectId}/repository/source-bindings`, method: 'GET', body: null },
+      { url: `https://api.canvas.test/api/projects/${sourceBindingProjectId}/repository/source-bindings`, method: 'PUT', body: input },
+    ])
+    expect(fetcher.mock.calls.every(([, init]) => init?.credentials === 'include')).toBe(true)
+  })
+
+  it('COMP-V2-BINDING-001 accepts a direct null source-binding response', async () => {
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response(null)) as typeof fetch, validateDocument: value => value })
+    await expect(client.getGitHubSourceBindings(sourceBindingProjectId)).resolves.toBeNull()
+  })
+
+  it.each([
+    ['an unknown top-level field', { ...sourceBindingSnapshot, installationId: '2001' }],
+    ['nested repository access fields', { ...sourceBindingSnapshot, authority: { ...sourceBindingAuthority, repository: { ...sourceBindingAuthority.repository, accessToken: 'secret' } } }],
+    ['a malformed authority', { ...sourceBindingSnapshot, authority: { ...sourceBindingAuthority, grantGeneration: 0 } }],
+    ['a malformed record', { ...sourceBindingSnapshot, records: [{ ...sourceBindingSnapshot.records[0], status: 'unknown' }] }],
+  ])('COMP-V2-BINDING-001 rejects %s in a source-binding response', async (_label, snapshot) => {
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response(snapshot)) as typeof fetch, validateDocument: value => value })
+    await expect(client.getGitHubSourceBindings(sourceBindingProjectId)).rejects.toThrow('Invalid source binding snapshot')
+  })
+
+  it('COMP-V2-BINDING-001 rejects source bindings for another project', async () => {
+    const authority = { ...sourceBindingAuthority, repository: { ...sourceBindingAuthority.repository, projectId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' } }
+    const snapshot = { ...sourceBindingSnapshot, authority, records: sourceBindingSnapshot.records.map(record => ({ ...record, repository: authority.repository, authority })) }
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: (async () => response(snapshot)) as typeof fetch, validateDocument: value => value })
+    await expect(client.getGitHubSourceBindings(sourceBindingProjectId)).rejects.toThrow('another project')
+  })
+
+  it('COMP-V2-BINDING-001 validates project and reconcile input before fetch', async () => {
+    const fetcher = vi.fn(async () => response(sourceBindingSnapshot))
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+    await expect(client.getGitHubSourceBindings('not-a-project')).rejects.toThrow('Invalid project id')
+    await expect(client.reconcileGitHubSourceBindings(sourceBindingProjectId, {
+      scanJobId: 'not-a-job',
+      expectedVersion: null,
+      expectedAuthority: null,
+      rebinds: [],
+    })).rejects.toThrow('Invalid repository scan job id')
+    await expect(client.reconcileGitHubSourceBindings(sourceBindingProjectId, {
+      scanJobId: sourceBindingAuthority.scanId,
+      expectedVersion: 1,
+      expectedAuthority: sourceBindingAuthority,
+      rebinds: [],
+      repositoryGrantId: '00000000-0000-4000-8000-000000000043',
+    } as never)).rejects.toThrow('Invalid source binding reconcile command')
+    await expect(client.reconcileGitHubSourceBindings(sourceBindingProjectId, {
+      scanJobId: sourceBindingAuthority.scanId,
+      expectedVersion: 1,
+      expectedAuthority: sourceBindingAuthority,
+      rebinds: [{
+        bindingId: sourceBindingSnapshot.records[0]!.id,
+        expectedAuthority: sourceBindingAuthority,
+        expectedEvidence: sourceBindingEvidence,
+        nextSymbolKey: 'not a valid symbol key',
+      }],
+    })).rejects.toThrow('Invalid source symbol key')
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('COMP-V2-BINDING-001 returns a bounded 409 error without exposing binding state', async () => {
+    const fetcher = vi.fn(async () => response({
+      error: { code: 'source_bindings_changed', message: 'Repository source bindings changed.' },
+      current: sourceBindingSnapshot,
+      repositoryAccess: { installationId: '2001', accessToken: 'secret' },
+    }, 409))
+    const client = createCloudApiClient({ apiOrigin: 'https://api.canvas.test', fetch: fetcher as typeof fetch, validateDocument: value => value })
+    const error = await client.reconcileGitHubSourceBindings(sourceBindingProjectId, {
+      scanJobId: sourceBindingAuthority.scanId,
+      expectedVersion: 1,
+      expectedAuthority: sourceBindingAuthority,
+      rebinds: [],
+    }).catch(value => value as unknown)
+
+    expect(error).toBeInstanceOf(CloudApiError)
+    expect(error).toMatchObject({ status: 409, code: 'source_bindings_changed' })
+    expect(error).not.toHaveProperty('current')
+    expect(error).not.toHaveProperty('repositoryAccess')
+    expect(JSON.stringify(error)).not.toContain('secret')
   })
 
   it('COMP-V2-DOCS-005 prepares and reads a repository-owned documentation review without a client adapter', async () => {

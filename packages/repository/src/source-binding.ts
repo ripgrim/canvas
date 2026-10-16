@@ -64,6 +64,13 @@ export type SourceBindingRebind = Readonly<{
   replacement: SourceSymbolEvidence
 }>
 
+export type SourceBindingTransportRebind = Readonly<{
+  bindingId: string
+  expectedAuthority: SourceScanAuthority
+  expectedEvidence: SourceSymbolEvidence
+  nextSymbolKey: string
+}>
+
 export type SourceBindingReconciliation = Readonly<{
   repository: SourceRepositoryIdentity
   authority: SourceScanAuthority
@@ -83,6 +90,17 @@ export type SourceBindingAllocationPlan = Readonly<{
   requiredSymbolKeys: readonly string[]
 }>
 
+export type SourceBindingReconcileCommand = Readonly<{
+  scanJobId: string
+  expectedVersion: number | null
+  expectedAuthority: SourceScanAuthority | null
+  rebinds: readonly SourceBindingTransportRebind[]
+}>
+
+export class SourceBindingRebindConflictError extends Error {
+  readonly name = 'SourceBindingRebindConflictError'
+}
+
 const opaquePattern = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/
 const packagePattern = /^(?:@[A-Za-z0-9][A-Za-z0-9._-]{0,126}\/)?[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 const pathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+-]+)*$/
@@ -94,6 +112,10 @@ const adapterPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*-v[1-9][0-9]*$/
 
 function invalid(message: string): never {
   throw new Error(message)
+}
+
+function rebindConflict(message: string): never {
+  throw new SourceBindingRebindConflictError(message)
 }
 const own = (value: object, key: string) => Object.hasOwn(value, key)
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -135,6 +157,19 @@ function authority(value: unknown): SourceScanAuthority {
 
 export function parseSourceScanAuthority(value: unknown): SourceScanAuthority {
   return authority(value)
+}
+
+export function parseSourceBindingReconcileCommand(input: unknown): SourceBindingReconcileCommand {
+  const value = exact(input, ['scanJobId', 'expectedVersion', 'expectedAuthority', 'rebinds'], [], 'source binding reconcile command')
+  if (!Number.isSafeInteger(value.expectedVersion) && value.expectedVersion !== null) invalid('Invalid source binding reconcile command')
+  if (typeof value.expectedVersion === 'number' && value.expectedVersion < 1) invalid('Invalid source binding reconcile command')
+  if (!Array.isArray(value.rebinds) || value.rebinds.length > 10_000) invalid('Invalid source binding reconcile command')
+  return freeze({
+    scanJobId: text(value.scanJobId, opaquePattern, 'source scan id'),
+    expectedVersion: value.expectedVersion === null ? null : Number(value.expectedVersion),
+    expectedAuthority: value.expectedAuthority === null ? null : authority(value.expectedAuthority),
+    rebinds: freeze(value.rebinds.map(transportRebind)),
+  })
 }
 
 function evidence(value: unknown): SourceSymbolEvidence {
@@ -186,6 +221,16 @@ function rebind(value: unknown): SourceBindingRebind {
     expectedAuthority: authority(item.expectedAuthority),
     expectedEvidence: evidence(item.expectedEvidence),
     replacement: evidence(item.replacement),
+  })
+}
+
+function transportRebind(value: unknown): SourceBindingTransportRebind {
+  const item = exact(value, ['bindingId', 'expectedAuthority', 'expectedEvidence', 'nextSymbolKey'], [], 'source binding rebind')
+  return freeze({
+    bindingId: text(item.bindingId, opaquePattern, 'source binding id'),
+    expectedAuthority: authority(item.expectedAuthority),
+    expectedEvidence: evidence(item.expectedEvidence),
+    nextSymbolKey: text(item.nextSymbolKey, opaquePattern, 'source symbol key'),
   })
 }
 
@@ -382,14 +427,14 @@ function runSourceBindings(input: unknown, planning: boolean): SourceBindingAllo
   for (const item of rebinds) {
     if (rebindById.has(item.bindingId)) invalid('Duplicate source binding rebind')
     const binding = unmatchedById.get(item.bindingId)
-    if (!binding) invalid('Source binding is not eligible for rebind')
+    if (!binding) rebindConflict('Source binding is not eligible for rebind')
     if (!previousAuthority || !sameAuthority(item.expectedAuthority, previousAuthority)
-      || !sameEvidence(item.expectedEvidence, binding.evidence)) invalid('Stale source binding rebind')
+      || !sameEvidence(item.expectedEvidence, binding.evidence)) rebindConflict('Stale source binding rebind')
     const replacement = byKey.get(item.replacement.symbolKey)
     const matches = candidates.get(binding.id) ?? []
     if (!replacement || !sameEvidence(replacement, item.replacement)
       || replacement.packageName !== binding.evidence.packageName
-      || matches.length !== 1 || matches[0]!.symbolKey !== replacement.symbolKey) invalid('Source binding rebind target is not unique')
+      || matches.length !== 1 || matches[0]!.symbolKey !== replacement.symbolKey) rebindConflict('Source binding rebind target is not unique')
     if (consumed.has(replacement.symbolKey)) invalid('Source binding rebind collision')
     consumed.add(replacement.symbolKey)
     rebindById.set(item.bindingId, item)

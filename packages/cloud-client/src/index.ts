@@ -1,3 +1,10 @@
+import {
+  parseSourceBindingReconcileCommand,
+  parseSourceBindingSnapshot,
+  type SourceBindingReconcileCommand,
+  type SourceBindingSnapshot,
+} from '@canvas/repository'
+
 export type CloudUser = Readonly<{
   id: string
   name: string
@@ -42,6 +49,8 @@ export type CloudRepository = Readonly<{
 }>
 
 export type CloudRepositoryConnection = Readonly<{ installationId: string; repository: CloudRepository }>
+export type CloudSourceBindingSnapshot = SourceBindingSnapshot
+export type CloudSourceBindingReconcileInput = SourceBindingReconcileCommand
 export type CloudHostedPreview = Readonly<{
   artifactId: string
   url: string
@@ -280,6 +289,12 @@ function parseRepositoryScanJob(value: unknown): CloudRepositoryScanJob {
   return { id, status: 'completed', attempt, result: { sourceRevision, scan, request } }
 }
 
+export function parseCloudSourceBindingSnapshot(value: unknown, projectId: string): CloudSourceBindingSnapshot {
+  const snapshot = parseSourceBindingSnapshot(value)
+  if (snapshot.authority.repository.projectId !== projectId) throw new Error('The server returned source bindings for another project.')
+  return snapshot
+}
+
 function parseRepositoryDocsReview(value: unknown): CloudRepositoryDocsReview {
   const review = object(value, 'repository documentation review')
   exact(review, ['id', 'projectId', 'fileId', 'fileRevision', 'status', 'baseRef', 'baseCommitSha', 'approvalDigest', 'preparedBundle', 'committedSha', 'errorId'])
@@ -511,6 +526,18 @@ export function createCloudApiClient<TDocument>(options: CloudApiClientOptions<T
       const job = parseRepositoryScanJob(body.job)
       if (job.status !== 'completed') throw new Error('The server returned an incomplete repository scan.')
       return job
+    },
+    async getGitHubSourceBindings(projectId: string): Promise<CloudSourceBindingSnapshot | null> {
+      const project = identifier(projectId, 'project id')
+      const value = await call(`/api/projects/${encodeURIComponent(project)}/repository/source-bindings`)
+      return value === null ? null : parseCloudSourceBindingSnapshot(value, project)
+    },
+    async reconcileGitHubSourceBindings(projectId: string, input: CloudSourceBindingReconcileInput): Promise<CloudSourceBindingSnapshot> {
+      const project = identifier(projectId, 'project id')
+      const command = parseSourceBindingReconcileCommand(input)
+      identifier(command.scanJobId, 'repository scan job id')
+      const value = await call(`/api/projects/${encodeURIComponent(project)}/repository/source-bindings`, jsonRequest('PUT', command))
+      return parseCloudSourceBindingSnapshot(value, project)
     },
     async startRepositoryDocsReview(input: Readonly<{ projectId: string; fileId: string; fileRevision: number; scanJobId: string }>): Promise<CloudRepositoryDocsReview> {
       const projectId = identifier(input.projectId, 'project id')

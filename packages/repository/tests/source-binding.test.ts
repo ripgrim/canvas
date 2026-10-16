@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSourceBindingReconciliation, parseSourceBindingSnapshot, planSourceBindingAllocations, reconcileSourceBindings, type SourceBindingRecord, type SourceScanAuthority, type SourceSymbolEvidence } from '../src/source-binding'
+import { parseSourceBindingReconcileCommand, parseSourceBindingReconciliation, parseSourceBindingSnapshot, planSourceBindingAllocations, reconcileSourceBindings, SourceBindingRebindConflictError, type SourceBindingRecord, type SourceScanAuthority, type SourceSymbolEvidence } from '../src/source-binding'
 
 const repository = { provider: 'github' as const, projectId: 'project-1', repositoryId: 'repository-1' }
 const hash = (value: string) => value.repeat(64)
@@ -19,6 +19,30 @@ function previous(scan: SourceScanAuthority, records: readonly SourceBindingReco
 }
 
 describe('source binding reconciliation', () => {
+  it('parses only the renderer-authored reconcile command', () => {
+    const scan = authority('scan-1', revision('a'), registry('1'))
+    const prior = symbol('symbol-prior', 'src/Button.tsx', 'Button', hash('a'), hash('1'))
+    const transportRebind = { bindingId: 'binding-1', expectedAuthority: scan, expectedEvidence: prior, nextSymbolKey: 'symbol-next' }
+    const command = { scanJobId: 'scan-1', expectedVersion: 1, expectedAuthority: scan, rebinds: [transportRebind] }
+    expect(parseSourceBindingReconcileCommand(command)).toEqual(command)
+    expect(parseSourceBindingReconcileCommand({ scanJobId: 'scan-1', expectedVersion: null, expectedAuthority: null, rebinds: [] })).toEqual({ scanJobId: 'scan-1', expectedVersion: null, expectedAuthority: null, rebinds: [] })
+    for (const accessField of ['actor', 'tenantId', 'projectId', 'installationId', 'repositoryId', 'repositoryGrantId', 'repositoryGrantGeneration', 'grantScope', 'scanScope', 'allocations', 'records', 'updatedAt']) {
+      expect(() => parseSourceBindingReconcileCommand({ ...command, [accessField]: 'injected' })).toThrow('command')
+    }
+    expect(() => parseSourceBindingReconcileCommand({ ...command, expectedVersion: 0 })).toThrow('command')
+    expect(() => parseSourceBindingReconcileCommand({ ...command, expectedAuthority: { ...scan, installationId: '2001' } })).toThrow('authority')
+    expect(() => parseSourceBindingReconcileCommand({ ...command, rebinds: [{ extra: true }] })).toThrow('rebind')
+    for (const injected of [
+      { replacement: prior },
+      { path: prior.path },
+      { exportName: prior.exportName },
+      { sourceHash: prior.sourceHash },
+      { fingerprint: prior.fingerprint },
+    ]) {
+      expect(() => parseSourceBindingReconcileCommand({ ...command, rebinds: [{ ...transportRebind, ...injected }] })).toThrow('rebind')
+    }
+  })
+
   it('plans server-owned allocations before reconciliation and parses the persisted snapshot exactly', () => {
     const scan = authority('scan-1', revision('a'), registry('1'))
     const button = symbol('symbol-button', 'src/Button.tsx', 'Button', hash('a'), hash('1'))
@@ -164,7 +188,15 @@ describe('source binding reconciliation', () => {
       seeds: [],
       allocations: [],
       rebinds: [{ ...checkedRebind, expectedEvidence: { ...first, sourceHash: hash('f') } }],
-    })).toThrow('Stale source binding rebind')
+    })).toThrow(SourceBindingRebindConflictError)
+    expect(() => reconcileSourceBindings({
+      repository,
+      scan: { authority: secondAuthority, symbols: [moved] },
+      previous: previous(firstAuthority, initial.records),
+      seeds: [],
+      allocations: [],
+      rebinds: [{ ...checkedRebind, bindingId: 'unknown-binding' }],
+    })).toThrow(SourceBindingRebindConflictError)
     expect(() => reconcileSourceBindings({
       repository,
       scan: { authority: secondAuthority, symbols: [moved] },
@@ -198,7 +230,7 @@ describe('source binding reconciliation', () => {
       seeds: [],
       allocations: [],
       rebinds: [checkedRebind],
-    })).toThrow('not unique')
+    })).toThrow(SourceBindingRebindConflictError)
   })
 
   it('retains missing identity and reports candidates', () => {

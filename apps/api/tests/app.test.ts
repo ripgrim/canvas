@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { HostedAuth, HostedSessionUser } from '@canvas/auth/server'
 import { createMemoryGitHubPersistence } from '@canvas/database/github'
 import { createMemoryControlPlane } from '@canvas/database/memory'
-import { GitHubGrantService, GitHubWebhookService, InstallationStateService, RepositoryDocsReviewService, RepositoryJobService, type GitHubActor, type GitHubProviderPort, type RepositoryDocsReview, type RepositoryDocsReviewStore } from '@canvas/github-app'
+import { GitHubGrantService, GitHubWebhookService, HostedSourceBindingConflictError, HostedSourceBindingService, InstallationStateService, RepositoryDocsReviewService, RepositoryJobService, type GitHubActor, type GitHubProviderPort, type RepositoryDocsReview, type RepositoryDocsReviewStore } from '@canvas/github-app'
 import { verifyHostedPreviewCapability } from '@canvas/preview-runtime/hosted-capability'
 import { verifyHostedPreviewWriteCapability } from '@canvas/preview-runtime/hosted-write-capability'
 import { createApiApp } from '../src/app'
@@ -129,12 +129,14 @@ function githubServices(input: Readonly<{ provider?: GitHubProviderPort; beforeI
     await input.beforeInstallationToken?.()
     return { token: `ghs_test_${tokenInput.contentsPermission}`, expiresAt: Date.now() + 60_000, contentsPermission: tokenInput.contentsPermission }
   } }
+  const jobs = new RepositoryJobService(grants, persistence.jobs, installationTokens)
   const services: GitHubApiServices = Object.freeze({
     states,
     grants,
     webhooks: new GitHubWebhookService(githubWebhookSecret, persistence.deliveries, persistence.grants),
-    jobs: new RepositoryJobService(grants, persistence.jobs, installationTokens),
+    jobs,
     docs: new RepositoryDocsReviewService(grants, docsStore, installationTokens),
+    sourceBindings: new HostedSourceBindingService(grants, jobs, persistence.sourceBindings),
     async resolveActor(user) {
       return user.id === 'user-alpha'
         ? { accountId: user.id, providerUserId: '1001' }
@@ -737,6 +739,15 @@ describe('hosted control-plane API', () => {
     const completed = await internalJob(`/internal/repository-jobs/${jobId}/complete`, repositoryJobServiceToken, { leaseId: startedBody.lease.id, result: artifact })
     expect(completed.status).toBe(200)
     expect(await body(completed)).toEqual({ job: { id: jobId, operation: 'scan', status: 'completed', attempt: 1 } })
+    const otherProject = (await body(await app(request('/api/projects', signed('alpha', 'POST', { name: 'Other source' }))))).project
+    github.persistence.setProjectMembership(otherProject.id, 'user-alpha', 'user-alpha', 'owner')
+    expect((await app(request(`/api/projects/${otherProject.id}/repository`, signed('alpha', 'PUT', { installationId: '2001', repositoryId: '4001' })))).status).toBe(200)
+    const otherEnqueued = await app(request(`/api/projects/${otherProject.id}/repository/jobs`, signed('alpha', 'POST', { operation: 'scan' })))
+    expect(otherEnqueued.status).toBe(202)
+    const otherJobId = (await body(otherEnqueued)).job.id
+    const otherStartedBody = await body(await internalJob('/internal/repository-jobs/claim', repositoryJobServiceToken, {}))
+    expect(otherStartedBody.job.id).toBe(otherJobId)
+    expect((await internalJob(`/internal/repository-jobs/${otherJobId}/complete`, repositoryJobServiceToken, { leaseId: otherStartedBody.lease.id, result: artifact })).status).toBe(200)
     const visibleResult = await app(request(`/api/repository-jobs/${jobId}`, signed('alpha')))
     expect(visibleResult.status).toBe(200)
     expect(await body(visibleResult)).toMatchObject({ job: { id: jobId, status: 'completed', result: artifact } })
@@ -745,6 +756,74 @@ describe('hosted control-plane API', () => {
     expect(await body(latestResult)).toMatchObject({ job: { id: jobId, status: 'completed', result: artifact } })
     expect((await app(request(`/api/projects/${project.id}/repository/scan`, signed('beta')))).status).toBe(404)
     expect((await app(request(`/api/repository-jobs/${jobId}`, signed('beta')))).status).toBe(404)
+
+    const sourceBindingsPath = `/api/projects/${project.id}/repository/source-bindings`
+    expect((await app(request(sourceBindingsPath))).status).toBe(401)
+    expect((await app(request(sourceBindingsPath, signed('beta')))).status).toBe(404)
+    expect(await body(await app(request(sourceBindingsPath, signed('alpha'))))).toBeNull()
+    const initialBindingCommand = { scanJobId: jobId, expectedVersion: null, expectedAuthority: null, rebinds: [] }
+    const unsupportedMedia = await app(request(sourceBindingsPath, { method: 'PUT', headers: { Authorization: 'Bearer alpha', 'Content-Type': 'text/plain' }, body: '{}' }))
+    expect(unsupportedMedia.status).toBe(415)
+    expect(await body(unsupportedMedia)).toEqual({ error: { code: 'unsupported_media_type', message: 'Content-Type must be application/json.' } })
+    const declaredOversized = await app(request(sourceBindingsPath, { method: 'PUT', headers: { Authorization: 'Bearer alpha', 'Content-Type': 'application/json', 'Content-Length': String(5 * 1024 * 1024 + 1) }, body: '{}' }))
+    expect(declaredOversized.status).toBe(413)
+    expect(await body(declaredOversized)).toEqual({ error: { code: 'payload_too_large', message: 'Request is too large.' } })
+    const actualOversized = await app(request(sourceBindingsPath, { method: 'PUT', headers: { Authorization: 'Bearer alpha', 'Content-Type': 'application/json' }, body: JSON.stringify({ ...initialBindingCommand, padding: 'x'.repeat(5 * 1024 * 1024) }) }))
+    expect(actualOversized.status).toBe(413)
+    expect(await body(actualOversized)).toEqual({ error: { code: 'payload_too_large', message: 'Request is too large.' } })
+    const malformedJson = await app(request(sourceBindingsPath, { method: 'PUT', headers: { Authorization: 'Bearer alpha', 'Content-Type': 'application/json' }, body: '{' }))
+    expect(malformedJson.status).toBe(400)
+    expect(await body(malformedJson)).toEqual({ error: { code: 'invalid_json', message: 'Request body is invalid JSON.' } })
+    const invalidCommand = await app(request(sourceBindingsPath, signed('alpha', 'PUT', { scanJobId: jobId })))
+    expect(invalidCommand.status).toBe(400)
+    expect(await body(invalidCommand)).toEqual({ error: { code: 'invalid_source_bindings', message: 'Source binding request is invalid.' } })
+    const malformedRebind = await app(request(sourceBindingsPath, signed('alpha', 'PUT', { ...initialBindingCommand, rebinds: [{ bindingId: 'missing-fields' }] })))
+    expect(malformedRebind.status).toBe(400)
+    expect(await body(malformedRebind)).toEqual({ error: { code: 'invalid_source_bindings', message: 'Source binding request is invalid.' } })
+    for (const injected of [
+      { unknown: true },
+      { installationId: '2001' },
+      { repositoryId: '4001' },
+      { repositoryGrantId: crypto.randomUUID() },
+      { repositoryGrantGeneration: 1 },
+      { tenantId: 'user-alpha' },
+      { allocations: [] },
+    ]) {
+      const rejected = await app(request(sourceBindingsPath, signed('alpha', 'PUT', { ...initialBindingCommand, ...injected })))
+      expect(rejected.status).toBe(400)
+      expect(await body(rejected)).toEqual({ error: { code: 'invalid_source_bindings', message: 'Source binding request is invalid.' } })
+    }
+    const wrongScan = await app(request(sourceBindingsPath, signed('alpha', 'PUT', { ...initialBindingCommand, scanJobId: otherJobId })))
+    expect(wrongScan.status).toBe(404)
+    expect(await body(wrongScan)).toEqual({ error: { code: 'not_found', message: 'Repository not found.' } })
+    const reconciledBindings = await app(request(sourceBindingsPath, signed('alpha', 'PUT', initialBindingCommand)))
+    expect(reconciledBindings.status).toBe(200)
+    const bindingSnapshot = await body(reconciledBindings)
+    expect(Object.keys(bindingSnapshot).sort()).toEqual(['authority', 'records', 'updatedAt', 'version'])
+    expect(bindingSnapshot).toMatchObject({ version: 1, authority: { repository: { provider: 'github', projectId: project.id, repositoryId: '4001' }, scanId: jobId, grantGeneration: 1 }, records: [{ status: 'bound' }] })
+    expect(await body(await app(request(sourceBindingsPath, signed('alpha'))))).toEqual(bindingSnapshot)
+    let roleSnapshot = bindingSnapshot
+    for (const role of ['owner', 'editor', 'reviewer', 'viewer'] as const) {
+      github.persistence.setProjectMembership(project.id, 'user-alpha', 'user-alpha', role)
+      expect((await app(request(sourceBindingsPath, signed('alpha')))).status).toBe(200)
+      const roleReconcile = await app(request(sourceBindingsPath, signed('alpha', 'PUT', { scanJobId: jobId, expectedVersion: roleSnapshot.version, expectedAuthority: roleSnapshot.authority, rebinds: [] })))
+      expect(roleReconcile.status).toBe(200)
+      roleSnapshot = await body(roleReconcile)
+    }
+    github.persistence.setProjectMembership(project.id, 'other-tenant', 'user-beta', 'viewer')
+    expect((await app(request(sourceBindingsPath, signed('beta')))).status).toBe(404)
+    github.persistence.removeProjectMembership(project.id, 'user-alpha')
+    expect((await app(request(sourceBindingsPath, signed('alpha')))).status).toBe(404)
+    const revokedMembershipWrite = await app(request(sourceBindingsPath, signed('alpha', 'PUT', { scanJobId: jobId, expectedVersion: roleSnapshot.version, expectedAuthority: roleSnapshot.authority, rebinds: [] })))
+    expect(revokedMembershipWrite.status).toBe(404)
+    expect(await body(revokedMembershipWrite)).toEqual({ error: { code: 'not_found', message: 'Repository not found.' } })
+    github.persistence.setProjectMembership(project.id, 'user-alpha', 'user-alpha', 'owner')
+    const staleVersion = await app(request(sourceBindingsPath, signed('alpha', 'PUT', initialBindingCommand)))
+    expect(staleVersion.status).toBe(409)
+    expect(await body(staleVersion)).toEqual({ error: { code: 'source_bindings_changed', message: 'Repository source bindings changed.' } })
+    const staleAuthority = await app(request(sourceBindingsPath, signed('alpha', 'PUT', { ...initialBindingCommand, expectedVersion: roleSnapshot.version, expectedAuthority: { ...roleSnapshot.authority, sourceRevision: 'f'.repeat(40) } })))
+    expect(staleAuthority.status).toBe(409)
+    expect(await body(staleAuthority)).toEqual({ error: { code: 'source_bindings_changed', message: 'Repository source bindings changed.' } })
 
     const file = (await body(await app(request('/api/files', signed('alpha', 'POST', { name: 'Hosted preview', projectId: project.id }))))).file
     expect((await app(request(`/api/files/${file.id}/hosted-preview-builds`, signed('beta', 'POST', {})))).status).toBe(404)
@@ -932,10 +1011,124 @@ describe('hosted control-plane API', () => {
     const invalidated = await app(request(`/api/projects/${project.id}/repository`, signed('alpha')))
     expect(invalidated.status).toBe(404)
     expect((await app(request(`/api/projects/${project.id}/repository/scan`, signed('alpha')))).status).toBe(404)
+    expect((await app(request(sourceBindingsPath, signed('alpha')))).status).toBe(404)
     expect((await internalJob('/internal/hosted-preview-builds/claim', hostedPreviewBuildServiceToken, {})).status).toBe(404)
     const revokedBuild = await body(await app(request(`/api/hosted-preview-builds/${revokedBuildJob.id}`, signed('alpha'))))
     expect(revokedBuild.job).toMatchObject({ status: 'failed', errorId: 'repository-access-changed', failedAt: expect.any(String) })
     expect(JSON.stringify(await body(invalidated))).not.toContain(githubRepository.fullName)
+  })
+
+  it('COMP-V2-BINDING-001 keeps malformed persisted bindings behind the generic request-id error boundary', async () => {
+    const store = createMemoryControlPlane()
+    const github = githubServices()
+    const project = await store.createProject(users.alpha.id, 'Malformed bindings')
+    github.persistence.setProjectMembership(project.id, users.alpha.id, users.alpha.id, 'owner')
+    const reportError = vi.fn()
+    const sourceBindings = Object.freeze({
+      async get() { throw new Error('persisted binding contained private-repository-name') },
+      async reconcile() { throw new Error('persisted binding contained private-repository-name') },
+    }) as unknown as HostedSourceBindingService
+    const app = createApiApp({ auth: auth(), store, serviceToken, registryFingerprint, github: Object.freeze({ ...github.services, sourceBindings }), reportError })
+    const response = await app(request(`/api/projects/${project.id}/repository/source-bindings`, signed('alpha')))
+    expect(response.status).toBe(500)
+    expect(await body(response)).toEqual({ error: { code: 'internal_error', message: 'Request could not be completed.', requestId: expect.stringMatching(/^[0-9a-f-]{36}$/) } })
+    expect(reportError).toHaveBeenCalledOnce()
+  })
+
+  it('AT-GHAPP-001 AT-AUTH-003 hides source bindings after independent repository and installation revocation', async () => {
+    for (const revoked of ['repository', 'installation'] as const) {
+      const store = createMemoryControlPlane()
+      const github = githubServices()
+      const project = await store.createProject(users.alpha.id, `Revoked ${revoked}`)
+      github.persistence.setProjectMembership(project.id, users.alpha.id, users.alpha.id, 'owner')
+      const connectedAt = Date.now()
+      await github.persistence.grants.saveInstallationGrant({
+        tenantId: users.alpha.id,
+        installation: githubInstallation,
+        connectedByAccountId: users.alpha.id,
+        connectedAt,
+      })
+      await github.persistence.grants.saveRepositoryGrant({
+        grantId: crypto.randomUUID(),
+        tenantId: users.alpha.id,
+        projectId: project.id,
+        installationId: githubInstallation.id,
+        repository: githubRepository,
+        linkedByAccountId: users.alpha.id,
+        linkedAt: connectedAt,
+      })
+      const app = createApiApp({ auth: auth(), store, serviceToken, registryFingerprint, github: github.services })
+      const path = `/api/projects/${project.id}/repository/source-bindings`
+      expect(await body(await app(request(path, signed('alpha'))))).toBeNull()
+
+      if (revoked === 'repository') {
+        await github.persistence.grants.invalidateRepositories({ installationId: githubInstallation.id, repositoryIds: [githubRepository.id], reason: 'removed', invalidatedAt: connectedAt + 1 })
+      } else {
+        await github.persistence.grants.invalidateInstallation({ installationId: githubInstallation.id, reason: 'deleted', invalidatedAt: connectedAt + 1 })
+      }
+
+      for (const init of [
+        signed('alpha'),
+        signed('alpha', 'PUT', { scanJobId: crypto.randomUUID(), expectedVersion: null, expectedAuthority: null, rebinds: [] }),
+      ]) {
+        const response = await app(request(path, init))
+        expect(response.status).toBe(404)
+        expect(await body(response)).toEqual({ error: { code: 'not_found', message: 'Repository not found.' } })
+      }
+    }
+  })
+
+  it('COMP-V2-BINDING-001 transports checked rebind success and conflicts without exposing current state', async () => {
+    const store = createMemoryControlPlane()
+    const github = githubServices()
+    const project = await store.createProject(users.alpha.id, 'Checked rebind transport')
+    github.persistence.setProjectMembership(project.id, users.alpha.id, users.alpha.id, 'owner')
+    const authority = { repository: { provider: 'github' as const, projectId: project.id, repositoryId: '4001' }, scanId: crypto.randomUUID(), sourceRevision: 'a'.repeat(40), registryFingerprint: `sha256:${'b'.repeat(64)}`, grantGeneration: 1, adapterId: 'shadcn-v1' }
+    const priorEvidence = { symbolKey: 'button-prior', packageName: '@acme/ui', path: 'src/button.tsx', exportName: 'Button', sourceHash: 'c'.repeat(64), fingerprint: 'd'.repeat(64) }
+    const replacement = { ...priorEvidence, symbolKey: 'button-moved', path: 'src/moved-button.tsx', exportName: 'MovedButton', sourceHash: 'e'.repeat(64) }
+    const reconcile = vi.fn(async (input: { rebinds: readonly { bindingId: string }[] }) => {
+      const bindingId = input.rebinds[0]?.bindingId
+      if (bindingId !== 'binding-success') throw new HostedSourceBindingConflictError('Repository source bindings changed.')
+      return { version: 2, authority, records: [{ id: bindingId, repository: authority.repository, authority, evidence: replacement, status: 'bound' as const }], updatedAt: 1_800_000_000_000 }
+    })
+    const sourceBindings = Object.freeze({ async get() { return null }, reconcile }) as unknown as HostedSourceBindingService
+    const app = createApiApp({ auth: auth(), store, serviceToken, registryFingerprint, github: Object.freeze({ ...github.services, sourceBindings }) })
+    const path = `/api/projects/${project.id}/repository/source-bindings`
+    const command = (bindingId: string) => ({
+      scanJobId: authority.scanId,
+      expectedVersion: 1,
+      expectedAuthority: authority,
+      rebinds: [{ bindingId, expectedAuthority: authority, expectedEvidence: priorEvidence, nextSymbolKey: replacement.symbolKey }],
+    })
+    const success = await app(request(path, signed('alpha', 'PUT', command('binding-success'))))
+    expect(success.status).toBe(200)
+    expect(await body(success)).toMatchObject({ version: 2, records: [{ id: 'binding-success', evidence: replacement, status: 'bound' }] })
+    for (const bindingId of ['binding-stale-evidence', 'binding-ineligible', 'binding-non-unique']) {
+      const conflict = await app(request(path, signed('alpha', 'PUT', command(bindingId))))
+      expect(conflict.status).toBe(409)
+      expect(await body(conflict)).toEqual({ error: { code: 'source_bindings_changed', message: 'Repository source bindings changed.' } })
+    }
+    const malformed = await app(request(path, signed('alpha', 'PUT', { ...command('binding-success'), rebinds: [{ bindingId: 'binding-success' }] })))
+    expect(malformed.status).toBe(400)
+    expect(await body(malformed)).toEqual({ error: { code: 'invalid_source_bindings', message: 'Source binding request is invalid.' } })
+    for (const injected of [
+      { replacement },
+      { path: replacement.path },
+      { exportName: replacement.exportName },
+      { sourceHash: replacement.sourceHash },
+      { fingerprint: replacement.fingerprint },
+    ]) {
+      const rejected = await app(request(path, signed('alpha', 'PUT', {
+        ...command('binding-success'),
+        rebinds: [{ ...command('binding-success').rebinds[0], ...injected }],
+      })))
+      expect(rejected.status).toBe(400)
+      expect(await body(rejected)).toEqual({ error: { code: 'invalid_source_bindings', message: 'Source binding request is invalid.' } })
+    }
+    const unsupported = await app(request(path, signed('alpha', 'POST', command('binding-success'))))
+    expect(unsupported.status).toBe(404)
+    expect(await body(unsupported)).toEqual({ error: { code: 'not_found', message: 'Route not found.' } })
+    expect(reconcile).toHaveBeenCalledTimes(4)
   })
 
   it('rejects untrusted browser origins before auth or data access', async () => {

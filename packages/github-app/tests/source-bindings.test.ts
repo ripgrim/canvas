@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parseSourceBindingSnapshot, type SourceBindingSnapshot } from '@canvas/repository'
 import {
   GitHubAppError,
+  HostedSourceBindingConflictError,
   HostedSourceBindingService,
   type GitHubActor,
   type GitHubGrantService,
@@ -83,6 +84,24 @@ function completedJob(result = artifact()): RepositoryJob & Readonly<{ status: '
     completedAt: now - 500,
     createdAt: now - 750,
     attempt: 1,
+  }
+}
+
+function movedArtifact(candidateCount = 1) {
+  const components = Array.from({ length: candidateCount }, (_, index) => {
+    const name = index === 0 ? 'MovedButton' : `MovedButton${index + 1}`
+    const path = `src/moved-button-${index + 1}.tsx`
+    const sourceHash = `${index + 5}`.repeat(64)
+    const componentId = `shadcn:${name}:${createHash('sha256').update(`${path}\0${name}`).digest('hex').slice(0, 16)}`
+    return {
+      scan: { path, exportName: name, packageName: '@acme/ui', declarationKind: 'function', props: [], slots: [], sourceHash, fingerprint: '3'.repeat(64) },
+      request: { componentId, entryPath: path, exportName: name, integrity: `sha256-${Buffer.from(sourceHash, 'hex').toString('base64')}`, props: {}, slots: [] },
+    }
+  })
+  return {
+    sourceRevision: 'b'.repeat(40),
+    scan: { adapterId: 'shadcn-v1', configs: [], components: components.map(component => component.scan), tokens: [], sourceHashes: Object.fromEntries(components.map(component => [component.scan.path, component.scan.sourceHash])), diagnostics: [] },
+    request: { version: 1, entry: { componentId: components[0]!.request.componentId }, components: components.map(component => component.request), styles: [] },
   }
 }
 
@@ -186,6 +205,80 @@ describe('hosted source bindings', () => {
     await expect(service.reconcile({ ...firstRequest, expectedVersion: current.version, expectedAuthority: { ...current.authority, scanId: 'other-scan' } })).rejects.toThrow('changed')
     store.staleCommit = true
     await expect(service.reconcile({ ...firstRequest, expectedVersion: current.version, expectedAuthority: current.authority })).rejects.toThrow('changed')
+  })
+
+  it('[COMP-V2-BINDING-001] preserves identity through a checked rebind and types only user-resolvable conflicts', async () => {
+    const prepare = async (candidateCount = 1) => {
+      const state = scenario()
+      const original = await state.service.reconcile(firstRequest)
+      const nextJob = { ...completedJob(movedArtifact(candidateCount)), id: '00000000-0000-4000-8000-000000000021' }
+      state.setJob(nextJob)
+      const ambiguous = await state.service.reconcile({ ...firstRequest, scanJobId: nextJob.id, expectedVersion: original.version, expectedAuthority: original.authority })
+      expect(ambiguous.records[0]!.status).toBe('ambiguous')
+      return { state, original, nextJob, ambiguous, record: ambiguous.records[0]! }
+    }
+
+    const success = await prepare()
+    if (success.record.status !== 'ambiguous') throw new Error('Expected an ambiguous binding fixture.')
+    const rebound = await success.state.service.reconcile({
+      ...firstRequest,
+      scanJobId: success.nextJob.id,
+      expectedVersion: success.ambiguous.version,
+      expectedAuthority: success.ambiguous.authority,
+      rebinds: [{ bindingId: success.record.id, expectedAuthority: success.ambiguous.authority, expectedEvidence: success.record.evidence, nextSymbolKey: success.record.candidates[0]!.symbolKey }],
+    })
+    expect(rebound.records[0]).toMatchObject({ id: success.original.records[0]!.id, status: 'bound', evidence: success.record.candidates[0] })
+
+    const staleEvidence = await prepare()
+    if (staleEvidence.record.status !== 'ambiguous') throw new Error('Expected an ambiguous binding fixture.')
+    await expect(staleEvidence.state.service.reconcile({
+      ...firstRequest,
+      scanJobId: staleEvidence.nextJob.id,
+      expectedVersion: staleEvidence.ambiguous.version,
+      expectedAuthority: staleEvidence.ambiguous.authority,
+      rebinds: [{ bindingId: staleEvidence.record.id, expectedAuthority: staleEvidence.ambiguous.authority, expectedEvidence: { ...staleEvidence.record.evidence, sourceHash: 'f'.repeat(64) }, nextSymbolKey: staleEvidence.record.candidates[0]!.symbolKey }],
+    })).rejects.toBeInstanceOf(HostedSourceBindingConflictError)
+
+    const ineligible = await prepare()
+    if (ineligible.record.status !== 'ambiguous') throw new Error('Expected an ambiguous binding fixture.')
+    await expect(ineligible.state.service.reconcile({
+      ...firstRequest,
+      scanJobId: ineligible.nextJob.id,
+      expectedVersion: ineligible.ambiguous.version,
+      expectedAuthority: ineligible.ambiguous.authority,
+      rebinds: [{ bindingId: 'unknown-binding', expectedAuthority: ineligible.ambiguous.authority, expectedEvidence: ineligible.record.evidence, nextSymbolKey: ineligible.record.candidates[0]!.symbolKey }],
+    })).rejects.toBeInstanceOf(HostedSourceBindingConflictError)
+
+    const nonUnique = await prepare(2)
+    if (nonUnique.record.status !== 'ambiguous') throw new Error('Expected an ambiguous binding fixture.')
+    await expect(nonUnique.state.service.reconcile({
+      ...firstRequest,
+      scanJobId: nonUnique.nextJob.id,
+      expectedVersion: nonUnique.ambiguous.version,
+      expectedAuthority: nonUnique.ambiguous.authority,
+      rebinds: [{ bindingId: nonUnique.record.id, expectedAuthority: nonUnique.ambiguous.authority, expectedEvidence: nonUnique.record.evidence, nextSymbolKey: nonUnique.record.candidates[0]!.symbolKey }],
+    })).rejects.toBeInstanceOf(HostedSourceBindingConflictError)
+
+    const missingTarget = await prepare()
+    if (missingTarget.record.status !== 'ambiguous') throw new Error('Expected an ambiguous binding fixture.')
+    await expect(missingTarget.state.service.reconcile({
+      ...firstRequest,
+      scanJobId: missingTarget.nextJob.id,
+      expectedVersion: missingTarget.ambiguous.version,
+      expectedAuthority: missingTarget.ambiguous.authority,
+      rebinds: [{ bindingId: missingTarget.record.id, expectedAuthority: missingTarget.ambiguous.authority, expectedEvidence: missingTarget.record.evidence, nextSymbolKey: 'missing-symbol' }],
+    })).rejects.toBeInstanceOf(HostedSourceBindingConflictError)
+
+    const duplicateTarget = await prepare()
+    if (duplicateTarget.record.status !== 'ambiguous') throw new Error('Expected an ambiguous binding fixture.')
+    const duplicateRebind = { bindingId: duplicateTarget.record.id, expectedAuthority: duplicateTarget.ambiguous.authority, expectedEvidence: duplicateTarget.record.evidence, nextSymbolKey: duplicateTarget.record.candidates[0]!.symbolKey }
+    await expect(duplicateTarget.state.service.reconcile({
+      ...firstRequest,
+      scanJobId: duplicateTarget.nextJob.id,
+      expectedVersion: duplicateTarget.ambiguous.version,
+      expectedAuthority: duplicateTarget.ambiguous.authority,
+      rebinds: [duplicateRebind, duplicateRebind],
+    })).rejects.toBeInstanceOf(HostedSourceBindingConflictError)
   })
 
   it('[COMP-V2-BINDING-001][AT-REPO-LINK-001] advances a compatible persisted binding to the new relink generation', async () => {

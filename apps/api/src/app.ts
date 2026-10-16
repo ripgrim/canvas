@@ -1,7 +1,8 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import type { HostedAuth, HostedSessionUser } from '@canvas/auth/server'
 import type { ControlPlaneStore, HostedPreviewBuildJob, JsonValue } from '@canvas/database'
-import { GitHubAppError } from '@canvas/github-app'
+import { GitHubAppError, HostedSourceBindingConflictError } from '@canvas/github-app'
+import { parseSourceBindingReconcileCommand } from '@canvas/repository'
 import { parseShadcnScanArtifact } from '@canvas/scanner'
 import { issueHostedPreviewCapability } from '@canvas/preview-runtime/hosted-capability'
 import { issueHostedPreviewWriteCapability } from '@canvas/preview-runtime/hosted-write-capability'
@@ -170,6 +171,7 @@ export function createApiApp(options: ApiAppOptions): ApiApp {
           : json({ error: { code: 'collaboration_unavailable', message: 'Collaboration is unavailable.', requestId: reference } }, 503)
       }
       else if (error instanceof GitHubAppError) response = githubError(error)
+      else if (error instanceof HostedSourceBindingConflictError) response = json(errorBody('source_bindings_changed', 'Repository source bindings changed.'), 409)
       else {
         reportError({ requestId: reference, method: request.method, pathname: new URL(request.url).pathname, error })
         response = json({ error: { code: 'internal_error', message: 'Request could not be completed.', requestId: reference } }, 500)
@@ -256,6 +258,8 @@ async function routeApi(request: Request, url: URL, options: ApiAppOptions, refe
   if (repositoryChoicesProjectId && request.method === 'GET') return projectRepositories(url, options.github, user, repositoryChoicesProjectId)
   const repositoryScanProjectId = routeId(url.pathname, '/api/projects/', '/repository/scan')
   if (repositoryScanProjectId && request.method === 'GET') return readLatestRepositoryScan(options.github, user, repositoryScanProjectId)
+  const repositorySourceBindingsProjectId = routeId(url.pathname, '/api/projects/', '/repository/source-bindings')
+  if (repositorySourceBindingsProjectId && (request.method === 'GET' || request.method === 'PUT')) return repositorySourceBindings(request, options.github, user, repositorySourceBindingsProjectId)
   const repositoryJobProjectId = routeId(url.pathname, '/api/projects/', '/repository/jobs')
   if (repositoryJobProjectId && request.method === 'POST') return enqueueRepositoryJob(request, options.github, user, repositoryJobProjectId)
   const repositoryDocsProjectId = routeId(url.pathname, '/api/projects/', '/repository/docs/reviews')
@@ -406,6 +410,25 @@ async function projectRepository(request: Request, github: GitHubApiServices | u
     repositoryId: input.repositoryId,
   })
   return json({ repository: publicRepository(grant.repository), installationId: grant.installationId })
+}
+
+async function repositorySourceBindings(request: Request, github: GitHubApiServices | undefined, user: HostedSessionUser, projectId: string): Promise<Response> {
+  if (!github) return githubUnavailable()
+  const tenantId = await github.resolveProjectTenant(projectId, user.id)
+  if (!tenantId) return json(errorBody('not_found', 'Repository not found.'), 404)
+  const actor = await github.resolveActor(user)
+  if (!actor) return json(errorBody('not_found', 'Repository not found.'), 404)
+  if (request.method === 'GET') {
+    const snapshot = await github.sourceBindings.get({ actor, tenantId, projectId })
+    return snapshot === null ? jsonNull() : json(snapshot)
+  }
+  const input = await readObject(request, 5 * 1024 * 1024)
+  let command: ReturnType<typeof parseSourceBindingReconcileCommand>
+  try {
+    command = parseSourceBindingReconcileCommand(input)
+    readId(command.scanJobId, 'scanJobId')
+  } catch { throw new ApiInputError('invalid_source_bindings', 'Source binding request is invalid.') }
+  return json(await github.sourceBindings.reconcile({ actor, tenantId, projectId, ...command }))
 }
 
 async function enqueueRepositoryJob(request: Request, github: GitHubApiServices | undefined, user: HostedSessionUser, projectId: string): Promise<Response> {
@@ -1309,6 +1332,7 @@ function apiResponse(request: Request, origins: ReadonlySet<string>, response: R
 }
 
 function json(body: object, status = 200): Response { return new Response(JSON.stringify(body), { status, headers: jsonHeaders }) }
+function jsonNull(): Response { return new Response('null', { headers: jsonHeaders }) }
 function errorBody(code: string, message: string) { return { error: { code, message } } }
 
 class ApiInputError extends Error {
