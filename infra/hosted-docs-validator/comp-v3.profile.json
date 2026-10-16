@@ -1,0 +1,12 @@
+{
+  "id": "comp-v3-blume-v1",
+  "hashes": {
+    "package.json": "755c5a7b6ccc909b6060ccf2492bfd7f47314d00adf955fc18597ff38d7b0f80",
+    "bun.lock": "182fde2f2d72b16b622f02909f115fb2b5a150ee9bd3e700791304fb371792c9",
+    "apps/docs/package.json": "68b51292f3aae911455cb35338f77c2cb49192313246e65e5e1b6b90a8312bcb",
+    "packages/design-system/package.json": "160e04a7c00da2574353a05fa0d9259d15d26e53152aab51e41ef704d5a45bf3",
+    "packages/tsconfig/package.json": "14f1c642475eaf8dcbbc64f2e595f5cf8597e70940faf3c99cc1a8fc4fcf0f31",
+    "packages/tsconfig/base.json": "dbffca5a8376f0b383c00546f2e97e3a2066ff8ac4c98420ec42615d0a74ddcf",
+    "packages/tsconfig/react-library.json": "0a28fbc6d9cf5f04ce1882c113b5e4c915e7791f710e603af30e0474d1e592d8"
+  }
+}
