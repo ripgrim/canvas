@@ -57,6 +57,7 @@ import type { InternalClipboardPayload } from './clipboard-codec'
 import { planComponentSlotDrafts } from './component-configured-instance'
 import type { ComponentSlotDraft } from './component-configured-instance'
 import { planComponentInstanceSwap } from './component-instance-swap'
+import { componentDuplicatePlanCurrent, planComponentDuplicate } from './component-duplicate'
 
 export type Viewport = Camera
 export type CanvasTool = 'move' | 'scale' | 'hand' | 'frame' | 'shader' | 'text' | 'rectangle' | 'shape' | 'interact'
@@ -551,14 +552,15 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
   }
   const execute = (command: FileCommand, selection?: string[], pageId?: string) => executeWithPersistence(command, selection, pageId).committed
   const executeBatch = (commands: FileCommand[], selection?: string[]) => commands.length ? execute(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, selection) : false
-  const executePlannedComponentBatch = (commands: FileCommand[], selection?: string[]) => {
+  const executePlannedComponentBatchWithPersistence = (commands: FileCommand[], selection?: string[], pageId?: string, trackPersistence = false): PersistenceCommit => {
     const state = backing.getState()
-    if (!commands.length || !state.file || persistenceBlocked || textSession) return false
+    if (!commands.length || !state.file || persistenceBlocked || textSession) return noPersistenceCommit
     const command: FileCommand = commands.length === 1 ? commands[0]! : { type: 'batch', commands }
     try {
-      return commitWithPersistence(applyFileCommandWithHistory(state.file, command, state.atoms, { allowUnavailableBindings: true }), selection ?? state.selection, state.pageId!, false, command).committed
-    } catch (error) { fail(error); return false }
+      return commitWithPersistence(applyFileCommandWithHistory(state.file, command, state.atoms, { allowUnavailableBindings: true }), selection ?? state.selection, pageId ?? state.pageId!, trackPersistence, command)
+    } catch (error) { fail(error); return noPersistenceCommit }
   }
+  const executePlannedComponentBatch = (commands: FileCommand[], selection?: string[], pageId?: string) => executePlannedComponentBatchWithPersistence(commands, selection, pageId).committed
   const executeBatchWithPersistence = (commands: FileCommand[], selection?: string[]) => commands.length
     ? executeWithPersistence(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, selection, undefined, true)
     : noPersistenceCommit
@@ -772,6 +774,29 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       return beforeOwns !== afterOwns || beforeOwns && before!.values[property.id] !== after!.values[property.id]
     })
   }
+  const expandComponentDuplicatePlan = (file: FileDocument, plan: NonNullable<ReturnType<typeof planComponentDuplicate>>): Readonly<{ commands: readonly FileCommand[]; file: FileDocument }> | null => {
+    if (!componentDuplicatePlanCurrent(file, plan)) return null
+    const commands: FileCommand[] = []
+    const semantic: FileCommand[] = []
+    let working = file
+    for (const command of plan.commands) {
+      if (command.type === 'component.create') {
+        semantic.push(command)
+        continue
+      }
+      if (command.type === 'component.instance.create') {
+        const linked = linkCanvasComponentCommand(working, command, backing.getState().atoms, makeId)
+        semantic.push(...(linked.type === 'batch' ? linked.commands : [linked]))
+        continue
+      }
+      const linked = linkCanvasComponentCommand(working, command, backing.getState().atoms, makeId)
+      commands.push(...(linked.type === 'batch' ? linked.commands : [linked]))
+      working = applyFileCommand(working, linked, backing.getState().atoms, { allowUnavailableBindings: true })
+    }
+    commands.push(...semantic)
+    const batch: FileCommand = commands.length === 1 ? commands[0]! : { type: 'batch', commands }
+    return { commands, file: applyFileCommand(file, batch, backing.getState().atoms, { allowUnavailableBindings: true }) }
+  }
   const duplicate = (nodeId?: string) => {
     const state = backing.getState()
     if (!state.file || persistenceBlocked) return false
@@ -783,17 +808,24 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     if (!roots.length) return false
     const commands: FileCommand[] = []
     const selection: string[] = []
+    let working = file
+    let authority: ReturnType<typeof planComponentDuplicate> = null
     for (const id of roots) {
-      const ids = newIdsFor(file, id)
       const current = file.nodes[id]!
       const placement = current.type === 'component' ? legacyLayout(current.layout) : null
       const width = placement ? placement.width ?? 0 : current.type === 'root' || current.type === 'component' ? 0 : current.styles.width
       const offset = placement && placement.mode !== 'absolute' ? undefined : { x: width + duplicateGap, y: 0 }
-      commands.push({ type: 'node.duplicate', nodeId: id, ids, ...(offset ? { offset } : {}) })
-      commands.push(...duplicatedInstanceCommands(file, ids))
-      selection.push(ids[id]!)
+      const plan = planComponentDuplicate({ file: working, nodeId: id, atoms: state.atoms, makeId, ...(offset ? { offset } : {}) })
+      if (!plan) return false
+      authority ??= plan
+      const expanded = expandComponentDuplicatePlan(working, plan)
+      if (!expanded) return false
+      commands.push(...expanded.commands)
+      selection.push(plan.rootId)
+      working = expanded.file
     }
-    return executeBatch(commands, selection)
+    if (!authority || !componentDuplicatePlanCurrent(backing.getState().file!, authority)) return false
+    return executePlannedComponentBatch(commands, selection)
   }
   /** Moves or duplicates selected subtree roots as one ordered, undoable layer-tree transaction. */
   const layerTreeDrop = (nodeIds: readonly string[], target: LayerTreeDropTarget) => {
@@ -819,21 +851,28 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
     const commands: FileCommand[] = []
     const selection: string[] = []
     const targetDisplay = nodeChildDisplay(parent)
+    let working = file
+    let duplicateAuthority: ReturnType<typeof planComponentDuplicate> = null
     for (const id of roots) {
       const orderKey = orderKeyBetween(before, after)
       const placement: NodePlacement = { parentId, orderKey, ...(target.slot !== undefined ? { slot: target.slot } : {}) }
       if (target.duplicate) {
-        const ids = newIdsFor(file, id)
-        const duplicateId = ids[id]!
-        commands.push({ type: 'node.duplicate', nodeId: id, ids })
-        commands.push(...duplicatedInstanceCommands(file, ids))
-        commands.push({ type: 'node.reparent', nodeId: duplicateId, placement, preserveWorldPosition: true })
+        const plan = planComponentDuplicate({ file: working, nodeId: id, atoms: state.atoms, makeId })
+        if (!plan) return false
+        duplicateAuthority ??= plan
+        const expanded = expandComponentDuplicatePlan(working, plan)
+        if (!expanded) return false
+        const duplicateId = plan.rootId
+        commands.push(...expanded.commands)
+        const placementCommands: FileCommand[] = [{ type: 'node.reparent', nodeId: duplicateId, placement, preserveWorldPosition: true }]
         const source = file.nodes[id]!
         if (source.type !== 'root' && source.type !== 'component') {
           const layout = targetDisplay === 'flex' ? positionFlow(source.layout, targetDisplay) : positionFreeform(source.layout)
-          if (nodePositionMode(source) !== layout.item.position.mode) commands.push({ type: 'node.setLayout', nodeId: duplicateId, layout })
+          if (nodePositionMode(source) !== layout.item.position.mode) placementCommands.push({ type: 'node.setLayout', nodeId: duplicateId, layout })
         }
+        commands.push(...placementCommands)
         selection.push(duplicateId)
+        working = applyFileCommand(expanded.file, placementCommands.length === 1 ? placementCommands[0]! : { type: 'batch', commands: placementCommands }, state.atoms, { allowUnavailableBindings: true })
       } else {
         commands.push({ type: 'node.reparent', nodeId: id, placement, preserveWorldPosition: true })
         const source = file.nodes[id]!
@@ -845,7 +884,8 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
       }
       before = orderKey
     }
-    return executeBatch(commands, selection)
+    if (target.duplicate && (!duplicateAuthority || !componentDuplicatePlanCurrent(backing.getState().file!, duplicateAuthority))) return false
+    return target.duplicate ? executePlannedComponentBatch(commands, selection) : executeBatch(commands, selection)
   }
   const moveBy = (nodeId: string, delta: number) => {
     const state = backing.getState()
@@ -2296,7 +2336,10 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
             const verifiedAssets = Object.fromEntries(staged.map(item => [item.sourceId, item.asset]))
             const plan = planFor(current.file, current.pageId, current.selection, current.atoms, verifiedAssets)
             for (const item of staged) assetPreviewData.set(item.asset.id, validateAssetPreview(item.asset, item.preview))
-            if (!execute(plan.command, [...plan.selection])) {
+            const committed = plan.componentSemantic
+              ? executePlannedComponentBatch(plan.command.type === 'batch' ? [...plan.command.commands] : [plan.command], [...plan.selection])
+              : execute(plan.command, [...plan.selection])
+            if (!committed) {
               for (const item of staged) assetPreviewData.delete(item.asset.id)
               throw new Error(backing.getState().error ?? clipboardCopy.internalRejected)
             }
@@ -2442,14 +2485,20 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         const movedIds: Record<string, string> = {}
         if (settings.duplicate) {
           const moving = new Set(moves.map(move => move.id))
+          let working = state.file
+          let authority: ReturnType<typeof planComponentDuplicate> = null
           for (const move of moves) {
             if (!state.file.nodes[move.id] || ancestorsOf(state.file, move.id).some(id => moving.has(id))) continue
-            const subtree = [move.id, ...descendantsOf(state.file, move.id)]
-            const ids = Object.fromEntries(subtree.map(id => [id, makeId()]))
-            commands.push({ type: 'node.duplicate', nodeId: move.id, ids })
-            commands.push(...duplicatedInstanceCommands(state.file, ids))
-            movedIds[move.id] = ids[move.id]!
+            const plan = planComponentDuplicate({ file: working, nodeId: move.id, atoms: state.atoms, makeId })
+            if (!plan) return noPersistenceCommit
+            authority ??= plan
+            const expanded = expandComponentDuplicatePlan(working, plan)
+            if (!expanded) return noPersistenceCommit
+            commands.push(...expanded.commands)
+            movedIds[move.id] = plan.rootId
+            working = expanded.file
           }
+          if (!authority || !componentDuplicatePlanCurrent(backing.getState().file!, authority)) return noPersistenceCommit
         }
         for (const move of moves) {
           const item = state.file.nodes[move.id]
@@ -2471,7 +2520,9 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
           const baked = placement.mode === 'absolute' || placement.width !== undefined || move.width === undefined ? {} : { width: Math.max(1, Math.round(move.width)) }
           commands.push({ type: 'node.setLayout', nodeId: movedId, layout: layoutFromLegacy({ ...placement, ...baked, mode: 'absolute', x: Math.round(move.x), y: Math.round(move.y) }, item.layout) })
         }
-        return executeBatchWithPersistence(commands, moves.map(move => movedIds[move.id] ?? move.id))
+        return settings.duplicate
+          ? executePlannedComponentBatchWithPersistence(commands, moves.map(move => movedIds[move.id] ?? move.id), undefined, true)
+          : executeBatchWithPersistence(commands, moves.map(move => move.id))
       },
       // Pages ------------------------------------------------------------------------------------------------------
       /** Creates a page. With `activate: false` the open page stays put so a router can push the new page as its own history entry. */
@@ -2501,10 +2552,26 @@ export function createDocumentStore(makeId: () => string = () => crypto.randomUU
         const state = backing.getState()
         const source = state.file?.pages.find(page => page.id === pageId)
         if (!state.file || !source) return null
-        const ids = Object.fromEntries(descendantsOf(state.file, source.rootNodeId).map(id => [id, makeId()]))
+        const roots = childrenOf(state.file, source.rootNodeId)
+        let working = state.file
+        let authority: ReturnType<typeof planComponentDuplicate> = null
+        const copies: { commands: readonly FileCommand[]; rootId: string; orderKey: string }[] = []
+        for (const nodeId of roots) {
+          const plan = planComponentDuplicate({ file: working, nodeId, atoms: state.atoms, makeId })
+          if (!plan) return null
+          authority ??= plan
+          const expanded = expandComponentDuplicatePlan(working, plan)
+          if (!expanded) return null
+          copies.push({ commands: expanded.commands, rootId: plan.rootId, orderKey: state.file.relationships[nodeId]!.orderKey })
+          working = expanded.file
+        }
         const page = { id: makeId(), name: uniqueName(state.file.pages.map(candidate => candidate.name), `${source.name} copy`), rootNodeId: makeId() }
-        const commands: FileCommand[] = [{ type: 'page.duplicate', pageId, page, ids }, ...duplicatedInstanceCommands(state.file, ids)]
-        return execute(commands.length === 1 ? commands[0]! : { type: 'batch', commands }, [], page.id) ? page.id : null
+        const commands: FileCommand[] = [
+          { type: 'page.create', page: { ...page, ...(source.background ? { background: structuredClone(source.background) } : {}) }, index: state.file.pages.indexOf(source) + 1 },
+          ...copies.flatMap(copy => [...copy.commands, { type: 'node.reparent' as const, nodeId: copy.rootId, placement: { parentId: page.rootNodeId, orderKey: copy.orderKey }, preserveWorldPosition: true }]),
+        ]
+        if (authority && !componentDuplicatePlanCurrent(backing.getState().file!, authority)) return null
+        return executePlannedComponentBatch(commands, [], page.id) ? page.id : null
       },
       reorderPage: (pageId: string, index: number) => execute({ type: 'page.reorder', pageId, index }),
       // Theme ------------------------------------------------------------------------------------------------------

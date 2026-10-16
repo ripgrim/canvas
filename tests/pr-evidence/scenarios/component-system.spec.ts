@@ -590,6 +590,152 @@ test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
 
   await page.getByRole("tab", { name: "Design", exact: true }).click()
   await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${swapOuter.id}"]`).click()
+  await page.getByRole("combobox", { name: "State", exact: true }).click()
+  await page.getByRole("option", { name: "Hover", exact: true }).click()
+  await page.getByRole("combobox", { name: "Tone", exact: true }).click()
+  await page.getByRole("option", { name: "Danger", exact: true }).click()
+  const copiedLabel = page.getByRole("textbox", { name: "Label", exact: true })
+  await copiedLabel.fill("Copied instance")
+  await copiedLabel.press("Enter")
+  await page.getByRole("checkbox", { name: "Visible", exact: true }).check()
+  await page.getByRole("button", { name: "Add content to Content", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Frame", exact: true }).click()
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${swapOuter.id}"]`).click()
+  await expect(page.getByRole("combobox", { name: "Leading", exact: true })).toHaveText("Swap avatar")
+  const configuredSourceFile = await storedFile(page)
+  const configuredSource = configuredSourceFile.componentModel.instances[swapOuter.id]!
+  const expectedSparseValues = {
+    [authored.properties[0]!.id]: hoverValue!.id,
+    [toneProperty.id]: dangerValue.id,
+    [textProperty.id]: "Copied instance",
+    [booleanProperty.id]: true,
+    [swapProperty.id]: swapAvatarDefinition.id,
+  }
+  expect(configuredSource.values).toEqual(expectedSparseValues)
+  expect(Object.hasOwn(configuredSource.values, slotProperty.id)).toBe(false)
+  const sourceSlotChildren = await storedSlotChildren(page, swapOuter.id, slotProperty.id)
+  expect(sourceSlotChildren).toHaveLength(1)
+  const sourceInstanceIds = new Set(Object.keys(configuredSourceFile.componentModel.instances))
+  const sourceOuterIds = storedSubtreeIds(configuredSourceFile, swapOuter.id)
+
+  frameTimes.length = 0
+  const duplicationEvidence = await automation.evidence.record({
+    crop: { kind: "dimensions", width: 1100, height: 760 },
+    quality: { mode: "motion" },
+  }, async () => {
+  const beforeMasterDuplicate = await storedFile(page)
+  const sourceDefinitionBeforeDuplicate = beforeMasterDuplicate.componentModel.definitions[definition.id]!
+  const definitionIdsBeforeDuplicate = new Set(Object.keys(beforeMasterDuplicate.componentModel.definitions))
+  const originalMasterIds = storedSubtreeIds(beforeMasterDuplicate, master.id)
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${master.id}"]`).click()
+  await page.keyboard.press("Control+d")
+  await expect.poll(async () => Object.keys((await storedComponentModel(page)).definitions).length).toBe(definitionIdsBeforeDuplicate.size + 1)
+  const afterMasterDuplicate = await storedFile(page)
+  const duplicatedDefinition = Object.values(afterMasterDuplicate.componentModel.definitions).find(candidate => !definitionIdsBeforeDuplicate.has(candidate.id))!
+  expect(duplicatedDefinition).toBeDefined()
+  expect(duplicatedDefinition).toMatchObject({ name: "Evidence card copy", source: { kind: "canvas" } })
+  const duplicatedMasterId = duplicatedDefinition.source.masterRootId!
+  const duplicatedMasterIds = storedSubtreeIds(afterMasterDuplicate, duplicatedMasterId)
+  expect(duplicatedMasterId).not.toBe(master.id)
+  expect([...duplicatedMasterIds].every(id => !originalMasterIds.has(id))).toBe(true)
+  expect([...duplicatedMasterIds].length).toBe([...originalMasterIds].length)
+  expect(new Set(duplicatedDefinition.properties.map(property => property.id))).not.toEqual(new Set(sourceDefinitionBeforeDuplicate.properties.map(property => property.id)))
+  expect(duplicatedDefinition.properties.map(property => [property.type, property.name])).toEqual(sourceDefinitionBeforeDuplicate.properties.map(property => [property.type, property.name]))
+  const originalPropertyIds = new Set(sourceDefinitionBeforeDuplicate.properties.map(property => property.id))
+  const duplicatedPropertyIds = new Set(duplicatedDefinition.properties.map(property => property.id))
+  expect([...duplicatedPropertyIds].every(id => !originalPropertyIds.has(id))).toBe(true)
+  const originalValueIds = new Set(sourceDefinitionBeforeDuplicate.properties.flatMap(property => property.values?.map(value => value.id) ?? []))
+  const duplicatedValueIds = new Set(duplicatedDefinition.properties.flatMap(property => property.values?.map(value => value.id) ?? []))
+  expect([...duplicatedValueIds].every(id => !originalValueIds.has(id))).toBe(true)
+  expect(duplicatedDefinition.properties.every(property => !property.binding || duplicatedMasterIds.has(property.binding.nodeId))).toBe(true)
+  expect(Object.keys(duplicatedDefinition.variantAppearances ?? {}).every(id => duplicatedMasterIds.has(id))).toBe(true)
+  expect(duplicatedDefinition.parts.every(part => duplicatedMasterIds.has(part.nodeId))).toBe(true)
+  expect(duplicatedDefinition.interactions.every(interaction => duplicatedPropertyIds.has(interaction.propertyId) && duplicatedValueIds.has(interaction.valueId))).toBe(true)
+  expect(new Set(duplicatedDefinition.materials.map(material => material.id))).not.toEqual(new Set(sourceDefinitionBeforeDuplicate.materials.map(material => material.id)))
+  const originalNestedInstances = Object.values(afterMasterDuplicate.componentModel.instances).filter(candidate => originalMasterIds.has(candidate.id))
+  const duplicatedNestedInstances = Object.values(afterMasterDuplicate.componentModel.instances).filter(candidate => duplicatedMasterIds.has(candidate.id))
+  expect(duplicatedNestedInstances.map(candidate => candidate.componentId).sort()).toEqual(originalNestedInstances.map(candidate => candidate.componentId).sort())
+  expect(duplicatedNestedInstances.every(candidate => !originalMasterIds.has(candidate.id))).toBe(true)
+  await automation.layers.node(nodeId(master.id)).expectKind("component")
+  await automation.layers.node(nodeId(duplicatedMasterId)).expectKind("component")
+  await automation.evidence.screenshot("master-duplicated", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
+
+  await openComponentInventory(page)
+  const componentList = page.getByRole("list", { name: "Component kit", exact: true })
+  const originalComponentRow = componentList.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Open Evidence card component details", exact: true }) })
+  const duplicatedComponentRow = componentList.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Open Evidence card copy component details", exact: true }) })
+  const originalUseCountBeforePaste = Object.values(afterMasterDuplicate.componentModel.instances).filter(candidate => candidate.componentId === definition.id).length
+  await expect(originalComponentRow).toContainText(`From this canvas · ${originalUseCountBeforePaste} ${originalUseCountBeforePaste === 1 ? "instance" : "instances"}`)
+  await expect(duplicatedComponentRow).toContainText("From this canvas · 0 instances")
+
+  await page.getByRole("tab", { name: "Design", exact: true }).click()
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${swapOuter.id}"]`).click()
+  await page.keyboard.press("Control+c")
+  await page.keyboard.press("Control+v")
+  await expect.poll(async () => Object.values((await storedComponentModel(page)).instances).filter(candidate => candidate.componentId === definition.id).length).toBe(originalUseCountBeforePaste + 1)
+  const pastedFile = await storedFile(page)
+  const pastedOuter = Object.values(pastedFile.componentModel.instances).find(candidate => candidate.componentId === definition.id && !sourceInstanceIds.has(candidate.id))!
+  expect(pastedOuter).toBeDefined()
+  expect(pastedOuter.values).toEqual(expectedSparseValues)
+  expect(Object.hasOwn(pastedOuter.values, slotProperty.id)).toBe(false)
+  const pastedOuterIds = storedSubtreeIds(pastedFile, pastedOuter.id)
+  expect([...pastedOuterIds].every(id => !sourceOuterIds.has(id))).toBe(true)
+  const pastedSlotChildren = Object.entries(pastedFile.relationships).filter(([, relationship]) => relationship.parentId === pastedOuter.id && relationship.slot === slotProperty.id).map(([id]) => id)
+  expect(pastedSlotChildren).toHaveLength(1)
+  expect(pastedFile.nodes[pastedSlotChildren[0]!]?.type).toBe("frame")
+  const pastedSwapRoot = Object.values(pastedFile.componentModel.instances).find(candidate => pastedOuterIds.has(candidate.id) && candidate.componentId === swapAvatarDefinition.id)!
+  expect(pastedSwapRoot).toBeDefined()
+  expect(pastedSwapRoot.id).not.toBe(swappedRoot.id)
+  await automation.layers.node(nodeId(pastedOuter.id)).expectKind("component")
+  await expect(page.locator(`[data-instance-id="${pastedOuter.id}"]`)).toHaveAttribute("aria-selected", "true")
+  await expect(page.getByRole("combobox", { name: "State", exact: true })).toHaveText("Hover")
+  await expect(page.getByRole("combobox", { name: "Tone", exact: true })).toHaveText("Danger")
+  await expect(page.getByRole("textbox", { name: "Label", exact: true })).toHaveValue("Copied instance")
+  await expect(page.getByRole("checkbox", { name: "Visible", exact: true })).toBeChecked()
+  await expect(page.getByRole("combobox", { name: "Leading", exact: true })).toHaveText("Swap avatar")
+  await expect(page.getByText("1 layer", { exact: true })).toBeVisible()
+  const pastedClosure = storedComponentClosure(pastedFile, pastedOuter.id)
+  await automation.evidence.screenshot("instance-pasted", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
+
+  await page.getByRole("button", { name: "Undo document edit", exact: true }).click()
+  await expect.poll(async () => (await storedComponentModel(page)).instances[pastedOuter.id]).toBeUndefined()
+  const afterPasteUndo = await storedFile(page)
+  expect([...pastedOuterIds].every(id => afterPasteUndo.nodes[id] === undefined && afterPasteUndo.componentModel.instances[id] === undefined)).toBe(true)
+  expect(Object.values(afterPasteUndo.componentModel.instances).filter(candidate => candidate.componentId === definition.id)).toHaveLength(originalUseCountBeforePaste)
+  await automation.evidence.screenshot("instance-paste-undone", { crop: { kind: "dimensions", width: 1100, height: 760 }, scale: 2 })
+  await page.getByRole("button", { name: "Redo document edit", exact: true }).click()
+  await expect.poll(async () => (await storedComponentModel(page)).instances[pastedOuter.id]?.componentId).toBe(definition.id)
+  expect(storedComponentClosure(await storedFile(page), pastedOuter.id)).toEqual(pastedClosure)
+  return { duplicatedDefinition, duplicatedMasterId, pastedClosure, pastedOuter }
+  })
+  const { duplicatedDefinition, duplicatedMasterId, pastedClosure, pastedOuter } = duplicationEvidence
+
+  await page.reload({ waitUntil: "domcontentloaded" })
+  await page.locator(".canvas-stage").waitFor()
+  await page.frameLocator('iframe[title="Canvas"]').locator("#preview-root").waitFor({ state: "attached" })
+  const duplicationReloaded = await storedFile(page)
+  expect(duplicationReloaded.componentModel.definitions[duplicatedDefinition.id]).toMatchObject({ name: "Evidence card copy", source: { kind: "canvas", masterRootId: duplicatedMasterId } })
+  expect(duplicationReloaded.componentModel.instances[pastedOuter.id]).toMatchObject({ componentId: definition.id, values: expectedSparseValues })
+  expect(storedComponentClosure(duplicationReloaded, pastedOuter.id)).toEqual(pastedClosure)
+  await automation.layers.node(nodeId(master.id)).expectKind("component")
+  await automation.layers.node(nodeId(duplicatedMasterId)).expectKind("component")
+  await automation.layers.node(nodeId(pastedOuter.id)).expectKind("component")
+  await openComponentInventory(page)
+  const reloadedComponentList = page.getByRole("list", { name: "Component kit", exact: true })
+  const expectedReloadedUses = Object.values(duplicationReloaded.componentModel.instances).filter(candidate => candidate.componentId === definition.id).length
+  await expect(reloadedComponentList.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Open Evidence card component details", exact: true }) })).toContainText(`From this canvas · ${expectedReloadedUses} ${expectedReloadedUses === 1 ? "instance" : "instances"}`)
+  await expect(reloadedComponentList.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Open Evidence card copy component details", exact: true }) })).toContainText("From this canvas · 0 instances")
+  await page.getByRole("button", { name: "Open Evidence card component details", exact: true }).click()
+  await expect(page.getByRole("list", { name: "Instances", exact: true }).getByRole("listitem")).toHaveCount(expectedReloadedUses)
+
+  await page.getByRole("tab", { name: "Design", exact: true }).click()
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${pastedOuter.id}"]`).click()
+  await page.keyboard.press("Delete")
+  await expect.poll(async () => (await storedComponentModel(page)).instances[pastedOuter.id]).toBeUndefined()
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${duplicatedMasterId}"]`).click()
+  await page.keyboard.press("Delete")
+  await expect.poll(async () => (await storedComponentModel(page)).definitions[duplicatedDefinition.id]).toBeUndefined()
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${swapOuter.id}"]`).click()
   await expect(page.getByRole("combobox", { name: "Leading", exact: true })).toHaveText("Swap avatar")
   await page.getByRole("button", { name: "Reset Leading", exact: true }).click()
   await expect.poll(async () => (await storedComponentModel(page)).instances[swappedRoot.id]?.componentId).toBe(slotBadgeDefinition.id)
@@ -1052,8 +1198,28 @@ async function storedDirectChildNamed(page: Page, parentId: string, name: string
   return undefined
 }
 
+function storedSubtreeIds(file: Awaited<ReturnType<typeof storedFile>>, rootId: string): Set<string> {
+  const ids = new Set<string>()
+  const visit = (id: string) => {
+    if (ids.has(id)) return
+    ids.add(id)
+    for (const [childId, relationship] of Object.entries(file.relationships)) if (relationship.parentId === id) visit(childId)
+  }
+  visit(rootId)
+  return ids
+}
+
+function storedComponentClosure(file: Awaited<ReturnType<typeof storedFile>>, rootId: string) {
+  const ids = storedSubtreeIds(file, rootId)
+  return {
+    nodes: Object.fromEntries(Object.entries(file.nodes).filter(([id]) => ids.has(id))),
+    relationships: Object.fromEntries(Object.entries(file.relationships).filter(([id]) => ids.has(id))),
+    instances: Object.fromEntries(Object.entries(file.componentModel.instances).filter(([id]) => ids.has(id))),
+  }
+}
+
 type ComponentModel = {
-  definitions: Record<string, { id: string; name: string; source: { kind: string; masterRootId?: string }; properties: Array<{ id: string; type: string; defaultValue?: string | boolean; defaultValueId?: string; currentValueId?: string; values?: Array<{ id: string; name: string }>; binding?: { kind: string; nodeId: string; appearances?: Record<string, unknown> } }>; variantAppearances?: Record<string, Record<string, unknown>>; interactions: Array<{ trigger: string; propertyId: string; valueId: string }>; materials: Array<{ id: string; name: string; group: string; description?: string; appearance: unknown }>; parts: Array<{ id: string; name: string; nodeId: string; materialId?: string }> }>
+  definitions: Record<string, { id: string; name: string; source: { kind: string; masterRootId?: string }; properties: Array<{ id: string; name: string; type: string; defaultValue?: string | boolean; defaultValueId?: string; currentValueId?: string; values?: Array<{ id: string; name: string }>; binding?: { kind: string; nodeId: string; appearances?: Record<string, unknown> } }>; variantAppearances?: Record<string, Record<string, unknown>>; interactions: Array<{ trigger: string; propertyId: string; valueId: string }>; materials: Array<{ id: string; name: string; group: string; description?: string; appearance: unknown }>; parts: Array<{ id: string; name: string; nodeId: string; materialId?: string }> }>
   instances: Record<string, { id: string; componentId: string; values: Record<string, unknown> }>
 }
 

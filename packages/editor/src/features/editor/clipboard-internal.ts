@@ -10,6 +10,7 @@ import type { InternalClipboardPayload } from './clipboard-codec'
 import { positionAbsolute, positionFlow, positionFreeform } from './layout-commands'
 import type { Atom } from './types'
 import { nearestCompatiblePasteParent } from './clipboard-placement'
+import { componentDuplicatePlanCurrent, planComponentDuplicate } from './component-duplicate'
 
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
 
@@ -53,11 +54,21 @@ function componentClosure(file: FileDocument, nodeIds: ReadonlySet<string>): Com
     .filter(([id]) => nodeIds.has(id)).map(([id, instance]) => [id, structuredClone(instance)]))
   const pending = new Set(Object.values(instances).map(instance => instance.componentId))
   for (const definition of Object.values(file.componentModel.definitions)) if (definition.source.kind === 'canvas' && nodeIds.has(definition.source.masterRootId)) pending.add(definition.id)
-  for (const id of pending) {
+  const queue = [...pending]
+  while (queue.length) {
+    const id = queue.shift()!
+    if (definitions[id]) continue
     const definition = file.componentModel.definitions[id]
     if (!definition) throw new Error('Clipboard selection references a missing component definition')
-    if (definition.source.kind === 'canvas') throw new Error('Copying canvas component identity is not supported yet')
     definitions[id] = structuredClone(definition)
+    for (const property of definition.properties) {
+      if (property.type !== 'instance-swap') continue
+      const targets = [property.defaultValue, ...Object.values(instances)
+        .filter(instance => instance.componentId === definition.id)
+        .map(instance => instance.values[property.id])
+        .filter((value): value is string => typeof value === 'string')]
+      for (const target of targets) if (!definitions[target] && !pending.has(target)) { pending.add(target); queue.push(target) }
+    }
   }
   return { definitions, instances }
 }
@@ -103,7 +114,7 @@ export function createInternalClipboardPayload(file: FileDocument, pageId: strin
   }, atoms)
 }
 
-export type InternalPastePlan = Readonly<{ command: FileCommand; selection: readonly string[]; ids: Readonly<Record<string, string>> }>
+export type InternalPastePlan = Readonly<{ command: FileCommand; selection: readonly string[]; ids: Readonly<Record<string, string>>; componentSemantic: boolean }>
 export type VerifiedCrossFileAssets = Readonly<Record<string, ImageAssetReference>>
 export type InternalPastePlacement = Readonly<{
   offset?: Readonly<{ x: number; y: number }>
@@ -121,6 +132,98 @@ function assertSameFileDependencies(file: FileDocument, payload: InternalClipboa
   for (const [id, token] of Object.entries(payload.tokens)) if (!same(file.theme.tokens[id], token)) throw new Error('Clipboard token changed before insertion')
   for (const [id, asset] of Object.entries(payload.assets ?? {})) if (!same(file.assets?.[id], asset)) throw new Error('Clipboard image changed before insertion')
   for (const [id, definition] of Object.entries(payload.componentModel.definitions)) if (!same(file.componentModel.definitions[id], definition)) throw new Error('Clipboard component changed before insertion')
+  for (const [id, instance] of Object.entries(payload.componentModel.instances)) if (!same(file.componentModel.instances[id], instance)) throw new Error('Clipboard component instance changed before insertion')
+}
+
+const hasCanvasComponentClosure = (payload: InternalClipboardPayload): boolean => Object.values(payload.componentModel.definitions).some(definition => definition.source.kind === 'canvas')
+
+function canvasComponentRoots(payload: InternalClipboardPayload): string[] {
+  return payload.roots.filter(root => {
+    if (Object.values(payload.componentModel.definitions).some(definition => definition.source.kind === 'canvas' && definition.source.masterRootId === root)) return true
+    const instance = payload.componentModel.instances[root]
+    return Boolean(instance && payload.componentModel.definitions[instance.componentId]?.source.kind === 'canvas')
+  })
+}
+
+function checkedComponentCommands(file: FileDocument, plan: NonNullable<ReturnType<typeof planComponentDuplicate>>): FileCommand[] {
+  const structural = plan.commands.filter(command => command.type !== 'component.create' && command.type !== 'component.instance.create')
+  const definitions = plan.commands.filter((command): command is Extract<FileCommand, { type: 'component.create' }> => command.type === 'component.create')
+  const pendingInstances = plan.commands.filter((command): command is Extract<FileCommand, { type: 'component.instance.create' }> => command.type === 'component.instance.create')
+  const semantic: FileCommand[] = []
+  const availableDefinitions = new Set(Object.keys(file.componentModel.definitions))
+  const takeInstances = (nodeIds?: ReadonlySet<string>) => {
+    for (let index = pendingInstances.length - 1; index >= 0; index -= 1) {
+      const command = pendingInstances[index]!
+      if (nodeIds && !nodeIds.has(command.instance.id) || !availableDefinitions.has(command.instance.componentId)) continue
+      semantic.push(command)
+      pendingInstances.splice(index, 1)
+    }
+  }
+  for (const command of definitions) {
+    const source = command.definition.source
+    if (source.kind !== 'canvas') throw new Error('Clipboard canvas component plan is invalid')
+    takeInstances(new Set([source.masterRootId, ...descendantsOf(plan.file, source.masterRootId)]))
+    semantic.push(command)
+    availableDefinitions.add(command.definition.id)
+  }
+  takeInstances()
+  if (pendingInstances.length) throw new Error('Clipboard canvas component closure is incomplete')
+  return [...structural, ...semantic]
+}
+
+function localComponentOffset(file: FileDocument, root: string, worldOffset: Readonly<{ x: number; y: number }>): Readonly<{ x: number; y: number }> {
+  const parentId = file.relationships[root]?.parentId
+  const parent = parentId ? file.nodes[parentId] : undefined
+  if (!parent) throw new Error('Clipboard canvas component parent changed before insertion')
+  const parentInverse = invertTransform(parent.type === 'root' ? identityTransform : nodeWorldTransform(file, parent.id))
+  if (!parentInverse) throw new Error('Clipboard canvas component parent transform is invalid')
+  return {
+    x: parentInverse[0] * worldOffset.x + parentInverse[2] * worldOffset.y,
+    y: parentInverse[1] * worldOffset.x + parentInverse[3] * worldOffset.y,
+  }
+}
+
+function planCanvasAwarePaste(
+  file: FileDocument,
+  pageId: string,
+  payload: InternalClipboardPayload,
+  makeId: () => string,
+  placement: InternalPastePlacement,
+  selection: readonly string[],
+  atoms: readonly Atom[],
+): InternalPastePlan | null {
+  if (!hasCanvasComponentClosure(payload)) return null
+  if (payload.source.fileId !== file.fileId) throw new Error('Cross-file canvas component identity is not supported')
+  if (payload.source.pageId !== pageId || payload.source.fileRevision !== file.revision) throw new Error('Clipboard canvas component context changed before insertion')
+  assertSameFileDependencies(file, payload)
+  if (!same(createInternalClipboardPayload(file, payload.source.pageId, payload.roots, atoms), payload)) throw new Error('Clipboard canvas component graph changed before insertion')
+  const group = payloadGroupBounds(payload)
+  const worldOffset = placement.center
+    ? { x: placement.center.x - group.x - group.width / 2, y: placement.center.y - group.y - group.height / 2 }
+    : placement.offset ?? { x: group.width + 20, y: 0 }
+  const semanticRoots = canvasComponentRoots(payload)
+  const semanticSet = new Set(semanticRoots)
+  const genericRoots = payload.roots.filter(root => !semanticSet.has(root))
+  const commands: FileCommand[] = []
+  const ids: Record<string, string> = {}
+  let working = file
+  for (const root of semanticRoots) {
+    const plan = planComponentDuplicate({ file: working, nodeId: root, atoms, makeId, offset: localComponentOffset(working, root, worldOffset) })
+    if (!plan || !componentDuplicatePlanCurrent(working, plan)) throw new Error('Clipboard canvas component graph changed before insertion')
+    commands.push(...checkedComponentCommands(working, plan))
+    Object.assign(ids, plan.ids)
+    working = plan.file
+  }
+  if (genericRoots.length) {
+    const generic = planInternalPaste(working, pageId, payload, makeId, false, { ...placement, offset: worldOffset }, selection, atoms, {}, genericRoots)
+    commands.push(...(generic.command.type === 'batch' ? generic.command.commands : [generic.command]))
+    Object.assign(ids, generic.ids)
+    working = applyFileCommand(working, generic.command, [...atoms], { allowUnavailableBindings: true })
+  }
+  if (!commands.length || commands.length > 1000) throw new Error('Clipboard paste exceeds the command limit')
+  const command: FileCommand = commands.length === 1 ? commands[0]! : { type: 'batch', commands }
+  applyFileCommand(file, command, [...atoms], { allowUnavailableBindings: true })
+  return Object.freeze({ command, selection: Object.freeze(payload.roots.map(root => ids[root]!)), ids: Object.freeze(ids), componentSemantic: true })
 }
 
 const remapAppearanceData = (appearance: Appearance | undefined, tokenIds: Readonly<Record<string, string>>, assetIds: Readonly<Record<string, string>>): Appearance | undefined => {
@@ -242,9 +345,22 @@ function payloadChildren(payload: InternalClipboardPayload): Map<string, string[
   return byParent
 }
 
-function allocatePayloadIds(payload: InternalClipboardPayload, dependencies: PasteDependencies): Record<string, string> {
+function payloadNodeIds(payload: InternalClipboardPayload, roots: readonly string[]): Set<string> {
+  const byParent = payloadChildren(payload)
+  const ids = new Set<string>()
+  const visit = (id: string) => {
+    if (ids.has(id)) return
+    ids.add(id)
+    for (const child of byParent.get(id) ?? []) visit(child)
+  }
+  roots.forEach(visit)
+  return ids
+}
+
+function allocatePayloadIds(payload: InternalClipboardPayload, dependencies: PasteDependencies, sourceIds: ReadonlySet<string> = new Set(Object.keys(payload.nodes))): Record<string, string> {
   const ids: Record<string, string> = {}
   for (const id of Object.keys(payload.nodes)) {
+    if (!sourceIds.has(id)) continue
     const next = dependencies.fresh('Paste')
     if (dependencies.reserved.has(next) || Object.values(ids).includes(next)) throw new Error('Paste identities must be unique')
     dependencies.reserved.add(next)
@@ -258,6 +374,7 @@ function payloadCopyCommands(
   dependencies: PasteDependencies,
   ids: Readonly<Record<string, string>>,
   byParent: ReadonlyMap<string, readonly string[]>,
+  roots: readonly string[],
   root: (node: FileNode, sourceId: string, rootIndex: number) => Readonly<{ node: FileNode; parentId: string; index?: number; slot?: string }>,
 ): FileCommand[] {
   const commands: FileCommand[] = []
@@ -281,33 +398,35 @@ function payloadCopyCommands(
     commands.push({ type: 'node.insert', node, placement })
     for (const child of byParent.get(sourceId) ?? []) visit(child, node.id, null)
   }
-  payload.roots.forEach((sourceId, index) => visit(sourceId, '', index))
+  roots.forEach((sourceId, index) => visit(sourceId, '', index))
   for (const instance of Object.values(payload.componentModel.instances)) {
     const nextId = ids[instance.id]
-    if (!nextId) throw new Error('Clipboard component instance has no copied node')
+    if (!nextId) continue
     commands.push({ type: 'component.instance.create', instance: { ...structuredClone(instance), id: nextId, componentId: dependencies.componentIds[instance.componentId] ?? instance.componentId } })
   }
   return commands
 }
 
-function planInternalPaste(file: FileDocument, pageId: string, payload: InternalClipboardPayload, makeId: () => string, crossFile: boolean, placement: InternalPastePlacement, selection: readonly string[], atoms: readonly Atom[], verifiedAssets: VerifiedCrossFileAssets = {}): InternalPastePlan {
+function planInternalPaste(file: FileDocument, pageId: string, payload: InternalClipboardPayload, makeId: () => string, crossFile: boolean, placement: InternalPastePlacement, selection: readonly string[], atoms: readonly Atom[], verifiedAssets: VerifiedCrossFileAssets = {}, pasteRoots: readonly string[] = payload.roots): InternalPastePlan {
   const page = file.pages.find(candidate => candidate.id === pageId)
   if (!page) throw new Error('Paste target page is missing')
   const dependencies = crossFile ? crossFileDependencies(file, payload, makeId, verifiedAssets) : sameFileDependencies(file, payload, makeId)
-  const ids = allocatePayloadIds(payload, dependencies)
+  if (!pasteRoots.length) throw new Error('Clipboard paste needs a root')
+  const sourceIds = payloadNodeIds(payload, pasteRoots)
+  const ids = allocatePayloadIds(payload, dependencies, sourceIds)
   const byParent = payloadChildren(payload)
-  const group = payloadGroupBounds(payload)
-  const roots = payload.roots.map(id => payload.nodes[id]!)
+  const group = payloadGroupBounds(payload, pasteRoots)
+  const roots = pasteRoots.map(id => payload.nodes[id]!)
   const target = nearestCompatiblePasteParent(file, pageId, selection, roots, atoms, placement.center, new Set(Object.keys(payload.nodes)))
   const parentWorld = target.type === 'root' ? identityTransform : nodeWorldTransform(file, target.id)
   const parentInverse = invertTransform(parentWorld)
   if (!parentInverse) throw new Error('Paste target transform is invalid')
   const display = target.type === 'root' ? 'freeform' : nodeChildDisplay(target)
-  const commands: FileCommand[] = [...dependencies.commands, ...payloadCopyCommands(payload, dependencies, ids, byParent, node => {
+  const commands: FileCommand[] = [...dependencies.commands, ...payloadCopyCommands(payload, dependencies, ids, byParent, pasteRoots, node => {
     if (node.type === 'root' || node.type === 'component') throw new Error('Clipboard root cannot be inserted on the page')
-    const offset = placement.center
+    const offset = placement.offset ?? (placement.center
       ? { x: placement.center.x - group.x - group.width / 2, y: placement.center.y - group.y - group.height / 2 }
-      : placement.offset ?? { x: group.width + 20, y: 0 }
+      : { x: group.width + 20, y: 0 })
     const desiredWorld = multiplyTransforms(translationTransform(offset.x, offset.y), node.styles.relativeTransform)
     const local = normalizeTransform(multiplyTransforms(parentInverse, desiredWorld))
     if (display === 'freeform') {
@@ -320,15 +439,17 @@ function planInternalPaste(file: FileDocument, pageId: string, payload: Internal
     return { node, parentId: target.id }
   })]
   if (!commands.length || commands.length > 1000) throw new Error('Clipboard paste exceeds the command limit')
+  const command: FileCommand = commands.length === 1 ? commands[0]! : { type: 'batch', commands }
   return Object.freeze({
-    command: commands.length === 1 ? commands[0]! : { type: 'batch', commands },
-    selection: Object.freeze(payload.roots.map(id => ids[id]!)),
+    command,
+    selection: Object.freeze(pasteRoots.map(id => ids[id]!)),
     ids: Object.freeze(ids),
+    componentSemantic: false,
   })
 }
 
-const payloadGroupBounds = (payload: InternalClipboardPayload) => {
-  const bounds = payload.roots.map(id => {
+const payloadGroupBounds = (payload: InternalClipboardPayload, roots: readonly string[] = payload.roots) => {
+  const bounds = roots.map(id => {
     const node = payload.nodes[id]
     if (!node || node.type === 'root' || node.type === 'component') throw new Error('Clipboard root needs primitive geometry')
     return transformedBounds(node.styles.relativeTransform, { width: node.styles.width, height: node.styles.height })
@@ -385,7 +506,7 @@ function planInternalReplace(
     if (!parentInverse) throw new Error('Paste to replace parent transform is invalid')
     const ids = allocatePayloadIds(payload, dependencies)
     Object.assign(allIds, Object.fromEntries(Object.entries(ids).map(([source, id]) => [`${targetId}:${source}`, id])))
-    const copy = payloadCopyCommands(payload, dependencies, ids, byParent, (node, sourceId, rootIndex) => {
+    const copy = payloadCopyCommands(payload, dependencies, ids, byParent, payload.roots, (node, sourceId, rootIndex) => {
       if (node.type === 'root' || node.type === 'component') throw new Error('Clipboard root needs primitive geometry')
       const sourceWorld = node.styles.relativeTransform
       const sourceOrigin = { x: sourceWorld[4], y: sourceWorld[5] }
@@ -414,11 +535,13 @@ function planInternalReplace(
   if (commands.length > 1000) throw new Error('Paste to replace exceeds the command limit')
   const command: FileCommand = { type: 'batch', commands }
   applyFileCommand(file, command, [...atoms], { allowUnavailableBindings: true })
-  return Object.freeze({ command, selection: Object.freeze(selectionIds), ids: Object.freeze(allIds) })
+  return Object.freeze({ command, selection: Object.freeze(selectionIds), ids: Object.freeze(allIds), componentSemantic: false })
 }
 
 export function planSameFileInternalPaste(file: FileDocument, pageId: string, payload: InternalClipboardPayload, makeId: () => string, placement: InternalPastePlacement = {}, selection: readonly string[] = [], atoms: readonly Atom[] = []): InternalPastePlan {
   assertSameFileDependencies(file, payload)
+  const component = planCanvasAwarePaste(file, pageId, payload, makeId, placement, selection, atoms)
+  if (component) return component
   return planInternalPaste(file, pageId, payload, makeId, false, placement, selection, atoms)
 }
 
@@ -434,6 +557,7 @@ export function planValidatedInternalPaste(file: FileDocument, pageId: string, p
 }
 
 export function planValidatedInternalReplace(file: FileDocument, pageId: string, payload: InternalClipboardPayload, selection: readonly string[], makeId: () => string, geometry: InternalReplaceGeometry, atoms: readonly Atom[] = [], verifiedAssets: VerifiedCrossFileAssets = {}): InternalPastePlan {
+  if (hasCanvasComponentClosure(payload)) throw new Error('Paste to replace does not support canvas component identity')
   if (payload.source.fileId === file.fileId) assertSameFileDependencies(file, payload)
   return planInternalReplace(file, pageId, payload, selection, makeId, geometry, payload.source.fileId !== file.fileId, atoms, verifiedAssets)
 }

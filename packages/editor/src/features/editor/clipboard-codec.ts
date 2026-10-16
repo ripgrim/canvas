@@ -1,5 +1,6 @@
 import { fileSchemaVersion, validateFileDocument } from '@canvas/repo-engine/file-document'
 import type { FileNode, FileToken, ImageAssetReference, NodeRelationship } from '@canvas/repo-engine/file-document'
+import { validateComponentModelState } from '@canvas/repo-engine/component-model'
 import type { ComponentModelState } from '@canvas/repo-engine/component-model'
 import type { Atom } from './types'
 import { orderKeySequence } from '@canvas/repo-engine/order-keys'
@@ -222,25 +223,84 @@ export function validateInternalClipboardPayload(input: unknown, atoms: readonly
   assertDataTree(input)
   if (!plainRecord(input) || !exactKeys(input, internalKeys, ['assets'])) throw new Error('Invalid clipboard payload')
   if (input.version !== 1 || !plainRecord(input.source) || !exactKeys(input.source, sourceKeys)) throw new Error('Unsupported clipboard payload version')
+  if (typeof input.source.fileId !== 'string' || !input.source.fileId || typeof input.source.pageId !== 'string' || !input.source.pageId
+    || !Number.isSafeInteger(input.source.fileRevision) || (input.source.fileRevision as number) < 0) throw new Error('Invalid clipboard source')
   if (!Array.isArray(input.roots) || !input.roots.length || new Set(input.roots).size !== input.roots.length || input.roots.some(id => typeof id !== 'string')) throw new Error('Clipboard payload needs unique roots')
   if (!plainRecord(input.nodes) || Object.keys(input.nodes).length > canvasClipboardLimits.internalNodes) throw new Error('Clipboard payload exceeds the node limit')
   if (!plainRecord(input.relationships) || !plainRecord(input.tokens) || Object.keys(input.tokens).length > canvasClipboardLimits.internalTokens) throw new Error('Invalid clipboard payload records')
   if (Object.hasOwn(input, 'assets') && (!plainRecord(input.assets) || Object.keys(input.assets).length > canvasClipboardLimits.internalAssets)) throw new Error('Clipboard payload exceeds the asset limit')
   if (Object.hasOwn(input, 'assets') && Object.values(input.assets as Record<string, ImageAssetReference>).reduce((total, asset) => total + (typeof asset.bytes === 'number' ? asset.bytes : 0), 0) > canvasClipboardLimits.aggregateImageBytes) throw new Error('Clipboard payload exceeds the aggregate image byte limit')
   for (const root of input.roots) if (!Object.hasOwn(input.nodes, root) || Object.hasOwn(input.relationships, root)) throw new Error('Clipboard root relationship is invalid')
+  if (bytes(JSON.stringify(input)) > canvasClipboardLimits.internalBytes) throw new Error('Clipboard payload exceeds the byte limit')
+  const componentModel = validateComponentModelState(input.componentModel)
+  const nodes = input.nodes as Record<string, FileNode>
+  const relationships = input.relationships as Record<string, NodeRelationship>
+  const canvasDefinitions = Object.values(componentModel.definitions).filter((definition): definition is ComponentModelState['definitions'][string] & { source: { kind: 'canvas'; masterRootId: string } } => definition.source.kind === 'canvas')
+  const requiredDefinitions = new Set<string>()
+  for (const instance of Object.values(componentModel.instances)) {
+    if (!Object.hasOwn(nodes, instance.id)) throw new Error('Clipboard component instance has no copied node')
+    requiredDefinitions.add(instance.componentId)
+  }
+  for (const definition of canvasDefinitions) if (Object.hasOwn(nodes, definition.source.masterRootId)) requiredDefinitions.add(definition.id)
+  const pending = [...requiredDefinitions]
+  while (pending.length) {
+    const componentId = pending.pop()!
+    const definition = componentModel.definitions[componentId]
+    if (!definition) throw new Error('Clipboard component closure is incomplete')
+    for (const property of definition.properties) {
+      if (property.type !== 'instance-swap') continue
+      if (!requiredDefinitions.has(property.defaultValue)) { requiredDefinitions.add(property.defaultValue); pending.push(property.defaultValue) }
+    }
+    for (const instance of Object.values(componentModel.instances)) {
+      if (instance.componentId !== definition.id) continue
+      for (const property of definition.properties) {
+        if (property.type !== 'instance-swap') continue
+        const value = instance.values[property.id]
+        if (typeof value === 'string' && !requiredDefinitions.has(value)) { requiredDefinitions.add(value); pending.push(value) }
+      }
+    }
+  }
+  if (Object.keys(componentModel.definitions).some(id => !requiredDefinitions.has(id))) throw new Error('Clipboard component closure contains an unrelated definition')
+
+  const children = new Map<string, string[]>()
+  for (const [id, relationship] of Object.entries(relationships)) {
+    const list = children.get(relationship.parentId) ?? []
+    list.push(id)
+    children.set(relationship.parentId, list)
+  }
+  const subtree = (root: string): Set<string> => {
+    const result = new Set([root])
+    const visit = (id: string) => { for (const child of children.get(id) ?? []) if (!result.has(child)) { result.add(child); visit(child) } }
+    visit(root)
+    return result
+  }
+  for (const definition of canvasDefinitions) {
+    if (!Object.hasOwn(nodes, definition.source.masterRootId)) continue
+    const sourceNodes = subtree(definition.source.masterRootId)
+    for (const property of definition.properties) {
+      if (property.binding && !sourceNodes.has(property.binding.nodeId)) throw new Error('Clipboard component property references a missing master layer')
+      if (property.type !== 'instance-swap') continue
+      const nested = componentModel.instances[property.binding.nodeId]
+      if (!nested || nested.componentId !== property.defaultValue || property.binding.nodeId === definition.source.masterRootId) throw new Error('Clipboard Instance swap binding is invalid')
+    }
+    if (definition.parts.some(part => !sourceNodes.has(part.nodeId))) throw new Error('Clipboard component part references a missing master layer')
+  }
+
+  const codeDefinitions = Object.fromEntries(Object.entries(componentModel.definitions).filter(([, definition]) => definition.source.kind === 'code'))
+  const codeInstances = Object.fromEntries(Object.entries(componentModel.instances).filter(([, instance]) => codeDefinitions[instance.componentId]))
   const rootId = fragmentRootId(input.nodes as Record<string, FileNode>)
-  const relationships = { ...(input.relationships as Record<string, NodeRelationship>) }
+  const fragmentRelationships = { ...relationships }
   const rootOrder = orderKeySequence(input.roots.length)
-  for (const [index, root] of input.roots.entries()) relationships[root] = { parentId: rootId, orderKey: rootOrder[index]! }
+  for (const [index, root] of input.roots.entries()) fragmentRelationships[root] = { parentId: rootId, orderKey: rootOrder[index]! }
   const file = validateFileDocument({
     schemaVersion: fileSchemaVersion,
     fileId: input.source.fileId,
     revision: input.source.fileRevision,
     pages: [{ id: input.source.pageId, name: 'Clipboard', rootNodeId: rootId }],
     nodes: { [rootId]: { id: rootId, type: 'root' }, ...input.nodes },
-    relationships,
+    relationships: fragmentRelationships,
     theme: { tokens: input.tokens },
-    componentModel: input.componentModel,
+    componentModel: { definitions: codeDefinitions, instances: codeInstances },
     ...(Object.hasOwn(input, 'assets') ? { assets: input.assets } : {}),
   }, [...atoms], { allowUnavailableBindings: true })
   if (Object.keys(file.nodes).length !== Object.keys(input.nodes).length + 1) throw new Error('Clipboard payload contains invalid nodes')

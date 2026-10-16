@@ -151,6 +151,45 @@ describe('AT-CAN file loading and pages', () => {
     expect(store.getHistory().past).toHaveLength(1)
   })
 
+  it('[COMP-V2-UI-078] Layers modifier-copy keeps masters first-class and configured instances linked in one history leaf', () => {
+    let id = 0
+    const source = fixture()
+    source.componentModel = { definitions: {
+      'outer-component': {
+        id: 'outer-component', name: 'Outer', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 2,
+        properties: [{ id: 'visible', name: 'Visible', type: 'boolean', defaultValue: true, binding: { kind: 'visibility', nodeId: 'inner' } }],
+        materials: [], parts: [], interactions: [],
+      },
+    }, instances: {} }
+    const store = createDocumentStore(() => `layer-copy-${++id}`)
+    store.load(source, atoms)
+    expect(store.commands.components.place('outer-component')).toBe(true)
+    const placedInstance = Object.values(file(store).componentModel.instances)[0]!
+    expect(store.commands.components.setInstanceValue(placedInstance.id, 'visible', false)).toBe(true)
+    const originalInstance = file(store).componentModel.instances[placedInstance.id]!
+    const sourceDefinition = structuredClone(file(store).componentModel.definitions['outer-component']!)
+    const sourceMaster = structuredClone(file(store).nodes.outer)
+    const historyBefore = store.getHistory().past.length
+
+    expect(store.commands.layerTreeDrop(['outer', originalInstance.id], { parentId: 'root-1', index: childrenOf(file(store), 'root-1').length, duplicate: true })).toBe(true)
+    const copiedDefinition = Object.values(file(store).componentModel.definitions).find(definition => definition.id !== 'outer-component')!
+    expect(copiedDefinition).toMatchObject({ name: 'Outer copy', revision: 0, source: { kind: 'canvas' }, docs: { slug: 'outer-copy' } })
+    expect(copiedDefinition.source.kind === 'canvas' && copiedDefinition.source.masterRootId).not.toBe('outer')
+    expect(file(store).nodes.outer).toEqual(sourceMaster)
+    expect(file(store).componentModel.definitions['outer-component']).toEqual(sourceDefinition)
+    const copiedInstance = Object.values(file(store).componentModel.instances).find(instance => instance.id !== originalInstance.id)!
+    expect(copiedInstance).toEqual({ id: copiedInstance.id, componentId: 'outer-component', values: { visible: false } })
+    expect(store.getSnapshot().selection).toEqual([copiedDefinition.source.kind === 'canvas' ? copiedDefinition.source.masterRootId : '', copiedInstance.id])
+    expect(store.getHistory().past).toHaveLength(historyBefore + 1)
+
+    expect(store.undo()).toBe(true)
+    expect(Object.keys(file(store).componentModel.definitions)).toEqual(['outer-component'])
+    expect(Object.values(file(store).componentModel.instances)).toEqual([originalInstance])
+    expect(store.redo()).toBe(true)
+    expect(file(store).componentModel.definitions[copiedDefinition.id]).toEqual(copiedDefinition)
+    expect(file(store).componentModel.instances[copiedInstance.id]).toEqual(copiedInstance)
+  })
+
   it('AT-CAN-001 converts a child leaving Flex to freeform without changing its world position', () => {
     const source = fixture()
     const outer = source.nodes.outer!
@@ -239,6 +278,53 @@ describe('AT-CAN file loading and pages', () => {
     expect(store.undo()).toBe(true)
     expect(file(store).componentModel.instances[copiedInstance.id]).toEqual(copiedInstance)
     expect(pageOfNode(file(store), copiedInstance.id)).toBe(copyPageId)
+  })
+
+  it('[COMP-V2-UI-078] duplicates mixed page contents with an independent master, linked configured instance, and one Undo or Redo leaf', () => {
+    let id = 0
+    const source = fixture()
+    source.nodes['page-loose'] = { id: 'page-loose', type: 'rectangle', name: 'Loose', styles: { relativeTransform: [1, 0, 0, 1, 120, 0], width: 30, height: 30 }, appearance: { fills: [solid('page-loose-fill', '#123456')] } }
+    source.relationships['page-loose'] = { parentId: 'root-2', orderKey: 'W' }
+    source.componentModel = { definitions: {
+      canvas: {
+        id: 'canvas', name: 'Canvas', source: { kind: 'canvas', masterRootId: 'other' }, revision: 3,
+        properties: [{ id: 'visible', name: 'Visible', type: 'boolean', defaultValue: true, binding: { kind: 'visibility', nodeId: 'other' } }],
+        materials: [], parts: [], interactions: [],
+      },
+    }, instances: {} }
+    const store = createDocumentStore(() => `page-copy-${++id}`)
+    store.load(source, atoms)
+    expect(store.setPage('page-2')).toBe(true)
+    expect(store.commands.components.place('canvas')).toBe(true)
+    const placedInstance = Object.values(file(store).componentModel.instances)[0]!
+    expect(store.commands.components.setInstanceValue(placedInstance.id, 'visible', false)).toBe(true)
+    const originalInstance = file(store).componentModel.instances[placedInstance.id]!
+    const originalMaster = structuredClone(file(store).nodes.other)
+    const originalLoose = structuredClone(file(store).nodes['page-loose'])
+    const historyBefore = store.getHistory().past.length
+
+    const copyPageId = store.commands.duplicatePage('page-2')!
+    expect(store.getHistory().past).toHaveLength(historyBefore + 1)
+    const copiedDefinition = Object.values(file(store).componentModel.definitions).find(definition => definition.id !== 'canvas')!
+    expect(copiedDefinition).toMatchObject({ name: 'Canvas copy', revision: 0, source: { kind: 'canvas' }, docs: { slug: 'canvas-copy' } })
+    expect(copiedDefinition.source.kind === 'canvas' && pageOfNode(file(store), copiedDefinition.source.masterRootId)).toBe(copyPageId)
+    const copiedInstance = Object.values(file(store).componentModel.instances).find(instance => instance.id !== originalInstance.id)!
+    expect(copiedInstance).toEqual({ id: copiedInstance.id, componentId: 'canvas', values: { visible: false } })
+    expect(pageOfNode(file(store), copiedInstance.id)).toBe(copyPageId)
+    const copiedLoose = Object.values(file(store).nodes).find(node => node.type === 'rectangle' && node.name === 'Loose' && node.id !== 'page-loose')!
+    expect(pageOfNode(file(store), copiedLoose.id)).toBe(copyPageId)
+    expect(file(store).nodes.other).toEqual(originalMaster)
+    expect(file(store).nodes['page-loose']).toEqual(originalLoose)
+
+    expect(store.undo()).toBe(true)
+    expect(file(store).pages.some(page => page.id === copyPageId)).toBe(false)
+    expect(file(store).componentModel.definitions[copiedDefinition.id]).toBeUndefined()
+    expect(file(store).componentModel.instances[copiedInstance.id]).toBeUndefined()
+    expect(store.redo()).toBe(true)
+    expect(file(store).pages.some(page => page.id === copyPageId)).toBe(true)
+    expect(file(store).componentModel.definitions[copiedDefinition.id]).toEqual(copiedDefinition)
+    expect(file(store).componentModel.instances[copiedInstance.id]).toEqual(copiedInstance)
+    expect(file(store).nodes[copiedLoose.id]).toEqual(copiedLoose)
   })
 
   it('COMP-V2-UI-018 deletes page-owned masters without orphaning instances on other pages', () => {
@@ -1095,6 +1181,55 @@ describe('component model editor commands', () => {
     expect(file(store).componentModel.definitions[button.id]!.properties.find(candidate => candidate.id === propertyId)).toMatchObject({ type: 'instance-swap', defaultValue: badge.id, binding: { nodeId: badgeUse } })
     expect(file(store).componentModel.instances[outerBadgeUse]?.componentId).toBe(avatar.id)
     expect(file(store).componentModel.instances[outerId]?.values[propertyId]).toBe(avatar.id)
+  })
+
+  it('[COMP-V2-UI-078] duplicates a rich master containing a configured nested Instance swap and restores it through Undo or Redo', () => {
+    let id = 0
+    const store = createDocumentStore(() => `rich-duplicate-${++id}`)
+    store.load(createBlankFile('rich-duplicate', 'page-1', 'root-1'), [])
+
+    store.commands.insertCanvas('rectangle', { x: 360, y: 0 })
+    expect(store.commands.components.createFromSelection('Badge')).toBe(true)
+    const badge = Object.values(file(store).componentModel.definitions).find(candidate => candidate.name === 'Badge')!
+    store.commands.insertCanvas('rectangle', { x: 520, y: 0 })
+    expect(store.commands.components.createFromSelection('Avatar')).toBe(true)
+    const avatar = Object.values(file(store).componentModel.definitions).find(candidate => candidate.name === 'Avatar')!
+
+    store.commands.insertCanvas('frame', { x: 180, y: 0 })
+    expect(store.commands.components.createFromSelection('Button')).toBe(true)
+    const button = Object.values(file(store).componentModel.definitions).find(candidate => candidate.name === 'Button')!
+    if (button.source.kind !== 'canvas') throw new Error('Expected canvas Button')
+    expect(store.commands.components.place(badge.id)).toBe(true)
+    const badgeUse = store.getSnapshot().selection[0]!
+    expect(store.commands.move(badgeUse, { parentId: button.source.masterRootId, index: 0 })).toBe(true)
+    store.select(button.source.masterRootId)
+    const swapPropertyId = store.commands.components.addProperty(button.id, 'instance-swap')!
+
+    store.commands.insertCanvas('frame', { x: 0, y: 0 })
+    expect(store.commands.components.createFromSelection('Evidence card')).toBe(true)
+    const card = Object.values(file(store).componentModel.definitions).find(candidate => candidate.name === 'Evidence card')!
+    if (card.source.kind !== 'canvas') throw new Error('Expected canvas Evidence card')
+    expect(store.commands.components.place(button.id)).toBe(true)
+    const configuredButtonId = store.getSnapshot().selection[0]!
+    expect(store.commands.components.setInstanceValue(configuredButtonId, swapPropertyId, avatar.id)).toBe(true)
+    expect(store.commands.move(configuredButtonId, { parentId: card.source.masterRootId, index: 0 })).toBe(true)
+    expect(file(store).componentModel.instances[configuredButtonId]?.values).toEqual({ [swapPropertyId]: avatar.id })
+
+    const before = structuredClone(file(store))
+    store.select(card.source.masterRootId)
+    expect(store.commands.duplicate()).toBe(true)
+    const duplicateRootId = store.getSnapshot().selection[0]!
+    const duplicateDefinition = Object.values(file(store).componentModel.definitions).find(definition => definition.source.kind === 'canvas' && definition.source.masterRootId === duplicateRootId)!
+    const duplicateNestedButton = descendantsOf(file(store), duplicateRootId).map(nodeId => file(store).componentModel.instances[nodeId]).find(instance => instance?.componentId === button.id)
+    expect(duplicateDefinition).toMatchObject({ name: 'Evidence card copy', revision: 0, source: { kind: 'canvas', masterRootId: duplicateRootId } })
+    expect(duplicateNestedButton?.values).toEqual({ [swapPropertyId]: avatar.id })
+    expect(file(store).componentModel.instances[configuredButtonId]?.values).toEqual({ [swapPropertyId]: avatar.id })
+
+    expect(store.undo()).toBe(true)
+    expect({ ...file(store), revision: before.revision }).toEqual(before)
+    expect(store.redo()).toBe(true)
+    expect(file(store).componentModel.definitions[duplicateDefinition.id]).toEqual(duplicateDefinition)
+    expect(file(store).componentModel.instances[duplicateNestedButton!.id]?.values).toEqual({ [swapPropertyId]: avatar.id })
   })
 
   it('COMP-V2-UI-076 deletes a bound swap branch from default and overridden peers as one undoable edit', () => {
@@ -2195,6 +2330,74 @@ describe('AT-CAN primitive canvas commands', () => {
     store.undo()
     expect(Object.keys(file(store).nodes)).toHaveLength(Object.keys(fixture().nodes).length)
     expect(store.getSnapshot().canUndo).toBe(false)
+  })
+
+  it('[COMP-V2-UI-078] duplicates canvas masters and instances as one semantic history leaf', () => {
+    let id = 0
+    const source = fixture()
+    source.componentModel = { definitions: {
+      'outer-component': {
+        id: 'outer-component', name: 'Outer', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 4,
+        properties: [{ id: 'visible-property', name: 'Visible', type: 'boolean', defaultValue: true, binding: { kind: 'visibility', nodeId: 'inner' } }],
+        materials: [{ id: 'surface', group: 'Layers', name: 'Surface', appearance: { opacity: 0.8 } }],
+        parts: [{ id: 'inner-part', name: 'Inner', nodeId: 'inner', materialId: 'surface' }], interactions: [],
+      },
+    }, instances: {} }
+    const store = createDocumentStore(() => `clone-${++id}`)
+    store.load(source, atoms)
+    expect(store.commands.components.place('outer-component')).toBe(true)
+    const placed = Object.values(file(store).componentModel.instances).find(instance => instance.componentId === 'outer-component')!
+    expect(placed).toEqual({ id: 'clone-1', componentId: 'outer-component', values: {} })
+
+    store.select('outer')
+    const historyBeforeMaster = store.getHistory().past.length
+    expect(store.commands.duplicate()).toBe(true)
+    expect(store.getSnapshot().selection).toEqual(['clone-3'])
+    expect(file(store).componentModel.definitions['clone-5']).toEqual({
+      id: 'clone-5', name: 'Outer copy', source: { kind: 'canvas', masterRootId: 'clone-3' }, revision: 0,
+      properties: [{ id: 'clone-6', name: 'Visible', type: 'boolean', defaultValue: true, binding: { kind: 'visibility', nodeId: 'clone-4' } }],
+      materials: [{ id: 'clone-7', group: 'Layers', name: 'Surface', appearance: { opacity: 0.8 } }],
+      parts: [{ id: 'clone-8', name: 'Inner', nodeId: 'clone-4', materialId: 'clone-7' }], interactions: [],
+      docs: { slug: 'outer-copy' },
+    })
+    expect(file(store).componentModel.instances[placed.id]).toEqual({ id: 'clone-1', componentId: 'outer-component', values: {} })
+    expect(store.getHistory().past).toHaveLength(historyBeforeMaster + 1)
+    expect(store.undo()).toBe(true)
+    expect(file(store).nodes['clone-3']).toBeUndefined()
+    expect(file(store).componentModel.definitions['clone-5']).toBeUndefined()
+    expect(store.redo()).toBe(true)
+    expect(file(store).componentModel.definitions['clone-5']?.source).toEqual({ kind: 'canvas', masterRootId: 'clone-3' })
+
+    store.select(placed.id)
+    const historyBeforeInstance = store.getHistory().past.length
+    expect(store.commands.duplicate()).toBe(true)
+    expect(file(store).componentModel.instances['clone-9']).toEqual({ id: 'clone-9', componentId: 'outer-component', values: {} })
+    expect(file(store).componentModel.definitions).toHaveProperty('outer-component')
+    expect(file(store).componentModel.definitions).toHaveProperty('clone-5')
+    expect(store.getHistory().past).toHaveLength(historyBeforeInstance + 1)
+    expect(store.undo()).toBe(true)
+    expect(file(store).componentModel.instances['clone-9']).toBeUndefined()
+    expect(file(store).nodes['clone-9']).toBeUndefined()
+  })
+
+  it('[COMP-V2-UI-078] Alt-drag clones a master definition and its moved physical graph in one history leaf', () => {
+    let id = 0
+    const source = fixture()
+    source.componentModel = { definitions: {
+      'outer-component': { id: 'outer-component', name: 'Outer', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 2, properties: [], materials: [], parts: [], interactions: [] },
+    }, instances: {} }
+    const store = createDocumentStore(() => `alt-clone-${++id}`)
+    store.load(source, atoms)
+    store.select('outer')
+    const before = structuredClone(file(store))
+    expect(store.commands.commitMove([{ id: 'outer', x: 700, y: 500, parentId: null }], { duplicate: true }).committed).toBe(true)
+    expect(store.getSnapshot().selection).toEqual(['alt-clone-1'])
+    expect(file(store).nodes.outer).toEqual(before.nodes.outer)
+    expect(file(store).nodes['alt-clone-1']).toMatchObject({ id: 'alt-clone-1', name: 'Outer copy', styles: { relativeTransform: [1, 0, 0, 1, 700, 500] } })
+    expect(file(store).componentModel.definitions['alt-clone-3']).toEqual({ id: 'alt-clone-3', name: 'Outer copy', source: { kind: 'canvas', masterRootId: 'alt-clone-1' }, revision: 0, properties: [], materials: [], parts: [], interactions: [], docs: { slug: 'outer-copy' } })
+    expect(store.getHistory().past).toHaveLength(1)
+    expect(store.undo()).toBe(true)
+    expect({ ...file(store), revision: before.revision }).toEqual(before)
   })
 
   it('deletes whole subtrees and restores identities and selection with undo', () => {

@@ -50,6 +50,56 @@ const dropText = (text: string, clientX: number, clientY: number) => {
   return event
 }
 
+const clipboardComponentFile = (): FileDocument => ({
+  schemaVersion: 13,
+  fileId: 'component-clipboard-file',
+  revision: 0,
+  pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+  nodes: {
+    root: { id: 'root', type: 'root' },
+    'icon-master': { id: 'icon-master', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 20, 20], width: 20, height: 20, overflow: 'visible' }, appearance: {} },
+    'icon-shape': { id: 'icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 2, 2], width: 16, height: 16 }, appearance: {} },
+    'badge-master': { id: 'badge-master', type: 'frame', name: 'Badge', styles: { relativeTransform: [1, 0, 0, 1, 50, 20], width: 20, height: 20, overflow: 'visible' }, appearance: {} },
+    'badge-shape': { id: 'badge-shape', type: 'rectangle', name: 'Badge shape', styles: { relativeTransform: [1, 0, 0, 1, 1, 1], width: 18, height: 18 }, appearance: {} },
+    'button-master': { id: 'button-master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 100, 40], width: 100, height: 40, overflow: 'visible' }, appearance: {} },
+    face: { id: 'face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, appearance: {} },
+    'icon-use': { id: 'icon-use', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 72, 10], width: 20, height: 20, overflow: 'visible' }, appearance: {} },
+    'icon-use-shape': { id: 'icon-use-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 2, 2], width: 16, height: 16 }, appearance: {} },
+    'button-instance': { id: 'button-instance', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 100, 120], width: 100, height: 40, overflow: 'visible' }, appearance: {} },
+    'instance-face': { id: 'instance-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, appearance: { opacity: 0.7 } },
+    'instance-icon': { id: 'instance-icon', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 72, 10], width: 20, height: 20, overflow: 'visible' }, appearance: {} },
+    'instance-icon-shape': { id: 'instance-icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 2, 2], width: 16, height: 16 }, appearance: {} },
+    slot: { id: 'slot', type: 'rectangle', name: 'Slot content', styles: { relativeTransform: [1, 0, 0, 1, 8, 44], width: 84, height: 12 }, appearance: {} },
+  },
+  relationships: {
+    'icon-master': { parentId: 'root', orderKey: 'A' }, 'icon-shape': { parentId: 'icon-master', orderKey: 'A' }, 'badge-master': { parentId: 'root', orderKey: 'B' }, 'badge-shape': { parentId: 'badge-master', orderKey: 'A' },
+    'button-master': { parentId: 'root', orderKey: 'C' }, face: { parentId: 'button-master', orderKey: 'A' }, 'icon-use': { parentId: 'button-master', orderKey: 'B' }, 'icon-use-shape': { parentId: 'icon-use', orderKey: 'A' },
+    'button-instance': { parentId: 'root', orderKey: 'D' }, 'instance-face': { parentId: 'button-instance', orderKey: 'A' }, 'instance-icon': { parentId: 'button-instance', orderKey: 'B' }, 'instance-icon-shape': { parentId: 'instance-icon', orderKey: 'A' }, slot: { parentId: 'button-instance', orderKey: 'C', slot: 'content' },
+  },
+  theme: { tokens: {} },
+  componentModel: {
+    definitions: {
+      icon: { id: 'icon', name: 'Icon', source: { kind: 'canvas', masterRootId: 'icon-master' }, revision: 1, properties: [], materials: [], parts: [], interactions: [] },
+      badge: { id: 'badge', name: 'Badge', source: { kind: 'canvas', masterRootId: 'badge-master' }, revision: 1, properties: [], materials: [], parts: [], interactions: [] },
+      button: {
+        id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'button-master' }, revision: 3,
+        properties: [
+          { id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'face', appearances: { default: {}, hover: { opacity: 0.7 } } } },
+          { id: 'content', name: 'Content', type: 'slot', binding: { kind: 'slot', nodeId: 'button-master' } },
+          { id: 'icon-property', name: 'Icon', type: 'instance-swap', defaultValue: 'icon', binding: { kind: 'instance-swap', nodeId: 'icon-use' } },
+        ],
+        materials: [], parts: [], interactions: [],
+        variantAppearances: { face: { 'state=default': {}, 'state=hover': { opacity: 0.7 } } },
+      },
+    },
+    instances: {
+      'icon-use': { id: 'icon-use', componentId: 'icon', values: {} },
+      'button-instance': { id: 'button-instance', componentId: 'button', values: { state: 'hover', 'icon-property': 'badge' } },
+      'instance-icon': { id: 'instance-icon', componentId: 'badge', values: {} },
+    },
+  },
+})
+
 afterEach(() => {
   documentStore.configure({})
   documentStore.setReadOnly(false)
@@ -61,6 +111,49 @@ afterEach(() => {
 afterAll(() => documentStore.dispose())
 
 describe('PAPER-CLIP-005 editor clipboard lifecycle', () => {
+  it('[COMP-V2-UI-078] copies and pastes canvas masters and configured instances through the real event boundary as one history leaf', async () => {
+    const service = createEditorClipboardService(window)
+    service.start()
+
+    documentStore.load(clipboardComponentFile(), [], { replace: true })
+    documentStore.select('button-master')
+    const masterBytes = new Map<string, string>()
+    document.body.dispatchEvent(copy(masterBytes))
+    expect(masterBytes.get('text/html')).toContain('design-editor-clipboard:v1')
+    document.body.dispatchEvent(pasteData(masterBytes))
+    await vi.waitFor(() => expect(Object.keys(documentStore.getSnapshot().file?.componentModel.definitions ?? {})).toHaveLength(4))
+    const masterState = documentStore.getSnapshot()
+    const clonedMasterId = masterState.selection[0]!
+    const clonedMaster = Object.values(masterState.file!.componentModel.definitions).find(definition => definition.source.kind === 'canvas' && definition.source.masterRootId === clonedMasterId)!
+    expect(masterState.file?.nodes[clonedMasterId]).toMatchObject({ name: 'Button copy', styles: { relativeTransform: [1, 0, 0, 1, 220, 40] } })
+    expect(clonedMaster).toMatchObject({ name: 'Button copy', revision: 0, properties: [{ name: 'State', type: 'variant' }, { name: 'Content', type: 'slot' }, { name: 'Icon', type: 'instance-swap', defaultValue: 'icon' }] })
+    expect(documentStore.getHistory().past).toHaveLength(1)
+    expect(documentStore.undo()).toBe(true)
+    expect(Object.keys(documentStore.getSnapshot().file?.componentModel.definitions ?? {})).toEqual(['icon', 'badge', 'button'])
+
+    documentStore.load(clipboardComponentFile(), [], { replace: true })
+    documentStore.select('button-instance')
+    const instanceBytes = new Map<string, string>()
+    document.body.dispatchEvent(copy(instanceBytes))
+    expect(instanceBytes.get('text/html')).toContain('design-editor-clipboard:v1')
+    const instancePaste = pasteData(instanceBytes)
+    document.body.dispatchEvent(instancePaste)
+    expect(instancePaste.defaultPrevented).toBe(true)
+    await vi.waitFor(() => expect(documentStore.getSnapshot().selection[0]).not.toBe('button-instance'))
+    const instanceState = documentStore.getSnapshot()
+    const clonedInstanceId = instanceState.selection[0]!
+    expect(instanceState.file?.componentModel.instances[clonedInstanceId]).toEqual({ id: clonedInstanceId, componentId: 'button', values: { state: 'hover', 'icon-property': 'badge' } })
+    const clonedChildren = childrenOf(instanceState.file!, clonedInstanceId)
+    const clonedIcon = clonedChildren.find(id => { const node = instanceState.file?.nodes[id]; return node?.type !== 'root' && node?.name === 'Icon' })!
+    const clonedSlot = clonedChildren.find(id => { const node = instanceState.file?.nodes[id]; return node?.type !== 'root' && node?.name === 'Slot content' })!
+    expect(instanceState.file?.componentModel.instances[clonedIcon]).toEqual({ id: clonedIcon, componentId: 'badge', values: {} })
+    expect(instanceState.file?.relationships[clonedSlot]).toMatchObject({ parentId: clonedInstanceId, slot: 'content' })
+    expect(documentStore.getHistory().past).toHaveLength(1)
+    expect(documentStore.undo()).toBe(true)
+    expect(documentStore.getSnapshot().file?.nodes[clonedInstanceId]).toBeUndefined()
+    service.stop()
+  })
+
   it('turns one real paste event into one selected, undoable text node', async () => {
     documentStore.load(createBlankFile('file', 'page', 'root'), [])
     documentStore.setViewportSize({ width: 600, height: 400 })

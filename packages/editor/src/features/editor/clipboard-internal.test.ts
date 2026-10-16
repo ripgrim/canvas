@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applyFileCommand, applyFileCommandWithHistory, fileSchemaVersion } from '@canvas/repo-engine/file-document'
 import type { FileDocument, PrimitiveNode } from '@canvas/repo-engine/file-document'
+import { validateInternalClipboardPayload } from './clipboard-codec'
 import { createInternalClipboardPayload, planCrossFileInternalPaste, planSameFileInternalPaste, planValidatedInternalPaste, planValidatedInternalReplace } from './clipboard-internal'
 
 const fixture = (): FileDocument => ({
@@ -27,6 +28,66 @@ const fixture = (): FileDocument => ({
   assets: { asset: { id: 'asset', name: 'Photo', mime: 'image/png', extension: 'png', bytes: 4, width: 1, height: 1, sha256: 'a'.repeat(64) } },
   componentModel: { definitions: {}, instances: {} },
 })
+
+const componentFixture = (): FileDocument => ({
+  schemaVersion: fileSchemaVersion,
+  fileId: 'component-file',
+  revision: 9,
+  pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
+  nodes: {
+    root: { id: 'root', type: 'root' },
+    'icon-master': { id: 'icon-master', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 20, 20], width: 20, height: 20, overflow: 'visible' }, appearance: {} },
+    'icon-shape': { id: 'icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 2, 2], width: 16, height: 16 }, appearance: {} },
+    'badge-master': { id: 'badge-master', type: 'frame', name: 'Badge', styles: { relativeTransform: [1, 0, 0, 1, 50, 20], width: 20, height: 20, overflow: 'visible' }, appearance: {} },
+    'badge-shape': { id: 'badge-shape', type: 'rectangle', name: 'Badge shape', styles: { relativeTransform: [1, 0, 0, 1, 1, 1], width: 18, height: 18 }, appearance: {} },
+    'button-master': { id: 'button-master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 100, 40], width: 100, height: 40, overflow: 'visible' }, appearance: {} },
+    face: { id: 'face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, appearance: { fills: [{ id: 'face-fill', type: 'solid', color: { kind: 'literal', color: { kind: 'hex', hex: '#0055ff' } } }] } },
+    'icon-use': { id: 'icon-use', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 72, 10], width: 20, height: 20, overflow: 'visible' }, appearance: {} },
+    'icon-use-shape': { id: 'icon-use-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 2, 2], width: 16, height: 16 }, appearance: {} },
+    'button-instance': { id: 'button-instance', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 100, 120], width: 100, height: 40, overflow: 'visible' }, appearance: {} },
+    'instance-face': { id: 'instance-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, appearance: { opacity: 0.7 } },
+    'instance-icon': { id: 'instance-icon', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 72, 10], width: 20, height: 20, overflow: 'visible' }, appearance: {} },
+    'instance-icon-shape': { id: 'instance-icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 2, 2], width: 16, height: 16 }, appearance: {} },
+    slot: { id: 'slot', type: 'rectangle', name: 'Slot content', styles: { relativeTransform: [1, 0, 0, 1, 8, 44], width: 84, height: 12 }, appearance: {} },
+  },
+  relationships: {
+    'icon-master': { parentId: 'root', orderKey: 'A' }, 'icon-shape': { parentId: 'icon-master', orderKey: 'A' }, 'badge-master': { parentId: 'root', orderKey: 'B' }, 'badge-shape': { parentId: 'badge-master', orderKey: 'A' },
+    'button-master': { parentId: 'root', orderKey: 'C' }, face: { parentId: 'button-master', orderKey: 'A' }, 'icon-use': { parentId: 'button-master', orderKey: 'B' }, 'icon-use-shape': { parentId: 'icon-use', orderKey: 'A' },
+    'button-instance': { parentId: 'root', orderKey: 'D' }, 'instance-face': { parentId: 'button-instance', orderKey: 'A' }, 'instance-icon': { parentId: 'button-instance', orderKey: 'B' }, 'instance-icon-shape': { parentId: 'instance-icon', orderKey: 'A' }, slot: { parentId: 'button-instance', orderKey: 'C', slot: 'content' },
+  },
+  theme: { tokens: {} },
+  componentModel: {
+    definitions: {
+      icon: { id: 'icon', name: 'Icon', source: { kind: 'canvas', masterRootId: 'icon-master' }, revision: 2, properties: [], materials: [], parts: [], interactions: [] },
+      badge: { id: 'badge', name: 'Badge', source: { kind: 'canvas', masterRootId: 'badge-master' }, revision: 1, properties: [], materials: [], parts: [], interactions: [] },
+      button: {
+        id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'button-master' }, revision: 4,
+        properties: [
+          { id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', currentValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'face', appearances: { default: {}, hover: { opacity: 0.7 } } } },
+          { id: 'visible', name: 'Visible', type: 'boolean', defaultValue: true, binding: { kind: 'visibility', nodeId: 'face' } },
+          { id: 'content', name: 'Content', type: 'slot', binding: { kind: 'slot', nodeId: 'button-master' } },
+          { id: 'icon-property', name: 'Icon', type: 'instance-swap', defaultValue: 'icon', binding: { kind: 'instance-swap', nodeId: 'icon-use' } },
+        ],
+        materials: [{ id: 'surface', group: 'Interaction', name: 'Surface', appearance: { opacity: 0.9 } }],
+        parts: [{ id: 'face-part', name: 'Face', nodeId: 'face', materialId: 'surface' }],
+        interactions: [{ id: 'hover-interaction', trigger: 'pointer-hover', propertyId: 'state', valueId: 'hover' }],
+        variantAppearances: { face: { 'state=default': {}, 'state=hover': { opacity: 0.7 } } },
+      },
+    },
+    instances: {
+      'icon-use': { id: 'icon-use', componentId: 'icon', values: {} },
+      'button-instance': { id: 'button-instance', componentId: 'button', values: { state: 'hover', visible: false, 'icon-property': 'badge' } },
+      'instance-icon': { id: 'instance-icon', componentId: 'badge', values: {} },
+    },
+  },
+})
+
+const componentFixtureWithLooseRoot = (): FileDocument => {
+  const file = componentFixture()
+  file.nodes.loose = { id: 'loose', type: 'rectangle', name: 'Loose', styles: { relativeTransform: [1, 0, 0, 1, 260, 60], width: 20, height: 20 }, appearance: {} }
+  file.relationships.loose = { parentId: 'root', orderKey: 'E' }
+  return file
+}
 
 describe('PAPER-CLIP-003 internal copy closure', () => {
   it('normalizes a nested root to world geometry and includes transitive token and image metadata', () => {
@@ -56,21 +117,160 @@ describe('PAPER-CLIP-003 internal copy closure', () => {
     })
   })
 
-  it('rejects canvas component identities until definitions can be duplicated safely', () => {
-    const file = fixture()
-    file.componentModel = { definitions: { button: {
-      id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'outer' }, revision: 1, properties: [], materials: [], parts: [], interactions: [],
-    } }, instances: {} }
-    expect(() => createInternalClipboardPayload(file, 'page', ['outer'])).toThrow('canvas component identity')
+  it('[COMP-V2-UI-078] captures the exact same-file semantic closure for a canvas master and configured instance', () => {
+    const file = componentFixture()
+    const master = createInternalClipboardPayload(file, 'page', ['button-master'])
+    expect(master.roots).toEqual(['button-master'])
+    expect(Object.keys(master.nodes)).toEqual(['button-master', 'face', 'icon-use', 'icon-use-shape'])
+    expect(master.componentModel).toEqual({
+      definitions: { button: file.componentModel.definitions.button, icon: file.componentModel.definitions.icon },
+      instances: { 'icon-use': { id: 'icon-use', componentId: 'icon', values: {} } },
+    })
+    const instance = createInternalClipboardPayload(file, 'page', ['button-instance'])
+    expect(instance.roots).toEqual(['button-instance'])
+    expect(instance.componentModel).toEqual({
+      definitions: { button: file.componentModel.definitions.button, badge: file.componentModel.definitions.badge, icon: file.componentModel.definitions.icon },
+      instances: {
+        'button-instance': { id: 'button-instance', componentId: 'button', values: { state: 'hover', visible: false, 'icon-property': 'badge' } },
+        'instance-icon': { id: 'instance-icon', componentId: 'badge', values: {} },
+      },
+    })
   })
 })
 
 describe('PAPER-CLIP-004 same-file internal paste', () => {
+  it('[COMP-V2-UI-078] routes a master and configured instance through the semantic duplicate planner as one batch', () => {
+    const source = componentFixture()
+    let masterId = 0
+    const masterPayload = createInternalClipboardPayload(source, 'page', ['button-master'])
+    const masterPlan = planSameFileInternalPaste(source, 'page', masterPayload, () => `master-${++masterId}`)
+    const masterHistory = applyFileCommandWithHistory(source, masterPlan.command, [], { allowUnavailableBindings: true })
+    expect(masterPlan.selection).toEqual(['master-1'])
+    expect(masterPlan.componentSemantic).toBe(true)
+    expect(masterPlan.command.type).toBe('batch')
+    expect(masterHistory.file.nodes['master-1']).toMatchObject({ id: 'master-1', name: 'Button copy', styles: { relativeTransform: [1, 0, 0, 1, 220, 40] } })
+    expect(masterHistory.file.componentModel.definitions['master-5']).toEqual({
+      id: 'master-5', name: 'Button copy', source: { kind: 'canvas', masterRootId: 'master-1' }, revision: 0,
+      properties: [
+        { id: 'master-6', name: 'State', type: 'variant', defaultValueId: 'master-7', currentValueId: 'master-7', values: [{ id: 'master-7', name: 'Default' }, { id: 'master-8', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'master-2', appearances: { 'master-7': {}, 'master-8': { opacity: 0.7 } } } },
+        { id: 'master-9', name: 'Visible', type: 'boolean', defaultValue: true, binding: { kind: 'visibility', nodeId: 'master-2' } },
+        { id: 'master-10', name: 'Content', type: 'slot', binding: { kind: 'slot', nodeId: 'master-1' } },
+        { id: 'master-11', name: 'Icon', type: 'instance-swap', defaultValue: 'icon', binding: { kind: 'instance-swap', nodeId: 'master-3' } },
+      ],
+      materials: [{ id: 'master-12', group: 'Interaction', name: 'Surface', appearance: { opacity: 0.9 } }],
+      parts: [{ id: 'master-13', name: 'Face', nodeId: 'master-2', materialId: 'master-12' }],
+      interactions: [{ id: 'master-14', trigger: 'pointer-hover', propertyId: 'master-6', valueId: 'master-8' }],
+      variantAppearances: { 'master-2': { 'master-6=master-7': {}, 'master-6=master-8': { opacity: 0.7 } } },
+      docs: { slug: 'button-copy' },
+    })
+    expect(masterHistory.file.componentModel.instances['master-3']).toEqual({ id: 'master-3', componentId: 'icon', values: {} })
+    expect({ ...applyFileCommand(masterHistory.file, masterHistory.undo, [], { allowUnavailableBindings: true }), revision: source.revision }).toEqual(source)
+
+    let instanceId = 0
+    const instancePayload = createInternalClipboardPayload(source, 'page', ['button-instance'])
+    const instancePlan = planSameFileInternalPaste(source, 'page', instancePayload, () => `instance-${++instanceId}`)
+    expect(instancePlan.componentSemantic).toBe(true)
+    const instanceResult = applyFileCommand(source, instancePlan.command, [], { allowUnavailableBindings: true })
+    expect(instancePlan.selection).toEqual(['instance-1'])
+    expect(instanceResult.componentModel.instances['instance-1']).toEqual({ id: 'instance-1', componentId: 'button', values: { state: 'hover', visible: false, 'icon-property': 'badge' } })
+    expect(instanceResult.componentModel.instances['instance-3']).toEqual({ id: 'instance-3', componentId: 'badge', values: {} })
+    expect(instanceResult.nodes['instance-5']).toMatchObject({ id: 'instance-5', name: 'Slot content', styles: { relativeTransform: [1, 0, 0, 1, 8, 44] } })
+    expect(instanceResult.relationships['instance-5']).toEqual({ parentId: 'instance-1', orderKey: 'C', slot: 'content' })
+  })
+
+  it('[COMP-V2-UI-078] preserves semantic masters and generic roots together in deterministic source order', () => {
+    const source = componentFixtureWithLooseRoot()
+    const payload = createInternalClipboardPayload(source, 'page', ['loose', 'button-master'])
+    expect(payload.roots).toEqual(['button-master', 'loose'])
+    let index = 0
+    const plan = planSameFileInternalPaste(source, 'page', payload, () => `mixed-${++index}`)
+    const history = applyFileCommandWithHistory(source, plan.command, [], { allowUnavailableBindings: true })
+    expect(plan.componentSemantic).toBe(true)
+    expect(plan.command.type).toBe('batch')
+    expect(plan.selection).toEqual([plan.ids['button-master'], plan.ids.loose])
+    expect(history.file.nodes[plan.ids['button-master']!]).toMatchObject({ name: 'Button copy', styles: { relativeTransform: [1, 0, 0, 1, 300, 40] } })
+    expect(history.file.nodes[plan.ids.loose!]).toMatchObject({ name: 'Loose', styles: { relativeTransform: [1, 0, 0, 1, 460, 60] } })
+    const copiedDefinition = Object.values(history.file.componentModel.definitions).find(definition => definition.source.kind === 'canvas' && definition.source.masterRootId === plan.ids['button-master'])
+    expect(copiedDefinition).toMatchObject({ name: 'Button copy', revision: 0 })
+    expect({ ...applyFileCommand(history.file, history.undo, [], { allowUnavailableBindings: true }), revision: source.revision }).toEqual(source)
+  })
+
+  it('[COMP-V2-UI-078] semantically plans multiple component roots and an instance plus primitive without flattening', () => {
+    const source = componentFixtureWithLooseRoot()
+    const masters = createInternalClipboardPayload(source, 'page', ['button-master', 'icon-master'])
+    expect(masters.roots).toEqual(['icon-master', 'button-master'])
+    let masterIndex = 0
+    const masterPlan = planSameFileInternalPaste(source, 'page', masters, () => `many-${++masterIndex}`)
+    const masterResult = applyFileCommand(source, masterPlan.command, [], { allowUnavailableBindings: true })
+    expect(masterPlan.selection).toEqual([masterPlan.ids['icon-master'], masterPlan.ids['button-master']])
+    expect(Object.values(masterResult.componentModel.definitions).filter(definition => definition.name.endsWith(' copy')).map(definition => definition.name)).toEqual(['Icon copy', 'Button copy'])
+    expect(Object.values(masterResult.componentModel.instances).some(instance => instance.id === masterPlan.ids['icon-use'] && instance.componentId === 'icon')).toBe(true)
+
+    const configured = createInternalClipboardPayload(source, 'page', ['loose', 'button-instance'])
+    expect(configured.roots).toEqual(['button-instance', 'loose'])
+    let instanceIndex = 0
+    const instancePlan = planSameFileInternalPaste(source, 'page', configured, () => `configured-${++instanceIndex}`)
+    const instanceResult = applyFileCommand(source, instancePlan.command, [], { allowUnavailableBindings: true })
+    expect(instancePlan.selection).toEqual([instancePlan.ids['button-instance'], instancePlan.ids.loose])
+    expect(instanceResult.componentModel.instances[instancePlan.ids['button-instance']!]).toEqual({ id: instancePlan.ids['button-instance'], componentId: 'button', values: { state: 'hover', visible: false, 'icon-property': 'badge' } })
+    expect(instanceResult.componentModel.instances[instancePlan.ids['instance-icon']!]).toEqual({ id: instancePlan.ids['instance-icon'], componentId: 'badge', values: {} })
+    expect(instanceResult.relationships[instancePlan.ids.slot!]).toMatchObject({ parentId: instancePlan.ids['button-instance'], slot: 'content' })
+    expect(instanceResult.nodes[instancePlan.ids.loose!]).toMatchObject({ name: 'Loose' })
+  })
+
+  it('[COMP-V2-UI-NEG-005] rejects stale, malformed, recursive, colliding, oversized, and cross-file canvas component payloads', () => {
+    const file = componentFixture()
+    const payload = createInternalClipboardPayload(file, 'page', ['button-master'])
+    const before = structuredClone(file)
+    const malformed = [
+      (value: any) => { value.componentModel.definitions.button.properties[0].binding.nodeId = 'missing' },
+      (value: any) => { delete value.componentModel.definitions.button.variantAppearances.face['state=hover'] },
+      (value: any) => { value.componentModel.instances['icon-use'].componentId = 'missing' },
+      (value: any) => { value.componentModel.definitions.button.properties[3].defaultValue = 'button' },
+      (value: any) => { value.relationships.face.parentId = 'missing' },
+    ]
+    for (const mutate of malformed) {
+      const candidate = structuredClone(payload) as any
+      mutate(candidate)
+      expect(() => validateInternalClipboardPayload(candidate)).toThrow()
+    }
+    const changedRevision = structuredClone(payload) as any
+    changedRevision.componentModel.definitions.button.revision = 5
+    expect(() => planSameFileInternalPaste(file, 'page', validateInternalClipboardPayload(changedRevision), () => 'fresh')).toThrow('component changed')
+    const changedPhysicalGraph = structuredClone(payload) as any
+    changedPhysicalGraph.nodes.face.appearance = { opacity: 0.2 }
+    expect(() => planSameFileInternalPaste(file, 'page', validateInternalClipboardPayload(changedPhysicalGraph), () => 'fresh')).toThrow('graph changed')
+    expect(() => planSameFileInternalPaste(file, 'page', payload, () => 'root')).toThrow('graph changed')
+    expect(() => planSameFileInternalPaste({ ...file, revision: 10 }, 'page', payload, () => 'fresh')).toThrow('context changed')
+    expect(() => planValidatedInternalPaste({ ...file, fileId: 'other-file' }, 'page', payload, () => 'fresh')).toThrow('Cross-file canvas component identity')
+    const oversized = structuredClone(payload) as any
+    oversized.nodes = Object.fromEntries(Array.from({ length: 1_001 }, (_, index) => [`node-${index}`, { id: `node-${index}`, type: 'rectangle', name: 'Node', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 1, height: 1 } }]))
+    expect(() => validateInternalClipboardPayload(oversized)).toThrow('node limit')
+    expect(file).toEqual(before)
+  })
+
+  it('[COMP-V2-UI-NEG-005] rejects stale bytes for a mixed semantic payload and fails Paste to replace closed', () => {
+    const file = componentFixtureWithLooseRoot()
+    const payload = createInternalClipboardPayload(file, 'page', ['button-master', 'loose'])
+    const before = structuredClone(file)
+    const stale = structuredClone(payload) as any
+    stale.nodes.loose.appearance = { opacity: 0.4 }
+    expect(() => planSameFileInternalPaste(file, 'page', validateInternalClipboardPayload(stale), () => 'fresh')).toThrow('graph changed')
+    let generated = 0
+    expect(() => planValidatedInternalReplace(file, 'page', payload, ['loose'], () => { generated += 1; return `replace-${generated}` }, {
+      documentRevision: file.revision, layoutGeneration: 2, expectedLayoutGeneration: 2,
+      nodes: { loose: { documentRevision: file.revision, layoutGeneration: 2, rect: { x: 260, y: 60, width: 20, height: 20 } } },
+    })).toThrow('does not support canvas component identity')
+    expect(generated).toBe(0)
+    expect(file).toEqual(before)
+  })
+
   it('plans one atomic batch, preserves subtree geometry, offsets roots, and has an exact inverse', () => {
     const file = fixture()
     const payload = createInternalClipboardPayload(file, 'page', ['outer'])
     let id = 0
     const plan = planSameFileInternalPaste(file, 'page', payload, () => `paste-${++id}`)
+    expect(plan.componentSemantic).toBe(false)
     const history = applyFileCommandWithHistory(file, plan.command, [], { allowUnavailableBindings: true })
     expect(plan.selection).toEqual(['paste-1'])
     expect(history.file.nodes['paste-1']).toMatchObject({ type: 'frame', styles: { relativeTransform: [1, 0, 0, 1, 420, 50] } })

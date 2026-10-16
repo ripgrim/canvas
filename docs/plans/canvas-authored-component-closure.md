@@ -136,6 +136,25 @@ It excludes repository or source sync, GitHub, scanning, repository jobs, hosted
 
 The completed slice proves the literal schema-13 graph across two live WebSocket clients, room restart, durable reconnect, one-socket web authoring, and a real disposable PostgreSQL roundtrip. Independent expected documents cover compound appearance projection and a physical Instance swap. Negative controls reject stale writes, mutation-id reuse, malformed tuple tables, invalid swap roots, and persisted digest mismatches without weakening revision or schema fences.
 
+## Completed slice: first-class canvas component duplication
+
+Canvas components must retain semantic identity through every file-local duplication path. Duplicating a master creates a new independent canvas component with fresh graph identities and a unique copy name. Duplicating or copy-pasting an instance creates another instance linked to the same master while preserving its configured subtree, sparse values, Slot content, Instance swap selection, transform, and nested semantic instances. One Undo or Redo owns the complete semantic and physical clone.
+
+Dependency order:
+
+1. Add one pure semantic clone planner that remaps the definition graph, node-bound references, compound Variant table, materials, parts, interactions, and nested component records.
+2. Route Duplicate and Alt-drag through the checked planner as one batch and one history leaf.
+3. Admit same-file canvas-component closures at the clipboard boundary with exact-key, size, recursion, identity, and dependency validation.
+4. Reuse the same planner for clipboard insertion instead of flattening component roots.
+5. Extend browser evidence across master duplication, configured-instance paste, Undo, Redo, reload, Layers identity, Kit identity, and Kit Uses.
+6. Independently review semantic identity remapping and the untrusted clipboard boundary before closure.
+
+The slice is gated by new `COMP-V2-UI-078`, new `COMP-V2-UI-NEG-005`, and extended `PR-EVIDENCE-014`. Regression gates are `COMP-V2-HISTORY-001`, `COMP-V2-UI-011`, `COMP-V2-UI-012`, `COMP-V2-UI-016`, `COMP-V2-UI-017`, `COMP-V2-UI-018`, `COMP-V2-UI-025`, `COMP-V2-UI-027`, `COMP-V2-UI-030`, `COMP-V2-UI-076`, `COMP-V2-UI-077`, and `PAPER-CLIP-003` through `PAPER-CLIP-005`.
+
+It excludes cross-file canvas-component portability, code-component root clipboard support, repository scanning, GitHub, source patches, Blume writes, publication, new property types, new triggers, and schema or runtime protocol changes. Invalid property bindings, tuple cells, nested identities, component revisions, recursion edges, and clipboard relationships fail before changing document bytes, history, selection, or Kit usage. The rollback boundary is one duplication-focused staging commit based on `807fc7e`.
+
+The completed slice gives Duplicate, modifier-copy, Alt-drag, page duplication, and same-file paste one checked semantic clone planner. Master copies receive fresh and fully remapped component identities; configured instance copies preserve their source identity, sparse values, Slot content, Instance swap choice, and nested semantic instances. Fresh `PR-EVIDENCE-014` browser evidence proves Layers and Kit identity, one-step Undo or Redo, and reload persistence, while malformed, recursive, stale, oversized, cross-file, and paste-to-replace inputs fail before mutation.
+
 ## Current status
 
 - Staging is organized as one reversible commit per closed slice.
@@ -146,6 +165,7 @@ The completed slice proves the literal schema-13 graph across two live WebSocket
 - Configured Slot drafts, isolated preview rendering, atomic placement, recursive-nesting rejection, and one-step Undo are complete under `COMP-V2-UI-075`, `COMP-V2-UI-NEG-002`, and `PR-EVIDENCE-014`.
 - Canvas-authored Instance swap defaults, transient Kit preview, atomic placement and instance updates, reset, deletion fallback, recursion rejection, exact Undo or Redo, and remount-stable playground sessions are complete under `COMP-V2-UI-076`, `COMP-V2-UI-NEG-003`, and `PR-EVIDENCE-014`.
 - Compound State and Tone appearances, canonical tuple persistence, bounded migration, grouped projection, value or axis removal, master Undo or Redo, reload, interactions, configured previews, and generated sheets are complete under `COMP-V2-UI-077`, `COMP-V2-UI-NEG-004`, and `PR-EVIDENCE-014`.
+- First-class canvas master and configured-instance duplication, fresh graph remapping, same-file clipboard insertion, atomic Undo or Redo, reload persistence, and closed malformed-input boundaries are complete under `COMP-V2-UI-078`, `COMP-V2-UI-NEG-005`, and `PR-EVIDENCE-014`.
 - Advanced schema-13 component fixtures now cover real two-client WebSocket convergence, physical compound projection, a real Instance swap to a second component, full-document restart recovery, durable client reconnect, one-socket web authoring, and malformed-graph rejection under `CLOUD-SYNC-COMPONENT-002` and `CLOUD-SYNC-COMPONENT-NEG-002`.
 - The interaction wire cutover is explicit at preview envelope version 10 and preview document version 3. Stale version 9 envelopes and version 2 documents fail closed.
 - PostgreSQL advanced component graph persistence passed against a fresh disposable `postgres:16-alpine` database and the container was removed after verification.

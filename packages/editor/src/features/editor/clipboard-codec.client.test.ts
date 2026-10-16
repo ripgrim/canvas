@@ -17,6 +17,24 @@ const payload = (): InternalClipboardPayload => ({
   componentModel: { definitions: {}, instances: {} },
 })
 
+const canvasPayload = (): InternalClipboardPayload => ({
+  version: 1,
+  source: { fileId: 'component-file', pageId: 'page', fileRevision: 4 },
+  roots: ['master'],
+  nodes: {
+    master: { id: 'master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 40, 40], width: 100, height: 40, overflow: 'visible' }, appearance: {} },
+    face: { id: 'face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 40 }, appearance: {} },
+  },
+  relationships: { face: { parentId: 'master', orderKey: 'A' } },
+  tokens: {},
+  componentModel: { definitions: { button: {
+    id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'master' }, revision: 2,
+    properties: [{ id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'face', appearances: { default: {}, hover: { opacity: 0.7 } } } }],
+    materials: [], parts: [{ id: 'face-part', name: 'Face', nodeId: 'face' }], interactions: [],
+    variantAppearances: { face: { 'state=default': {}, 'state=hover': { opacity: 0.7 } } },
+  } }, instances: {} },
+})
+
 const source = (representations: Record<string, string>, files: File[] = []): ClipboardDataSource => ({
   types: [...Object.keys(representations), ...(files.length ? ['Files'] : [])],
   files,
@@ -67,6 +85,23 @@ describe('PAPER-CLIP-003 internal clipboard payload', () => {
     const value = structuredClone(payload()) as any
     value.nodes.frame.cycle = value
     expect(() => validateInternalClipboardPayload(value)).toThrow('cannot contain cycles')
+  })
+
+  it('[COMP-V2-UI-078] round trips a strict canvas-component closure and rejects semantic graph mutations', () => {
+    const encoded = encodeInternalClipboardPayload(canvasPayload(), 'Button')
+    expect(decodeInternalClipboardHtml(encoded.html)).toEqual(canvasPayload())
+    const mutations = [
+      (value: any) => { value.componentModel.definitions.button.properties[0].binding.nodeId = 'missing' },
+      (value: any) => { delete value.componentModel.definitions.button.variantAppearances.face['state=hover'] },
+      (value: any) => { value.componentModel.definitions.extra = { id: 'extra', name: 'Extra', source: { kind: 'canvas', masterRootId: 'elsewhere' }, revision: 0, properties: [], materials: [], parts: [], interactions: [] } },
+      (value: any) => { value.source.fileRevision = -1 },
+      (value: any) => { value.source.pageId = '' },
+    ]
+    for (const mutate of mutations) {
+      const value = structuredClone(canvasPayload()) as any
+      mutate(value)
+      expect(() => validateInternalClipboardPayload(value)).toThrow()
+    }
   })
 })
 
