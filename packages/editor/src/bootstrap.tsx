@@ -13,6 +13,7 @@ import { homeStore } from './features/home/store'
 import { designSourcePalette, themeProjectionContext } from './features/editor/design-theme'
 import { repositoryConnectionService } from './features/editor/repository-service'
 import { hostedRepositoryService } from './features/editor/hosted-repository-service'
+import { hostedSourceBindingService } from './features/editor/hosted-source-binding-service'
 import { authSessionService } from './features/application/auth-service'
 import { editorToast } from './design-system/toast-atoms'
 import { collaborationService } from './features/collaboration/collaboration-service'
@@ -94,6 +95,19 @@ export function bindAuthFileClear(
   })
 }
 
+export function startHostedSourceBindingLifecycle(
+  api: Pick<EditorProjectApi, 'hostedRepository'>,
+  target: Pick<typeof hostedSourceBindingService, 'start' | 'dispose'> = hostedSourceBindingService,
+): () => void {
+  target.start(api.hostedRepository)
+  let active = true
+  return () => {
+    if (!active) return
+    active = false
+    target.dispose()
+  }
+}
+
 export function startEditorServices(api: EditorProjectApi): () => void {
   authSessionService.configure(api.auth)
   let stopWorkspace: (() => void) | undefined
@@ -103,6 +117,7 @@ export function startEditorServices(api: EditorProjectApi): () => void {
     homeStore.configure(api)
     repositoryConnectionService.configure(api)
     hostedRepositoryService.configure(api)
+    const stopHostedSourceBindings = startHostedSourceBindingLifecycle(api)
     collaborationService.configure(api.collaboration)
     const stopShareAuthority = bindShareAuthority(api)
     const stopProjectFailures = bindProjectFailures(api)
@@ -148,6 +163,7 @@ export function startEditorServices(api: EditorProjectApi): () => void {
       homeStore.dispose()
       repositoryConnectionService.dispose()
       hostedRepositoryService.dispose()
+      stopHostedSourceBindings()
       editorStore.dispose()
       editorToast.close()
       configureEditorStore(undefined)

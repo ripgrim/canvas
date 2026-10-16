@@ -10,6 +10,7 @@ const connection: EditorHostedRepositoryConnection = Object.freeze({ installatio
 const componentId = 'shadcn:Button:1234567890abcdef'
 const scanResult = Object.freeze({
   jobId: '00000000-0000-4000-8000-000000000092',
+  adapterId: 'shadcn-v1',
   sourceRevision: 'a'.repeat(40),
   componentCount: 1,
   registry: {

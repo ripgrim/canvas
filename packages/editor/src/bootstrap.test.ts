@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { authSessionView } from '@canvas/auth'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { EditorCollaborationSnapshot, EditorProjectFailure, EditorProjectSnapshot } from './capabilities'
-import { bindAuthFileClear, bindProjectFailures, bindProjectFileUpdates, bindShareAuthority } from './bootstrap'
+import { bindAuthFileClear, bindProjectFailures, bindProjectFileUpdates, bindShareAuthority, startHostedSourceBindingLifecycle } from './bootstrap'
 import { createDocumentStore } from './features/editor/document-store'
 import { createEditorStore } from './features/editor/store'
 import type { DesignEditorApi, ProjectSnapshot } from './features/editor/types'
@@ -44,6 +44,22 @@ describe('CLOUD-SYNC-LIFECYCLE-001 share authority binding', () => {
     dispose()
     expect(unsubscribe).toHaveBeenCalledTimes(1)
     expect(listeners.size).toBe(0)
+  })
+})
+
+describe('COMP-V2-BINDING-001 hosted source binding lifecycle', () => {
+  it('starts with the project API and disposes exactly once through the workspace owner', () => {
+    const target = { start: vi.fn(), dispose: vi.fn() }
+    const hostedRepository = {} as NonNullable<DesignEditorApi['hostedRepository']>
+    const api = { hostedRepository }
+    const stop = startHostedSourceBindingLifecycle(api, target)
+
+    expect(target.start).toHaveBeenCalledOnce()
+    expect(target.start).toHaveBeenCalledWith(hostedRepository)
+    stop()
+    stop()
+
+    expect(target.dispose).toHaveBeenCalledOnce()
   })
 })
 

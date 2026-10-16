@@ -1273,6 +1273,7 @@ describe('cloud adapter', () => {
         if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
         if (url.endsWith(`/api/projects/${projectId}/repository/scan`)) return json({ job: { id: jobId, operation: 'scan', status: 'completed', attempt: 1, result: { sourceRevision, scan, request }, completedAt: metadata.updatedAt } })
         if (url.endsWith(`/api/projects/${projectId}/repository/jobs`)) return json({ job: { id: jobId, operation: 'scan', status: 'completed', attempt: 1, result: { sourceRevision, scan, request }, completedAt: metadata.updatedAt } })
+        if (url.endsWith(`/api/repository-jobs/${jobId}`)) return json({ job: { id: jobId, operation: 'scan', status: 'completed', attempt: 1, result: { sourceRevision, scan, request }, completedAt: metadata.updatedAt } })
         return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
       }) as typeof fetch,
     })
@@ -1281,16 +1282,127 @@ describe('cloud adapter', () => {
     const fingerprint = hostedPreviewCatalogFingerprint(request)
     await expect(adapter.hostedRepository?.getLatestScan()).resolves.toEqual({
       jobId,
+      adapterId: 'shadcn-v1',
       sourceRevision,
       componentCount: 1,
       registry: { fingerprint, components: [{ componentId, symbolKey: componentId, path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', sourceHash, fingerprint: 'b'.repeat(64), props: scan.components[0]!.props, slots: [] }] },
     })
     await expect(adapter.hostedRepository?.scan()).resolves.toEqual({
       jobId,
+      adapterId: 'shadcn-v1',
       sourceRevision,
       componentCount: 1,
       registry: { fingerprint, components: [{ componentId, symbolKey: componentId, path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', sourceHash, fingerprint: 'b'.repeat(64), props: scan.components[0]!.props, slots: [] }] },
     })
+    await expect(adapter.hostedRepository?.getScan(jobId)).resolves.toEqual({
+      jobId,
+      adapterId: 'shadcn-v1',
+      sourceRevision,
+      componentCount: 1,
+      registry: { fingerprint, components: [{ componentId, symbolKey: componentId, path: 'src/button.tsx', exportName: 'Button', packageName: '@acme/ui', sourceHash, fingerprint: 'b'.repeat(64), props: scan.components[0]!.props, slots: [] }] },
+    })
+    adapter.dispose()
+  })
+
+  it('COMP-V2-BINDING-001 reads exact hosted source bindings and separates removed access from service failures', async () => {
+    const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const repository = { provider: 'github' as const, projectId, repositoryId: '42' }
+    const authority = {
+      repository,
+      scanId: '00000000-0000-4000-8000-000000000092',
+      sourceRevision: 'a'.repeat(40),
+      registryFingerprint: `sha256:${'b'.repeat(64)}`,
+      grantGeneration: 1,
+      adapterId: 'shadcn-v1',
+    }
+    const snapshot = { version: 1, authority, records: [], updatedAt: 1 }
+    let response: 'snapshot' | 'removed-401' | 'removed-404' | 'server' | 'network' | 'parser' | 'empty' = 'snapshot'
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      ...scriptedSync(document),
+      fetch: (async (input: string | URL | Request) => {
+        const url = String(input)
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
+        if (url.endsWith(`/api/projects/${projectId}/repository/source-bindings`)) {
+          if (response === 'removed-401') return json({ error: { code: 'unauthorized', message: 'Unauthorized.' } }, 401)
+          if (response === 'removed-404') return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+          if (response === 'server') return json({ error: { code: 'server_error', message: 'Failed.' } }, 500)
+          if (response === 'network') throw new TypeError('offline')
+          if (response === 'parser') return json({ ...snapshot, extra: true })
+          if (response === 'empty') return json(null)
+          return json(snapshot)
+        }
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    await expect(adapter.hostedRepository?.readSourceBindings()).resolves.toEqual({ status: 'authorized', snapshot })
+    response = 'empty'
+    await expect(adapter.hostedRepository?.readSourceBindings()).resolves.toEqual({ status: 'authorized', snapshot: null })
+    response = 'removed-401'
+    await expect(adapter.hostedRepository?.readSourceBindings()).resolves.toEqual({ status: 'access-removed' })
+    response = 'removed-404'
+    await expect(adapter.hostedRepository?.readSourceBindings()).resolves.toEqual({ status: 'access-removed' })
+    response = 'server'
+    await expect(adapter.hostedRepository?.readSourceBindings()).rejects.toMatchObject({ status: 500 })
+    response = 'network'
+    await expect(adapter.hostedRepository?.readSourceBindings()).rejects.toMatchObject({ status: 0, code: 'network_error' })
+    response = 'parser'
+    await expect(adapter.hostedRepository?.readSourceBindings()).rejects.toThrow('Invalid source binding snapshot')
+    adapter.dispose()
+  })
+
+  it('COMP-V2-BINDING-001 rejects source bindings when the active project changes before the response', async () => {
+    const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const nextProjectId = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff'
+    const nextMetadata = { ...metadata, id: '22222222-3333-4444-8555-666666666666', projectId: nextProjectId }
+    const nextDocument = createBlankFile(nextMetadata.id, 'page_next', 'root_next', 'Page 1')
+    const sourceBindings = deferred<Response>()
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      syncOrigin: 'wss://sync.canvas.test',
+      syncClientId: 'tab-project-recheck',
+      syncDurableStore: memoryOnlyDurableStore,
+      createWebSocket: url => {
+        const socket = new ScriptedSocket()
+        scriptRoom(socket, url.includes(nextMetadata.id) ? nextDocument : document)
+        return socket
+      },
+      fetch: (async (input: string | URL | Request) => {
+        const url = String(input)
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
+        if (url.endsWith(`/api/files/${nextMetadata.id}`)) return json({ file: nextMetadata })
+        if (url.endsWith(`/api/projects/${projectId}/repository/source-bindings`)) return sourceBindings.promise
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    const pending = adapter.hostedRepository!.readSourceBindings()
+    await adapter.openFile?.(nextMetadata.id)
+    sourceBindings.resolve(json(null))
+    await expect(pending).rejects.toThrow('Repository request was cancelled.')
+    adapter.dispose()
+  })
+
+  it('COMP-V2-BINDING-001 rejects a scan response for a different requested job', async () => {
+    const projectId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const requestedJobId = '00000000-0000-4000-8000-000000000092'
+    const returnedJobId = '00000000-0000-4000-8000-000000000093'
+    const adapter = createCloudAdapter({
+      apiOrigin: 'https://api.canvas.test',
+      ...scriptedSync(document),
+      fetch: (async (input: string | URL | Request) => {
+        const url = String(input)
+        if (url.endsWith(`/api/files/${metadata.id}`)) return json({ file: { ...metadata, projectId } })
+        if (url.endsWith(`/api/repository-jobs/${requestedJobId}`)) return json({ job: { id: returnedJobId, operation: 'scan', status: 'queued', attempt: 0 } })
+        return json({ error: { code: 'not_found', message: 'Not found.' } }, 404)
+      }) as typeof fetch,
+    })
+
+    await adapter.openFile?.(metadata.id)
+    await expect(adapter.hostedRepository?.getScan(requestedJobId)).rejects.toThrow('another repository scan')
     adapter.dispose()
   })
 

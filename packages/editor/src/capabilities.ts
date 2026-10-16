@@ -2,7 +2,7 @@ import type { PreparedChange, ProjectSnapshot, SaveResult } from '@canvas/repo-e
 import type { FileCommand, FileDocument } from '@canvas/repo-engine/file-document'
 import type { ImageAssetReference, ImageMime } from '@canvas/repo-engine/appearance'
 import type { PreviewSnapshot } from '@canvas/preview-runtime/browser-contracts'
-import type { ConnectedRepository, GitHubCloneRequest } from '@canvas/repository'
+import type { ConnectedRepository, GitHubCloneRequest, SourceBindingSnapshot } from '@canvas/repository'
 import type { ShadcnComponentCatalog, ShadcnScan } from '@canvas/scanner/contracts'
 import type { AuthSessionView } from '@canvas/auth'
 import type { Atom } from '@canvas/repo-engine/contracts'
@@ -162,10 +162,14 @@ export type EditorHostedRepository = Readonly<{ id: string; ownerLogin: string; 
 export type EditorHostedRepositoryConnection = Readonly<{ installationId: string; repository: EditorHostedRepository }>
 export type EditorHostedRepositoryScan = Readonly<{
   jobId: string
+  adapterId: string
   sourceRevision: string
   componentCount: number
   registry: ShadcnComponentCatalog
 }>
+export type EditorHostedSourceBindingsRead =
+  | Readonly<{ status: 'authorized'; snapshot: SourceBindingSnapshot | null }>
+  | Readonly<{ status: 'access-removed' }>
 export type EditorRepositoryDocsReview = Readonly<{
   id: string
   fileId: string
@@ -189,6 +193,8 @@ export type EditorHostedRepositoryApi = Readonly<{
   listChoices(installationId: string): Promise<readonly EditorHostedRepository[]>
   getConnection(): Promise<EditorHostedRepositoryConnection | null>
   getLatestScan(): Promise<EditorHostedRepositoryScan | null>
+  getScan(scanJobId: string): Promise<EditorHostedRepositoryScan>
+  readSourceBindings(): Promise<EditorHostedSourceBindingsRead>
   link(installationId: string, repositoryId: string): Promise<EditorHostedRepositoryConnection>
   scan(): Promise<EditorHostedRepositoryScan>
   getLatestDocsReview(fileId: string): Promise<EditorRepositoryDocsReview | null>

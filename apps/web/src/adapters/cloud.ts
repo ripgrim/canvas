@@ -176,6 +176,23 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
     if (!projectId) throw new UnavailableCapabilityError('Open a file first')
     return projectId
   }
+  const recheckProject = (projectId: string) => {
+    if (disposed || (activeMetadata?.projectId ?? activeMetadata?.id) !== projectId) throw new Error('Repository request was cancelled.')
+  }
+  const completedScan = (job: Awaited<ReturnType<typeof client.getGitHubRepositoryScan>>, expectedJobId?: string): EditorHostedRepositoryScan => {
+    if (expectedJobId !== undefined && job.id !== expectedJobId) throw new Error('The server returned another repository scan.')
+    if (job.status !== 'completed' || !job.result) throw new Error('The repository scan is not completed.')
+    const registry = componentCatalogFromShadcnScan(job.result.scan, job.result.request, hostedPreviewCatalogFingerprint(job.result.request))
+    const adapterId = job.result.scan.adapterId
+    if (typeof adapterId !== 'string') throw new Error('The repository scan did not return an adapter identity.')
+    return {
+      jobId: job.id,
+      adapterId,
+      sourceRevision: job.result.sourceRevision,
+      componentCount: registry.components.length,
+      registry,
+    }
+  }
   const hostedRepository = Object.freeze({
     returnInstallationId,
     clearReturnLocation,
@@ -194,10 +211,28 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
       catch (error) { if (error instanceof CloudApiError && error.status === 404) return null; throw error }
     },
     async getLatestScan(): Promise<EditorHostedRepositoryScan | null> {
-      const job = await client.getLatestGitHubRepositoryScan(activeProjectId())
-      if (!job?.result) return null
-      const registry = componentCatalogFromShadcnScan(job.result.scan, job.result.request, hostedPreviewCatalogFingerprint(job.result.request))
-      return { jobId: job.id, sourceRevision: job.result.sourceRevision, componentCount: registry.components.length, registry }
+      const projectId = activeProjectId()
+      const job = await client.getLatestGitHubRepositoryScan(projectId)
+      recheckProject(projectId)
+      return job === null ? null : completedScan(job)
+    },
+    async getScan(scanJobId: string): Promise<EditorHostedRepositoryScan> {
+      const projectId = activeProjectId()
+      const job = await client.getGitHubRepositoryScan(scanJobId)
+      recheckProject(projectId)
+      return completedScan(job, scanJobId)
+    },
+    async readSourceBindings() {
+      const projectId = activeProjectId()
+      try {
+        const snapshot = await client.getGitHubSourceBindings(projectId)
+        recheckProject(projectId)
+        return { status: 'authorized' as const, snapshot }
+      } catch (error) {
+        recheckProject(projectId)
+        if (error instanceof CloudApiError && (error.status === 401 || error.status === 404)) return { status: 'access-removed' as const }
+        throw error
+      }
     },
     link: (installationId: string, repositoryId: string) => client.linkGitHubRepository(activeProjectId(), installationId, repositoryId),
     async scan(): Promise<EditorHostedRepositoryScan> {
@@ -209,9 +244,8 @@ export function createCloudAdapter(options: CloudAdapterOptions): CloudAdapter {
         if (disposed || activeProjectId() !== projectId) throw new Error('Repository scan was cancelled.')
         job = await client.getGitHubRepositoryScan(job.id)
       }
-      if (!job.result) throw new Error('Repository scan did not return a component catalog.')
-      const registry = componentCatalogFromShadcnScan(job.result.scan, job.result.request, hostedPreviewCatalogFingerprint(job.result.request))
-      return { jobId: job.id, sourceRevision: job.result.sourceRevision, componentCount: registry.components.length, registry }
+      recheckProject(projectId)
+      return completedScan(job)
     },
     getLatestDocsReview(fileId: string) { return client.getLatestRepositoryDocsReview(activeProjectId(), fileId) },
     prepareDocs(input: Readonly<{ fileId: string; fileRevision: number; scanJobId: string }>) {
