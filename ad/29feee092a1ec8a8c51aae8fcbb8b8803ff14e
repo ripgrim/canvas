@@ -1,0 +1,65 @@
+packages/editor/src/features/editor/document-store.test.ts
+  s_012c57818fbf95::t_4461641353a804 1391
+  s_012c57818fbf95::t_80d83036708720 1392,1398
+  s_012c57818fbf95::t_4a3889a77dfedd 1368-1373,1377-1390,1393-1397,1399,1401-1417
+  s_012c57818fbf95::t_4791335ee7b9c1 1374-1376,1400
+docs/plans/canvas-authored-component-closure.md
+  s_012c57818fbf95::t_c28bf594d1e874 57,80,89
+  s_012c57818fbf95::t_ce20550a21cc67 59-78
+  s_012c57818fbf95::t_d085661299314e 79
+packages/editor/src/features/editor/component-configured-preview.ts
+  s_012c57818fbf95::t_f86e20a4fa0348 7-9,22,40-50,84,90-92,94
+packages/editor/src/features/editor/component-configured-preview.test.ts
+  s_012c57818fbf95::t_2766138bf2edf3 67-68
+  s_012c57818fbf95::t_5b9144b23e30f6 43-66,69-71
+packages/editor/src/features/editor/ComponentKitPanel.tsx
+  s_012c57818fbf95::t_cd242e3c5de4ba 7,15,42-43,52,63,75-92
+tests/pr-evidence/registry.json
+  s_012c57818fbf95::t_be015b2b8c8358 129,249
+packages/editor/src/features/editor/component-kit-copy.ts
+  s_012c57818fbf95::t_65eb529e10b1bb 78-82
+packages/editor/src/features/editor/component-configured-instance.test.ts
+  s_012c57818fbf95::t_5a3813882be85b 1-43,45-50,52-72,85
+  s_012c57818fbf95::t_9a6b9483ffbdcb 73-84
+  s_012c57818fbf95::t_a95549c82263ae 44,51
+packages/editor/src/features/editor/component-docs-preview-service.ts
+  s_012c57818fbf95::t_d4d1d5406b1c38 98
+  s_012c57818fbf95::t_a2b61845643821 7-8,18,67-72,74,80,87-88,127-143
+packages/editor/src/features/editor/component-configured-instance.ts
+  s_012c57818fbf95::t_a057a8cd375745 1-135
+ACCEPTANCE-TESTS.md
+  s_012c57818fbf95::t_be015b2b8c8358 159,1341-1348
+packages/editor/src/features/editor/document-store.ts
+  s_012c57818fbf95::t_77fe2ba6691724 57-58,1635,1655-1661,1664
+packages/editor/src/features/editor/ComponentKitPanel.client.test.ts
+  s_012c57818fbf95::t_0de164bb20f2a3 6,12
+  s_012c57818fbf95::t_f83cf63a668946 193-241
+tests/pr-evidence/scenarios/component-system.spec.ts
+  s_012c57818fbf95::t_b3becb8ee5b1ea 479-491,493,495,504-508,510-513
+  s_012c57818fbf95::t_6d628c4103536a 502
+  s_012c57818fbf95::t_23d172aa5743a5 497-501,503
+  s_012c57818fbf95::t_f28abe3b9ee7ba 492,494,496
+  s_012c57818fbf95::t_4791335ee7b9c1 509
+  s_012c57818fbf95::t_7e01a30a50bff1 514
+packages/editor/src/features/editor/component-docs-preview-service.test.ts
+  s_012c57818fbf95::t_9a6b9483ffbdcb 136-140
+  s_012c57818fbf95::t_21dc710cf220fa 24-25,27-32,124-135,142-145
+  s_012c57818fbf95::t_a95549c82263ae 141
+  s_012c57818fbf95::t_a8a492157b44ab 146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ad29feee092a1ec8a8c51aae8fcbb8b8803ff14e",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
