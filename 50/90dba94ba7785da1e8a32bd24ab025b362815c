@@ -1,0 +1,52 @@
+packages/editor/src/features/editor/hosted-source-binding-service.ts
+  s_012c57818fbf95::t_9f495be51c05b8 3,145,147-148
+  s_012c57818fbf95::t_a56cd5ba489145 1-2,4-144,146,149-158
+packages/editor/src/capabilities.ts
+  s_012c57818fbf95::t_77d5271f74d2d5 5,165,170-172,196-197
+packages/editor/src/features/editor/hosted-source-binding-projection.ts
+  s_012c57818fbf95::t_dd2c1959e0337b 39,67-68,80-90,153,177-178
+  s_012c57818fbf95::t_bdab7ef2731ee6 145-147,160-161,164-165,175,180-181,184-186,192
+  s_012c57818fbf95::t_657caa9da7ce6c 152
+  s_012c57818fbf95::t_afffae4849057f 1-38,40-66,69-79,91-139,142-144,148-151,157,162-163,167-168,171-172,174,182-183,187-188,190-191,193-207
+  s_012c57818fbf95::t_444a9c2e7346ba 140-141,154-156,158-159,166,169-170,173,176,179,189
+apps/web/src/adapters/cloud.test.ts
+  s_012c57818fbf95::t_73a8884d89a2d1 1276,1285,1292-1299,1307-1318,1320-1326,1329,1331,1333-1340,1344,1347-1348,1351-1352,1386-1408
+  s_012c57818fbf95::t_c7f183cfc56041 1319,1327-1328,1330,1332,1341-1343,1345-1346,1349-1350,1353-1385
+packages/editor/src/features/editor/hosted-repository-service.test.ts
+  s_012c57818fbf95::t_a56cd5ba489145 13
+packages/editor/src/bootstrap.test.ts
+  s_012c57818fbf95::t_9f495be51c05b8 59
+  s_012c57818fbf95::t_a56cd5ba489145 5,50-52,55-57,60-62
+  s_012c57818fbf95::t_c9d82b577988b9 53-54,58
+  s_012c57818fbf95::t_eb61b10103d287 63-65
+packages/editor/src/bootstrap.tsx
+  s_012c57818fbf95::t_a56cd5ba489145 16,98-101,109-110,120,166
+  s_012c57818fbf95::t_9f495be51c05b8 102-108
+apps/web/src/adapters/cloud.ts
+  s_012c57818fbf95::t_77d5271f74d2d5 179,181-185,188-189,191-195,214-235,247-248
+  s_012c57818fbf95::t_e5b8504609c0e8 180,186-187,190
+packages/editor/src/features/editor/hosted-source-binding-projection.test.ts
+  s_012c57818fbf95::t_49a1f429ec2231 116-117,119-120
+  s_012c57818fbf95::t_bdab7ef2731ee6 115,118,121,124-128
+  s_012c57818fbf95::t_afffae4849057f 1,3-114,129-173
+  s_012c57818fbf95::t_64e764a00f4ce4 2,122-123
+packages/editor/src/features/editor/hosted-source-binding-service.test.ts
+  s_012c57818fbf95::t_515a7fc771656d 1-83,85-94,96-115,117-129,131-143,145-168,170-189,191-209,211-227,229-247,249-268,270-284,286-292
+  s_012c57818fbf95::t_9f495be51c05b8 84,95,116,130,144,169,190,210,228,248,269,285
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5090dba94ba7785da1e8a32bd24ab025b362815c",
+  "prompts": {},
+  "sessions": {
+    "s_012c57818fbf95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f3f-cc6a-7222-bd47-d2b69383dee8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "grim <75869731+ripgrim@users.noreply.github.com>"
+    }
+  }
+}
