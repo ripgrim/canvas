@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { legacyTextProperties } from '@canvas/repo-engine/file-document'
 import { externalizeHostedFileDocument, repairHostedFileDocument, validateHostedFileDocument } from '../src/index.js'
 
 const blank = () => ({
@@ -16,9 +17,107 @@ const legacyBlank = (schemaVersion: number) => {
   return { ...document, schemaVersion }
 }
 
+const advancedComponentDocument = () => ({
+  ...blank(),
+  nodes: {
+    'root-1': { id: 'root-1', type: 'root' },
+    'button-master': { id: 'button-master', type: 'frame', name: 'Button', styles: { relativeTransform: [1, 0, 0, 1, 20, 30], width: 160, height: 48 } },
+    'button-face': { id: 'button-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 48 } },
+    'button-label': { id: 'button-label', type: 'text', name: 'Label', text: 'Continue', styles: { relativeTransform: [1, 0, 0, 1, 16, 14], width: 96, height: 20 }, ...legacyTextProperties() },
+    'button-slot': { id: 'button-slot', type: 'frame', name: 'Content', styles: { relativeTransform: [1, 0, 0, 1, 128, 12], width: 24, height: 24 } },
+    'button-icon-use': { id: 'button-icon-use', type: 'frame', name: 'Icon use', styles: { relativeTransform: [0.866, 0.5, -0.5, 0.866, 2, 1], width: 20, height: 20 } },
+    'icon-master': { id: 'icon-master', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 220, 30], width: 20, height: 20 } },
+    'icon-shape': { id: 'icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 2, 2], width: 16, height: 16 } },
+  },
+  relationships: {
+    'button-master': { parentId: 'root-1', orderKey: 'V' },
+    'button-face': { parentId: 'button-master', orderKey: 'V' },
+    'button-label': { parentId: 'button-master', orderKey: 'W' },
+    'button-slot': { parentId: 'button-master', orderKey: 'X' },
+    'button-icon-use': { parentId: 'button-slot', orderKey: 'V' },
+    'icon-master': { parentId: 'root-1', orderKey: 'W' },
+    'icon-shape': { parentId: 'icon-master', orderKey: 'V' },
+  },
+  componentModel: {
+    definitions: {
+      button: {
+        id: 'button', name: 'Button', source: { kind: 'canvas', masterRootId: 'button-master' }, revision: 1,
+        properties: [
+          { id: 'state', name: 'State', type: 'variant', defaultValueId: 'default', values: [{ id: 'default', name: 'Default' }, { id: 'hover', name: 'Hover' }], binding: { kind: 'variant', nodeId: 'button-face', appearances: { default: {}, hover: { opacity: 0.8 } } } },
+          { id: 'tone', name: 'Tone', type: 'variant', defaultValueId: 'neutral', values: [{ id: 'neutral', name: 'Neutral' }, { id: 'danger', name: 'Danger' }], binding: { kind: 'variant', nodeId: 'button-face', appearances: { neutral: {}, danger: { opacity: 0.7 } } } },
+          { id: 'label', name: 'Label', type: 'text', defaultValue: 'Continue', binding: { kind: 'text', nodeId: 'button-label' } },
+          { id: 'visible', name: 'Visible', type: 'boolean', defaultValue: true, binding: { kind: 'visibility', nodeId: 'button-face' } },
+          { id: 'content', name: 'Content', type: 'slot', binding: { kind: 'slot', nodeId: 'button-slot' } },
+          { id: 'icon', name: 'Icon', type: 'instance-swap', defaultValue: 'icon', binding: { kind: 'instance-swap', nodeId: 'button-icon-use' } },
+        ],
+        variantAppearances: { 'button-face': {
+          'state=default|tone=neutral': { opacity: 0.99 }, 'state=default|tone=danger': { opacity: 0.9 },
+          'state=hover|tone=neutral': { opacity: 0.8 }, 'state=hover|tone=danger': { opacity: 0.7 },
+        } },
+        materials: [{ id: 'surface', group: 'Interaction', name: 'Surface', description: 'Interactive face.', appearance: { opacity: 0.95 } }],
+        parts: [{ id: 'face', name: 'Face', nodeId: 'button-face', materialId: 'surface' }, { id: 'label-part', name: 'Label', nodeId: 'button-label' }],
+        interactions: [{ id: 'hover-interaction', trigger: 'pointer-hover', propertyId: 'state', valueId: 'hover' }],
+      },
+      icon: { id: 'icon', name: 'Icon', source: { kind: 'canvas', masterRootId: 'icon-master' }, revision: 0, properties: [], materials: [], parts: [{ id: 'shape', name: 'Shape', nodeId: 'icon-shape' }], interactions: [] },
+    },
+    instances: { 'button-icon-use': { id: 'button-icon-use', componentId: 'icon', values: {} } },
+  },
+})
+
 describe('hosted document validation', () => {
   it('accepts a canonical blank document', () => {
     expect(validateHostedFileDocument(blank())).toEqual(blank())
+  })
+
+  it('COMP-V2-PERSIST-001 roundtrips a complete schema-13 canvas component graph without dropping compound or nested metadata', () => {
+    const input = advancedComponentDocument()
+    const validated = validateHostedFileDocument(input)
+    expect(validated).toEqual(input)
+    expect(validated.componentModel.definitions.button).toMatchObject({
+      variantAppearances: { 'button-face': { 'state=hover|tone=danger': { opacity: 0.7 } } },
+      properties: expect.arrayContaining([
+        expect.objectContaining({ type: 'instance-swap', defaultValue: 'icon', binding: { kind: 'instance-swap', nodeId: 'button-icon-use' } }),
+        expect.objectContaining({ type: 'slot', binding: { kind: 'slot', nodeId: 'button-slot' } }),
+      ]),
+    })
+    expect(validated.nodes['button-icon-use']).toMatchObject({ styles: { relativeTransform: [0.866, 0.5, -0.5, 0.866, 2, 1] } })
+  })
+
+  it('CLOUD-SYNC-COMPONENT-NEG-002 rejects missing and extra compound tuple cells without mutating either document', () => {
+    const missing = advancedComponentDocument()
+    Reflect.deleteProperty(missing.componentModel.definitions.button.variantAppearances['button-face'], 'state=hover|tone=danger')
+    const missingBefore = structuredClone(missing)
+    expect(() => validateHostedFileDocument(missing)).toThrow('Invalid component variant appearance table')
+    expect(missing).toEqual(missingBefore)
+
+    const extra = advancedComponentDocument()
+    Reflect.set(extra.componentModel.definitions.button.variantAppearances['button-face'], 'state=pressed|tone=neutral', { opacity: 0.4 })
+    const extraBefore = structuredClone(extra)
+    expect(() => validateHostedFileDocument(extra)).toThrow('Invalid component variant appearance table')
+    expect(extra).toEqual(extraBefore)
+  })
+
+  it('CLOUD-SYNC-COMPONENT-NEG-002 rejects non-nested and recursive Instance swap roots without mutating either document', () => {
+    const nonNested = advancedComponentDocument()
+    Reflect.set(nonNested.componentModel.definitions.button, 'properties', nonNested.componentModel.definitions.button.properties.map(property => property.id === 'icon'
+      ? { ...property, binding: { kind: 'instance-swap', nodeId: 'button-master' } }
+      : property))
+    Reflect.set(nonNested.componentModel, 'instances', { 'button-master': { id: 'button-master', componentId: 'icon', values: {} } })
+    const nonNestedBefore = structuredClone(nonNested)
+    expect(() => validateHostedFileDocument(nonNested)).toThrow('An Instance swap property needs a nested component instance root')
+    expect(nonNested).toEqual(nonNestedBefore)
+
+    const recursive = advancedComponentDocument()
+    Reflect.set(recursive.componentModel.definitions.icon, 'properties', [{
+      id: 'owner', name: 'Owner', type: 'instance-swap', defaultValue: 'button', binding: { kind: 'instance-swap', nodeId: 'icon-shape' },
+    }])
+    Reflect.set(recursive.componentModel, 'instances', {
+      ...recursive.componentModel.instances,
+      'icon-shape': { id: 'icon-shape', componentId: 'button', values: {} },
+    })
+    const recursiveBefore = structuredClone(recursive)
+    expect(() => validateHostedFileDocument(recursive)).toThrow('Components cannot contain themselves recursively')
+    expect(recursive).toEqual(recursiveBefore)
   })
 
   it('upgrades a schema v10 document to the current schema', () => {

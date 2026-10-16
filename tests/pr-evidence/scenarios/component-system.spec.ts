@@ -835,6 +835,14 @@ test("PR-EVIDENCE-014 [editor.component-system]", async ({ page }) => {
   expect((await storedNode(page, masterTextId!)).text).toBe("Default label")
   expect(await storedSlotChildren(page, instance.id, slotProperty.id)).toEqual(slotChildren)
   await expect(previewNode(page, instance.id)).toBeVisible()
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${instance.id}"]`).click()
+  await expect(page.locator(`[data-instance-id="${instance.id}"]`)).toHaveAttribute("aria-selected", "true")
+  await automation.evidence.screenshot("compound-variant-reloaded")
+  await page.getByRole("tree", { name: "Layers" }).locator(`[data-layer-node-id="${swappedRoot.id}"]`).click()
+  expect((await storedComponentModel(page)).instances[swappedRoot.id]).toMatchObject({ componentId: slotBadgeDefinition.id })
+  await expect(page.locator(`[data-instance-id="${swappedRoot.id}"]`)).toHaveAttribute("data-node-kind", "component")
+  await expect(page.locator(`[data-instance-id="${swappedRoot.id}"]`)).toHaveAttribute("aria-selected", "true")
+  await automation.evidence.screenshot("instance-swap-reloaded")
 
   await page.locator(`[data-instance-id="${instanceTextId}"]`).click()
   const protectedTextBefore = (await storedFile(page)).nodes[instanceTextId!]

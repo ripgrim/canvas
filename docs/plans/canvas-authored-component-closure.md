@@ -116,6 +116,26 @@ It excludes layout, size, and text-style Variant capture, code-component enums, 
 
 The completed slice stores one exact appearance per bounded Variant tuple, rejects incomplete current-schema tables and more than 256 total combinations, migrates legacy compound definitions explicitly, and resolves nested Instance swap boundaries without abandoning the owning component projection. Value and axis removal, master Undo or Redo, linked instances, interaction targets, generated sheets, and reload all use the same canonical tuple contract. Fresh `PR-EVIDENCE-014` browser evidence captures the master, configured playground, and generated sheet; the full editor and repository-engine suites pass.
 
+## Closed slice: advanced component collaboration and persistence parity
+
+A complete schema-13 canvas-component graph must converge byte-for-byte across two real WebSocket clients and survive room drain, restart, reconnect, and persisted projection. The fixture combines two Variant axes on one layer with an exact tuple table, a nested canvas component exposed through Instance swap, Slot content, Text and Boolean overrides, materials, parts, interactions, and independent master and instance transforms. Valid updates keep one live socket. Rejected updates leave sequence, projection digest, semantic records, physical nodes, and relationships unchanged.
+
+Dependency order:
+
+1. Build one literal advanced graph fixture without production planners computing the expected values.
+2. Prove two-client convergence for compound appearance and Instance swap changes.
+3. Add stale replacement, stale inverse, malformed table, invalid swap-root, mutation-id replay, and persisted-digest negative controls.
+4. Drain and recreate the room, reconnect a fresh client, and compare the restored graph with the independent expected fixture.
+5. Prove the web adapter retains one socket while advanced metadata changes.
+6. Exercise the existing disposable PostgreSQL contract only when its explicit environment is available.
+7. Extend browser evidence as visual reload and reconnect confirmation without treating screenshots as persistence proof.
+
+The slice is gated by new `CLOUD-SYNC-COMPONENT-002`, new `CLOUD-SYNC-COMPONENT-NEG-002`, and extended `PR-EVIDENCE-014`. Regression gates are `CLOUD-SYNC-COMPONENT-001`, `CLOUD-SYNC-LIFECYCLE-003`, `COMP-V2-PERSIST-001`, `COMP-V2-PERSIST-NEG-001`, `COMP-V2-AUTHOR-001`, `COMP-V2-HISTORY-001`, `COMP-V2-INSTANCE-002`, `COMP-V2-INSTANCE-HISTORY-001`, `COMP-V2-UI-076`, `COMP-V2-UI-NEG-003`, `COMP-V2-UI-077`, and `COMP-V2-UI-NEG-004`.
+
+It excludes repository or source sync, GitHub, scanning, repository jobs, hosted building, Blume publication, new component features, inspector changes, and protocol or schema changes without a separately reviewed production defect. The rollback boundary is one collaboration-focused staging commit based on `b05a65f`.
+
+The completed slice proves the literal schema-13 graph across two live WebSocket clients, room restart, durable reconnect, one-socket web authoring, and a real disposable PostgreSQL roundtrip. Independent expected documents cover compound appearance projection and a physical Instance swap. Negative controls reject stale writes, mutation-id reuse, malformed tuple tables, invalid swap roots, and persisted digest mismatches without weakening revision or schema fences.
+
 ## Current status
 
 - Staging is organized as one reversible commit per closed slice.
@@ -126,6 +146,7 @@ The completed slice stores one exact appearance per bounded Variant tuple, rejec
 - Configured Slot drafts, isolated preview rendering, atomic placement, recursive-nesting rejection, and one-step Undo are complete under `COMP-V2-UI-075`, `COMP-V2-UI-NEG-002`, and `PR-EVIDENCE-014`.
 - Canvas-authored Instance swap defaults, transient Kit preview, atomic placement and instance updates, reset, deletion fallback, recursion rejection, exact Undo or Redo, and remount-stable playground sessions are complete under `COMP-V2-UI-076`, `COMP-V2-UI-NEG-003`, and `PR-EVIDENCE-014`.
 - Compound State and Tone appearances, canonical tuple persistence, bounded migration, grouped projection, value or axis removal, master Undo or Redo, reload, interactions, configured previews, and generated sheets are complete under `COMP-V2-UI-077`, `COMP-V2-UI-NEG-004`, and `PR-EVIDENCE-014`.
+- Advanced schema-13 component fixtures now cover real two-client WebSocket convergence, physical compound projection, a real Instance swap to a second component, full-document restart recovery, durable client reconnect, one-socket web authoring, and malformed-graph rejection under `CLOUD-SYNC-COMPONENT-002` and `CLOUD-SYNC-COMPONENT-NEG-002`.
 - The interaction wire cutover is explicit at preview envelope version 10 and preview document version 3. Stale version 9 envelopes and version 2 documents fail closed.
-- PostgreSQL component graph persistence coverage is implemented and type-checked, but the real disposable-database run remains open because this shell does not provide `COLLABORATION_TEST_DATABASE_URL` or `COLLABORATION_TEST_ALLOW_DISPOSABLE=1`.
+- PostgreSQL advanced component graph persistence passed against a fresh disposable `postgres:16-alpine` database and the container was removed after verification.
 - Repository source sync remains deferred.

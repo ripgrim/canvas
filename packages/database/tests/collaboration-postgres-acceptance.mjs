@@ -260,10 +260,22 @@ async function assertCanvasComponentProjectionPersistence(pool, persistence, con
         values: [{ id: 'value:default', name: 'Default' }, { id: 'value:hover', name: 'Hover' }],
         binding: { kind: 'variant', nodeId: 'button-face', appearances: { 'value:default': {}, 'value:hover': { opacity: 0.8 } } },
       },
+      {
+        id: 'property:tone', name: 'Tone', type: 'variant', defaultValueId: 'value:neutral',
+        values: [{ id: 'value:neutral', name: 'Neutral' }, { id: 'value:danger', name: 'Danger' }],
+        binding: { kind: 'variant', nodeId: 'button-face', appearances: { 'value:neutral': {}, 'value:danger': { opacity: 0.7 } } },
+      },
       { id: 'property:label', name: 'Label', type: 'text', defaultValue: 'Continue', binding: { kind: 'text', nodeId: 'button-label' } },
       { id: 'property:visible', name: 'Visible', type: 'boolean', defaultValue: true, binding: { kind: 'visibility', nodeId: 'button-face' } },
       { id: 'property:content', name: 'Content', type: 'slot', binding: { kind: 'slot', nodeId: 'button-slot' } },
+      { id: 'property:icon', name: 'Icon', type: 'instance-swap', defaultValue: 'component:icon', binding: { kind: 'instance-swap', nodeId: 'button-icon-use' } },
     ],
+    variantAppearances: { 'button-face': {
+      'property:state=value:default|property:tone=value:neutral': { opacity: 0.99 },
+      'property:state=value:default|property:tone=value:danger': { opacity: 0.9 },
+      'property:state=value:hover|property:tone=value:neutral': { opacity: 0.8 },
+      'property:state=value:hover|property:tone=value:danger': { opacity: 0.7 },
+    } },
     materials: [{ id: 'material:surface', group: 'Interaction', name: 'Surface', appearance: { opacity: 0.95 } }],
     parts: [{ id: 'part:face', name: 'Face', nodeId: 'button-face', materialId: 'material:surface' }],
     interactions: [{ id: 'interaction:hover', trigger: 'pointer-hover', propertyId: 'property:state', valueId: 'value:hover' }],
@@ -271,6 +283,10 @@ async function assertCanvasComponentProjectionPersistence(pool, persistence, con
   const iconDefinition = {
     id: 'component:icon', name: 'Icon', source: { kind: 'canvas', masterRootId: 'icon-master' }, revision: 0,
     properties: [], materials: [], parts: [{ id: 'part:shape', name: 'Shape', nodeId: 'icon-shape' }], interactions: [],
+  }
+  const alternateIconDefinition = {
+    id: 'component:alternate-icon', name: 'Alternate icon', source: { kind: 'canvas', masterRootId: 'alternate-master' }, revision: 0,
+    properties: [], materials: [], parts: [{ id: 'part:alternate-shape', name: 'Alternate shape', nodeId: 'alternate-shape' }], interactions: [],
   }
   const buttonInstance = { id: 'button-instance', componentId: definition.id, values: { 'property:label': 'Review' } }
   const iconInstance = { id: 'icon-instance', componentId: iconDefinition.id, values: {} }
@@ -290,11 +306,24 @@ async function assertCanvasComponentProjectionPersistence(pool, persistence, con
         textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
       },
       'button-slot': { id: 'button-slot', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 128, 12], width: 24, height: 24 } },
+      'button-icon-use': { id: 'button-icon-use', type: 'frame', name: 'Icon use', styles: { relativeTransform: [0.866, 0.5, -0.5, 0.866, 2, 1], width: 20, height: 20 } },
       'icon-master': { id: 'icon-master', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 220, 0], width: 24, height: 24 } },
       'icon-shape': { id: 'icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 4, 4], width: 16, height: 16 } },
+      'alternate-master': { id: 'alternate-master', type: 'frame', name: 'Alternate icon', styles: { relativeTransform: [1, 0, 0, 1, 260, 0], width: 32, height: 24 } },
+      'alternate-shape': { id: 'alternate-shape', type: 'rectangle', name: 'Alternate shape', styles: { relativeTransform: [1, 0, 0, 1, 6, 2], width: 20, height: 20 } },
       'button-instance': { id: 'button-instance', type: 'frame', name: 'Button instance', styles: { relativeTransform: [1, 0, 0, 1, 0, 120], width: 160, height: 48 } },
+      'button-instance-face': { id: 'button-instance-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 48 } },
+      'button-instance-label': {
+        id: 'button-instance-label', type: 'text', name: 'Label', styles: { relativeTransform: [1, 0, 0, 1, 16, 14], width: 96, height: 20 }, text: 'Review',
+        textStyle: {
+          fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'normal', fontWeight: 400, fontSize: 16,
+          lineHeight: { kind: 'unitless', value: 1.25 }, letterSpacing: 0, horizontalAlign: 'left', verticalAlign: 'top', case: 'none', wrap: 'normal', keepWords: false,
+        },
+        textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
+      },
       'button-instance-slot': { id: 'button-instance-slot', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 128, 12], width: 24, height: 24 } },
       'icon-instance': { id: 'icon-instance', type: 'frame', name: 'Icon instance', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 24, height: 24 } },
+      'icon-instance-shape': { id: 'icon-instance-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 4, 4], width: 16, height: 16 } },
     },
     relationships: {
       ...initial.document.relationships,
@@ -302,15 +331,21 @@ async function assertCanvasComponentProjectionPersistence(pool, persistence, con
       'button-face': { parentId: 'button-master', orderKey: 'V' },
       'button-label': { parentId: 'button-master', orderKey: 'W' },
       'button-slot': { parentId: 'button-master', orderKey: 'X' },
+      'button-icon-use': { parentId: 'button-slot', orderKey: 'V' },
       'icon-master': { parentId: initial.document.pages[0].rootNodeId, orderKey: 'W' },
       'icon-shape': { parentId: 'icon-master', orderKey: 'V' },
-      'button-instance': { parentId: initial.document.pages[0].rootNodeId, orderKey: 'X' },
-      'button-instance-slot': { parentId: 'button-instance', orderKey: 'V' },
+      'alternate-master': { parentId: initial.document.pages[0].rootNodeId, orderKey: 'X' },
+      'alternate-shape': { parentId: 'alternate-master', orderKey: 'V' },
+      'button-instance': { parentId: initial.document.pages[0].rootNodeId, orderKey: 'Y' },
+      'button-instance-face': { parentId: 'button-instance', orderKey: 'V' },
+      'button-instance-label': { parentId: 'button-instance', orderKey: 'W' },
+      'button-instance-slot': { parentId: 'button-instance', orderKey: 'X' },
       'icon-instance': { parentId: 'button-instance-slot', orderKey: 'V' },
+      'icon-instance-shape': { parentId: 'icon-instance', orderKey: 'V' },
     },
     componentModel: {
-      definitions: { [definition.id]: definition, [iconDefinition.id]: iconDefinition },
-      instances: { [buttonInstance.id]: buttonInstance, [iconInstance.id]: iconInstance },
+      definitions: { [definition.id]: definition, [iconDefinition.id]: iconDefinition, [alternateIconDefinition.id]: alternateIconDefinition },
+      instances: { [buttonInstance.id]: buttonInstance, [iconInstance.id]: iconInstance, 'button-icon-use': { id: 'button-icon-use', componentId: iconDefinition.id, values: {} } },
     },
   }
   assert.equal((await controlPlane.saveFileDocument(ownerUserId, file.id, 0, storedDocument)).status, 'saved')
@@ -326,13 +361,44 @@ async function assertCanvasComponentProjectionPersistence(pool, persistence, con
   assert.equal(bootstrap.status, 'seeded')
   assert.deepEqual(bootstrap.projection.document.componentModel, storedDocument.componentModel)
 
-  const changedInstance = { ...buttonInstance, values: { ...buttonInstance.values, 'property:state': 'value:hover', 'property:visible': false } }
+  const changedInstance = { ...buttonInstance, values: { ...buttonInstance.values, 'property:state': 'value:hover', 'property:tone': 'value:danger', 'property:visible': false, 'property:icon': alternateIconDefinition.id } }
+  const advancedOperation = {
+    type: 'batch',
+    commands: [
+      { type: 'component.instance.delete', instanceId: iconInstance.id, expected: iconInstance },
+      { type: 'node.delete', nodeIds: [iconInstance.id] },
+      { type: 'node.duplicate', nodeId: 'alternate-master', ids: { 'alternate-master': iconInstance.id, 'alternate-shape': 'alternate-instance-shape' } },
+      { type: 'component.instance.create', instance: { id: iconInstance.id, componentId: alternateIconDefinition.id, values: {} } },
+      { type: 'node.reparent', nodeId: iconInstance.id, placement: { parentId: 'button-instance-slot' } },
+      { type: 'node.setStyles', nodeId: iconInstance.id, styles: { relativeTransform: [1, 0, 0, 1, 0, 0] } },
+      { type: 'node.setLayout', nodeId: iconInstance.id, layout: null },
+      { type: 'component.instance.replace', instanceId: buttonInstance.id, expected: buttonInstance, instance: changedInstance },
+      { type: 'node.setAppearance', nodeId: 'button-instance-face', appearance: { opacity: 0.7 } },
+      { type: 'node.setText', nodeId: 'button-instance-label', text: 'Review' },
+      { type: 'node.setBlending', nodeId: 'button-instance-face', visible: false },
+    ],
+  }
   const nextDocument = {
     ...storedDocument,
     revision: 2,
+    nodes: {
+      ...Object.fromEntries(Object.entries(storedDocument.nodes).filter(([id]) => id !== 'icon-instance-shape')),
+      'button-instance-face': { ...storedDocument.nodes['button-instance-face'], appearance: { visible: false, opacity: 0.7 } },
+      'icon-instance': { id: 'icon-instance', type: 'frame', name: 'Alternate icon', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 32, height: 24 } },
+      'alternate-instance-shape': { id: 'alternate-instance-shape', type: 'rectangle', name: 'Alternate shape', styles: { relativeTransform: [1, 0, 0, 1, 6, 2], width: 20, height: 20 } },
+    },
+    relationships: {
+      ...Object.fromEntries(Object.entries(storedDocument.relationships).filter(([id]) => id !== 'icon-instance-shape')),
+      'icon-instance': { parentId: 'button-instance-slot', orderKey: 'V' },
+      'alternate-instance-shape': { parentId: 'icon-instance', orderKey: 'V' },
+    },
     componentModel: {
       ...storedDocument.componentModel,
-      instances: { ...storedDocument.componentModel.instances, [buttonInstance.id]: changedInstance },
+      instances: {
+        ...storedDocument.componentModel.instances,
+        [buttonInstance.id]: changedInstance,
+        [iconInstance.id]: { id: iconInstance.id, componentId: alternateIconDefinition.id, values: {} },
+      },
     },
   }
   const append = await persistence.appendOperation({
@@ -344,8 +410,8 @@ async function assertCanvasComponentProjectionPersistence(pool, persistence, con
     expectedAccessEpoch: 1n,
     clientId: 'component-persistence-client',
     clientMutationId: 'component-instance-persist-0001',
-    operationType: 'component.instance.replace',
-    operationPayload: { type: 'component.instance.replace', instanceId: buttonInstance.id, expected: buttonInstance, instance: changedInstance },
+    operationType: 'batch',
+    operationPayload: advancedOperation,
     baseSequence: 0n,
     projection: { documentSchemaVersion: 13, document: nextDocument },
   })

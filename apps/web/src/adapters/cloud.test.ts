@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applyFileCommandWithHistory, applyHostedFileCommand, createBlankFile } from '@canvas/repo-engine/file-document'
+import { applyFileCommandWithHistory, applyHostedFileCommand, createBlankFile, legacyTextProperties } from '@canvas/repo-engine/file-document'
 import type { FileDocument } from '@canvas/repo-engine/file-document'
 import type { CollaborationSocketEventMap, CollaborationWebSocket } from '@canvas/sync-client'
 import type { CollaborationDurableStore } from '@canvas/sync-client'
@@ -40,6 +40,34 @@ const flowDocument: FileDocument = {
     'source-frame': { parentId: 'root_cloud', orderKey: 'V' },
     'target-frame': { parentId: 'root_cloud', orderKey: 'W' },
     source: { parentId: 'source-frame', orderKey: 'V' },
+  },
+}
+
+const componentDocument: FileDocument = {
+  ...flowDocument,
+  nodes: {
+    ...flowDocument.nodes,
+    'source-face': { id: 'source-face', type: 'rectangle', name: 'Face', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 40, height: 30 } },
+    'source-label': { id: 'source-label', type: 'text', name: 'Label', text: 'Continue', styles: { relativeTransform: [1, 0, 0, 1, 4, 5], width: 24, height: 18 }, ...legacyTextProperties() },
+    'source-slot': { id: 'source-slot', type: 'frame', name: 'Icon slot', styles: { relativeTransform: [1, 0, 0, 1, 30, 5], width: 16, height: 16 } },
+    'source-icon-use': { id: 'source-icon-use', type: 'frame', name: 'Icon use', styles: { relativeTransform: [0.866, 0.5, -0.5, 0.866, 1, 1], width: 14, height: 14 } },
+    'icon-master': { id: 'icon-master', type: 'frame', name: 'Icon', styles: { relativeTransform: [1, 0, 0, 1, 60, 0], width: 14, height: 14 } },
+    'icon-shape': { id: 'icon-shape', type: 'rectangle', name: 'Shape', styles: { relativeTransform: [1, 0, 0, 1, 1, 1], width: 12, height: 12 } },
+  },
+  relationships: {
+    ...flowDocument.relationships,
+    'source-face': { parentId: 'source', orderKey: 'V' },
+    'source-label': { parentId: 'source', orderKey: 'W' },
+    'source-slot': { parentId: 'source', orderKey: 'X' },
+    'source-icon-use': { parentId: 'source-slot', orderKey: 'V' },
+    'icon-master': { parentId: 'root_cloud', orderKey: 'X' },
+    'icon-shape': { parentId: 'icon-master', orderKey: 'V' },
+  },
+  componentModel: {
+    definitions: {
+      'component:icon': { id: 'component:icon', name: 'Icon', source: { kind: 'canvas', masterRootId: 'icon-master' }, revision: 0, properties: [], materials: [], parts: [{ id: 'part:shape', name: 'Shape', nodeId: 'icon-shape' }], interactions: [] },
+    },
+    instances: { 'source-icon-use': { id: 'source-icon-use', componentId: 'component:icon', values: {} } },
   },
 }
 
@@ -522,7 +550,7 @@ describe('cloud adapter', () => {
     adapter.dispose()
   })
 
-  it('CLOUD-SYNC-COMPONENT-001 keeps one live socket while component authoring metadata changes', async () => {
+  it('CLOUD-SYNC-COMPONENT-001 CLOUD-SYNC-COMPONENT-002 keeps one live socket while advanced component metadata changes', async () => {
     const sockets: ScriptedSocket[] = []
     let envelope = roomEnvelope()
     let sequence = 0
@@ -530,7 +558,7 @@ describe('cloud adapter', () => {
       apiOrigin: 'https://api.canvas.test', loginOrigin: 'https://login.canvas.test', syncOrigin: 'wss://sync.canvas.test', syncClientId: 'tab-component-authoring', syncDurableStore: memoryOnlyDurableStore,
       createWebSocket: () => {
         const socket = new ScriptedSocket()
-        envelope = scriptRoom(socket, flowDocument, message => {
+        envelope = scriptRoom(socket, componentDocument, message => {
           sequence += 1
           socket.server({ type: 'operation.ack', envelope, mutationId: message.operation.mutationId, sequence: String(sequence), status: 'applied' })
         })
@@ -548,20 +576,38 @@ describe('cloud adapter', () => {
       properties: [], materials: [], parts: [{ id: 'part:surface', name: 'Surface', nodeId: 'source' }], interactions: [],
     }
     const create = { type: 'component.create' as const, definition }
-    const createdFile = applyHostedFileCommand(flowDocument, create)
+    const createdFile = applyHostedFileCommand(componentDocument, create)
     const created = await adapter.saveFile(createdFile, 0, { kind: 'commands', commands: [create] })
     expect(adapter.collaboration?.getSnapshot().status).toBe('live')
 
     const authored = {
       ...definition,
       revision: 1,
-      properties: [{
-        id: 'property:state', name: 'State', type: 'variant' as const, defaultValueId: 'value:default',
-        values: [{ id: 'value:default', name: 'Default' }, { id: 'value:hover', name: 'Hover' }],
-        binding: { kind: 'variant' as const, nodeId: 'source', appearances: { 'value:default': {}, 'value:hover': { opacity: 0.8 } } },
-      }],
+      properties: [
+        {
+          id: 'property:state', name: 'State', type: 'variant' as const, defaultValueId: 'value:default',
+          values: [{ id: 'value:default', name: 'Default' }, { id: 'value:hover', name: 'Hover' }],
+          binding: { kind: 'variant' as const, nodeId: 'source-face', appearances: { 'value:default': {}, 'value:hover': { opacity: 0.8 } } },
+        },
+        {
+          id: 'property:tone', name: 'Tone', type: 'variant' as const, defaultValueId: 'value:neutral',
+          values: [{ id: 'value:neutral', name: 'Neutral' }, { id: 'value:danger', name: 'Danger' }],
+          binding: { kind: 'variant' as const, nodeId: 'source-face', appearances: { 'value:neutral': {}, 'value:danger': { opacity: 0.7 } } },
+        },
+        { id: 'property:label', name: 'Label', type: 'text' as const, defaultValue: 'Continue', binding: { kind: 'text' as const, nodeId: 'source-label' } },
+        { id: 'property:visible', name: 'Visible', type: 'boolean' as const, defaultValue: true, binding: { kind: 'visibility' as const, nodeId: 'source-face' } },
+        { id: 'property:content', name: 'Content', type: 'slot' as const, binding: { kind: 'slot' as const, nodeId: 'source-slot' } },
+        { id: 'property:icon', name: 'Icon', type: 'instance-swap' as const, defaultValue: 'component:icon', binding: { kind: 'instance-swap' as const, nodeId: 'source-icon-use' } },
+      ],
+      variantAppearances: { 'source-face': {
+        'property:state=value:default|property:tone=value:neutral': { opacity: 0.99 },
+        'property:state=value:default|property:tone=value:danger': { opacity: 0.9 },
+        'property:state=value:hover|property:tone=value:neutral': { opacity: 0.8 },
+        'property:state=value:hover|property:tone=value:danger': { opacity: 0.7 },
+      } },
       materials: [{ id: 'material:surface', group: 'Base', name: 'Surface', appearance: {} }],
-      parts: [{ id: 'part:surface', name: 'Surface', nodeId: 'source', materialId: 'material:surface' }],
+      parts: [{ id: 'part:surface', name: 'Surface', nodeId: 'source-face', materialId: 'material:surface' }],
+      interactions: [{ id: 'interaction:hover', trigger: 'pointer-hover' as const, propertyId: 'property:state', valueId: 'value:hover' }],
     }
     const replace = { type: 'component.replace' as const, componentId: definition.id, expectedRevision: 0, definition: authored }
     const authoredFile = applyHostedFileCommand(created.file, replace)
