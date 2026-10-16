@@ -21,14 +21,14 @@ const surfaceFill = (id: string) => ({ fills: [{ id, type: 'solid' as const, col
 
 /** root > card (dark) > inner (inherit) with a surface-bound fill; root > plain (inherit) with the same fill; root > box rectangle (light) bound too. */
 const file = (): FileDocument => validateFileDocument({
-  schemaVersion: 9, fileId: 'file-1', revision: 1,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 1,
   pages: [{ id: 'page-1', name: 'Home', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
     card: { id: 'card', type: 'component', componentId: 'sample-card', exportName: 'Card', props: {}, themeMode: 'dark', appearance: surfaceFill('card:fill:1') },
     inner: { id: 'inner', type: 'component', componentId: 'sample-button', exportName: 'Button', props: {}, themeMode: 'inherit', appearance: surfaceFill('inner:fill:1') },
     plain: { id: 'plain', type: 'component', componentId: 'sample-button', exportName: 'Button', props: {}, themeMode: 'inherit', appearance: { fills: [{ id: 'plain:fill:1', type: 'solid', color: { kind: 'token', tokenId: 'surface' } }, { id: 'plain:fill:2', type: 'solid', color: { kind: 'literal', color: hex('#3366cc80') } }] } },
-    box: { id: 'box', type: 'rectangle', name: 'Box', styles: { left: 0, top: 0, width: 10, height: 10 }, themeMode: 'light', appearance: surfaceFill('box:fill:1') },
+    box: { id: 'box', type: 'rectangle', name: 'Box', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 }, themeMode: 'light', appearance: surfaceFill('box:fill:1') },
   },
   relationships: { card: { parentId: 'root-1', orderKey: 'V' }, inner: { parentId: 'card', orderKey: 'V', slot: 'children' }, plain: { parentId: 'root-1', orderKey: 'W' }, box: { parentId: 'root-1', orderKey: 'X' } },
   theme: { tokens: { surface: { id: 'surface', type: 'color', name: 'Surface', orderKey: 'V', value: { kind: 'source', property: '--surface', fallback: hex('#123456') } } } },

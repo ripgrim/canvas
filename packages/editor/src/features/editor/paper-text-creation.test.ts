@@ -21,7 +21,7 @@ const style: TextStyle = {
 }
 
 const document = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'paper-text-creation',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
@@ -34,7 +34,7 @@ const document = (): FileDocument => ({
       text: 'Keep me',
       textStyle: style,
       textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
-      styles: { left: -200, top: -160, width: 100, height: 24 },
+      styles: { relativeTransform: [1, 0, 0, 1, -200, -160], width: 100, height: 24 },
     },
   },
   relationships: { existing: { parentId: 'root-1', orderKey: 'V' } },
@@ -82,7 +82,7 @@ describe('PAPER-TEXT-004 creation intent', () => {
       id: 'created-text',
       type: 'text',
       text: '',
-      styles: { left: 200, top: 100, width: 1, height: 1 },
+      styles: { relativeTransform: [1, 0, 0, 1, 200, 100], width: 1, height: 1 },
       textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } },
     })
     expect(store.getSnapshot().tool).toBe('text')
@@ -101,7 +101,7 @@ describe('PAPER-TEXT-004 creation intent', () => {
       id: 'created-text',
       type: 'text',
       text: '',
-      styles: { left: 100, top: 50, width: 120, height: 60 },
+      styles: { relativeTransform: [1, 0, 0, 1, 100, 50], width: 120, height: 60 },
       textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
     })
     expect(store.getSnapshot().tool).toBe('text')
@@ -131,7 +131,7 @@ describe('PAPER-TEXT-004 creation intent', () => {
     expect(store.redo()).toBe(true)
     expect(store.getSnapshot().file?.nodes['created-text']).toMatchObject({
       text: 'Hello',
-      styles: { left: 100, top: 50, width: 120, height: 60 },
+      styles: { relativeTransform: [1, 0, 0, 1, 100, 50], width: 120, height: 60 },
       textSizing: { width: { mode: 'fixed' }, height: { mode: 'fixed' } },
     })
   })
@@ -156,7 +156,7 @@ describe('PAPER-TEXT-004 creation intent', () => {
     expect(writes.map(write => write.intent.commands[0]?.type)).toEqual(['node.insert', 'node.setText', 'node.setText'])
     expect(writes[0]?.intent.commands[0]).toMatchObject({
       type: 'node.insert',
-      node: { id: 'created-text', type: 'text', text: '', styles: { left: 100, top: 50, width: 120, height: 60 } },
+      node: { id: 'created-text', type: 'text', text: '', styles: { relativeTransform: [1, 0, 0, 1, 100, 50], width: 120, height: 60 } },
       placement: { parentId: 'root-1' },
     })
     expect(writes.slice(1).map(write => write.intent.commands[0])).toEqual([

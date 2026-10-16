@@ -13,6 +13,9 @@ html, body, #root { margin: 0; width: 100%; height: 100%; }
 .left-rail { box-shadow: inset calc(-1 * var(--border-s)) 0 0 var(--cte-border); }
 .right-rail { box-shadow: inset var(--border-s) 0 0 var(--cte-border); }
 .panel-header { justify-content: space-between; min-height: 36px; padding: 0 var(--space-m) 0 calc(var(--space-s) + 2px); box-shadow: inset 0 var(--border-s) 0 var(--cte-border); }
+.panel-header-heading { display: flex; align-items: center; min-width: 0; gap: var(--space-xs); }
+.panel-header-heading > .icon { width: 14px; height: 14px; flex: 0 0 auto; color: var(--color-4); }
+.panel-header-heading > .heading { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .panel-header .heading { color: var(--neutral-6); }
 .heading { margin: 0; font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-medium); }
 .text { font-family: var(--font-ui); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); font-weight: var(--weight-ui-regular); }

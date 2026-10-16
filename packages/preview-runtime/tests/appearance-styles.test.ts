@@ -160,9 +160,9 @@ describe('AT-APP-003 appearance styles', () => {
   })
 
   it('keeps primitive geometry, clip, rotation, text font, and shape radius alongside appearance', () => {
-    const element = { id: 'a', kind: 'shape', name: 'A', x: 10, y: 20, width: 30, height: 40, rotation: 12, parentId: null, appearance: { fills: [{ type: 'image', assetId: 'photo', fit: 'contain' }], opacity: 0.5 } }
+    const element = { id: 'a', kind: 'shape', name: 'A', relativeTransform: [0.978147600734, 0.207911690818, -0.207911690818, 0.978147600734, 14.486019805348, 17.318372623057], width: 30, height: 40, parentId: null, appearance: { fills: [{ type: 'image', assetId: 'photo', fit: 'contain' }], opacity: 0.5 } }
     expect(canvasElementStyle(element, assets, { x: 5, y: 5 })).toEqual({
-      position: 'absolute', left: '5px', top: '15px', width: '30px', height: '40px', boxSizing: 'border-box', pointerEvents: 'none', margin: 0, transformOrigin: 'center', transform: 'rotate(12deg)',
+      position: 'absolute', left: '0px', top: '0px', width: '30px', height: '40px', boxSizing: 'border-box', pointerEvents: 'none', margin: 0, transformOrigin: '0 0', transform: 'matrix(0.978147600734, 0.207911690818, -0.207911690818, 0.978147600734, 9.486019805348, 12.318372623057002)',
       backgroundColor: 'transparent', backgroundImage: 'url("data:image/png;base64,AAAA")', backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundBlendMode: 'normal', opacity: '0.5',
       borderRadius: '50%',
     })

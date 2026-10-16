@@ -7,7 +7,7 @@ import { acceptPreviewCommand, acceptPreviewEvent, isPreviewDocument, isPreviewN
 const editorOrigin = 'http://127.0.0.1:4319'
 const previewOrigin = 'http://127.0.0.1:4400'
 const parent = {} as Window
-const envelope = { channel: 'design-editor-preview', version: 8, generation: 7 } as const
+const envelope = { channel: 'design-editor-preview', version: 9, generation: 7 } as const
 const deliver = (data: unknown) => acceptPreviewCommand({ origin: editorOrigin, source: parent, data }, editorOrigin, parent, 7)
 const receive = (data: unknown) => acceptPreviewEvent({ origin: previewOrigin, source: parent, data }, previewOrigin, parent, 7)
 

@@ -148,4 +148,21 @@ describe('FONT-CATALOG-001 background catalog', () => {
     expect(service.getLoadedFonts()).toEqual([{ key: 'google-abel-normal-400-0', family: 'Abel', style: 'normal', weight: 400, data: 'data:font/ttf;base64,QQ==' }])
     service.dispose()
   })
+
+  it('FONT-RESTORE-001 resolves a document font after the background catalog arrives', async () => {
+    let completeCatalog: ((fonts: readonly { family: string; label: string; source: 'google'; styles: readonly { style: 'normal'; weight: number }[] }[]) => void) | undefined
+    const load = vi.fn(async () => [{ key: 'google-geist-normal-500-0', family: 'Geist', style: 'normal' as const, weight: 500, data: 'data:font/woff2;base64,QQ==' }])
+    const service = createFontCatalogService(environment({
+      googleFonts: () => new Promise(resolve => { completeCatalog = resolve }),
+      loadGoogleFont: load,
+    }))
+    service.start()
+    service.require('Geist', { style: 'normal', weight: 500 })
+    expect(load).not.toHaveBeenCalled()
+    completeCatalog?.([{ family: 'Geist', label: 'Geist', source: 'google', styles: [{ style: 'normal', weight: 500 }] }])
+    await vi.waitFor(() => expect(service.getLoadedFonts()).toHaveLength(1))
+    expect(load).toHaveBeenCalledOnce()
+    expect(service.getLoadedFonts()[0]).toMatchObject({ family: 'Geist', weight: 500 })
+    service.dispose()
+  })
 })

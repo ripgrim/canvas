@@ -14,16 +14,16 @@ const style = (overrides: Partial<TextNode['textStyle']> = {}): TextNode['textSt
   ...overrides,
 })
 const text = (id: string, overrides: Partial<TextNode> = {}): TextNode => ({
-  id, type: 'text', name: 'Text', text: 'Hello', styles: { left: 0, top: 0, width: 160, height: 40 },
+  id, type: 'text', name: 'Text', text: 'Hello', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 160, height: 40 },
   textStyle: style(), textSizing: { width: { mode: 'fixed' }, height: { mode: 'fit' } },
   ...overrides,
 })
 const file = (nodes: readonly TextNode[], parent = false): FileDocument => {
   const root = { id: 'root', type: 'root' as const }
-  const frame = { id: 'frame', type: 'frame' as const, name: 'Frame', styles: { left: 0, top: 0, width: 400, height: 400 } }
+  const frame = { id: 'frame', type: 'frame' as const, name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 400, height: 400 } }
   const parentId = parent ? frame.id : root.id
   return {
-    schemaVersion: 9, fileId: 'file', revision: 1,
+    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file', revision: 1,
     nodes: { [root.id]: root, ...(parent ? { [frame.id]: frame } : {}), ...Object.fromEntries(nodes.map(node => [node.id, node])) },
     pages: [{ id: 'page', name: 'Page', rootNodeId: root.id }], theme: { tokens: {} },
     relationships: { ...(parent ? { [frame.id]: { parentId: root.id, orderKey: 'V' } } : {}), ...Object.fromEntries(nodes.map((node, index) => [node.id, { parentId, orderKey: String.fromCharCode(87 + index) }])) },
@@ -104,7 +104,7 @@ describe('PAPER-TEXT-006 complete inspector commands', () => {
 
 describe('PAPER-TEXT-007 Paper-order inspector presentation', () => {
   it('hides the stored safety floor behind the intrinsic axis label', () => {
-    const node = text('text-a', { styles: { left: 0, top: 0, width: 1, height: 1 }, textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } } })
+    const node = text('text-a', { styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 1, height: 1 }, textSizing: { width: { mode: 'fit' }, height: { mode: 'fit' } } })
     expect(textAxisFieldPresentation([node], 'width')).toMatchObject({ mode: 'fit', amount: null, currentLabel: 'Fit' })
     expect(textAxisFieldPresentation([node], 'height')).toMatchObject({ mode: 'fit', amount: null, currentLabel: 'Fit' })
   })

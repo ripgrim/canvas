@@ -1,0 +1,16 @@
+export const clipboardCopy = Object.freeze({
+  copyFailed: "Couldn't copy",
+  copyRejected: 'Select a supported canvas layer to copy.',
+  systemClipboardDenied: 'The layers were copied in the editor, but the browser denied system clipboard access.',
+  cutFailed: "Couldn't cut",
+  cutRejected: 'The selected layers could not be removed.',
+  canvasChanged: 'The canvas changed before the clipboard operation finished.',
+  pasteFailed: "Couldn't paste",
+  pasteToReplace: 'Paste to replace',
+  replaceRejected: 'The copied canvas layers could not replace this selection.',
+  openFile: 'Open a file before pasting canvas layers.',
+  internalRejected: 'The copied canvas layers could not be inserted.',
+  imageRejected: 'The copied images could not be inserted.',
+  partialImages: (inserted: number, total: number) => `${inserted} of ${total} images were pasted`,
+  textRejected: 'Select an editable canvas and paste up to 10,000 characters.',
+})

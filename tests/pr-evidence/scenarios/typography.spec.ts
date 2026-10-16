@@ -3,8 +3,9 @@ import { createPlaywrightAutomation } from "../../../packages/editor-automation/
 import { geometryTarget } from "../../../packages/editor-automation/dist/index.js"
 import { expect, test } from "@playwright/test"
 import { evidencePort, writeCaptureReport } from "../evidence-capture.js"
+import { prEvidenceDefaultPorts, prEvidenceUrl } from "../ports.js"
 
-const editorUrl = "http://127.0.0.1:4327/"
+const editorUrl = prEvidenceUrl("PR_EVIDENCE_EDITOR_PORT", prEvidenceDefaultPorts.editor)
 const evidenceRoot = resolve(import.meta.dirname, "../../../outputs/pr-evidence/local/editor.typography/browser")
 
 test("PR-EVIDENCE-013 [editor.typography]", async ({ page }) => {
@@ -34,5 +35,25 @@ test("PR-EVIDENCE-013 [editor.typography]", async ({ page }) => {
     await expect(page.getByRole("listbox", { name: "Fonts" })).toBeVisible()
     await automation.evidence.screenshot("font-picker")
   })
+
+  await automation.keyboard.press("Escape")
+  await page.getByRole("radio", { name: "Rectangle", exact: true }).click()
+  await automation.mouse.drag(point.offset(-220, 80), point.offset(-40, 180), { steps: 8 })
+  await page.getByRole("radio", { name: "Move", exact: true }).click()
+  await page.getByRole("button", { name: "Add border", exact: true }).click()
+  await page.getByRole("button", { name: "Add border", exact: true }).click()
+  for (const side of ["Top", "Bottom"]) {
+    const control = page.getByRole("combobox", { name: `${side} border side`, exact: true })
+    await expect(control).toHaveText(side)
+    const value = control.locator(".appearance-select-value")
+    expect(await value.evaluate(element => {
+      const text = element.firstChild
+      if (!text) return false
+      const range = document.createRange()
+      range.selectNodeContents(text)
+      return range.getBoundingClientRect().width <= element.getBoundingClientRect().width + 0.5
+    })).toBe(true)
+  }
+  await automation.evidence.screenshot("border-controls")
   await writeCaptureReport(evidenceRoot, frameTimes)
 })

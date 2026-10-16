@@ -18,7 +18,7 @@ const textStyle = {
   wrap: 'normal',
   keepWords: false,
 } as const
-const text = (textSizing: unknown, style: Record<string, unknown> = textStyle) => ({ id: 'text', kind: 'text', name: 'Text', x: 12, y: 20, width: 180, height: 60, rotation: 0, parentId: null, text: 'One two three', textStyle: style, textSizing })
+const text = (textSizing: unknown, style: Record<string, unknown> = textStyle) => ({ id: 'text', kind: 'text', name: 'Text', relativeTransform: [1, 0, 0, 1, 12, 20], width: 180, height: 60, parentId: null, text: 'One two three', textStyle: style, textSizing })
 
 describe('PAPER-TEXT-002: preview text protocol and CSS', () => {
   it('renders Fit/Fit intrinsically without wrapping', () => {
@@ -35,7 +35,8 @@ describe('PAPER-TEXT-002: preview text protocol and CSS', () => {
       fontSize: '16px',
       lineHeight: '1.25',
       letterSpacing: '0px',
-      left: '12px',
+      left: '0px',
+      transform: 'matrix(1, 0, 0, 1, 12, 20)',
     })
   })
 
@@ -81,7 +82,7 @@ describe('PAPER-TEXT-002: preview text protocol and CSS', () => {
     const file = validateFileDocument(upgradeFileDocument(version7), [])
     const projected = projectPreviewPage(file, 'page-1')!.document.canvas.elements[0]!
     expect(canvasElementStyle(projected)).toMatchObject({
-      left: '4px', top: '5px', width: '180px', height: '60px',
+      left: '0px', top: '0px', transform: 'matrix(1, 0, 0, 1, 4, 5)', width: '180px', height: '60px',
       fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif',
       fontStyle: 'normal', fontWeight: 400, fontSize: '16px', lineHeight: '1.25', letterSpacing: '0px',
       textAlign: 'left', alignContent: 'start', textTransform: 'none', whiteSpace: 'pre-wrap', textWrap: 'wrap', overflowWrap: 'anywhere', overflow: 'hidden',
@@ -113,10 +114,10 @@ describe('PAPER-TEXT-002: preview text protocol and CSS', () => {
 
   it('anchors intrinsic width to the stored left, center, or right alignment reference', () => {
     const sizing = { width: { mode: 'fit' }, height: { mode: 'fit' } }
-    expect(canvasElementStyle(text(sizing, { ...textStyle, horizontalAlign: 'left' })).left).toBe('12px')
-    expect(canvasElementStyle(text(sizing, { ...textStyle, horizontalAlign: 'center' }))).toMatchObject({ left: '102px', transform: 'translateX(-50%)' })
-    expect(canvasElementStyle(text(sizing, { ...textStyle, horizontalAlign: 'right' }))).toMatchObject({ left: '192px', transform: 'translateX(-100%)' })
-    expect(canvasElementStyle(text(sizing, { ...textStyle, horizontalAlign: 'justify' }))).toMatchObject({ left: '12px', transform: undefined })
-    expect(canvasElementStyle(text({ width: { mode: 'fixed' }, height: { mode: 'fit' } }, { ...textStyle, horizontalAlign: 'right' })).left).toBe('12px')
+    expect(canvasElementStyle(text(sizing, { ...textStyle, horizontalAlign: 'left' }))).toMatchObject({ left: '0px', transform: 'matrix(1, 0, 0, 1, 12, 20)' })
+    expect(canvasElementStyle(text(sizing, { ...textStyle, horizontalAlign: 'center' }))).toMatchObject({ left: '0px', transform: 'matrix(1, 0, 0, 1, 102, 20) translateX(-50%)' })
+    expect(canvasElementStyle(text(sizing, { ...textStyle, horizontalAlign: 'right' }))).toMatchObject({ left: '0px', transform: 'matrix(1, 0, 0, 1, 192, 20) translateX(-100%)' })
+    expect(canvasElementStyle(text(sizing, { ...textStyle, horizontalAlign: 'justify' }))).toMatchObject({ left: '0px', transform: 'matrix(1, 0, 0, 1, 12, 20)' })
+    expect(canvasElementStyle(text({ width: { mode: 'fixed' }, height: { mode: 'fit' } }, { ...textStyle, horizontalAlign: 'right' }))).toMatchObject({ left: '0px', transform: 'matrix(1, 0, 0, 1, 12, 20)' })
   })
 })

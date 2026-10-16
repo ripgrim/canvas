@@ -1,4 +1,5 @@
 import { previewAppearanceLimits, previewImageMimes } from '@canvas/preview-runtime/protocol'
+import { appearanceLimits } from '@canvas/repo-engine/appearance'
 
 const inputLimit = 25 * 1024 * 1024
 export const embeddedImageByteLimit = Math.floor(previewAppearanceLimits.assetData / 4) * 3
@@ -57,7 +58,27 @@ const browserDependencies = (): ImageImportDependencies => ({
     const { heicTo } = await import('heic-to/csp')
     return heicTo({ blob: source, type: 'image/jpeg', quality: 0.92 }) as Promise<Blob>
   },
-  decode: async source => createImageBitmap(source),
+  decode: async source => {
+    if (source.type !== 'image/svg+xml') return createImageBitmap(source)
+    const url = URL.createObjectURL(source)
+    const image = new Image()
+    try {
+      image.src = url
+      await image.decode()
+      const width = image.naturalWidth
+      const height = image.naturalHeight
+      if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1
+        || width > appearanceLimits.assetDimension || height > appearanceLimits.assetDimension
+        || width * height > appearanceLimits.assetPixels) throw new Error('Image dimensions exceed the import limit')
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('Image conversion is unavailable.')
+      context.drawImage(image, 0, 0, width, height)
+      return createImageBitmap(canvas)
+    } finally { URL.revokeObjectURL(url) }
+  },
   encodeWebp: async (image, quality, scale) => {
     const width = Math.max(1, Math.round(image.width * scale))
     const height = Math.max(1, Math.round(image.height * scale))

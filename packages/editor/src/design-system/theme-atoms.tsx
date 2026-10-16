@@ -1,4 +1,4 @@
-import type { KeyboardEvent, ReactNode, Ref } from 'react'
+import type { KeyboardEvent, MouseEvent, ReactNode, Ref } from 'react'
 import { Popover } from '@base-ui/react/popover'
 import { Icon } from './atoms'
 import type { IconName } from './atoms'
@@ -15,6 +15,10 @@ export function ThemeCount({ children }: { children: ReactNode }) { return <span
 
 export function ThemeIconButton({ label, icon, direction, disabled = false, autoFocus = false, buttonRef, onClick }: { label: string; icon: IconName; direction?: 'up' | 'down'; disabled?: boolean; autoFocus?: boolean; buttonRef?: Ref<HTMLButtonElement>; onClick: () => void }) {
   return <button ref={buttonRef} type="button" className="theme-icon-button" data-direction={direction} aria-label={label} title={label} disabled={disabled} autoFocus={autoFocus} onClick={onClick}><Icon name={icon} /></button>
+}
+
+export function ThemeTokenTypeMenu({ label, mode, options, disabled = false, buttonRef, onSelect }: { label: string; mode: 'light' | 'dark'; options: readonly { value: string; label: string; sectionStart?: boolean }[]; disabled?: boolean; buttonRef?: Ref<HTMLButtonElement>; onSelect: (value: string) => void }) {
+  return <Popover.Root><Popover.Trigger ref={buttonRef} className="theme-icon-button" aria-label={label} title={label} disabled={disabled}><Icon name="plus" /></Popover.Trigger><Popover.Portal className={`theme-${mode}`}><Popover.Positioner side="bottom" align="end" sideOffset={4} className="theme-token-type-positioner"><Popover.Popup className="theme-token-type-menu" role="menu" aria-label={label}>{options.map(option => <Popover.Close key={option.value} className="theme-token-type-item" data-section-start={option.sectionStart || undefined} role="menuitem" onClick={() => onSelect(option.value)}>{option.label}</Popover.Close>)}</Popover.Popup></Popover.Positioner></Popover.Portal></Popover.Root>
 }
 
 /** Escape clears a non-empty query first; Escape or blur on an empty query closes the field. */
@@ -58,12 +62,12 @@ export function ThemeTokenList({ label, children }: { label: string; children: R
   return <div className="theme-token-list" role="listbox" aria-label={label} onKeyDown={onKeyDown}>{children}</div>
 }
 
-export function ThemeTokenRow({ label, swatch, name, value, selected, focusable, rowRef, onSelect, onOpen, onDelete }: { label: string; swatch: ReactNode; name: string; value: ReactNode; selected: boolean; focusable: boolean; rowRef: Ref<HTMLDivElement>; onSelect: () => void; onOpen: () => void; onDelete?: (() => void) | undefined }) {
+export function ThemeTokenRow({ label, swatch, name, value, selected, focusable, rowRef, onSelect, onOpen, onDelete, onContextMenu }: { label: string; swatch: ReactNode; name: string; value: ReactNode; selected: boolean; focusable: boolean; rowRef: Ref<HTMLDivElement>; onSelect: () => void; onOpen: () => void; onDelete?: (() => void) | undefined; onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void }) {
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen() }
     else if ((event.key === 'Delete' || event.key === 'Backspace') && onDelete) { event.preventDefault(); onDelete() }
   }
-  return <div ref={rowRef} role="option" className="theme-token-row" aria-label={label} aria-selected={selected} data-selected={selected || undefined} tabIndex={focusable ? 0 : -1} onFocus={onSelect} onClick={onOpen} onKeyDown={onKeyDown}>
+  return <div ref={rowRef} role="option" className="theme-token-row" aria-label={label} aria-selected={selected} data-selected={selected || undefined} tabIndex={focusable ? 0 : -1} onFocus={onSelect} onClick={onOpen} onContextMenu={onContextMenu} onKeyDown={onKeyDown}>
     {swatch}
     <span className="theme-token-name" title={name}>{name}</span>
     <span className="theme-token-value">{value}</span>
@@ -74,6 +78,8 @@ export function ThemeTokenRow({ label, swatch, name, value, selected, focusable,
 export function ThemeSwatch({ color, label, size = 'row' }: { color: string | null; label: string; size?: 'row' | 'preview' }) {
   return <span className="theme-swatch" role="img" aria-label={label} data-size={size} data-unresolved={color === null || undefined}><span className="theme-swatch-fill" style={{ background: color ?? 'transparent' }} /></span>
 }
+
+export function ThemeTokenGlyph({ children }: { children: ReactNode }) { return <span className="theme-token-glyph" aria-hidden="true">{children}</span> }
 
 /** Compact read only value: hex plus opacity, in the inspector color field style. */
 export function ThemeColorValue({ hex, opacity }: { hex: string; opacity: number }) {
@@ -93,13 +99,13 @@ export function ThemeButton({ children, variant = 'default', disabled = false, o
 }
 
 /** Token editor popover anchored beside a row. The portal carries the editor appearance class. */
-export function ThemeEditorPopover({ open, mode, title, titleActions, anchor, finalFocus, onOpenChange, children }: { open: boolean; mode: string; title: string; titleActions?: ReactNode; anchor: () => Element | null; finalFocus: () => HTMLElement | null; onOpenChange: (open: boolean) => void; children: ReactNode }) {
+export function ThemeEditorPopover({ open, mode, title, titleActions, container, anchor, finalFocus, onOpenChange, children }: { open: boolean; mode: string; title: string; titleActions?: ReactNode; container: HTMLElement | null; anchor: () => Element | null; finalFocus: () => HTMLElement | null; onOpenChange: (open: boolean) => void; children: ReactNode }) {
   // Keys typed inside the editor never reach canvas shortcuts; Escape and Tab stay with the popover.
   const isolate = (event: KeyboardEvent<HTMLDivElement>) => { if (event.key !== 'Escape' && event.key !== 'Tab') event.stopPropagation() }
   return <Popover.Root open={open} onOpenChange={next => onOpenChange(next)}>
-    <Popover.Portal className={`theme-${mode}`}>
+    <Popover.Portal container={container} className={`theme-${mode}`}>
       <Popover.Positioner side="right" align="start" sideOffset={8} anchor={anchor} className="theme-editor-positioner">
-        <Popover.Popup className="theme-editor" finalFocus={() => finalFocus() ?? true} onKeyDown={isolate}>
+        <Popover.Popup className="theme-editor" data-floating-portal-owner="" finalFocus={() => finalFocus() ?? true} onKeyDown={isolate}>
           <div className="theme-editor-title-row"><Popover.Title className="theme-editor-title">{title}</Popover.Title>{titleActions && <span className="theme-editor-title-actions">{titleActions}</span>}</div>
           {children}
         </Popover.Popup>

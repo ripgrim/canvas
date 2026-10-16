@@ -35,14 +35,14 @@ const fixedSizing = (): TextSizing => ({ width: { mode: 'fixed' }, height: { mod
 const fitSizing = (): TextSizing => ({ width: { mode: 'fit' }, height: { mode: 'fit' } })
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'text-command-file',
   revision: 4,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
-    'text-1': { id: 'text-1', type: 'text', name: 'Label', text: 'Hello', textStyle: baseStyle(), textSizing: fixedSizing(), styles: { left: 10, top: 20, width: 120, height: 32 } },
-    'box-1': { id: 'box-1', type: 'rectangle', name: 'Box', styles: { left: 0, top: 0, width: 50, height: 50 } },
+    'text-1': { id: 'text-1', type: 'text', name: 'Label', text: 'Hello', textStyle: baseStyle(), textSizing: fixedSizing(), styles: { relativeTransform: [1, 0, 0, 1, 10, 20], width: 120, height: 32 } },
+    'box-1': { id: 'box-1', type: 'rectangle', name: 'Box', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 50, height: 50 } },
   },
   relationships: {
     'text-1': { parentId: 'root-1', orderKey: 'V' },

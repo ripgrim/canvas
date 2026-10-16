@@ -71,7 +71,7 @@ async function openPreview(binding: PreviewBinding, ready: string): Promise<Prev
   await frame.waitForSelector(ready)
   const target = page
   const send = async (payload: Record<string, unknown>) => {
-    const command = { channel: 'design-editor-preview', version: 8, generation, ...payload }
+    const command = { channel: 'design-editor-preview', version: 9, generation, ...payload }
     await target.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, previewOrigin] as const)
   }
   return { page, frame, send, close }

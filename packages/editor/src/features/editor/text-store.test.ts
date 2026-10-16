@@ -17,16 +17,16 @@ const fixed = (): TextSizing => ({ width: { mode: 'fixed' }, height: { mode: 'fi
 const fit = (): TextSizing => ({ width: { mode: 'fit' }, height: { mode: 'fit' } })
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'text-store-file',
   revision: 0,
   pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
   nodes: {
     'root-1': { id: 'root-1', type: 'root' },
-    'text-a': { id: 'text-a', type: 'text', name: 'First', text: 'First', textStyle: style(), textSizing: fixed(), styles: { left: 0, top: 0, width: 100, height: 30 } },
-    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { left: 0, top: 50, width: 300, height: 200 } },
-    'text-b': { id: 'text-b', type: 'text', name: 'Second', text: 'Second', textStyle: style(), textSizing: fixed(), styles: { left: 10, top: 10, width: 100, height: 30 } },
-    box: { id: 'box', type: 'rectangle', name: 'Box', styles: { left: 120, top: 0, width: 20, height: 20 } },
+    'text-a': { id: 'text-a', type: 'text', name: 'First', text: 'First', textStyle: style(), textSizing: fixed(), styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 30 } },
+    frame: { id: 'frame', type: 'frame', name: 'Frame', styles: { relativeTransform: [1, 0, 0, 1, 0, 50], width: 300, height: 200 } },
+    'text-b': { id: 'text-b', type: 'text', name: 'Second', text: 'Second', textStyle: style(), textSizing: fixed(), styles: { relativeTransform: [1, 0, 0, 1, 10, 10], width: 100, height: 30 } },
+    box: { id: 'box', type: 'rectangle', name: 'Box', styles: { relativeTransform: [1, 0, 0, 1, 120, 0], width: 20, height: 20 } },
   },
   relationships: {
     'text-a': { parentId: 'root-1', orderKey: 'V' },
@@ -178,12 +178,12 @@ describe('PAPER-TEXT-005 live text transaction', () => {
     incoming.revision += 1
     const remoteBox = incoming.nodes.box
     if (!remoteBox || remoteBox.type !== 'rectangle') throw new Error('Expected rectangle')
-    remoteBox.styles.left = 180
+    remoteBox.styles.relativeTransform = [1, 0, 0, 1, 180, remoteBox.styles.relativeTransform[5]]
     store.load(incoming, [])
 
     expect(store.getSnapshot().textEditing).toEqual({ sessionId, nodeId: 'text-a' })
     expect(text(store).text).toBe('Local')
-    expect(store.getSnapshot().file?.nodes.box).toMatchObject({ styles: { left: 180 } })
+    expect(store.getSnapshot().file?.nodes.box).toMatchObject({ styles: { relativeTransform: [1, 0, 0, 1, 180, 0] } })
     expect(store.commands.text.update(sessionId, 'Final')).toBe(true)
     expect(store.commands.text.commit(sessionId)).toBe(true)
     await vi.waitFor(() => expect(store.getSnapshot().dirty).toBe(false))
@@ -191,7 +191,7 @@ describe('PAPER-TEXT-005 live text transaction', () => {
 
     expect(store.undo()).toBe(true)
     expect(text(store).text).toBe('First')
-    expect(store.getSnapshot().file?.nodes.box).toMatchObject({ styles: { left: 180 } })
+    expect(store.getSnapshot().file?.nodes.box).toMatchObject({ styles: { relativeTransform: [1, 0, 0, 1, 180, 0] } })
   })
 
   it('ends the session safely when an external replacement removes the edited node', () => {

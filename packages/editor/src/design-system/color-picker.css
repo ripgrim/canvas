@@ -52,6 +52,11 @@
 .theme-dark .color-picker-trigger-swatch { background: var(--color-none); }
 .color-picker-trigger-swatch .color-picker-swatch { width: 16px; height: 16px; }
 .color-picker-trigger-swatch:focus-visible { outline-offset: var(--border-s); }
+.color-picker-trigger-preview { position: relative; width: 100%; height: 56px; padding: 0; overflow: hidden; background: var(--color-none); }
+.theme-dark .color-picker-trigger-preview { background: var(--color-none); }
+.color-picker-trigger-preview .color-picker-swatch { width: 100%; height: 100%; border-radius: inherit; box-shadow: none; background-size: var(--space-s) var(--space-s); }
+.color-picker-preview-action { position: absolute; right: var(--space-xs); bottom: var(--space-xs); display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--radius-xs); color: var(--neutral-10); background: color-mix(in srgb, var(--neutral-1) 88%, transparent); box-shadow: var(--border-shadow-s), var(--shadow-s); pointer-events: none; }
+.theme-dark .color-picker-preview-action { background: color-mix(in srgb, var(--neutral-2) 88%, transparent); }
 @media (max-width: 570px) {
   .color-picker-popup { width: calc(100vw - 24px); height: min(560px, calc(100vh - 24px)); }
   .color-picker-content { grid-template-columns: 1fr; grid-template-rows: minmax(210px, 1fr) auto; overflow-y: auto; }

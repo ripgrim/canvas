@@ -207,12 +207,20 @@ export function createFontCatalogService(environment: FontCatalogEnvironment = b
   const fontListeners = new Set<() => void>()
   const loadedFonts = new Map<string, readonly PreviewFontFace[]>()
   const pendingFonts = new Map<string, Promise<void>>()
+  const requiredFonts = new Map<string, Readonly<{ family: string; style: FontStyleOption }>>()
   let localFonts: readonly LocalFontData[] = []
+  const loadRequired = () => {
+    for (const requirement of requiredFonts.values()) {
+      const option = snapshot.options.find(candidate => candidate.source === 'google' && fontFamilyLabel(candidate.family).toLocaleLowerCase() === fontFamilyLabel(requirement.family).toLocaleLowerCase())
+      if (option) void load(option, requirement.style)
+    }
+  }
   const publish = (patch: Partial<FontCatalogSnapshot>) => {
     const next = { ...snapshot, ...patch }
     if (snapshot.localStatus === next.localStatus && snapshot.options === next.options && snapshot.favorites === next.favorites && snapshot.loadError === next.loadError) return
     snapshot = next
     for (const listener of listeners) listener()
+    loadRequired()
   }
   const completeLocal = (fonts: readonly LocalFontData[], request: number) => {
     if (!started || request !== generation) return
@@ -316,6 +324,7 @@ export function createFontCatalogService(environment: FontCatalogEnvironment = b
       localFonts = []
       loadedFonts.clear()
       pendingFonts.clear()
+      requiredFonts.clear()
       snapshot = initialSnapshot
       for (const listener of listeners) listener()
     },
@@ -324,6 +333,11 @@ export function createFontCatalogService(environment: FontCatalogEnvironment = b
     getServerSnapshot(): FontCatalogSnapshot { return initialSnapshot },
     subscribeLoadedFonts(listener: () => void): () => void { fontListeners.add(listener); return () => fontListeners.delete(listener) },
     getLoadedFonts(): readonly PreviewFontFace[] { return [...loadedFonts.values()].flat() },
+    require(family: string, style: FontStyleOption): void {
+      const key = `${fontFamilyLabel(family).toLocaleLowerCase()}:${style.style}:${style.weight}`
+      requiredFonts.set(key, { family, style })
+      loadRequired()
+    },
     load,
     requestFeatures(family: string, style: FontStyleOption): void {
       const key = fontFeatureKey(family, style.style, style.weight)

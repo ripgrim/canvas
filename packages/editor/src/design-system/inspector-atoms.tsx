@@ -3,6 +3,8 @@ import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from
 import { Popover } from '@base-ui/react/popover'
 import { Icon } from './atoms'
 import type { IconName } from './atoms'
+import { AppearanceSelect } from './appearance-atoms'
+import { floatingPortalContainer } from './floating-portal'
 import './inspector.css'
 
 export function InspectorStack({ children }: { children: ReactNode }) { return <div className="sections-stack">{children}</div> }
@@ -175,11 +177,7 @@ export function InspectorRadioGroup<T extends string>({ label, value, options, d
 }
 
 export function InspectorSelectField({ id, label, prefix, value, options, disabled = false, onChange }: { id: string; label: string; prefix?: ReactNode; value: string; options: readonly { value: string; label: string; disabled?: boolean }[]; disabled?: boolean; onChange: (value: string) => void }) {
-  return <label className="inspector-field inspector-select" htmlFor={id} data-disabled={disabled || undefined}>
-    {prefix !== undefined && <span className="inspector-field-prefix" aria-hidden="true">{prefix}</span>}
-    <select id={id} className="inspector-input" aria-label={label} value={value} disabled={disabled} onChange={event => onChange(event.currentTarget.value)}>{options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>
-    <span className="inspector-select-chevron" aria-hidden="true"><Icon name="chevron" /></span>
-  </label>
+  return <AppearanceSelect id={id} label={label} value={value} options={options} {...(prefix === undefined ? {} : { prefix })} align="start" disabled={disabled} onChange={onChange} />
 }
 
 export function InspectorCheck({ id, label, checked, disabled = false, onChange }: { id: string; label: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void }) {
@@ -199,7 +197,7 @@ export function InspectorIconButton({ label, title = label, icon, disabled = fal
 export function InspectorPopover({ label, title = label, icon, disabled = false, wide = false, contentClassName, onOpenChange, children }: { label: string; title?: string; icon: IconName; disabled?: boolean; wide?: boolean; contentClassName?: string; onOpenChange?: (open: boolean) => void; children: ReactNode }) {
   const [container, setContainer] = useState<HTMLElement | null>(null)
   const trigger = useRef<HTMLButtonElement>(null)
-  return <Popover.Root onOpenChange={open => { if (open) setContainer(trigger.current?.closest<HTMLElement>('.editor-root') ?? null); onOpenChange?.(open) }}>
+  return <Popover.Root onOpenChange={open => { if (open) setContainer(floatingPortalContainer(trigger.current)); onOpenChange?.(open) }}>
     <Popover.Trigger ref={trigger} className="inspector-icon-button inspector-popover-trigger" aria-label={label} title={label} disabled={disabled}><Icon name={icon} /></Popover.Trigger>
     <Popover.Portal container={container}><Popover.Positioner className="inspector-popover-positioner" side="left" align="start" sideOffset={4}><Popover.Popup className="inspector-popover-popup" data-wide={wide || undefined} aria-label={label}>
       <div className="inspector-popover-header"><Popover.Title className="inspector-popover-title">{title}</Popover.Title><Popover.Close className="inspector-popover-close" aria-label={`Close ${label}`}><Icon name="close" /></Popover.Close></div>
@@ -252,7 +250,7 @@ export function InspectorFlexOverflow({ label, mainLabel, crossLabel, showCross,
   const item = (action: InspectorFlexOverflowAction, text: string, checked: boolean, unavailable = false) => <button key={action} type="button" role="menuitemcheckbox" className="inspector-flex-menu-item" aria-checked={checked} disabled={disabled || unavailable} onClick={() => onAction(action)}><span className="inspector-flex-menu-check" aria-hidden="true">{checked && <Icon name="check" />}</span><span>{text}</span></button>
   const items = inspectorFlexOverflowItems(mainLabel, crossLabel, showCross)
   const checked = (action: InspectorFlexOverflowAction) => action === 'main-space-between' ? mainChecked : action === 'cross-space-between' ? crossChecked : action === 'first-baseline' ? firstBaselineChecked : lastBaselineChecked
-  return <Popover.Root onOpenChange={open => { if (open) setContainer(trigger.current?.closest<HTMLElement>('.editor-root') ?? null) }}>
+  return <Popover.Root onOpenChange={open => { if (open) setContainer(floatingPortalContainer(trigger.current)) }}>
     <Popover.Trigger ref={trigger} className="inspector-flex-small-action" aria-label={label} title={label} disabled={disabled}><InspectorFlexGlyph kind="distribution" /></Popover.Trigger>
     <Popover.Portal container={container}><Popover.Positioner className="inspector-popover-positioner" side="left" align="start" sideOffset={4}><Popover.Popup className="inspector-popover-popup inspector-flex-menu" aria-label={label} role="menu">
       <div className="inspector-flex-menu-group" role="group" aria-label="Space between"><span className="inspector-flex-menu-label">Space between</span>{items.filter(entry => entry.group === 'space').map(entry => item(entry.action, entry.label, checked(entry.action)))}</div>
@@ -515,9 +513,30 @@ export function InspectorScrubField({ id, label, prefix, value, placeholder, min
   return <div className="inspector-field" data-disabled={disabled || undefined} data-scrubbing={scrubbing !== null || undefined}>
     {prefix !== undefined && <InspectorScrubHandle className="inspector-field-prefix" {...scrub}>{prefix}</InspectorScrubHandle>}
     <input id={id} className="inspector-input" aria-label={label} inputMode="decimal" autoComplete="off" spellCheck={false} disabled={disabled} value={shown} placeholder={placeholder} onChange={event => setDraft(event.currentTarget.value)} onBlur={event => { if (cancelled.current) { cancelled.current = false; return } if (draft !== null) commit(event.currentTarget.value) }} onKeyDown={onKeyDown} />
-    {tokens.length > 0 && <span className="inspector-numeric-token"><select aria-label={tokenLabel} title={tokenLabel} disabled={disabled} value="" onChange={event => { const token = tokens[Number(event.currentTarget.value)]; if (token) onCommit(token.value) }}><option value="" disabled>Token</option>{tokens.map((token, index) => <option key={`${token.name}-${token.displayValue}`} value={index}>{token.name} · {token.displayValue}</option>)}</select><Icon name="chevron" /></span>}
+    {tokens.length > 0 && <InspectorNumericTokenMenu label={tokenLabel} tokens={tokens} disabled={disabled} onChoose={onCommit} />}
     {suffix && <InspectorScrubHandle className="inspector-field-suffix" {...scrub}>{suffix}</InspectorScrubHandle>}
   </div>
+}
+
+function InspectorNumericTokenMenu({ label, tokens, disabled, onChoose }: { label: string; tokens: readonly InspectorNumericToken[]; disabled: boolean; onChoose: (value: number) => void }) {
+  const [open, setOpen] = useState(false)
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const move = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'))
+    if (!items.length) return
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : Math.max(0, Math.min(items.length - 1, (current < 0 ? 0 : current) + (event.key === 'ArrowDown' ? 1 : -1)))
+    event.preventDefault()
+    items[next]?.focus()
+  }
+  return <Popover.Root open={open} onOpenChange={next => { setOpen(next); if (next) setContainer(floatingPortalContainer(trigger.current)) }}>
+    <Popover.Trigger ref={trigger} className="inspector-numeric-token" aria-label={label} title={label} disabled={disabled}><Icon name="chevron" /></Popover.Trigger>
+    <Popover.Portal container={container}><Popover.Positioner className="inspector-numeric-token-positioner" side="bottom" align="end" sideOffset={4}><Popover.Popup className="inspector-numeric-token-popup" onKeyDown={move}>
+      <div className="inspector-numeric-token-list" role="menu" aria-label={label}>{tokens.map((token, index) => <button key={`${token.name}-${token.displayValue}`} type="button" role="menuitem" className="inspector-numeric-token-option" autoFocus={index === 0} onClick={() => { onChoose(token.value); setOpen(false) }}><span>{token.name}</span><span className="inspector-numeric-token-value">{token.displayValue}</span></button>)}</div>
+    </Popover.Popup></Popover.Positioner></Popover.Portal>
+  </Popover.Root>
 }
 
 export type InspectorAnchorCell = Readonly<{ key: string; label: string; pressed: boolean; x: number; y: number }>

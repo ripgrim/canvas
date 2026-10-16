@@ -37,7 +37,7 @@ const textNode = (
   textSizing: Record<string, unknown>,
   style: Record<string, unknown> = textStyle,
   parentId: string | null = null,
-) => ({ id, kind: 'text', name: id, x, y, width, height, rotation: 0, parentId, text, textStyle: style, textSizing })
+) => ({ id, kind: 'text', name: id, relativeTransform: [1, 0, 0, 1, x, y] as const, width, height, parentId, text, textStyle: style, textSizing })
 
 const repeatedCopy = 'LINE 1\nLINE 2\nLINE 3\nLINE 4\nLINE 5\nLINE 6'
 const previewDocument = {
@@ -70,10 +70,10 @@ const previewDocument = {
       textNode('fit-anchor-center', 'ANCHOR', 0, 245, 180, 30, { width: { mode: 'fit' }, height: { mode: 'fit' } }, { ...textStyle, horizontalAlign: 'center' }),
       textNode('fit-anchor-right', 'ANCHOR', 0, 280, 180, 30, { width: { mode: 'fit' }, height: { mode: 'fit' } }, { ...textStyle, horizontalAlign: 'right' }),
       textNode('empty-creation', '', 280, 280, 1, 1, { width: { mode: 'fit' }, height: { mode: 'fit' } }),
-      { id: 'fill-parent', kind: 'frame', name: 'Fill parent', x: -360, y: 210, width: 240, height: 90, rotation: 0, parentId: null, clip: false },
+      { id: 'fill-parent', kind: 'frame', name: 'Fill parent', relativeTransform: [1, 0, 0, 1, -360, 210], width: 240, height: 90, parentId: null, clip: false },
       textNode('nested-fill', 'FILL / FILL', 0, 0, 1, 1, { width: { mode: 'fill' }, height: { mode: 'fill' } }, { ...textStyle, fontSize: 16, lineHeight: { kind: 'px', value: 20 } }, 'fill-parent'),
       textNode('nested-fixed-negative', 'X', 230, 80, 1, 1, { width: { mode: 'fixed' }, height: { mode: 'fixed' } }, { ...textStyle, fontSize: 16, lineHeight: { kind: 'px', value: 20 } }, 'fill-parent'),
-      { id: 'relative-parent', kind: 'frame', name: 'Relative parent', x: -80, y: 210, width: 240, height: 120, rotation: 0, parentId: null, clip: false },
+      { id: 'relative-parent', kind: 'frame', name: 'Relative parent', relativeTransform: [1, 0, 0, 1, -80, 210], width: 240, height: 120, parentId: null, clip: false },
       textNode('nested-relative', 'RELATIVE 50% / 25%', 0, 0, 1, 1, { width: { mode: 'relative', value: 50 }, height: { mode: 'relative', value: 25 } }, { ...textStyle, fontSize: 16, lineHeight: { kind: 'px', value: 20 } }, 'relative-parent'),
     ],
   },
@@ -175,7 +175,7 @@ beforeAll(async () => {
   await page.goto(editorOrigin)
   frame = await waitFor(async () => page.frames().find(candidate => candidate.url() === previewUrl), value => Boolean(value)) as Frame
   await frame.waitForSelector('.fixture-input')
-  const command = { channel: 'design-editor-preview', version: 8, generation: result.activeGeneration, type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument, theme: { attribute: null, colorScheme: 'light' } }
+  const command = { channel: 'design-editor-preview', version: 9, generation: result.activeGeneration, type: 'set-document', flowDragTerminalPolicy: 'preserve-matching-committed-handoff', document: previewDocument, theme: { attribute: null, colorScheme: 'light' } }
   await page.evaluate(([data, origin]) => { document.querySelector('iframe')!.contentWindow!.postMessage(data, origin as string) }, [command, result.origin] as const)
   await frame.waitForSelector('[data-preview-canvas="formatted"]')
   await waitFor(() => observe('fit-height'), value => value.rect.height > 24)
@@ -309,8 +309,8 @@ describe('PAPER-TEXT-002 and PAPER-TEXT-003 text sizing in a real preview iframe
     const right = await observe('fit-anchor-right')
 
     expect(left.inlineLeft).toBe('0px')
-    expect(center.inlineLeft).toBe('90px')
-    expect(right.inlineLeft).toBe('180px')
+    expect(center.inlineLeft).toBe('0px')
+    expect(right.inlineLeft).toBe('0px')
     expect(center.rect.x + center.rect.width / 2 - left.rect.x).toBeCloseTo(90, 5)
     expect(right.rect.x + right.rect.width - left.rect.x).toBeCloseTo(180, 5)
   })

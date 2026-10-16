@@ -12,7 +12,7 @@ const hex = (value: string) => ({ kind: 'literal' as const, color: { kind: 'hex'
 const solid = (id: string, value: string, extra: Partial<Paint> = {}): Extract<Paint, { type: 'solid' }> => ({ id, type: 'solid', color: hex(value), ...extra } as Extract<Paint, { type: 'solid' }>)
 const gradient = (id: string, stops: [number, string, number?][]): GradientPaint => ({ id, type: 'gradient', shape: 'linear', angle: 180, center: { x: 0.5, y: 0.5 }, length: 1, interpolation: 'oklab', stops: stops.map(([position, color, midpoint], index) => ({ id: `${id}-s${index}`, position, color: hex(color), ...(midpoint === undefined ? {} : { midpoint }) })) })
 const stroke = (value: string, width = 1, extra: Partial<Stroke> = {}): Stroke => ({ color: hex(value), width, style: 'solid', ...extra })
-const node = (id: string, type: FileNode['type'], appearance?: Appearance): FileNode => type === 'root' ? { id, type } : type === 'component' ? { id, type, componentId: 'c', exportName: 'Button', props: {}, ...(appearance ? { appearance } : {}) } : { id, type, name: id, styles: { left: 0, top: 0, width: 10, height: 10 }, ...(appearance ? { appearance } : {}) }
+const node = (id: string, type: FileNode['type'], appearance?: Appearance): FileNode => type === 'root' ? { id, type } : type === 'component' ? { id, type, componentId: 'c', exportName: 'Button', props: {}, ...(appearance ? { appearance } : {}) } : { id, type, name: id, styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 }, ...(appearance ? { appearance } : {}) }
 
 describe('eligibility', () => {
   it('intersects sections across the selection in inspector order', () => {
@@ -223,12 +223,12 @@ describe('CC-TB-005: unlink computes each node\'s literal in its own effective t
   }
   const fill = (id: string): Paint => ({ id, type: 'solid', color: bound('scrim') })
   const fixture = (): FileDocument => ({
-    schemaVersion: 9, fileId: 'file-1', revision: 2,
+    schemaVersion: 12, componentModel: { definitions: {}, instances: {} }, fileId: 'file-1', revision: 2,
     pages: [{ id: 'page-1', name: 'Page 1', rootNodeId: 'root-1' }],
     nodes: {
       'root-1': { id: 'root-1', type: 'root' },
-      light: { id: 'light', type: 'rectangle', name: 'Light', themeMode: 'light', styles: { left: 0, top: 0, width: 10, height: 10 }, appearance: { fills: [fill('light-fill')] } },
-      dark: { id: 'dark', type: 'rectangle', name: 'Dark', themeMode: 'dark', styles: { left: 20, top: 0, width: 10, height: 10 }, appearance: { fills: [fill('dark-fill')], opacity: 0.5 } },
+      light: { id: 'light', type: 'rectangle', name: 'Light', themeMode: 'light', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 10, height: 10 }, appearance: { fills: [fill('light-fill')] } },
+      dark: { id: 'dark', type: 'rectangle', name: 'Dark', themeMode: 'dark', styles: { relativeTransform: [1, 0, 0, 1, 20, 0], width: 10, height: 10 }, appearance: { fills: [fill('dark-fill')], opacity: 0.5 } },
     },
     relationships: { light: { parentId: 'root-1', orderKey: 'V' }, dark: { parentId: 'root-1', orderKey: 'W' } },
     theme: { tokens: { scrim: colorToken('scrim', 'Scrim', 'V', { kind: 'source', property: '--scrim', fallback: { kind: 'hex', hex: '#000000' } }) } },

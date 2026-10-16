@@ -11,15 +11,15 @@ const px = (value: number) => ({ kind: 'px' as const, value })
 const flexContainer = { display: 'flex' as const, gap: 0, flex: { direction: 'row' as const, wrap: 'nowrap' as const, justify: 'start' as const, align: 'start' as const } }
 
 const fixture = (): FileDocument => ({
-  schemaVersion: 9,
+  schemaVersion: 12, componentModel: { definitions: {}, instances: {} },
   fileId: 'context-flex',
   revision: 0,
   pages: [{ id: 'page', name: 'Page', rootNodeId: 'root' }],
   nodes: {
     root: { id: 'root', type: 'root' },
-    free: { id: 'free', type: 'frame', name: 'Free', styles: { left: 0, top: 0, width: 100, height: 100 } },
-    flex: { id: 'flex', type: 'frame', name: 'Flex', styles: { left: 120, top: 0, width: 100, height: 100 }, layout: { item: { position: { mode: 'absolute', left: px(120), top: px(0) } }, container: flexContainer } },
-    rect: { id: 'rect', type: 'rectangle', name: 'Rectangle', styles: { left: 240, top: 0, width: 20, height: 20 } },
+    free: { id: 'free', type: 'frame', name: 'Free', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 100, height: 100 } },
+    flex: { id: 'flex', type: 'frame', name: 'Flex', styles: { relativeTransform: [1, 0, 0, 1, 120, 0], width: 100, height: 100 }, layout: { item: { position: { mode: 'absolute', left: px(120), top: px(0) } }, container: flexContainer } },
+    rect: { id: 'rect', type: 'rectangle', name: 'Rectangle', styles: { relativeTransform: [1, 0, 0, 1, 240, 0], width: 20, height: 20 } },
   },
   relationships: {
     free: { parentId: 'root', orderKey: 'A' },
@@ -74,7 +74,7 @@ describe('PAPER-FLEX-001/002/008 Flex context menu', () => {
 
   it('omits ineligible actions instead of rendering disabled placeholders or claiming an action', () => {
     const file = fixture()
-    file.nodes.nested = { id: 'nested', type: 'frame', name: 'Nested', styles: { left: 0, top: 0, width: 20, height: 20 }, layout: { item: { position: { mode: 'flow' } }, container: flexContainer } }
+    file.nodes.nested = { id: 'nested', type: 'frame', name: 'Nested', styles: { relativeTransform: [1, 0, 0, 1, 0, 0], width: 20, height: 20 }, layout: { item: { position: { mode: 'flow' } }, container: flexContainer } }
     file.relationships.nested = { parentId: 'flex', orderKey: 'A' }
     documentStore.load(file, [], { replace: true })
 
@@ -98,6 +98,16 @@ describe('PAPER-FLEX-001/002/008 Flex context menu', () => {
   it('re-reads fresh state and executes one shared command with one history entry', () => {
     documentStore.load(fixture(), [], { replace: true })
     documentStore.select('free')
+    const generation = documentStore.getSnapshot().layoutGeneration
+    sceneGeometry.update({
+      free: {
+        canvasKind: 'frame', documentRevision: 0, layoutGeneration: generation,
+        rect: { x: 0, y: 0, width: 100, height: 100 },
+        offset: { x: 0, y: 0, width: 100, height: 100, origin: { x: 50, y: 50 } },
+        box: { border: { top: 0, right: 0, bottom: 0, left: 0 }, padding: { top: 0, right: 0, bottom: 0, left: 0 } },
+        offsetParentNodeId: null, offsetParentToRoot: [1, 0, 0, 1, 0, 0], directChild: true,
+      },
+    }, { documentRevision: 0, layoutGeneration: generation, measurementRevision: 1 })
     const closeMenu = vi.fn()
     const rendered = flexContextMenuActions({ closeMenu })
     const setDisplay = vi.spyOn(documentStore.commands.layout, 'setDisplay')

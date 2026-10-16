@@ -5,7 +5,7 @@
  */
 export type ThemeFocusRequest = Readonly<{ sequence: number; tokenId: string }>
 export type ThemeFocusSnapshot = Readonly<{ request: ThemeFocusRequest | null; acknowledged: number }>
-export type SidebarView = 'design' | 'theme'
+export type SidebarView = 'design' | 'theme' | 'kit' | 'sources'
 /** The sidebar view the user last picked, with the request sequence current at that moment. */
 export type SidebarChoice = Readonly<{ view: SidebarView; at: number }>
 

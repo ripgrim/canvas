@@ -5,6 +5,7 @@ import { fontCatalogService, fontFamilyLabel, fontOptionAvailable, fontSearchSco
 import { googleFontPreviewStyle } from '../features/fonts/google-font-preview'
 import type { FontFamilyOption, FontStyleOption } from '../features/fonts/font-types'
 import { Icon } from './atoms'
+import { floatingPortalContainer } from './floating-portal'
 import './font-family-picker.css'
 
 export type { FontFamilyOption, FontStyleOption } from '../features/fonts/font-types'
@@ -55,7 +56,7 @@ const anchoredPosition = (trigger: HTMLElement | null): CSSProperties => {
   return { left: Math.max(8, rect.left - width - 12), top: Math.max(8, Math.min(rect.top - 24, window.innerHeight - height - 8)), width, height }
 }
 
-export const fontPickerPortalContainer = (trigger: HTMLElement | null): HTMLElement | null => trigger?.closest<HTMLElement>('.mobile-sheet-popup') ?? trigger?.closest<HTMLElement>('.editor-root') ?? null
+export const fontPickerPortalContainer = floatingPortalContainer
 
 export const fontPickerEntries = (tab: PickerTab, options: readonly FontFamilyOption[], tokens: readonly FontFamilyTokenOption[], favorites: readonly string[], query: string): PickerEntry[] => {
   const byFamily = new Map(options.map(option => [option.family.toLocaleLowerCase(), option]))

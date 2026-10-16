@@ -5,7 +5,7 @@
 import { borderSides, canonicalAppearance, canonicalBorders, eligibleSections } from '@canvas/repo-engine/appearance'
 import type { Appearance, AppearanceKind, AppearanceSection, BlendMode, BorderSide, Borders, ColorValue, GradientPaint, GradientStop, Outline, Paint, SolidPaint, Stroke } from '@canvas/repo-engine/appearance'
 import { resolveToken } from '@canvas/repo-engine/file-document'
-import type { ColorToken, FileDocument, FileNode, FileTheme, SourcePalette } from '@canvas/repo-engine/file-document'
+import type { ColorToken, FileDocument, FileNode, FileTheme, FileToken, SourcePalette } from '@canvas/repo-engine/file-document'
 import type { Color } from '@canvas/repo-engine/color'
 import { compareOrder } from '@canvas/repo-engine/order-keys'
 import { formatHex, hslToRgb, parseColor, rgbToHsl } from './color'
@@ -338,10 +338,11 @@ export function withColorAtSlot(appearance: Appearance | undefined, slot: ColorS
 export type TokenProblem = 'missing' | 'missing-target' | 'cycle' | 'depth' | 'incompatible'
 export type TokenStatus =
   | { status: 'ok'; token: ColorToken; aliasOf: ColorToken | null }
-  | { status: Exclude<TokenProblem, 'missing'>; token: ColorToken }
+  | { status: Exclude<TokenProblem, 'missing' | 'incompatible'>; token: ColorToken }
+  | { status: 'incompatible'; token: FileToken }
   | { status: 'missing'; token: null }
 
-const isColorToken = (token: ColorToken) => (token as { type: string }).type === 'color'
+const isColorToken = (token: FileToken): token is ColorToken => token.type === 'color'
 
 /**
  * Classifies a token without a palette: source tokens always fall back, so only structure can fail. Missing links,
@@ -363,7 +364,8 @@ export function tokenStatus(theme: FileTheme, tokenId: string): TokenStatus {
     current = next
   }
   if (resolveToken(theme, tokenId, {}) === null) return { status: 'depth', token }
-  return { status: 'ok', token, aliasOf: token.value.kind === 'alias' ? theme.tokens[token.value.tokenId] ?? null : null }
+  const alias = token.value.kind === 'alias' ? theme.tokens[token.value.tokenId] : undefined
+  return { status: 'ok', token, aliasOf: alias && isColorToken(alias) ? alias : null }
 }
 
 export type BindingEntry = Readonly<{ nodeId: string; value: ColorValue }>
@@ -375,7 +377,7 @@ export type BindingState =
   | { kind: 'bound'; tokenId: string; token: ColorToken; aliasOf: ColorToken | null }
   | { kind: 'missing'; tokenId: string }
   | { kind: 'unresolved'; tokenId: string; token: ColorToken; problem: 'missing-target' | 'cycle' | 'depth' }
-  | { kind: 'incompatible'; tokenId: string; token: ColorToken }
+  | { kind: 'incompatible'; tokenId: string; token: FileToken }
   | { kind: 'mixed-tokens'; tokenIds: string[]; unlinkable: boolean }
   | { kind: 'mixed-sources'; tokenIds: string[]; unlinkable: boolean }
 
